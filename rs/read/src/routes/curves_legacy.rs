@@ -17,7 +17,7 @@ use axum::{
 use chrono::{NaiveDate, Utc};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde_json::json;
-use sqlx::Row;
+use sqlx::{Connection, Row};
 use uuid::Uuid;
 
 pub fn routes() -> Router<AppState> {
@@ -207,11 +207,14 @@ async fn response(state: AppState, raw: String, csv: bool) -> Result<Response, A
     let policy = state.policy.clone();
     let config = state.config.clone();
     run_admitted(&state, move |connection| Box::pin(async move {
+        let mut tx = connection.begin().await.map_err(|e| query_error("/api/curves/forward", &e))?;
+        sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await.map_err(|e| query_error("/api/curves/forward", &e))?;
         let query = legacy_curve_query(include_str!("../../sql/curves/legacy_orders.sql"));
         let filters = PublicOrderFilters { product_id: Some(product), delivery_point_id: point, ..Default::default() };
         let rows = bind_order_query(&query, &policy, &clock, &config, &filters)
             .map_err(|e| query_error("/api/curves/forward", &e))?
-            .fetch_all(connection).await.map_err(|e| query_error("/api/curves/forward", &e))?;
+            .fetch_all(&mut *tx).await.map_err(|e| query_error("/api/curves/forward", &e))?;
+        tx.commit().await.map_err(|e| query_error("/api/curves/forward", &e))?;
         let aggregates = rows.iter().map(|row| Ok(CurveAggregate {
             window: row.try_get("availability_window")?, side: row.try_get("side")?,
             max_price: row.try_get("max_price")?, min_price: row.try_get("min_price")?,

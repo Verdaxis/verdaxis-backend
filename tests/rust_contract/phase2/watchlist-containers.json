@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "scope": "watchlist-container-write-acceptance",
+  "routes": ["W02", "W03", "W11"],
+  "scenarios": ["watchlist-containers"],
+  "controlled_values": {"clock": "x-test-watchlist-clock", "identifiers": "x-test-watchlist-ids", "failpoint": "x-test-watchlist-fail-summary"},
+  "required_cases": {
+    "radar-created-once": "radar-created, radar-repeat-keeps-identifier, radar-existing-in-full-account",
+    "radar-concurrent": "race concurrent-radar-creation (three repeats)",
+    "container-cap-counts-every-kind": "create-tenth-container, create-eleventh-container (one radar, one archived, seven custom)",
+    "name-bounds": "create-single-character, create-hundred-characters, create-whitespace-only, create-empty-name, create-name-too-long",
+    "body-shapes": "create-name-not-a-string, create-name-null, create-missing-name, create-array-body, create-string-body, create-null-body, create-empty-body, create-ignores-extra-fields",
+    "authentication-first": "create-bad-bearer, create-bad-bearer-before-validation",
+    "default-delete-refused": "delete-default-radar",
+    "foreign-or-missing-delete": "delete-foreign-container, delete-missing-container, delete-malformed-identifier",
+    "delete-removes-every-child": "delete-container-with-children, delete-repeat",
+    "before-commit-failure-leaves-no-partial-write": "create-database-failure, delete-database-failure",
+    "summary-failure-keeps-committed-radar": "radar-summary-failure-after-commit"
+  },
+  "source_contracts": [
+    "W02 commits the radar before reading its summary; a failed summary read is a 500 and the radar stays",
+    "W03 counts every container of the user, whatever its kind, against the limit of ten",
+    "W11 removes entries, targets and events explicitly; entries have no database cascade"
+  ],
+  "approved_differences": [],
+  "not_scheduled": "A concurrent request pair at the container cap: the runner pairs one expected status per actor, and the user-row lock serializes both stacks."
+}

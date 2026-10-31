@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "task": 16,
+  "group": "alerts",
+  "route_ids": ["A01", "A02", "A03"],
+  "registration_status": "pending-runner-lane",
+  "comparator_profile": "phase2-meaning-v1",
+  "actors": ["owner", "same-org-member", "foreign-org-member", "no-org-member"],
+  "scenarios": [
+    {"id": "alerts-no-organization", "routes": ["A01", "A02", "A03"], "actor": "no-org-member", "expected_status": 400, "state": "unchanged"},
+    {"id": "foreign_alert_delete_is_403", "routes": ["A03"], "actor": "foreign-org-member", "expected_status": 403, "state": "unchanged"},
+    {"id": "alerts-same-org-access", "routes": ["A01", "A02", "A03"], "actors": ["owner", "same-org-member"], "actions": ["owner-create", "member-list", "member-delete", "member-delete-missing"], "statuses": [201, 200, 204, 404]},
+    {"id": "alerts-active-limit", "routes": ["A01", "A02"], "initial_active": 4, "initial_inactive": 1, "actions": ["create", "create", "list"], "statuses": [201, 403, 200], "list_includes_inactive": true},
+    {"id": "alerts-validation", "routes": ["A01", "A03"], "vectors": "alerts.json", "state": "unchanged-on-rejection", "include": ["malformed-json-before-auth", "typed-validation-after-auth", "invalid-path-uuid", "direction-case", "positive-zero-negative-nonfinite-threshold"]},
+    {"id": "alerts-storage", "routes": ["A01"], "thresholds": ["12.345", "0.0001", "99999999.995"], "stored_values": ["12.35", "0.00", null], "statuses": [201, 201, 500], "include": ["invalid-product-fk-500", "invalid-point-fk-500", "inactive-product-accepted", "inactive-point-accepted", "repeat-post-creates-distinct-rows"]},
+    {"id": "alerts-list", "routes": ["A02"], "include": ["organization-isolation", "inactive-rows", "created-at-descending", "equal-created-at-tie-groups", "legacy-product-null-market-product", "exact-tuple-market-product-not-id-dependent"]},
+    {"id": "alerts-cap-race", "routes": ["A01"], "mode": "race", "initial_active": 4, "actors": ["owner", "same-org-member"], "barrier": "after-active-count-before-insert", "schedules": ["owner-first", "member-first"], "classification": "compare-source-race-do-not-silently-repair"},
+    {"id": "alerts-python-trigger", "routes": ["A01"], "mode": "mixed-writer", "actions": ["rust-create", "python-check-price-alerts", "python-commit-market-events"], "assertions": ["deactivated", "triggered-at-present", "participant-org-exact", "event-payload-unchanged", "no-crud-emission"]}
+  ],
+  "required_state_checks": ["full-business-rows-after-every-action", "whole-users-unchanged", "no-crud-outbox-or-notification-or-email", "rollback-on-precommit-failure", "no-replay-on-ambiguous-commit"],
+  "note": "Declarative coverage requirements for the shared runner lane; not an executed contract or a substitute lifecycle owner. Runner registration will follow its landed interface."
+}

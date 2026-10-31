@@ -1,5 +1,7 @@
 """Explicit successor plumbing; comparison stays in compare_responses."""
 import asyncio
+import base64
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -63,6 +65,22 @@ async def canonical_response(request, response):
         return {**response, "body": json.dumps(body).encode()}, proof
     finally:
         await engine.dispose()
+
+
+def canonicalise_tape_recordings(entries):
+    """Replace every recorded trade-tape page with its canonical decision-85 form.
+
+    Python orders the tape by ``confirmed_at`` alone, so rows tied on that
+    column arrive in a source-dependent order. The compared order is the
+    canonical page, so both recordings of a Python stability pair must carry
+    it; a counterpart recording (Rust) stays raw and is compared against it.
+    """
+    for entry in entries:
+        if route_id(entry["request"]) == "P1-R06" and entry["exchange"]["status"] == 200:
+            response, proof = asyncio.run(canonical_response(entry["request"], raw_response(entry)))
+            entry["raw_body"] = response["body"]
+            entry["canonical_tape_proof"] = proof
+    return entries
 
 
 def compare_recorded_case(left, right, profile, digest):

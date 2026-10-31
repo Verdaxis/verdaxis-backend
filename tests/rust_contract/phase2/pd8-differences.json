@@ -1,0 +1,15 @@
+{
+  "id": "PD8",
+  "decision": 94,
+  "approved_by": "PM, 19 October 2026",
+  "scope": "A01 concurrent organization-cap race only",
+  "initial_active": 4,
+  "vectors": [
+    {"scenario": "alerts-crud", "seed": 20261018, "python_statuses": [201, 201], "rust_statuses_multiset": [201, 403], "python_active": 6, "rust_active": 5},
+    {"scenario": "alerts-crud-reverse", "seed": 20261019, "python_statuses": [201, 201], "rust_statuses_multiset": [201, 403], "python_active": 6, "rust_active": 5}
+  ],
+  "refusal_body": {"detail": "Free tier limit of 5 active alerts reached. Delete an existing alert to create a new one."},
+  "allowed_state_difference": "Exactly the refused candidate's price_alerts row exists only in Python. All other rows, columns, generated values, users, outbox and mail must be equal.",
+  "non_race": "No approved difference. Existing comparator and full-state equality remain unchanged.",
+  "scheduling": "Python barrier follows both SQL counts; Rust barrier follows both user locks, before organization advisory-lock admission. PostgreSQL transaction advisory lock serializes count and insert. No organization row lock."
+}

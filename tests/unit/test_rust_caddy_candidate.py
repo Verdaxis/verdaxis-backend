@@ -63,7 +63,9 @@ def test_all_snippet_groups_preserve_staging_forwarding_options():
             assert "lb_try_duration" not in body
     contract = (ROOT / "tests/rust_contract/Caddyfile").read_text()
     assert "flush_interval -1" in contract and "keepalive off" in contract
-    assert contract.count("{$PYTHON_UPSTREAM}") == 2
+    # The public import's last argument, the CRUD import's last argument and the
+    # site fallback are the same Python upstream.
+    assert contract.count("{$PYTHON_UPSTREAM}") == 3
 
 
 def production_fixture():
@@ -142,7 +144,7 @@ def test_real_caddy_adapts_and_validates_production_candidates(tmp_path):
 
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy is required for the test-host gate")
+        pytest.fail("real Caddy is required for the test-host gate")
     module = generator()
     current = production_fixture()
     for group in ["access-log", "fallback", "simple", "orderbook", "prices", "curves"]:
@@ -198,7 +200,7 @@ def test_real_caddy_gives_every_staging_group_the_python_fallback_transport(tmp_
 
     caddy = shutil.which("caddy")
     if not caddy:
-        pytest.skip("real Caddy is required for the test-host gate")
+        pytest.fail("real Caddy is required for the test-host gate")
     module = generator()
     snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()
     prepared = snippet + """
@@ -345,3 +347,163 @@ def test_cli_writes_complete_candidate_and_exact_private_rollback(tmp_path, grou
     assert source.read_bytes() == original
     assert (output / "candidate.caddy").stat().st_mode & 0o777 == 0o600
     assert (output / "candidate.caddy").read_bytes() != original
+
+
+def staging_crud_site():
+    return (
+        "api-staging.example {\n"
+        "\troute {\n"
+        "\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 "
+        "127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001\n"
+        "\t\timport verdaxis_rust_crud 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 "
+        "127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001\n"
+        "\t\thandle {\n"
+        "\t\t\treverse_proxy 127.0.0.1:8001 {\n"
+        "\t\t\t\tflush_interval -1\n"
+        "\t\t\t\ttransport http {\n"
+        "\t\t\t\t\tkeepalive off\n"
+        "\t\t\t\t}\n"
+        "\t\t\t}\n"
+        "\t\t}\n"
+        "\t}\n"
+        "}\n"
+    )
+
+
+def test_staging_crud_gate_then_one_group_never_both():
+    module = generator()
+    original = staging_crud_site()
+    prepared = module.candidate(original, "staging", "preauth")
+    assert prepared.count("127.0.0.1:8011") == 1
+    assert prepared.replace("127.0.0.1:8011", "127.0.0.1:8001") == original
+    with pytest.raises(ValueError):
+        module.candidate(prepared, "staging", "preauth")
+    crud_tokens = original.splitlines()[3].split()[2:]
+    for index, group in enumerate(module.CRUD_GROUPS):
+        updated = module.candidate(prepared, "staging", group)
+        assert updated.count("127.0.0.1:8011") == 2
+        expected = list(crud_tokens)
+        expected[6] = "127.0.0.1:8011"
+        expected[index] = "127.0.0.1:8011"
+        assert updated.splitlines()[3].split()[2:] == expected
+        with pytest.raises(ValueError):
+            module.candidate(updated, "staging", group)
+    # The public import is never touched by a CRUD move.
+    moved = module.candidate(prepared, "staging", "feedback")
+    assert moved.splitlines()[2] == prepared.splitlines()[2]
+    # A public group move never touches the CRUD import either.
+    simple = module.candidate(prepared, "staging", "simple")
+    assert simple.splitlines()[3] == prepared.splitlines()[3]
+    # A group cannot move before the authority, or without the reviewed import.
+    with pytest.raises(ValueError):
+        module.candidate(original, "staging", "feedback")
+    with pytest.raises(ValueError):
+        module.candidate(prepared.replace("import verdaxis_rust_crud", "import verdaxis_rust_other"),
+                         "staging", "feedback")
+    with pytest.raises(ValueError):
+        module.candidate(prepared.replace("127.0.0.1:8011", "127.0.0.1:8001", 1),
+                         "staging", "feedback")
+    broken = prepared.replace("import verdaxis_rust_crud", "handle verdaxis_rust_crud")
+    with pytest.raises(ValueError):
+        module.candidate(broken, "staging", "feedback")
+
+
+def test_production_crud_gate_then_one_group_and_exact_rollback():
+    module = generator()
+    logged = module.candidate(production_fixture(), "production", "access-log")
+    with pytest.raises(ValueError):
+        module.candidate(logged, "production", "feedback")
+    with pytest.raises(ValueError):
+        module.candidate(production_fixture(), "production", "preauth")
+    prepared = module.candidate(logged, "production", "preauth")
+    assert prepared.count(module.CRUD_BEGIN) == 1
+    assert prepared.count("reverse_proxy @admin_pre_auth 127.0.0.1:8010 127.0.0.1:8000") == 1
+    assert prepared.count("reverse_proxy 127.0.0.1:8000 127.0.0.1:8000 {") == 15
+    assert prepared.index(module.CRUD_BEGIN) < prepared.index("\t\thandle {\n\t\t\treverse_proxy localhost:8000")
+    with pytest.raises(ValueError):
+        module.candidate(prepared, "production", "preauth")
+    for group in module.CRUD_GROUPS:
+        updated = module.candidate(prepared, "production", group)
+        count = module.CRUD_HANDLE_COUNTS[group]
+        assert updated.count("reverse_proxy 127.0.0.1:8010 127.0.0.1:8000 {") == count
+        assert module.rollback(updated, "production", group) == prepared
+        with pytest.raises(ValueError):
+            module.rollback(updated, "production", "preauth")
+        with pytest.raises(ValueError):
+            module.candidate(updated, "production", group)
+    assert module.rollback(prepared, "production", "preauth") == logged
+    # An unknown or missing group is refused rather than editing a proxy.
+    with pytest.raises(ValueError):
+        module.rollback(prepared, "production", "mcp")
+
+
+def test_gate_rollback_accepts_older_rendering_with_python_owners():
+    module = generator()
+    logged = module.candidate(production_fixture(), "production", "access-log")
+    prepared = module.candidate(logged, "production", "preauth")
+    older = prepared.replace("lb_try_duration 10s", "lb_try_duration 9s")
+    assert module.rollback(older, "production", "preauth") == logged
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_real_caddy_adapts_crud_candidates(tmp_path, environment):
+    import json
+    import shutil
+    import subprocess
+
+    caddy = shutil.which("caddy")
+    if not caddy:
+        pytest.fail("real Caddy is required for the test-host gate")
+    module = generator()
+    if environment == "staging":
+        snippet = (ROOT / "deploy/caddy/rust-public-staging.caddy").read_text()
+        current = snippet + (ROOT / "deploy/caddy/rust-crud.caddy").read_text() + """
+http://:8080 {
+\troute {
+\t\timport verdaxis_rust_public 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001
+\t\timport verdaxis_rust_crud 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001 127.0.0.1:8001
+\t\thandle {
+\t\t\treverse_proxy 127.0.0.1:8001 {
+\t\t\t}
+\t\t}
+\t}
+}
+"""
+        steps = ["preauth", "feedback", "alerts"]
+    else:
+        current = module.candidate(production_fixture(), "production", "access-log")
+        steps = ["preauth", "feedback", "referrals"]
+    for step in steps:
+        current = module.candidate(current, environment, step)
+    config = tmp_path / f"{environment}.Caddyfile"
+    config.write_text(current.replace(
+        "/var/log/caddy/api.verdaxis.exchange.log", str(tmp_path / "access.log")))
+    for verb in ("validate", "adapt"):
+        command = [caddy, verb, "--config", str(config), "--adapter", "caddyfile"]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        print(f"{environment} {verb} EXIT={result.returncode}")
+        assert result.returncode == 0, result.stderr
+    document = json.loads(subprocess.run(
+        [caddy, "adapt", "--config", str(config), "--adapter", "caddyfile"],
+        capture_output=True, text=True, timeout=30, check=True).stdout)
+    expressed = json.dumps(document)
+    assert "/internal/admin-preauth" in expressed
+    assert "X-Verdaxis-Preauth-Counted" in expressed
+    adapted_proxies = proxies(document)
+    crud_proxies = [proxy for proxy in adapted_proxies
+                    if proxy.get("load_balancing", {}).get("try_duration") == 10_000_000_000]
+    # Staging also imports the four public read pools before the CRUD pools.
+    assert len(crud_proxies) == (19 if environment == "staging" else 15)
+    for proxy in crud_proxies[-15:]:
+        assert proxy["headers"]["request"]["set"]["X-Forwarded-For"] == ["{http.vars.client_ip}"]
+    gate = [proxy for proxy in adapted_proxies if proxy.get("rewrite", {}).get("uri") == "/internal/admin-preauth"]
+    assert len(gate) == 1
+    assert gate[0]["rewrite"]["method"] == "GET"
+    assert len(gate[0]["handle_response"]) == 3
+    assert [upstream["dial"] for upstream in gate[0]["upstreams"]] == [
+        "127.0.0.1:8010" if environment == "production" else "127.0.0.1:8011",
+        "127.0.0.1:8000" if environment == "production" else "127.0.0.1:8001"]
+    rust = "127.0.0.1:8010" if environment == "production" else "127.0.0.1:8011"
+    assert len([proxy for proxy in adapted_proxies
+                if any(upstream["dial"] == rust for upstream in proxy["upstreams"])]) == (
+        1 + sum(module.CRUD_HANDLE_COUNTS[step] for step in steps[1:]))

@@ -2,11 +2,11 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Availability subsystem handles **1 routes** and touches: auth, db.
+The Availability subsystem handles **1 routes** and touches: db.
 
 ## Routes
 
-- `GET` `` → in: Optional, out: List [auth, db]
+- `GET` `` → in: Optional, out: List [db]
   `app/routers/availability.py`
 
 ## Source Files

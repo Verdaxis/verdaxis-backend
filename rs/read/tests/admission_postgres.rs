@@ -68,6 +68,7 @@ async fn state() -> (Arc<AppState>, sqlx::PgPool, sqlx::PgPool) {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");

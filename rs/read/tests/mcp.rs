@@ -401,6 +401,7 @@ fn state_with_pool() -> (AppState, sqlx::PgPool) {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        phase2: Default::default(),
         prepared_budget: None,
     };
     let pools = verdaxis_read::runtime::db::Pools {

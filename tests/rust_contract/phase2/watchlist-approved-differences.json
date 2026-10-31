@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "approval": {"decision": 94, "defect": "PD4", "disposition": "PD4-G"},
+  "durable_guard": {"event_type": "SLICE_BEST_PRICE_MOVED", "producer_attestation": "absent", "visible": false, "delete_row": false},
+  "scenario_actions": {"PD4-G": ["best-price-events-hidden"], "PD2": ["hidden-order-pin-and-event", "hidden-order-event-only", "gate-on-order-hidden"], "PD3": ["hidden-order-pin-and-event", "gate-on-order-hidden"]},
+  "vectors": [
+    {"id": "best-price-before-cutoff", "relative_time": "before", "python": {"visible": true, "unread": 1}, "rust_expected": {"visible": false, "unread": 0}, "approved_difference": "PD4-G"},
+    {"id": "best-price-at-cutoff", "relative_time": "equal", "python": {"visible": true, "unread": 1}, "rust_expected": {"visible": false, "unread": 0}, "approved_difference": "PD4-G"},
+    {"id": "best-price-after-cutoff", "relative_time": "after", "python": {"visible": true, "unread": 1}, "rust_expected": {"visible": false, "unread": 0}, "approved_difference": "PD4-G"},
+    {"id": "best-price-with-currently-public-source", "source_public": true, "python": {"visible": true}, "rust_expected": {"visible": false}, "approved_difference": "PD4-G"},
+    {"id": "pin-with-public-source", "event_type": "PIN_PRICE_CHANGED", "source_public": true, "python": {"visible": true}, "rust_expected": {"visible": true}},
+    {"id": "pin-with-private-source", "event_type": "PIN_PRICE_CHANGED", "source_public": false, "python": {"visible": true}, "rust_expected": {"visible": false}, "approved_difference": "PD2/PD4"},
+    {"id": "slice-count-with-non-public-order", "python": {"active_order_count": 1}, "rust_expected": {"active_order_count": 0}, "approved_difference": "PD3", "action": "hidden-order-pin-and-event"},
+    {"id": "gate-on-owner-without-approved-kyc", "python": {"visible": true}, "rust_expected": {"visible": false}, "approved_difference": "PD2/PD3", "kyc_gate": true, "action": "gate-on-order-hidden"},
+    {"id": "gate-off-owner-without-approved-kyc", "python": {"visible": true}, "rust_expected": {"visible": true}, "kyc_gate": false, "action": "gate-off-order-visible"}
+  ],
+  "user_visible_effect": "Watchlist feeds show no best-price change events until the producer is replaced. Rows are retained."
+}

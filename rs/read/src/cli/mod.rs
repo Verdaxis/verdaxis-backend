@@ -1,10 +1,54 @@
 //! Typed command boundary. Execution is registered by each command's owning task.
 pub mod context;
+pub mod gate;
+pub mod mail;
+pub mod state;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::ffi::OsString;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// Delay before each retry. With the first attempt, this caps a call at three
+/// attempts: it starts at 0 s, retries at 1 s and 4 s.
+pub const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+/// Total deadline the delays fit inside.
+pub const RETRY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Run one fallible dependency call with the job retry policy.
+///
+/// The helper retries only calls the caller marks retryable. Ambiguous sends,
+/// committed claims and business transaction conflicts have their own owners
+/// and must not be wrapped here.
+///
+/// The bound covers scheduling, not one in-flight attempt: a hung future stays
+/// hung until its own timeout or the systemd unit deadline. Network calls keep
+/// their own client timeout (the Phase 2 `MailClient` uses 10 s).
+pub async fn retry_bounded<T, E, F, Fut>(mut operation: F) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let started = tokio::time::Instant::now();
+    let mut attempt = 0_usize;
+    loop {
+        match operation().await {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                let Some(delay) = RETRY_DELAYS.get(attempt).copied() else {
+                    return Err(error);
+                };
+                if started.elapsed() + delay >= RETRY_TIMEOUT {
+                    return Err(error);
+                }
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]

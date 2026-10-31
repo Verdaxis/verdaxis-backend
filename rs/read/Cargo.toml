@@ -16,6 +16,10 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "phase10_state_postgres"
+required-features = ["contract-tests"]
+
 [[example]]
 name = "contract_server"
 required-features = ["contract-tests"]
@@ -24,19 +28,34 @@ required-features = ["contract-tests"]
 name = "phase2_transport"
 required-features = ["contract-tests"]
 
+[[example]]
+name = "watchlist_server"
+required-features = ["contract-tests"]
+
+[[example]]
+name = "preauth_server"
+required-features = ["contract-tests"]
+
 [features]
 contract-tests = []
 
 [dev-dependencies]
+tokio = { version = "1.53.3", features = ["test-util"] }
 verdaxis-contract = { path = "../contract" }
 
 [dependencies]
+# Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (start)
+reqwest = { version = "=0.13.5", features = ["json"] }
+unicode-normalization = "=0.1.25"
+# Phase 2 Task 19: bounded invite provider and EmailStr NFC normalization (end)
 axum = "0.8"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 clap = { version = "=4.6.7", features = ["derive"] }
 futures-util = "0.3"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+# Phase 10 Task 3: O_NOFOLLOW/O_CLOEXEC for private state and lock paths.
+libc = "0.2.190"
 num-bigint = "0.4"
 num-traits = "0.2"
 percent-encoding = "2.3.2"

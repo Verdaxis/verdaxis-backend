@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "decision": "94",
+  "id": "email-lone-surrogate-escape",
+  "python_defect": "A JSON string escape for a lone UTF-16 surrogate is valid JSON and reaches pydantic, which rejects the address and echoes it in the 422 body. Starlette then cannot encode that body as UTF-8 and the request ends with HTTP 500 Internal Server Error (UnicodeEncodeError in starlette.responses.JSONResponse.render).",
+  "rust_behaviour": "serde_json refuses a lone surrogate escape, so the body is rejected as invalid JSON with HTTP 422 `json_invalid` before any address validation. Rust never answers 500 for this input.",
+  "evidence": "referral-invite-addresses twin run on the staging test host, 19 Oct 2026: the Python cell answered 500 to vector `lone-high-surrogate-local-part` on POST /api/referrals/invite (traceback ends in the UnicodeEncodeError named above). The other vectors share the mechanism, because the 422 body always echoes the input; they were not run separately.",
+  "required_equal": [
+    "no session or committed-state change",
+    "no provider send"
+  ],
+  "allowed_differences": [
+    "status 500 versus 422",
+    "response body"
+  ],
+  "vectors": [
+    {
+      "id": "lone-high-surrogate-local-part",
+      "raw": "{\"email\":\"a\\ud800@example.com\"}",
+      "python": {
+        "status": 500
+      },
+      "rust_expected": {
+        "status": 422,
+        "type": "json_invalid"
+      }
+    },
+    {
+      "id": "lone-low-surrogate-domain",
+      "raw": "{\"email\":\"a@ex\\udc00ample.com\"}",
+      "python": {
+        "status": 500
+      },
+      "rust_expected": {
+        "status": 422,
+        "type": "json_invalid"
+      }
+    },
+    {
+      "id": "reversed-surrogate-pair",
+      "raw": "{\"email\":\"a\\udc00\\ud800@example.com\"}",
+      "python": {
+        "status": 500
+      },
+      "rust_expected": {
+        "status": 422,
+        "type": "json_invalid"
+      }
+    }
+  ]
+}

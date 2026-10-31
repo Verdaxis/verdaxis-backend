@@ -15,11 +15,17 @@ async def main():
     try:
         async with connection.transaction():
             from uuid import UUID
+            if os.environ.get("AUTH_INTEROP_EXPECT_BLOCKED") == "true":
+                await connection.execute("SET LOCAL lock_timeout='100ms'")
             await connection.execute("UPDATE users SET authentication_revoked_at='2026-10-19T00:00:00Z' WHERE id=$1", UUID(os.environ["AUTH_INTEROP_SUBJECT"]))
             print("LOCKED", flush=True)
             if await asyncio.to_thread(sys.stdin.readline) != "COMMIT\n":
                 raise RuntimeError("missing release barrier")
         print("COMMITTED", flush=True)
+    except asyncpg.LockNotAvailableError:
+        if os.environ.get("AUTH_INTEROP_EXPECT_BLOCKED") != "true":
+            raise
+        print("BLOCKED", flush=True)
     finally:
         await connection.close()
 

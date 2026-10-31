@@ -8,13 +8,13 @@ The Compliance_api subsystem handles **5 routes** and touches: auth, db.
 
 - `GET` `/api/vessels/{vessel_id}/score` params(vessel_id) → out: ComplianceScoreResponse [auth, db]
   `app/routers/compliance_api.py`
-- `GET` `/api/fleet` → out: ComplianceScoreResponse [auth, db]
+- `GET` `/api/fleet` → out: ComplianceScoreResponse [db]
   `app/routers/compliance_api.py`
-- `POST` `/api/scenario` → in: ScenarioInput, out: ComplianceScoreResponse [auth, db]
+- `POST` `/api/scenario` → in: ScenarioInput, out: ComplianceScoreResponse [db]
   `app/routers/compliance_api.py`
-- `POST` `/api/pricing-overlay` → in: ScenarioInput, out: ComplianceScoreResponse [auth, db]
+- `POST` `/api/pricing-overlay` → in: ScenarioInput, out: ComplianceScoreResponse [db]
   `app/routers/compliance_api.py`
-- `GET` `/api/fuels` → out: ComplianceScoreResponse [auth, db]
+- `GET` `/api/fuels` → out: ComplianceScoreResponse
   `app/routers/compliance_api.py`
 
 ## Source Files

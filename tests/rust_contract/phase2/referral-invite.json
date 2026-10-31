@@ -1,0 +1,17 @@
+{
+  "scenario": "referral-invite", "group": "referrals", "task": 19, "route_ids": ["R04"],
+  "runner_status": "pending the runner lane",
+  "provider": "numeric-loopback-only-captured-stub",
+  "cases": [
+    {"id": "invite_failure_preserves_only_pre_send_code_commit", "actor_code": null, "provider_status": 500, "expect_status": 502, "allowed_change": "actor.users.referral_code"},
+    {"id": "existing-recipient", "actor_code": null, "expect_status": 200, "sends": 0, "state": "unchanged"},
+    {"id": "self", "expect_status": 400, "sends": 0},
+    {"id": "unverified", "expect_status": 403, "sends": 0},
+    {"id": "address-vectors", "inputs": ["User@EXAMPLE.COM", "Ada <user@例子.公司>", "not-email", null], "compare": "EmailStr-normalized-values-and-exact-diagnostics"},
+    {"id": "escaped-content", "names": ["", "Anonymous", "<Ada & \"Co\">", "{{URL}}"], "frontend_urls": ["https://app.example", "https://app.example///"], "compare": "full-provider-payload"},
+    {"id": "provider-outcomes", "statuses": [200, 201, 202, 400, 500], "faults": ["timeout", "malformed-http", "missing-key"], "success_statuses": [200, 201]},
+    {"id": "repeat", "requests": 2, "sends": 2, "state": "stable-code"},
+    {"id": "fault-boundaries", "faults": ["before-code-commit", "after-code-commit"], "compare": "exact-retained-state"}
+  ],
+  "state": {"compare": "all-business-rows-all-columns", "no_inserts": ["referrals", "outbox"], "allowed_changes": ["actor.users.referral_code-before-send-only"]}
+}

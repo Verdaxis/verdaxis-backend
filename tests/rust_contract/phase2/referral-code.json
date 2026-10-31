@@ -1,0 +1,15 @@
+{
+  "scenario": "referral-code", "group": "referrals", "task": 18, "route_ids": ["R01"],
+  "runner_status": "pending the runner lane",
+  "cases": [
+    {"id": "unverified", "email_verified": false, "expect_status": 403, "expect_detail": "Email must be verified to get a referral code", "state": "unchanged"},
+    {"id": "existing", "existing_code": "VDX-ABC123", "expect_code": "VDX-ABC123", "state": "unchanged"},
+    {"id": "first-free", "candidates": ["VDX-FREE01"], "expect_code": "VDX-FREE01"},
+    {"id": "nine-collisions", "occupied": ["VDX-TAKEN1"], "candidates": ["VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-TAKEN1", "VDX-FREE01"], "expect_code": "VDX-FREE01"},
+    {"id": "ten-collisions", "occupied": ["VDX-TAKEN1"], "repeat_candidate": "VDX-TAKEN1", "candidate_count": 10, "expect_status": 500, "expect_detail": "Failed to generate unique referral code", "state": "unchanged"},
+    {"id": "same-user-race", "schedule": "barrier-after-actor-lock", "expect": "same-committed-code"},
+    {"id": "different-user-collision", "schedule": "both-probe-before-first-commit", "expect": "one-commit-one-unique-refusal-no-retry"},
+    {"id": "frontend-url", "values": ["https://app.example", "https://app.example/"], "expect": "literal-concatenation"}
+  ],
+  "state": {"allowed_changes": ["current_actor.users.referral_code"], "compare": "all-business-rows-all-columns", "unchanged": ["password_hash", "password_changed_at", "authentication_revoked_at", "must_change_password", "refresh_sessions", "referrals"]}
+}

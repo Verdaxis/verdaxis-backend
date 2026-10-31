@@ -1,0 +1,147 @@
+{
+  "task": 8,
+  "task_name": "port notifications",
+  "oracle_sha": "573c962de8bbac857b339da49b61f4de6fff4e10",
+  "sources": {
+    "app/routers/notifications.py": "c9a64a7abb66b8681c7e2ccb64b0a974147ff610d645beb1421cd3d1f066db38",
+    "app/models/notification.py": "8d06ed160cbcbcc4d2d1312e8f6490dfd0c397a461a2375da8bc63741a587a35"
+  },
+  "extraction": {
+    "oracle": "SQLAlchemy 2.0.51 / CPython 3.12.13 on the staging test host",
+    "how": "statement.compile(dialect=postgresql.dialect(), literal_binds=False), text as emitted",
+    "stored": "line-trailing whitespace stripped; nothing else changed",
+    "mapper_column_order": [
+      "id",
+      "recipient_id",
+      "type",
+      "title",
+      "message",
+      "data",
+      "is_read",
+      "created_at"
+    ]
+  },
+  "statements": {
+    "N01": {
+      "route": "GET /api/notifications",
+      "python_params": [
+        "recipient_id_1",
+        "data_1",
+        "coalesce_1",
+        "param_1",
+        "param_2"
+      ],
+      "python": "SELECT notifications.id, notifications.recipient_id, notifications.type, notifications.title, notifications.message, notifications.data, notifications.is_read, notifications.created_at \nFROM notifications \nWHERE notifications.recipient_id = %(recipient_id_1)s::UUID AND coalesce(CAST((notifications.data ->> %(data_1)s) AS BOOLEAN), %(coalesce_1)s) IS false ORDER BY notifications.created_at DESC \n LIMIT %(param_1)s OFFSET %(param_2)s",
+      "rust": "SELECT notifications.id, notifications.recipient_id, notifications.type, notifications.title, notifications.message, notifications.data::text, notifications.is_read, notifications.created_at\nFROM notifications\nWHERE notifications.recipient_id = $1::uuid AND coalesce(CAST((notifications.data ->> $2) AS BOOLEAN), $3) IS false\nORDER BY notifications.created_at DESC\nLIMIT $4 OFFSET $5"
+    },
+    "N02": {
+      "route": "GET /api/notifications/unread-count",
+      "python_params": [
+        "recipient_id_1",
+        "data_1",
+        "coalesce_1"
+      ],
+      "python": "SELECT count(*) AS count_1 \nFROM notifications \nWHERE notifications.recipient_id = %(recipient_id_1)s::UUID AND notifications.is_read = false AND coalesce(CAST((notifications.data ->> %(data_1)s) AS BOOLEAN), %(coalesce_1)s) IS false",
+      "rust": "SELECT count(*) AS count_1\nFROM notifications\nWHERE notifications.recipient_id = $1::uuid AND notifications.is_read = false AND coalesce(CAST((notifications.data ->> $2) AS BOOLEAN), $3) IS false"
+    },
+    "N03-lookup": {
+      "route": "PATCH /api/notifications/{notification_id}/read (lookup)",
+      "python_params": [
+        "id_1",
+        "recipient_id_1"
+      ],
+      "python": "SELECT notifications.id, notifications.recipient_id, notifications.type, notifications.title, notifications.message, notifications.data, notifications.is_read, notifications.created_at \nFROM notifications \nWHERE notifications.id = %(id_1)s::UUID AND notifications.recipient_id = %(recipient_id_1)s::UUID",
+      "rust": "SELECT notifications.id, notifications.recipient_id, notifications.type, notifications.title, notifications.message, notifications.data::text, notifications.is_read, notifications.created_at\nFROM notifications\nWHERE notifications.id = $1::uuid AND notifications.recipient_id = $2::uuid"
+    },
+    "N03-update": {
+      "route": "PATCH /api/notifications/{notification_id}/read (flush)",
+      "python_params": [
+        "is_read",
+        "id_1"
+      ],
+      "python": "UPDATE notifications SET is_read=%(is_read)s WHERE notifications.id = %(id_1)s::UUID",
+      "rust": "UPDATE notifications SET is_read = $1 WHERE notifications.id = $2::uuid"
+    },
+    "N04": {
+      "route": "PATCH /api/notifications/read-all",
+      "python_params": [
+        "is_read",
+        "recipient_id_1"
+      ],
+      "python": "UPDATE notifications SET is_read=%(is_read)s WHERE notifications.recipient_id = %(recipient_id_1)s::UUID AND notifications.is_read = false",
+      "rust": "UPDATE notifications SET is_read = $1\nWHERE notifications.recipient_id = $2::uuid AND notifications.is_read = false"
+    }
+  },
+  "response": {
+    "model": "NotificationResponse (app/routers/notifications.py)",
+    "field_order": [
+      "id",
+      "type",
+      "title",
+      "message",
+      "data",
+      "is_read",
+      "created_at"
+    ],
+    "redaction": "hide_email_delivery_state removes every top-level `_email_` key of data only",
+    "null_and_empty": "data null stays null; an object whose keys are all redacted stays {}",
+    "created_at": "pydantic v2 RFC 3339 with `Z`, six fractional digits when non-zero",
+    "count_body": {
+      "count": "int"
+    },
+    "write_body": {
+      "status": "success"
+    }
+  },
+  "boundaries": [
+    {
+      "id": "skip-above-i64",
+      "observed": "Rust refuses skip above i64::MAX with 422 `less_than_equal`",
+      "python": "int is unbounded, so FastAPI accepts it and PostgreSQL fails to encode the offset",
+      "disposition": "Approved by PM on 2026-10-19 under decision 94: reject offsets above PostgreSQL i64 capacity with 422; do not copy Python driver failure."
+    },
+    {
+      "id": "json-number-text",
+      "observed": "transport numbers inside `data` keep the stored token text (serde_json arbitrary_precision)",
+      "python": "psycopg decodes to a Python number and json.dumps re-renders it",
+      "disposition": "recorded: `data` has no typed-string normalization in phase2-meaning-v1"
+    },
+    {
+      "id": "data-read-as-text",
+      "observed": "the Rust projection reads `notifications.data::text`",
+      "python": "SQLAlchemy selects the `json` column and the driver decodes it",
+      "disposition": "the workspace sqlx build has no `json` feature; the cast changes no value, order or null"
+    },
+    {
+      "id": "trailing-slash-and-405",
+      "observed": "runtime::http owns the trailing-slash redirect and the `405 Allow` list",
+      "python": "Starlette redirects `GET /api/notifications/` with 307 and answers other methods with 405",
+      "disposition": "integration-lane change: the four private paths are absent from MOUNTED_GET_PATHS"
+    }
+  ],
+  "approved_differences": [
+    {
+      "id": "N01-skip-above-i64",
+      "approval": "PM 2026-10-19; decision 94",
+      "vectors": [
+        {
+          "query": "skip=9223372036854775807",
+          "rust": "accepted offset",
+          "python": "accepted offset"
+        },
+        {
+          "query": "skip=9223372036854775808",
+          "rust_status": 422,
+          "rust_type": "less_than_equal",
+          "python": "validation accepts; PostgreSQL driver rejects offset"
+        },
+        {
+          "query": "skip=18446744073709551615",
+          "rust_status": 422,
+          "rust_type": "less_than_equal",
+          "python": "validation accepts; PostgreSQL driver rejects offset"
+        }
+      ]
+    }
+  ]
+}
