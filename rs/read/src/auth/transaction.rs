@@ -4,7 +4,7 @@ use sqlx::{Connection, PgConnection, Row};
 
 use super::{
     AccountState, AuthError, AuthenticatedRequest, CurrentActor, UserLockMode, VerifiedAccess,
-    validate_account,
+    validate_account_for_path,
 };
 use crate::{ApiError, AppState};
 
@@ -28,6 +28,15 @@ impl AuthenticatedTransaction<'_> {
     pub fn connection(&mut self) -> &mut PgConnection {
         self.connection
     }
+}
+
+/// The error envelope of one scoped Phase 5 actor-lock statement.
+///
+/// SQLSTATE classification stays in the shared market read helper, so this
+/// path adds no second list: `55P03`, `57014` and the retryable transport
+/// failures become the generic `READ_UNAVAILABLE` result with `Retry-After`.
+fn scoped_failure(error: sqlx::Error) -> ApiError {
+    crate::routes::market_data_error::database_failure("compliance actor lock", &error)
 }
 
 pub async fn run_authenticated<T: Send + 'static>(
@@ -56,20 +65,36 @@ pub async fn run_authenticated<T: Send + 'static>(
             .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
             .await
             .map_err(|_| AuthenticatedError::Database(ApiError::database()))?;
+        // Scoped Phase 5 reads own a short actor-lock deadline, so their own
+        // lock and statement refusals use the market read envelope: a lock
+        // timeout or cancelled statement is the generic retryable 503. Every
+        // other route keeps the plain database mapping.
+        let scoped = request.scoped_read_timeouts();
         let result = async {
+            if scoped {
+                for statement in [
+                    "SET LOCAL lock_timeout = '500ms'",
+                    "SET LOCAL statement_timeout = '5s'",
+                ] {
+                    sqlx::query(statement)
+                        .execute(&mut *transaction)
+                        .await
+                        .map_err(|error| AuthenticatedError::Database(scoped_failure(error)))?;
+                }
+            }
             let query = match request.lock_mode() {
                 UserLockMode::Share => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR SHARE",
                 UserLockMode::Update => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR UPDATE",
             };
             let row = sqlx::query(query).bind(access.subject).fetch_optional(&mut *transaction).await
-                .map_err(|_| AuthenticatedError::Database(ApiError::database()))?
+                .map_err(|error| AuthenticatedError::Database(if scoped { scoped_failure(error) } else { ApiError::database() }))?
                 .ok_or(AuthenticatedError::Authentication(AuthError::Credentials))?;
             let password: Option<chrono::DateTime<chrono::Utc>> = row.get("password_changed_at");
             let revoked: Option<chrono::DateTime<chrono::Utc>> = row.get("authentication_revoked_at");
-            validate_account(&access, &AccountState {
+            validate_account_for_path(&access, &AccountState {
                 exists:true, status:row.get("status"), must_change_password:row.get("must_change_password"),
                 password_changed_at:password.map(|v|v.timestamp_micros()), authentication_revoked_at:revoked.map(|v|v.timestamp_micros()),
-            }).map_err(AuthenticatedError::Authentication)?;
+            }, request.route_template()).map_err(AuthenticatedError::Authentication)?;
             let actor = CurrentActor { id:row.get("id"), organization_id:row.get("organization_id"), role:row.get("role"), email_verified:row.get("email_verified") };
             work(&mut AuthenticatedTransaction { connection:&mut transaction, actor }).await.map_err(AuthenticatedError::Database)
         }.await;

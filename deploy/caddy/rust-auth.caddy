@@ -1,0 +1,12 @@
+# Import once inside the API site's route block, before its Python fallback.
+# Argument 0 is the environment's Rust listener. This selector has no fallback
+# upstream and never retries a credential operation on Python.
+(verdaxis_rust_auth) {
+	@credential_area expression `({method} == 'POST' && {path}.matches('^/api/auth/(login|refresh|logout|invitations/accept|forgot-password|reset-password|verify-email|resend-verification-email|register|register-with-org)/?$')) || ({method} == 'PUT' && {path}.matches('^/api/auth/me/password/?$')) || ({method} == 'GET' && {path}.matches('^/api/auth/stream-token/?$'))`
+	handle @credential_area {
+		request_header -X-Verdaxis-Preauth-Counted
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+		}
+	}
+}

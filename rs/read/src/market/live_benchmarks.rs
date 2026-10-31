@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
+use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use crate::{ApiError, Config, Json, MarketPolicy};
@@ -113,13 +113,13 @@ pub fn candidate_is_benchmark_qualified(
 /// One batched SELECT on the caller's admitted transaction and captured clock.
 /// Missing keys are absent, just like Python's calculation map. Use
 /// `LiveBenchmarkCache` when more than one batch is needed within a request.
-pub async fn live_benchmarks(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+pub async fn calculate_live_benchmarks(
+    conn: &mut PgConnection,
     policy: &MarketPolicy,
     config: &Config,
     keys: &[LiveBenchmarkKey],
     now: DateTime<Utc>,
-) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, ApiError> {
+) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, sqlx::Error> {
     if keys.is_empty() {
         return Ok(HashMap::new());
     }
@@ -135,17 +135,17 @@ pub async fn live_benchmarks(
         // Admission subplans make JIT compilation cost more than this bounded
         // read. Restore the caller's setting after the statement; rollback
         // restores it automatically if the statement fails.
-        let previous_jit: String = sqlx::query_scalar("SHOW jit").fetch_one(&mut **tx).await?;
+        let previous_jit: String = sqlx::query_scalar("SHOW jit").fetch_one(&mut *conn).await?;
         sqlx::query("SET LOCAL jit = off")
-            .execute(&mut **tx)
+            .execute(&mut *conn)
             .await?;
         let rows = bind_order_query(&sql, policy, &clock, config, &filters)?
             .bind(keys_json)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *conn)
             .await?;
         sqlx::query("SELECT set_config('jit', $1, true)")
             .bind(previous_jit)
-            .execute(&mut **tx)
+            .execute(&mut *conn)
             .await?;
         let mut groups: HashMap<LiveBenchmarkKey, Vec<(Decimal, Decimal)>> = HashMap::new();
         for row in rows {
@@ -181,16 +181,28 @@ pub async fn live_benchmarks(
             .collect())
     }
     .await;
-    result.map_err(|error| {
-        crate::runtime::error::database_error(
-            "/api/orderbook",
-            "GET",
-            error
-                .as_database_error()
-                .and_then(|error| error.code())
-                .as_deref(),
-        )
-    })
+    result
+}
+
+pub async fn live_benchmarks(
+    conn: &mut PgConnection,
+    policy: &MarketPolicy,
+    config: &Config,
+    keys: &[LiveBenchmarkKey],
+    now: DateTime<Utc>,
+) -> Result<HashMap<LiveBenchmarkKey, LiveBenchmark>, ApiError> {
+    calculate_live_benchmarks(conn, policy, config, keys, now)
+        .await
+        .map_err(|error| {
+            crate::runtime::error::database_error(
+                "/api/orderbook",
+                "GET",
+                error
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .as_deref(),
+            )
+        })
 }
 
 /// Request-local cache, including missing results. Never share across requests
@@ -203,7 +215,7 @@ pub struct LiveBenchmarkCache {
 impl LiveBenchmarkCache {
     pub async fn load(
         &mut self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        conn: &mut PgConnection,
         policy: &MarketPolicy,
         config: &Config,
         keys: &[LiveBenchmarkKey],
@@ -214,7 +226,7 @@ impl LiveBenchmarkCache {
             .filter(|key| !self.values.contains_key(*key))
             .cloned()
             .collect();
-        let mut loaded = live_benchmarks(tx, policy, config, &missing, now).await?;
+        let mut loaded = live_benchmarks(&mut *conn, policy, config, &missing, now).await?;
         for key in missing {
             self.values
                 .entry(key.clone())

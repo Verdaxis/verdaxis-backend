@@ -1,17 +1,19 @@
 //! Paginated public orders and the two legacy list shapes.
 use super::{
     ports::query_error,
-    prices::{captured_now, fields, integer, uuid},
+    prices::{fields, integer, uuid},
 };
 use crate::market::{
+    fueleu::FUELEU_REFERENCE_GHG,
     live_benchmarks::LiveBenchmarkCache,
     order_projection::PublicOrder,
     visibility::{
-        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query, order_query_sql,
+        OrderSurface, PublicOrderFilters, VisibilityClock, bind_order_query,
+        opposing_order_query_sql, order_query_sql,
     },
     windows::normalize_window,
 };
-use crate::{ApiError, ApiResult, AppState, Json, run_admitted};
+use crate::{ApiError, ApiResult, AppState, Json};
 use axum::{
     Router,
     extract::{RawQuery, State},
@@ -92,6 +94,7 @@ impl Surface {
         matches!(self, Self::Bids | Self::Asks)
     }
 }
+#[derive(Clone)]
 struct ListQuery {
     product: Option<Uuid>,
     point: Option<Uuid>,
@@ -274,13 +277,25 @@ async fn with_ci(State(s): State<AppState>, RawQuery(q): RawQuery) -> ApiResult 
 }
 
 async fn serve(state: AppState, raw: Option<String>, surface: Surface) -> ApiResult {
-    let now = captured_now(&state)?;
-    let query = parse(raw.as_deref().unwrap_or_default(), surface, now)?;
+    let clock = crate::runtime::trading_routes::capture(&state)?;
+    let now = clock.wall.into();
+    let raw = raw.unwrap_or_default();
+    let query = parse(&raw, surface, now)?;
     let policy = state.policy.clone();
     let config = state.config.clone();
-    let body = run_admitted(&state, move |connection| {
-        Box::pin(async move { load_list(connection, &policy, &config, query, surface, now).await })
-    })
+    let body = crate::runtime::trading_routes::read(
+        &state,
+        surface.path(),
+        raw,
+        "orderbook",
+        clock,
+        None,
+        move |connection| {
+            Box::pin(
+                async move { load_list(connection, &policy, &config, query, surface, now).await },
+            )
+        },
+    )
     .await?;
     Ok(axum::Json(body).into_response())
 }
@@ -369,7 +384,7 @@ async fn load_list(
     // toggle. Restrict to the page's exact slices and provenance in one batch.
     let opposing = if surface.paginated() && !orders.is_empty() {
         let keys: Vec<_> = orders.iter().map(crossing_key).collect();
-        let sql = order_query_sql(include_str!("../../sql/orderbook/opposing.sql"));
+        let sql = opposing_order_query_sql();
         let filters = PublicOrderFilters {
             surface: OrderSurface::Orderbook,
             side: Some(if surface == Surface::Bids {
@@ -461,7 +476,7 @@ fn ci_overlay(order: &PublicOrder, lng: bool) -> Result<Json, ApiError> {
         return Ok(Json::Null);
     }
     // FuelEU lifecycle reference, gCO2e/MJ; no inferred financial benefit.
-    let reference = Decimal::new(9116, 2);
+    let reference = FUELEU_REFERENCE_GHG;
     let mut reduction = ((reference - ci) / reference * Decimal::from(100))
         .max(Decimal::ZERO)
         .round_dp_with_strategy(1, RoundingStrategy::MidpointAwayFromZero);
@@ -471,6 +486,44 @@ fn ci_overlay(order: &PublicOrder, lng: bool) -> Result<Json, ApiError> {
         .round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero);
     effective.rescale(2);
     Ok(
-        json!({"financial_benefit_status":"UNPRICED","base_price_per_mt":order.private["price_per_mt_usd"],"carbon_intensity_gco2_mj":order.private["carbon_intensity_gco2_mj"],"fueleu_ghg_intensity":"91.16","compliance_cost_per_mt":"0.00","effective_price_per_mt":effective.to_string(),"ghg_reduction_pct":reduction.to_string()}),
+        json!({"financial_benefit_status":"UNPRICED","base_price_per_mt":order.private["price_per_mt_usd"],"carbon_intensity_gco2_mj":order.private["carbon_intensity_gco2_mj"],"fueleu_ghg_intensity":reference.to_string(),"compliance_cost_per_mt":"0.00","effective_price_per_mt":effective.to_string(),"ghg_reduction_pct":reduction.to_string()}),
     )
+}
+
+#[cfg(test)]
+mod lifecycle_comparison_tests {
+    use super::*;
+
+    fn ask(carbon_intensity: &str) -> PublicOrder {
+        PublicOrder {
+            private: json!({
+                "carbon_intensity_gco2_mj": carbon_intensity,
+                "energy_density_mj_kg": "19.9",
+                "price_per_mt_usd": "700.00",
+            }),
+            labels: Json::Null,
+            price: Decimal::new(70_000, 2),
+            side: "ASK".to_owned(),
+            provenance: "REAL".to_owned(),
+        }
+    }
+
+    #[test]
+    fn lifecycle_comparison_uses_the_shared_fueleu_reference() {
+        let reference = FUELEU_REFERENCE_GHG.to_string();
+        let half_reference = (FUELEU_REFERENCE_GHG / Decimal::TWO).to_string();
+        // Half the reference intensity is a 50 % reduction only when the
+        // arithmetic uses the same reference; at or above it there is none.
+        for (carbon_intensity, reduction) in [
+            (half_reference.as_str(), "50.0"),
+            (reference.as_str(), "0.0"),
+            ("95.00", "0.0"),
+        ] {
+            let overlay = ci_overlay(&ask(carbon_intensity), false).unwrap();
+            assert_eq!(overlay["fueleu_ghg_intensity"], reference);
+            assert_eq!(overlay["ghg_reduction_pct"], reduction);
+            assert_eq!(overlay["financial_benefit_status"], "UNPRICED");
+        }
+        assert_eq!(ci_overlay(&ask(&half_reference), true).unwrap(), Json::Null);
+    }
 }

@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "tests/rust_contract/phase2/auth-vectors.json"
 NOW = 1_792_320_000
 USER_ID = "a550c69b-2934-4b36-87f5-e4f9976d1af0"
+# Python's exact legacy refusal body for an unverified credential.
+LEGACY_CREDENTIAL_REFUSAL = '{"detail":"Could not validate credentials"}'
 # Public synthetic fixture keys. They never authenticate a deployed service.
 CURRENT = "phase2-fixture-current-key-not-for-runtime-0001"
 PREVIOUS = "phase2-fixture-previous-key-not-for-runtime-0002"
@@ -212,10 +214,25 @@ def export():
     for vector in vectors:
         if vector["python"]["status"] == 500 and vector["id"].endswith("out-of-range"):
             password = vector["id"].startswith("password_changed_at")
-            vector["approved_difference"] = {"decision": 94, "defect": "PD7", "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"}
+            vector["approved_difference"] = {"contract": "ISSUANCE-RANGE", "case": "ISSUANCE-RANGE", "reference_sha": "cf0cb692d75d7d6ce9a372dc80c7d09cdef6fdb7"}
             vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer", "body": json.dumps({"detail": {
                 "code": "AUTH_PASSWORD_CHANGED" if password else "AUTH_SESSION_REVOKED",
                 "message": "Password was changed; sign in again" if password else "Session was revoked; sign in again"}}, separators=(",", ":"))}
+        elif vector["python"]["body"] == LEGACY_CREDENTIAL_REFUSAL:
+            # AUTH-ENVELOPE+AUTH-REFUSAL+ACCESS-EXPIRY (auth contract): Python
+            # keeps its legacy `detail` string and Rust answers with the
+            # reviewed code envelope. Record both instead of letting the Rust
+            # test substitute its own output for the expectation.
+            vector["approved_difference"] = {"decisions": ["AUTH-ENVELOPE", "AUTH-REFUSAL", "ACCESS-EXPIRY"],
+                                             "ruling": "AUTH-CONTRACT", "python_change": "none"}
+            vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
+                                       "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
+        elif vector["id"] == "exp-absent":
+            # ACCESS-EXPIRY: Rust requires `exp` and refuses what Python accepts.
+            vector["approved_difference"] = {"decision": "ACCESS-EXPIRY",
+                                             "python_change": "none"}
+            vector["rust_expected"] = {"status": 401, "www_authenticate": "Bearer",
+                                       "body": json.dumps({"detail": {"code": "AUTH_CREDENTIALS_INVALID"}}, separators=(",", ":"))}
     return {"version": 1, "oracle_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             "pyjwt_version": jwt.__version__, "now": NOW, "fixture_only": True,
             "settings": {"current": CURRENT, "previous": PREVIOUS, "issuer": ISSUER, "audience": AUDIENCE},

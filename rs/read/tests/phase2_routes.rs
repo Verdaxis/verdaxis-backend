@@ -68,7 +68,12 @@ fn phase2() -> Phase2Options {
         frontend_url: Some("https://staging.example.test".into()),
         email_from: Some("Verdaxis <noreply@example.test>".into()),
         resend_api_key: Some("re_disposable_key".into()),
+        auth_domain_datasets: None,
+        monitor_token: None,
         watchlist_producer_activated_at: None,
+        system_status: None,
+        system_status_message: None,
+        allowed_hosts: None,
     }
 }
 
@@ -90,6 +95,8 @@ async fn every_phase2_operation_is_mounted_on_the_public_router() {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: phase2(),
     };
     verdaxis_read::validate_config(&config).expect("valid disposable configuration");

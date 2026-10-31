@@ -4,6 +4,7 @@ This is component interoperability, not the paired HTTP/state runner gate.
 """
 import os
 import subprocess
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -47,6 +48,7 @@ async def test_rust_alert_crud_and_python_trigger(pg_session):
     env = {
         **os.environ,
         "RELEASE_SHA": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "RUST_TEST_PYTHON": sys.executable,
         "SQLX_OFFLINE": "true",
         "ALERT_TEST_DATABASE_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://"),
         "ALERT_TEST_ORGANIZATION": str(organization),

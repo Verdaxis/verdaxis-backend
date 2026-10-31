@@ -1,0 +1,463 @@
+{
+  "version": 1,
+  "description": "Binding Phase 3 auth route inventory. Twelve routes in two cutover groups of six. Source provenance is a digest per file, never a branch name.",
+  "api_prefix": "/api",
+  "sources": {
+    "app/config.py": "65571bfb1b3407dd067d9fde069a2e6e7d977bc78e63549df7c65cd24eea02c5",
+    "app/core/security.py": "5b18535f90a62253e52dca546d23b0c048e76637a8d08a17149d8e1550ab6087",
+    "app/main.py": "76f2a03e270557cecdb8092c843baf118f1aa11c7488b927c61cf28c52309170",
+    "app/middleware/preauth_rate_limit.py": "59ce20b3f01c4ea95a18da5406768012245326b9a94d8bb6cfe33daf25e51e00",
+    "app/rate_limit.py": "ba5dfc2f3d225dc651b61863581c47d64811dc2492ef005e0cc574f9dce11988",
+    "app/routers/auth_simple.py": "37a2874515a96ffdf9dd581939797fbe869002a8326766d3f80b501b300a91c0",
+    "app/routing.py": "f99964c2255cf486fe3099c900520513f34de61ff0c3e75d26a12b748bb89043",
+    "app/schemas/user.py": "57af55ff93632301000568fd5d308b500fc41f58180cd10aaf349cb3da32a850"
+  },
+  "groups": {
+    "A": {
+      "name": "session core",
+      "route_ids": ["S1", "S2", "S3", "S4", "S5", "S6"]
+    },
+    "B": {
+      "name": "email and registration",
+      "route_ids": ["E1", "E2", "E3", "E4", "E5", "E6"]
+    }
+  },
+  "auth_modes": {
+    "P": "public",
+    "U": "bearer authenticated"
+  },
+  "routes": [
+    {
+      "id": "S1",
+      "group": "A",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "slash_forms": ["/api/auth/login", "/api/auth/login/"],
+      "auth": "P",
+      "authenticated_by": "form credentials",
+      "origin_check": true,
+      "cookie_effect": "set-both",
+      "endpoint_per_minute": 5,
+      "preauth_per_minute": 30,
+      "success_status": 200,
+      "request": {
+        "encoding": "form",
+        "fields": {"username": "string", "password": "string"}
+      },
+      "responses": [
+        {"status": 200, "outcome": "access token and both cookies; no profile field"},
+        {"status": 401, "outcome": "AUTH_CREDENTIALS_INVALID"},
+        {"status": 403, "outcome": "AUTH_EMAIL_UNVERIFIED or AUTH_ACCOUNT_NOT_ACTIVE"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [401, 403, 422, 429],
+      "effects": "Read the user FOR UPDATE; write last_login; upsert user_login_days; revoke device families and the presented family; insert one refresh row; commit."
+    },
+    {
+      "id": "S2",
+      "group": "A",
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "slash_forms": ["/api/auth/refresh", "/api/auth/refresh/"],
+      "auth": "P",
+      "authenticated_by": "refresh cookie",
+      "origin_check": true,
+      "cookie_effect": "set-both",
+      "endpoint_per_minute": 10,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {"encoding": "none", "fields": {}},
+      "responses": [
+        {"status": 200, "outcome": "access token and both cookies"},
+        {"status": 401, "outcome": "terminal refresh codes"},
+        {"status": 409, "outcome": "REFRESH_ROTATION_IN_PROGRESS with retry_after_seconds"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [401, 409, 429],
+      "effects": "Device advisory lock, user FOR UPDATE, refresh row FOR UPDATE; revoke predecessor; insert successor with replaced_by_jti_hash, rotation_grace_until and last_used_at; a replay revokes the family; commit."
+    },
+    {
+      "id": "S3",
+      "group": "A",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "slash_forms": ["/api/auth/logout", "/api/auth/logout/"],
+      "auth": "P",
+      "authenticated_by": "cookies",
+      "origin_check": true,
+      "cookie_effect": "clear-both",
+      "endpoint_per_minute": null,
+      "preauth_per_minute": null,
+      "success_status": 204,
+      "request": {"encoding": "none", "fields": {}},
+      "responses": [
+        {"status": 204, "outcome": "both cookies cleared"},
+        {"status": 401, "outcome": "token error; both cookies still cleared"},
+        {"status": 503, "outcome": "revocation unavailable; both cookies still cleared"}
+      ],
+      "error_statuses": [],
+      "effects": "Revoke device families and any presented family; commit; clear both cookies on every path."
+    },
+    {
+      "id": "S4",
+      "group": "A",
+      "method": "GET",
+      "path": "/api/auth/stream-token",
+      "slash_forms": ["/api/auth/stream-token", "/api/auth/stream-token/"],
+      "auth": "U",
+      "authenticated_by": "bearer",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 30,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {"encoding": "none", "fields": {}},
+      "responses": [
+        {"status": 200, "outcome": "stream token with a 60 second life"},
+        {"status": 403, "outcome": "AUTH_ORGANIZATION_REQUIRED"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [403, 429],
+      "effects": "None."
+    },
+    {
+      "id": "S5",
+      "group": "A",
+      "method": "PUT",
+      "path": "/api/auth/me/password",
+      "slash_forms": ["/api/auth/me/password", "/api/auth/me/password/"],
+      "auth": "U",
+      "authenticated_by": "bearer and device cookie",
+      "origin_check": true,
+      "cookie_effect": "set-both",
+      "endpoint_per_minute": 3,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {
+        "encoding": "json",
+        "fields": {"current_password": "string", "new_password": "string"}
+      },
+      "responses": [
+        {"status": 200, "outcome": "access token and both cookies"},
+        {"status": 400, "outcome": "AUTH_CURRENT_PASSWORD_INVALID"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [400, 422, 429],
+      "effects": "Device lock, user FOR UPDATE; write password hash and password_changed_at; clear must_change_password; revoke all user families; insert one successor; audit; commit."
+    },
+    {
+      "id": "S6",
+      "group": "A",
+      "method": "POST",
+      "path": "/api/auth/invitations/accept",
+      "slash_forms": ["/api/auth/invitations/accept", "/api/auth/invitations/accept/"],
+      "auth": "P",
+      "authenticated_by": "invitation token",
+      "origin_check": true,
+      "cookie_effect": "set-both",
+      "endpoint_per_minute": 5,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {
+        "encoding": "json",
+        "fields": {
+          "token": "string",
+          "new_password": "string",
+          "accept_terms": "boolean"
+        }
+      },
+      "responses": [
+        {"status": 200, "outcome": "access token and both cookies"},
+        {"status": 400, "outcome": "INVITATION_INVALID"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [400, 422, 429],
+      "effects": "User FOR UPDATE; write password hash and password_changed_at; clear the invitation token; set email_verified; clear must_change_password; write last_login; advance referral; upsert login day; revoke all user families; insert one successor; audit; commit."
+    },
+    {
+      "id": "E1",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "slash_forms": ["/api/auth/forgot-password", "/api/auth/forgot-password/"],
+      "auth": "P",
+      "authenticated_by": "none",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 3,
+      "preauth_per_minute": 15,
+      "success_status": 200,
+      "request": {"encoding": "json", "fields": {"email": "string"}},
+      "responses": [
+        {"status": 200, "outcome": "one fixed neutral message for every valid address"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [429],
+      "effects": "Upsert password_reset_tokens for a verified user; audit; commit; send one email in a bounded background task."
+    },
+    {
+      "id": "E2",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "slash_forms": ["/api/auth/reset-password", "/api/auth/reset-password/"],
+      "auth": "P",
+      "authenticated_by": "none",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 5,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {
+        "encoding": "json",
+        "fields": {"token": "string", "new_password": "string"}
+      },
+      "responses": [
+        {"status": 200, "outcome": "one neutral message"},
+        {"status": 400, "outcome": "RESET_TOKEN_INVALID"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [400, 422, 429],
+      "effects": "Lock the reset token row, then the user FOR UPDATE; write password hash and password_changed_at; clear must_change_password; mark the token used; revoke all user families; audit; commit."
+    },
+    {
+      "id": "E3",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/verify-email",
+      "slash_forms": ["/api/auth/verify-email", "/api/auth/verify-email/"],
+      "auth": "P",
+      "authenticated_by": "none",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 10,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {"encoding": "query", "fields": {"token": "string"}},
+      "responses": [
+        {"status": 200, "outcome": "message, email, requires_org and an optional registration token"},
+        {"status": 400, "outcome": "EMAIL_TOKEN_INVALID"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [400, 429],
+      "effects": "User FOR UPDATE; set email_verified; clear the verification token hash and expiry; advance referral; assign a referral code if missing; commit."
+    },
+    {
+      "id": "E4",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/resend-verification-email",
+      "slash_forms": [
+        "/api/auth/resend-verification-email",
+        "/api/auth/resend-verification-email/"
+      ],
+      "auth": "P",
+      "authenticated_by": "none",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 3,
+      "preauth_per_minute": null,
+      "success_status": 200,
+      "request": {"encoding": "json", "fields": {"email": "string"}},
+      "responses": [
+        {"status": 200, "outcome": "one fixed neutral message for every valid address"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [429],
+      "effects": "Replace the verification token hash and expiry for an unverified user; commit; send one email in a bounded background task."
+    },
+    {
+      "id": "E5",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/register",
+      "slash_forms": ["/api/auth/register", "/api/auth/register/"],
+      "auth": "P",
+      "authenticated_by": "none",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 5,
+      "preauth_per_minute": 30,
+      "success_status": 202,
+      "request": {
+        "encoding": "json",
+        "fields": {
+          "email": "string",
+          "password": "string",
+          "role": "BUYER or SUPPLIER",
+          "first_name": "string or null",
+          "last_name": "string or null",
+          "referral_code": "string or null"
+        }
+      },
+      "responses": [
+        {"status": 202, "outcome": "{\"status\":\"check_email\"} for every valid body"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [422, 429],
+      "effects": "One transaction: create the user and join request, or a pending registration; status transition; audit; referral lock and attribution; commit; send one email."
+    },
+    {
+      "id": "E6",
+      "group": "B",
+      "method": "POST",
+      "path": "/api/auth/register-with-org",
+      "slash_forms": ["/api/auth/register-with-org", "/api/auth/register-with-org/"],
+      "auth": "P",
+      "authenticated_by": "pending registration token",
+      "origin_check": false,
+      "cookie_effect": "none",
+      "endpoint_per_minute": 5,
+      "preauth_per_minute": 30,
+      "success_status": 200,
+      "request": {
+        "encoding": "json",
+        "fields": {"registration_token": "string", "organization": "object"}
+      },
+      "responses": [
+        {"status": 200, "outcome": "user body"},
+        {"status": 400, "outcome": "REGISTRATION_TOKEN_INVALID"},
+        {"status": 409, "outcome": "REGISTRATION_CONFLICT"},
+        {"status": 422, "outcome": "validation"},
+        {"status": 429, "outcome": "rate limited"}
+      ],
+      "error_statuses": [400, 409, 422, 429],
+      "effects": "One transaction: lock the pending row; create organization, user and join request; consume the pending token; audit; referral; commit; send one email."
+    }
+  ],
+  "allocations": [
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "per_client_per_minute": 120,
+      "reason": "Profile projection plus KYC execution eligibility; the frontend's session-restore source. Phase 3 keeps the access-token verifier compatible."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/me",
+      "per_client_per_minute": 10,
+      "reason": "Profile update, one-time role assignment and market outbox append."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "POST",
+      "path": "/api/auth/survey",
+      "reason": "Onboarding business write."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "POST",
+      "path": "/api/auth/admin/invitations",
+      "reason": "Admin invitation creation. Invitation acceptance (S6) reads and clears the token this route writes."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "GET",
+      "path": "/api/auth/admin/invitations/organizations",
+      "reason": "Admin invitation organization list."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "POST",
+      "path": "/api/auth/invitations/resolve",
+      "reason": "Invitation resolution business read; acceptance is Phase 3 (S6)."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/approve/{user_id}",
+      "reason": "Admin review of a pending account."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/reject/{user_id}",
+      "reason": "Admin review; consumes revoke_user_authentication from Phase 3."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/approve",
+      "reason": "Organization admission and market invalidation."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/organization/{organization_id}/reject",
+      "reason": "Organization rejection and market invalidation."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue",
+      "reason": "Admin review read."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "GET",
+      "path": "/api/auth/admin/review-queue/{user_id}",
+      "reason": "Admin review read."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "GET",
+      "path": "/api/auth/organization-joins",
+      "reason": "Organization join read."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/approve",
+      "reason": "Organization join approval."
+    },
+    {
+      "module": "app.routers.auth_simple",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/auth/organization-joins/{join_request_id}/reject",
+      "reason": "Organization join rejection."
+    },
+    {
+      "module": "app.routers.admin_analytics",
+      "phase": 4,
+      "method": "PUT",
+      "path": "/api/admin/analytics/users/{user_id}/reject",
+      "reason": "Admin analytics action with session revocation inside; consumes revoke_user_authentication from Phase 3."
+    },
+    {
+      "module": "app.routers.stream",
+      "phase": 6,
+      "method": "GET",
+      "path": "/api/stream/trades",
+      "reason": "Stream check and tenant scoping; consumes the Phase 3 stream token."
+    },
+    {
+      "module": "app.routers.activity",
+      "phase": 6,
+      "method": "GET",
+      "path": "/api/stream/activity",
+      "reason": "Stream check and tenant scoping; consumes the Phase 3 stream token."
+    }
+  ]
+}

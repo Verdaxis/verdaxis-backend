@@ -209,7 +209,7 @@ async fn send_invite(
             headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()),
         ),
         path: "/api/referrals/invite".into(),
-        now_seconds: chrono::Utc::now().timestamp() as u64,
+        now_seconds: chrono::Utc::now().timestamp().max(0) as u64,
         limits: settings.limits.clone(),
     };
     let frontend = settings.frontend_url.clone();

@@ -2,12 +2,184 @@
 
 ## Status
 
+## Pre-pull-request round — boundary exception, spec digest, quota bound, staging merge, 25 October 2026
+
+Final head `4b60b9cce` (merge `58aafb65e` plus merge-repair commits). All gates
+below ran on the M1. Nothing was pushed.
+
+Work before the merge, tests first where behaviour changes:
+
+- The trading-cache integration test's order-book exception is now the exact
+  two reviewed statements in that one file, with a test that fails if a third
+  order-book statement appears there; the whole-file form is gone
+  (`f3971165a`). The same rules as the Phase 5 tree, taken from it unchanged.
+- The market-write spec digest for the deploy access policy was regenerated;
+  the generator's `--check` failed before and passes after, and the only
+  change in the file is that one digest line (`ebb004972`).
+- The quota store now resets the caller's own expired bucket directly, removes
+  at most a fixed small batch of other expired entries per request, and
+  recovers a poisoned lock while keeping every spent quota; tests cover the
+  caller-reset case, a full 50,000-entry flood, and the poison recovery
+  (`e09dd6b7e`, `f078da9ca`, with follow-ups `c97ef151c`, `8e6e211eb`).
+
+The staging merge (`58aafb65e`) brought the bounded price accounting, the
+order-book aggregate change and the cache-listener deploy flag. Conflicts:
+`runtime/http.rs` keeps staging's bounded price buckets together with this
+branch's shared quota authority, pre-auth path and phase 2 group composition;
+`tests/monitor/test_source_ownership.py` pins the merged deploy script digest.
+Two merge repairs followed: the query raw reader and pre-auth constants
+(`b13acb803`), and the shared fallback applied after the group merge so a
+group's own fallback cannot break it (`4b60b9cce`). No assertion was dropped;
+the only removed test exercised the superseded unbounded price bucket.
+
+Gates at `4b60b9cce` (all exit 0):
+
+| Gate | Result | UTC |
+| --- | --- | --- |
+| fmt; Clippy; Clippy contract-tests | 0 each | 16:16 |
+| Offline workspace | 454 passed, 1 ignored | 16:16 |
+| `cd rs && cargo audit` | 0 | 16:21 |
+| Rust PostgreSQL workspace | 464 passed, 1 ignored | 15:28–15:33 |
+| All Phase 2 scenarios | 22 scenarios, 383 actions | 15:33–16:03 |
+| Standalone races | 9 scenarios, 27 races | 16:03–16:13 |
+| Six client journeys | all groups passed | 16:14 |
+| Market-write generator `--check` | matches | 16:21 |
+| `tests/security/test_rust_order_write_boundary.py` | 8 passed | 16:21 |
+
+
+## Task 24 — correctness evidence and go/no-go, 25 October 2026
+
+Branch head `8c3a0da4b` (tests/harness only after the merge `2d6faf3fa`; no
+Rust production source beyond the event-cursor fix below). All runs on the M1
+(`verdaxis-m1-test`); no measurement ran (decision 110); nothing was deployed.
+
+Simulations (steps 7-10, correctness only):
+
+| Size | SHA | UTC | Result |
+| --- | --- | --- | --- |
+| small (`--phase2-group all --phase2-races`) | `cb69cb210` | 01:11–01:39 | exit 0; 22 scenarios, 383 actions, 9 race schedules |
+| large | `5b63650da` | 04:55–05:08 | exit 0; 22 scenarios, 383 actions, 9 race schedules |
+
+Defects found by the simulations, each fixed test-first (decision 113):
+
+- `order_event` fixtures wrote `demo_status "DEMO"` — no `MarketDemoStatus`
+  value; the Python W07 read answered 422 where Rust coerced to UNKNOWN.
+  Fixtures now use the writer's real vocabulary `DEMO_SEED/DEMO_ONLY`, and a
+  test refuses any fixture payload outside the schema enums
+  (`dab03f273`, `a24ec5611`).
+- The Rust event cursor always printed six fraction digits; Python's
+  `isoformat` omits the fraction for whole seconds, so twin pages carried
+  different cursor text. Rust now encodes Python's spelling; the decoder
+  already accepted both (`1fb1e7dc3`, `cc9e77ee0`).
+- The feedback admin-page and notification second-page assertions assumed the
+  un-queried listing serves the 200 maximum and that a page carries the whole
+  remainder; both routes cap `limit` (50 default / 100 max). Assertions now
+  use the caps (`1b5ee1067`, `5b63650da`).
+- W09/W10 (legacy entries) were wrongly scheduled against the Rust candidate;
+  they stay on Python in Phase 2 (plan record; `test_routing.py` pins the
+  paths Python-owned). The activity scenario and the client journey no longer
+  schedule them, and the checklist records them uncovered (`cb69cb210`).
+
+Client journeys (step 2): one HTTP journey per CRUD group following
+`verdaxis-frontend/src/services/api.ts`, at `6d02dd533`, exit 0 —
+notifications 5, preferences 3, feedback 2, watchlists 8, alerts 5,
+referrals 5 calls. The journey runner (`phase2_journeys.run`) needed its own
+repairs: role validation only after the migration owns its tables, the base
+organization row before the fixture's UNKNOWN-provenance order, the app-role
+password aligned with the server URL, the market policy loaded (an empty
+policy refused every slice), page-path captures, and a deliverable invite
+address (`.invalid` is a special-use domain the validator refuses).
+
+Business-rule checklist (step 3): `outputs/rust-phase2/business-rules.md`
+maps every Python-suite rule for the 25 moved operations to a named Rust test
+or PostgreSQL twin scenario; no rule lacks a proof. W09/W10 rules stay with
+the Python suite that owns them.
+
+Gate report (steps 19-20): `phase2_report --scope disposable-artifact` over
+`t24-evidence/` produced **INCONCLUSIVE** — one named incomplete cell,
+`stale candidate bytes`: the signed release binary does not exist because
+hosted CI publishes it only on a staging/prod push (entry condition 3 moved
+by PD2-T24b to before any staging deployment and before Task 25). Zero
+unexplained differences; no failures. Outputs:
+`outputs/rust-phase2/{gate.json,go-no-go.md,business-rules.md,t24-evidence/*}`.
+
+Final gate batch at `8c3a0da4b`, all on the M1:
+
+| Gate | UTC | Exit |
+| --- | --- | --- |
+| fmt; Clippy; Clippy contract-tests; offline workspace; `cd rs && cargo audit` | 11:00–11:09 | 0 each; offline 440 passed, 1 ignored |
+| Rust PostgreSQL workspace | 11:09–11:14 | 0; 450 passed, 1 ignored |
+| All Phase 2 scenarios | 11:14–11:39 | 0; 22 scenarios, 383 actions |
+| Standalone races | 11:39–11:52 | 0; 9 scenarios, 27 races |
+
+Not pushed, pending independent review. No local `rs/target` exists (all
+builds ran on the M1). Temporary gate helpers stay untracked in the worktree.
+
+
 The Task 22 review fixes, the Task 23 runtime projection, the two PM items
 for that round (watchlist settings from release metadata; one payload order
 rule) and PD2-SEC-1 are committed. The final gate batch records its results in the section
 below. The final review's F1/F2 gate repairs are committed and qualified in
 the "Review fix round" section. No staging or production deployment was
 attempted. Task 24 has not started. No measurement was run (decision 110).
+
+## PD2-M3 — staging merge, gates and the meaning entry condition, 24 October 2026
+
+Staging `b1106280` (PR #124 audit policy, PR #125 meaning-oracle retry) merged
+with `--no-ff` into `1b3f983df`; the merge commit is `5d52c6b6b`. The only
+conflict was `rs/read/src/lib.rs`, where both sides added fields and
+re-exports; both were kept and no assertion was dropped.
+
+The merge exposed three real defects, each fixed on its own commit:
+
+- `1b3f983df`: the alert contract adapter built `AppState` by literal and
+  missed the staging cache fields; it now uses `AppState::new`.
+- `8d0b82271`: four merged test `Config` literals lacked the Task 23 `phase2`
+  field. Both are compile errors, not behaviour changes.
+- `2d6faf3fa`: staging's `trading_cache_postgres` integration test updates
+  order-book rows to prove cache invalidation, which the Task 20 boundary scan
+  forbids. The scan now names that one integration test as its only DML
+  exception, and a new test asserts the exception is under `rs/read/tests/`.
+  No production source and no other assertion changed.
+
+Gates at `2d6faf3fa` (`fd659a5` records them):
+
+| Gate | Host / UTC | Exit |
+| --- | --- | --- |
+| fmt; both Clippy; `cargo check` | M1, 13:13–13:20 | 0 each |
+| Offline workspace | M1 | 0; 440 passed, one ignored |
+| `cd rs && cargo audit` | M1 | 0 |
+| Rust PostgreSQL workspace | prod test host, 13:21–13:32 | 0; 450 passed, one ignored |
+| All Phase 2 scenarios | prod test host, 13:32–14:04 | 0; 21 scenarios, 367 actions |
+| Standalone races | prod test host, 14:04–14:20 | 0; 9 scenarios, 27 races |
+| Python unit, monitor, rust_contract | prod test host, 16:49–16:58 | 0; 4774 passed, two skipped |
+
+The first Python run failed one case, `test_main_mount_and_lifespan`, because
+that gate invocation omitted `DATABASE_URL`, so the lifespan dialed a real
+PostgreSQL. The documented environment (`DATABASE_URL=sqlite+aiosqlite:///:memory:`)
+passes the same tree: the first combined run at staging's own parent also
+passed 3731 tests with that variable. This was a harness invocation error, not
+a code defect. `work/pd2-m3-python-bad-env.log` retains the failed run.
+
+Meaning gate (PD2-M3), once, on the same `2d6faf3fa`, on the prod test host:
+**MEANING_EXIT=0** at 17:19:16Z. All ten groups passed with a complete
+assertion ledger. **Zero `ORACLE_RETRY` and zero `ORACLE_UNAVAILABLE`** lines,
+so the PR #125 retry path was not exercised and no oracle was ever unavailable.
+The host was checked first for the harness: the disposable Podman docker shim,
+PostgreSQL through it, Caddy 2.11.2, and the project venv with `alembic`.
+
+Evidence: `work/pd2-m3-m1.log`, `work/pd2-m3-prod.log`,
+`work/pd2-m3-python.log`, `work/pd2-m3-python-bad-env.log`,
+`work/pd2-m3-meaning.log`.
+
+Pushed as a fast-forward to `6af28cc22`. PR #88 CI then passed: `offline`,
+`contract`, `test`, `postgres-analytics` and `postgres-phase0`; `publish` skips
+on a feature branch, as before. The first `postgres-phase0` run failed one case,
+`test_host_assertions_postgres.py::test_assertion_cli_runs_all_database_checks`
+(`rollback-safe: refused`); neither merge parent changed that test or
+`scripts/phase0/assert_host.py`, and staging's own CI passed at `b1106280`. The
+failed job passed on rerun, so the first failure was a runner fault, not a code
+defect, and no source changed for it.
 
 ## PD2-SEC-1 — pre-auth quota cannot lock out new clients, 24 October 2026
 

@@ -1,5 +1,5 @@
 //! Composition-time credentials for notifications; runtime secret loading remains integration-owned.
-use std::{net::SocketAddr, time::Instant};
+use std::net::SocketAddr;
 
 use axum::{
     extract::ConnectInfo,
@@ -23,16 +23,11 @@ use crate::{
 pub struct NotificationAuthority {
     settings: VerificationSettings,
     limits: SharedLimits,
-    started: Instant,
 }
 
 impl NotificationAuthority {
     pub fn new(settings: VerificationSettings, limits: SharedLimits) -> Self {
-        Self {
-            settings,
-            limits,
-            started: Instant::now(),
-        }
+        Self { settings, limits }
     }
 
     pub fn authenticate(&self, headers: &HeaderMap) -> Result<VerifiedAccess, AuthError> {
@@ -49,7 +44,7 @@ impl NotificationAuthority {
         RequestAdmission {
             client,
             path: path.to_owned(),
-            now_seconds: self.started.elapsed().as_secs(),
+            now_seconds: Utc::now().timestamp().max(0) as u64,
             limits: self.limits.clone(),
         }
     }

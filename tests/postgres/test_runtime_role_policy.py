@@ -959,6 +959,9 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                     "id", "rfq_id", "seller_org_id", "seller_user_id", "price_per_mt_usd",
                     "notes", "offer_terms", "expires_at", "revision", "status", "created_at",
                 },
+                "password_reset_tokens": {
+                    "user_id", "token_hash", "expires_at", "created_at", "used_at",
+                },
             }.items()
             for column in columns
         } | {
@@ -976,6 +979,9 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
                     "status", "revision", "expires_at", "updated_at",
                 },
                 "rfq_quotes": {"price_per_mt_usd", "notes", "status", "offer_terms", "expires_at", "revision"},
+                "password_reset_tokens": {
+                    "token_hash", "expires_at", "created_at", "used_at",
+                },
             }.items()
             for column in columns
         }

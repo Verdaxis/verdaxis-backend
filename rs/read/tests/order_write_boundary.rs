@@ -6,10 +6,10 @@
 //!    no shared SQL may write an order-book row, take an order-row `FOR UPDATE`
 //!    lock, call the acceptance-ordinal sequence, or take an advisory lock. Every
 //!    insert target in the whole crate must be one of the two reviewed write
-//!    tables, and only the marked registration line in `lib.rs` may name this
-//!    module. The scan is over source, so it holds for code no test exercises.
+//!    tables, and external callers may name only the declared CF4_04 exports
+//!    alongside the marked registration line in `lib.rs`. The scan is over source, so it holds for code no test exercises.
 //! 2. A behaviour parity: the lock keys, slice order, idempotency scopes and
-//!    request hashes must equal the vectors the reviewed Python exported into
+//!    request hashes must equal the vectors the specified Python exported into
 //!    `tests/rust_contract/phase2/market-write-spec.json`.
 //!
 //! The transaction shell is driven through the `WriteSession` port with a
@@ -38,7 +38,7 @@ use verdaxis_read::order_write::{
 const SPEC: &str = include_str!("../../../tests/rust_contract/phase2/market-write-spec.json");
 
 fn spec() -> Value {
-    serde_json::from_str(SPEC).expect("the reviewed spec must parse")
+    serde_json::from_str(SPEC).expect("the specified spec must parse")
 }
 
 fn spec_string(value: &Value, path: &[&str]) -> String {
@@ -113,7 +113,7 @@ fn gated_ranges(text: &str) -> Vec<(usize, usize)> {
 /// Byte ranges of every Rust string literal, including raw strings.
 ///
 /// Comments and character literals are skipped, so a keyword in prose or in a
-/// `'a'` never counts. Escape sequences are left in place: none of the reviewed
+/// `'a'` never counts. Escape sequences are left in place: none of the specified
 /// patterns is written with an escape.
 fn literal_ranges(text: &str) -> Vec<(usize, usize)> {
     let characters: Vec<(usize, char)> = text.char_indices().collect();
@@ -315,12 +315,43 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
-/// Every source-boundary violation in the repository, as `path: rule` text.
+/// The one integration test that commits an order-book change as the disposable
+/// owner role, to prove a stale generation invalidates a warm cache entry. It
+/// must simulate another writer's change, so it cannot drive the command
+/// boundary; a release build never compiles it.
+const ORDER_BOOK_TEST_WRITER: &str = "rs/read/tests/trading_cache_postgres.rs";
+
+/// The exact statements that file may issue, in `normalized` (uppercase,
+/// whitespace-collapsed) form, each with the number of times the file issues
+/// it. Any other order-book DML in it stays a violation, so a new INSERT,
+/// DELETE, TRUNCATE, different UPDATE or extra use turns the scan red.
+/// Assembled at run time, so this file carries no forbidden text.
+fn reviewed_order_book_test_writes() -> Vec<(String, usize)> {
+    [
+        (
+            ["UPDATE ", "orderbook_orders SET expires_at = $1"].concat(),
+            1,
+        ),
+        // The stale-generation case and the two authority-change cases.
+        (
+            [
+                "UPDATE ",
+                "orderbook_orders SET price_per_mt_usd = price_per_mt_usd + 1",
+            ]
+            .concat(),
+            3,
+        ),
+    ]
+    .map(|(statement, uses)| (normalized(&statement), uses))
+    .to_vec()
+}
+
+/// Every source-boundary violation in the repository.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");
     // The boundary's own integration test drives the module through its port,
-    // so it names the module. No other file outside the module may.
+    // so it names the module. Other callers may name only the declared business exports.
     let owned_test = root.join("rs/read/tests/order_write_boundary.rs");
     let ordinal = ["ORDERBOOK_ACCEPTANCE", "_ORDINAL_SEQ"].concat();
     let advisory_locks = [
@@ -331,6 +362,16 @@ fn scan_repository() -> Vec<String> {
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    let stream_sequencer_lock = [root.join("rs/read/tests/streams_election.rs")];
+    // The browser-device session lock is shared with Python's login, refresh and
+    // logout, so both stacks wait on one key. The key comes from the device
+    // cookie digest and never names an order-book row. The session store and its
+    // test probe that proves the shared key are named exactly.
+    let device_session_lock = [
+        root.join("rs/read/src/auth/store.rs"),
+        root.join("rs/read/tests/auth_store_postgres.rs"),
+    ];
+    let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -344,16 +385,28 @@ fn scan_repository() -> Vec<String> {
             let literal = normalized(&text[start..end]);
             if inside_boundary {
                 // Inside the boundary the only reviewed insert targets are the
-                // receipt and the outbox; every other insert belongs elsewhere.
+                // receipt and the outbox (`WRITE_TABLES`), plus the two leaves
+                // PD4-INT-4 assigns to this boundary as plan work: the
+                // benchmark slice table and the watchlist event table. Every
+                // other insert belongs elsewhere.
                 for target in insert_targets(&literal) {
-                    if !WRITE_TABLES.contains(&target.as_str()) {
+                    let approved_leaf = (path == &boundary.join("benchmarks.rs")
+                        && target == "LIVE_SLICE_BENCHMARKS")
+                        || (path == &boundary.join("events.rs") && target == "WATCHLIST_EVENTS");
+                    if !WRITE_TABLES.contains(&target.as_str()) && !approved_leaf {
                         violations.push(format!("{}: INSERT INTO {target}", path.display()));
                     }
                 }
                 continue;
             }
             if let Some(rule) = orderbook_dml(&literal) {
-                violations.push(format!("{}: {rule}", path.display()));
+                let reviewed_test_write = path == &order_book_test_writer
+                    && reviewed_order_book_test_writes()
+                        .iter()
+                        .any(|(statement, _)| statement == &literal);
+                if !reviewed_test_write {
+                    violations.push(format!("{}: {rule}", path.display()));
+                }
             }
             if orderbook_row_lock(&literal) {
                 violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
@@ -365,7 +418,12 @@ fn scan_repository() -> Vec<String> {
             let test_only = gated
                 .iter()
                 .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock && !test_only && !price_alert_cap.contains(path) {
+            if takes_advisory_lock
+                && !test_only
+                && !price_alert_cap.contains(path)
+                && !stream_sequencer_lock.contains(path)
+                && !device_session_lock.contains(path)
+            {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
                     path.display()
@@ -377,7 +435,7 @@ fn scan_repository() -> Vec<String> {
             && !is_manifest
             && path != &owned_test
             && path != &root.join("rs/read/examples/order_write.rs")
-            && text.contains("order_write")
+            && !boundary_reference_allowed(&text, path.starts_with(root.join("rs/read/tests")))
         {
             violations.push(format!("{}: names the write boundary", path.display()));
         }
@@ -401,6 +459,308 @@ fn scan_repository() -> Vec<String> {
     violations
 }
 
+// CF4_04.integration_patch.order_write_mod_rs.add_exports is the sole
+// authority for these external business entry points. No file-level exemption.
+const BUSINESS_EXPORTS: &[&str] = &[
+    "InvalidateOrganization",
+    "InvalidationResult",
+    "InvalidationError",
+    "invalidate_organization",
+    "BenchmarkRebuildKey",
+    "BenchmarkRebuildResult",
+    "rebuild_live_slice_benchmarks_for_keys",
+];
+
+fn rust_tokens(text: &str) -> Vec<String> {
+    let literals = literal_ranges(text);
+    let bytes = text.as_bytes();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some((_, end)) = literals
+            .iter()
+            .find(|(start, end)| i >= start.saturating_sub(1) && i <= *end)
+        {
+            i = end + 1;
+        } else if bytes[i..].starts_with(b"//") {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else if bytes[i..].starts_with(b"/*") {
+            i += 2;
+            let mut depth = 1;
+            while i < bytes.len() && depth > 0 {
+                if bytes[i..].starts_with(b"/*") {
+                    depth += 1;
+                    i += 2;
+                } else if bytes[i..].starts_with(b"*/") {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if bytes[i].is_ascii_alphabetic() || bytes[i] == b'_' {
+            let start = i;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            tokens.push(text[start..i].to_owned());
+        } else if bytes[i..].starts_with(b"::") {
+            tokens.push("::".into());
+            i += 2;
+        } else {
+            if !bytes[i].is_ascii_whitespace() {
+                tokens.push((bytes[i] as char).to_string());
+            }
+            i += 1;
+        }
+    }
+    tokens
+}
+
+/// PD4-INT-5 (PM decision, 24 Oct 16:47Z): test code under `rs/read/tests/` may
+/// name the three existing public lock helpers, to assert lock order and to
+/// create real lock contention. They are pure key functions with no write path,
+/// and copying their formula into a test could drift. The allowance is this
+/// named list and applies only when `test_path` is true: production code
+/// outside the boundary still names only CF4_04's declared exports (PD4-INT-2).
+const TEST_LOCK_HELPERS: &[&str] = &[
+    "SliceKey",
+    "market_slice_lock_key",
+    "ordered_slice_lock_keys",
+];
+
+fn boundary_reference_allowed(text: &str, test_path: bool) -> bool {
+    let tokens = rust_tokens(text);
+    for (index, token) in tokens.iter().enumerate() {
+        if token != "order_write" {
+            continue;
+        }
+        if index > 0 && tokens[index - 1] == "mod" {
+            // Declaration-only consumer doubles expose the same narrow port.
+            // Their literals still pass every DML and lock check above.
+            let mut cursor = index + 1;
+            if tokens.get(cursor).map(String::as_str) != Some("{") {
+                return false;
+            }
+            let mut depth = 1;
+            cursor += 1;
+            while cursor < tokens.len() && depth > 0 {
+                if depth == 1 && tokens[cursor] == "pub" {
+                    cursor += 1;
+                    if tokens.get(cursor).map(String::as_str) == Some("async") {
+                        cursor += 1;
+                    }
+                    if !matches!(
+                        tokens.get(cursor).map(String::as_str),
+                        Some("struct" | "type" | "fn")
+                    ) {
+                        return false;
+                    }
+                    cursor += 1;
+                    if !tokens
+                        .get(cursor)
+                        .is_some_and(|name| BUSINESS_EXPORTS.contains(&name.as_str()))
+                    {
+                        return false;
+                    }
+                }
+                match tokens.get(cursor).map(String::as_str) {
+                    Some("{") => depth += 1,
+                    Some("}") => depth -= 1,
+                    _ => {}
+                }
+                cursor += 1;
+            }
+            if depth != 0 {
+                return false;
+            }
+            continue;
+        }
+        if tokens.get(index + 1).map(String::as_str) != Some("::") {
+            return false;
+        }
+        let Some(item) = tokens.get(index + 2) else {
+            return false;
+        };
+        if item == "{" {
+            let mut cursor = index + 3;
+            let mut expect_item = true;
+            while let Some(token) = tokens.get(cursor) {
+                if token == "}" {
+                    break;
+                }
+                if expect_item {
+                    // The test-only lock helpers may be named from a test file;
+                    // a production file reaches this branch with `test_path`
+                    // false, so only the CF4_04 exports pass there.
+                    let allowed = BUSINESS_EXPORTS.contains(&token.as_str())
+                        || (test_path && TEST_LOCK_HELPERS.contains(&token.as_str()));
+                    if !allowed {
+                        return false;
+                    }
+                    expect_item = false;
+                } else if token == "as" {
+                    cursor += 1;
+                    let Some(alias) = tokens.get(cursor) else {
+                        return false;
+                    };
+                    if !alias
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                    {
+                        return false;
+                    }
+                } else if token == "," {
+                    expect_item = true;
+                } else {
+                    return false;
+                }
+                cursor += 1;
+            }
+            if tokens.get(cursor).map(String::as_str) != Some("}") {
+                return false;
+            }
+        } else if !(BUSINESS_EXPORTS.contains(&item.as_str())
+            || (test_path && TEST_LOCK_HELPERS.contains(&item.as_str())))
+            || tokens.get(index + 3).map(String::as_str) == Some("::")
+        {
+            return false;
+        }
+    }
+    true
+}
+
+#[test]
+fn declared_business_exports_do_not_open_the_write_boundary() {
+    let contract: Value = serde_json::from_str(include_str!(
+        "../../../tests/rust_contract/phase4/contracts-v2.json"
+    ))
+    .unwrap();
+    let exports =
+        contract["contracts"][3]["integration_patch"]["order_write_mod_rs"]["add_exports"]
+            .as_str()
+            .unwrap();
+    let declared: Vec<_> = rust_tokens(exports)
+        .into_iter()
+        .filter(|token| BUSINESS_EXPORTS.contains(&token.as_str()))
+        .collect();
+    assert_eq!(declared, BUSINESS_EXPORTS);
+    let business = "use crate::order_write::{InvalidateOrganization, invalidate_organization};";
+    assert!(
+        boundary_reference_allowed(business, false),
+        "declared business export"
+    );
+    assert!(boundary_reference_allowed(
+        "crate::order_write::invalidate_organization(conn, command)",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::execute_order_command;",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateOrganization, locks::SliceKey};",
+        true
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::*;",
+        true
+    ));
+    assert!(boundary_reference_allowed(
+        "pub mod order_write { pub struct InvalidateOrganization { pub id: Uuid } pub type InvalidationError = Error; pub async fn invalidate_organization() {} }",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "pub mod order_write { pub fn execute_order_command() {} }",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write as other;",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateOrganization, execute_order_command};",
+        false
+    ));
+
+    // PD4-INT-5: the three lock helpers are allowed only from test paths.
+    for helper in TEST_LOCK_HELPERS {
+        let production = format!("use crate::order_write::{{{helper}}};");
+        assert!(
+            !boundary_reference_allowed(&production, false),
+            "production must not name {helper}"
+        );
+        assert!(
+            boundary_reference_allowed(&production, true),
+            "tests may name {helper}"
+        );
+    }
+    assert!(boundary_reference_allowed(
+        "use verdaxis_read::order_write::{SliceKey, market_slice_lock_key, ordered_slice_lock_keys};",
+        true
+    ));
+    assert!(!boundary_reference_allowed(
+        "use verdaxis_read::order_write::{SliceKey, market_slice_lock_key, ordered_slice_lock_keys};",
+        false
+    ));
+    // A double may still not redefine a lock helper: the allowance is for
+    // naming the real functions, not for widening the consumer-double port.
+    assert!(!boundary_reference_allowed(
+        "pub mod order_write { pub fn market_slice_lock_key() {} }",
+        true
+    ));
+    let direct_write = ["UPDATE ", "order", "book_orders SET version=2"].concat();
+    assert_eq!(
+        orderbook_dml(&normalized(&direct_write)),
+        Some("order-book DML")
+    );
+}
+
+#[test]
+fn the_cache_exception_covers_only_its_reviewed_writes() {
+    // The excepted file carries exactly the reviewed statements. A new
+    // order-book INSERT, DELETE, TRUNCATE or different UPDATE fails here
+    // before the scan can silently accept it.
+    let root = repository_root();
+    let text = std::fs::read_to_string(root.join(ORDER_BOOK_TEST_WRITER))
+        .expect("the exempted integration test must exist");
+    let found: Vec<String> = literal_ranges(&text)
+        .into_iter()
+        .map(|(start, end)| normalized(&text[start..end]))
+        .filter(|literal| orderbook_dml(literal).is_some())
+        .collect();
+    let reviewed = reviewed_order_book_test_writes();
+    let reviewed_uses: usize = reviewed.iter().map(|(_, uses)| uses).sum();
+    assert_eq!(
+        found.len(),
+        reviewed_uses,
+        "unreviewed order-book DML in the exempted file: {found:?}"
+    );
+    // With the total equal, matching each statement's count leaves no room
+    // for an unreviewed statement.
+    for (statement, uses) in &reviewed {
+        let actual = found.iter().filter(|literal| *literal == statement).count();
+        assert_eq!(
+            actual, *uses,
+            "reviewed statement used {actual} times: {statement}"
+        );
+    }
+}
+
+/// The one DML exception is an integration test target, never release source.
+#[test]
+fn the_dml_exception_is_an_integration_test() {
+    // Test-only: no release source, example or other test may be exempt.
+    assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
+    let root = repository_root();
+    assert!(
+        root.join(ORDER_BOOK_TEST_WRITER).exists(),
+        "the excepted fixture must exist"
+    );
+}
+
 #[test]
 fn order_book_writes_stay_in_the_one_boundary() {
     let violations = scan_repository();
@@ -409,6 +769,39 @@ fn order_book_writes_stay_in_the_one_boundary() {
         "the write boundary was crossed:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn the_cache_test_exemption_is_exactly_its_reviewed_writes() {
+    // Test-only: no release source, example or other test may be exempt.
+    assert!(ORDER_BOOK_TEST_WRITER.starts_with("rs/read/tests/"));
+    let reviewed = reviewed_order_book_test_writes();
+    assert_eq!(reviewed.len(), 2);
+    for (statement, _) in &reviewed {
+        assert_eq!(orderbook_dml(statement), Some("order-book DML"));
+    }
+    // The exempted file carries exactly the specified statements. A new
+    // order-book INSERT, DELETE, TRUNCATE or different UPDATE fails here
+    // before the scan can silently accept it.
+    let root = repository_root();
+    let text = std::fs::read_to_string(root.join(ORDER_BOOK_TEST_WRITER))
+        .expect("the exempted integration test must exist");
+    let found: Vec<String> = literal_ranges(&text)
+        .into_iter()
+        .map(|(start, end)| normalized(&text[start..end]))
+        .filter(|literal| orderbook_dml(literal).is_some())
+        .collect();
+    assert_eq!(
+        found.len(),
+        reviewed.iter().map(|(_, uses)| uses).sum::<usize>(),
+        "unreviewed order-book DML in the exempted file: {found:?}"
+    );
+    for literal in &found {
+        assert!(
+            reviewed.iter().any(|(statement, _)| statement == literal),
+            "unreviewed statement: {literal}"
+        );
+    }
 }
 
 #[test]
@@ -463,7 +856,7 @@ fn only_the_registration_line_names_the_boundary() {
             continue;
         }
         let text = std::fs::read_to_string(&path).expect("readable source");
-        if text.contains("order_write") {
+        if !boundary_reference_allowed(&text, path.starts_with(root.join("rs/read/tests"))) {
             mentions.push(path.display().to_string());
         }
     }
@@ -478,7 +871,7 @@ fn literal_sources() -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// Behaviour parity with the reviewed Python.
+// Behaviour parity with the specified Python.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -683,7 +1076,7 @@ fn write_tables_are_the_two_reviewed_tables() {
 fn slice_lock_keys_and_windows_match_python() {
     let spec = spec();
     let rows = spec["slice_lock_keys"].as_array().unwrap();
-    assert!(rows.len() >= 6, "the reviewed case table must be present");
+    assert!(rows.len() >= 6, "the specified case table must be present");
     for row in rows {
         let label = row["label"].as_str().unwrap();
         let window = row["availability_window"].as_str().unwrap();
@@ -729,7 +1122,7 @@ fn side_independent_slice_identity_shares_one_lock() {
             assert_eq!(existing, key, "one slice must hash to one key");
         }
     }
-    // Two of the reviewed cases differ only by side or by input padding.
+    // Two of the specified cases differ only by side or by input padding.
     let labels: Vec<&str> = rows
         .iter()
         .map(|row| row["label"].as_str().unwrap())
@@ -764,7 +1157,7 @@ fn ordered_slice_locks_match_python() {
         assert_eq!(
             ordered_slice_lock_keys(&slices).unwrap(),
             expected,
-            "{label}: the reviewed acquisition order"
+            "{label}: the specified acquisition order"
         );
         // The order is stable under input order.
         let mut reversed = slices.clone();

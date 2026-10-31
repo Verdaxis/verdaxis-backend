@@ -72,9 +72,29 @@ pub struct FillTicket {
     generation: i64,
 }
 
+impl FenceToken {
+    /// The authority identity this token was issued under.
+    pub fn authority(&self) -> &Authority {
+        &self.authority
+    }
+
+    /// Process-local counter that changes on every authority or listener change.
+    pub fn fence(&self) -> u64 {
+        self.fence
+    }
+}
+
 impl FillTicket {
     pub fn new(token: FenceToken, generation: i64) -> Self {
         Self { token, generation }
+    }
+
+    pub fn token(&self) -> &FenceToken {
+        &self.token
+    }
+
+    pub fn generation(&self) -> i64 {
+        self.generation
     }
 }
 
@@ -244,29 +264,30 @@ impl CacheAuthority {
             .is_some_and(|state| state.fence == token.fence && state.admits(&token.authority, now))
     }
 
-    /// Generations only move forward inside one authority. A smaller one means
-    /// the database went backwards (an unrotated restore): revoke everything.
-    pub fn observe_generation(&self, token: &FenceToken, generation: i64, now: Instant) -> bool {
+    /// Independent REPEATABLE READ snapshots can finish out of order. Their
+    /// observations raise storage's high-water mark but cannot prove a restore,
+    /// so a smaller generation never revokes anything in process. An unrotated
+    /// restore is excluded by the external activation protocol, which rotates
+    /// the authority before a restored database can serve.
+    pub fn observe_snapshot(&self, token: &FenceToken, generation: i64, now: Instant) -> bool {
         let Some(mut state) = self.lock() else {
             return false;
         };
-        if state.fence != token.fence || !state.admits(&token.authority, now) {
+        if generation < 0 || state.fence != token.fence || !state.admits(&token.authority, now) {
             return false;
         }
-        match state.highest_generation {
-            Some(highest) if generation < highest => {
-                state.clear();
-                false
-            }
-            _ if generation < 0 => {
-                state.clear();
-                false
-            }
-            highest => {
-                state.highest_generation = Some(highest.map_or(generation, |h| h.max(generation)));
-                true
-            }
-        }
+        state.highest_generation = Some(
+            state
+                .highest_generation
+                .map_or(generation, |highest| highest.max(generation)),
+        );
+        true
+    }
+
+    /// Highest generation this process has verified under the current fence.
+    /// `None` means no request has verified one yet since the last fence change.
+    pub fn highest_generation(&self) -> Option<i64> {
+        self.lock().and_then(|state| state.highest_generation)
     }
 
     /// A fill may be stored or answered only under the authority, listener and

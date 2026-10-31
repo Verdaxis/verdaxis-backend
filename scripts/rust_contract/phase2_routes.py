@@ -29,6 +29,20 @@ from scripts.rust_contract.phase2_seed import (
 from scripts.rust_contract.phase2_state import compare_state, validate_cells
 
 
+def rust_example_path(root: Path, name: str) -> Path:
+    """Resolve a built `examples/` binary, honoring `CARGO_TARGET_DIR`.
+
+    A CI run or a test host may build into a target directory other than the
+    default `rs/target` (the hosts share one build folder per phase).  The
+    build commands go through plain cargo, which reads the same variable, so
+    this is the single place the server paths follow the build location.
+    """
+    target = Path(os.environ.get("CARGO_TARGET_DIR", root / "rs" / "target"))
+    if not target.is_absolute():
+        target = root / target
+    return target / "debug" / "examples" / name
+
+
 @dataclass
 class Context:
     root: Path
@@ -37,6 +51,28 @@ class Context:
     database_url: str = ""
     mail: MailStub | None = None
     race_databases: tuple[str, str] = ()
+    size: object | None = None
+
+    def rust_example(self, name: str) -> Path:
+        """The `rs` example binary this run's build produced (see above)."""
+        return rust_example_path(self.root, name)
+
+
+def race_selection(selected, enabled):
+    """Split the selection into the scenarios that race and those that do not.
+
+    A group-wide run (`--phase2-group all`) selects scenarios with and without
+    race schedules, so a scenario that registers none is skipped and named in
+    the report.  Asking for races when the whole selection registers none is a
+    caller mistake and stays refused.
+    """
+    if not enabled:
+        return [], []
+    racing = [scenario for scenario in selected if scenario.races is not None]
+    skipped = [scenario.name for scenario in selected if scenario.races is None]
+    if not racing:
+        raise ScenarioError("selected scenarios register no race schedules")
+    return racing, skipped
 
 
 def run_registered(runner, args, selected):
@@ -49,8 +85,8 @@ def run_registered(runner, args, selected):
         wait_for_port,
     )
 
-    if args.phase2_races and any(scenario.races is None for scenario in selected):
-        raise ScenarioError("selected scenario has no registered races")
+    racing, race_skipped = race_selection(selected, args.phase2_races)
+    racing_names = {scenario.name for scenario in racing}
     port = runner.start_database()
     environment = {**os.environ, "ENVIRONMENT": "test", "RELEASE_SHA": runner.sha,
                    "JWT_SECRET": "test-secret-key-for-testing-minimum-32-chars", **runner.urls(port),
@@ -94,14 +130,20 @@ def run_registered(runner, args, selected):
         with connect(port, database) as reader:
             return snapshot(reader)
 
+    from scripts.rust_contract.phase2_sizes import profile as size_profile
+
+    size = size_profile(getattr(args, "phase2_size", "small"))
     reports = []
     with MailStub() as mail:
         for index, scenario in enumerate(selected):
-            context = Context(ROOT, runner.python_bin, environment, mail=mail)
+            context = Context(ROOT, runner.python_bin, environment, mail=mail, size=size)
             template = f"phase2_route_seed_{index}_test"
             clone(DB_NAME, template)
             with connect(port, template) as source:
                 scenario.setup(source)
+                volume = getattr(scenario, "volume", None)
+                if volume is not None:
+                    volume(source, size)
             databases = [f"phase2_route_{index}_{label}_test" for label in ("python", "rust", "mixed")]
             context.race_databases = (databases[0], databases[1])
             for database in databases:
@@ -144,7 +186,7 @@ def run_registered(runner, args, selected):
                 mail.respond(status=action.mail_status, body=action.mail_body)
                 actions.extend(run_actions([action], cells))
             races = []
-            if args.phase2_races:
+            if scenario.name in racing_names:
                 schedules = scenario.races(context)
                 if not schedules:
                     raise ScenarioError("race mode has no schedules")
@@ -171,6 +213,7 @@ def run_registered(runner, args, selected):
                 with connect(port, database) as reader:
                     marks[database] = sequence_marks(reader)
             reports.append({"scenario": scenario.name, "group": scenario.group,
+                            "size": size.name,
                             "scope": "route-contract" if scenario.route_qualification else "harness-only",
                             "route_qualification": scenario.route_qualification, "seed_sha256": digest(initial[0]),
                             "acl_sha256": acl, "actions": actions, "races": races,
@@ -180,4 +223,5 @@ def run_registered(runner, args, selected):
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({"source_sha": runner.sha, "scenarios": reports,
+                                          "race_skipped_no_schedules": race_skipped,
                                           "measurements": False}, indent=2) + "\n")

@@ -1,6 +1,9 @@
 use crate::{ApiError, Json};
 use axum::{
-    http::{StatusCode, header::RETRY_AFTER},
+    http::{
+        StatusCode,
+        header::{RETRY_AFTER, WWW_AUTHENTICATE},
+    },
     response::{IntoResponse, Response},
 };
 
@@ -11,6 +14,12 @@ impl IntoResponse for ApiError {
             axum::Json(serde_json::json!({"detail": self.detail})),
         )
             .into_response();
+        if self.status == StatusCode::UNAUTHORIZED {
+            response.headers_mut().insert(
+                WWW_AUTHENTICATE,
+                axum::http::HeaderValue::from_static("Bearer"),
+            );
+        }
         if let Some(seconds) = self.retry_after {
             response.headers_mut().insert(
                 RETRY_AFTER,

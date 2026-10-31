@@ -37,6 +37,8 @@ mod disposable {
             pool_max: 17,
             python_budget: 52,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
             kyc_execution_gate_enabled: true,
             phase2: Default::default(),
         };
@@ -84,7 +86,10 @@ mod disposable {
                 }
             });
         let app = app.layer(axum::middleware::from_fn(response_loss));
-        let app = verdaxis_read::runtime::http::middleware(app);
+        let app = verdaxis_read::runtime::http::middleware(
+            app,
+            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+        );
         axum::serve(
             tokio::net::TcpListener::bind(bind).await?,
             app.into_make_service_with_connect_info::<std::net::SocketAddr>(),

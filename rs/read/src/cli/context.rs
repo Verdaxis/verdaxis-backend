@@ -48,6 +48,10 @@ pub async fn open(
 }
 
 pub fn load_serve_config(args: &ServeArgs) -> Result<Config, Exit> {
+    // Check raw environment encoding before any optional value can default.
+    if std::env::var_os("FLEET_ARTIFACT_PATH").is_some_and(|value| value.into_string().is_err()) {
+        return Err(Exit::Precondition);
+    }
     if let Ok(document) = std::env::var("RUST_CONFIG") {
         return serde_json::from_str(&document).map_err(|_| Exit::Dependency);
     }

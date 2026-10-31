@@ -1,3 +1,4 @@
+use crate::auth::{limits::Refusal, origin::trusted_origins};
 use crate::{ApiError, request_id};
 use axum::{
     Router,
@@ -7,24 +8,15 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::{
-    collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    collections::{BTreeSet, HashMap},
+    net::{IpAddr, Ipv6Addr, SocketAddr},
     sync::{Arc, Mutex},
     time::Instant,
 };
 
-/// Mirror the deployed Python credentialed-origin boundary, without sharing
-/// production browser authority with staging. Test harnesses retain their oracle.
+/// Use the same closed environment policy as the cookie origin guard.
 pub fn allowed_browser_origin(environment: &str, origin: &str) -> bool {
-    match environment {
-        "production" => matches!(
-            origin,
-            "https://app.verdaxis.exchange"
-                | "https://verdaxis.exchange"
-                | "https://canary.verdaxis.exchange"
-        ),
-        _ => origin == "https://staging.verdaxis.exchange",
-    }
+    trusted_origins(environment).contains(&origin)
 }
 
 pub fn client_ip(peer: Option<IpAddr>, forwarded: Option<&str>) -> String {
@@ -48,12 +40,17 @@ pub const PREAUTH_COUNTED_HEADER: &str = "x-verdaxis-preauth-counted";
 #[derive(Clone)]
 struct HttpState {
     started: Instant,
-    buckets: Arc<Mutex<HashMap<(String, String), RateBucket>>>,
+    buckets: Arc<Mutex<ClientBuckets>>,
     phase2_limits: crate::auth::limits::SharedLimits,
 }
 
-pub fn middleware(routes: Router) -> Router {
-    compose(routes, None, crate::auth::limits::SharedLimits::default())
+pub fn middleware(routes: Router, environment: &str) -> Router {
+    compose(
+        routes,
+        None,
+        crate::auth::limits::SharedLimits::default(),
+        environment,
+    )
 }
 
 pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Router {
@@ -61,29 +58,39 @@ pub fn middleware_with_state(routes: Router, app_state: crate::AppState) -> Rout
         routes,
         Some(app_state),
         crate::auth::limits::SharedLimits::default(),
+        "",
     )
 }
 
 /// Compose one pre-auth authority around a route split. Task 22 must attach
 /// both real upstream owners here before admin-feedback cutover is permitted.
-pub fn middleware_with_limits(routes: Router, limits: crate::auth::limits::SharedLimits) -> Router {
-    compose(routes, None, limits)
+pub fn middleware_with_limits(
+    routes: Router,
+    limits: crate::auth::limits::SharedLimits,
+    environment: &str,
+) -> Router {
+    compose(routes, None, limits, environment)
 }
 
 fn compose(
     routes: Router,
     app_state: Option<crate::AppState>,
     limits: crate::auth::limits::SharedLimits,
+    environment: &str,
 ) -> Router {
     let state = HttpState {
         started: Instant::now(),
-        buckets: Arc::new(Mutex::new(HashMap::new())),
+        buckets: Arc::new(Mutex::new(ClientBuckets::default())),
         phase2_limits: limits,
     };
     let environment = app_state
         .as_ref()
         .map(|state| state.config.environment.clone())
-        .unwrap_or_else(|| "staging".into());
+        .unwrap_or_else(|| environment.to_owned());
+    let host_policy = app_state
+        .as_ref()
+        .map(|state| state.host_policy.clone())
+        .filter(|policy| policy.is_enforced());
     let routes = routes.layer(middleware::from_fn_with_state(state, dispatch_boundary));
     let routes = if let Some(app_state) = app_state {
         routes.layer(middleware::from_fn_with_state(
@@ -93,9 +100,15 @@ fn compose(
     } else {
         routes
     };
-    routes
-        .layer(middleware::from_fn_with_state(environment, cors))
-        .layer(middleware::from_fn(log_request))
+    let routes = routes.layer(middleware::from_fn_with_state(environment, cors));
+    // The Host check sits outside CORS, admission and the quota boundary, so a
+    // refused request gets no CORS grant and spends no quota or read slot. It
+    // sits inside the request log, so the refusal is logged and carries an id.
+    let routes = match host_policy {
+        Some(policy) => routes.layer(middleware::from_fn_with_state(policy, super::host::guard)),
+        None => routes,
+    };
+    routes.layer(middleware::from_fn(log_request))
 }
 
 /// Marks Python's outer ServerErrorMiddleware response, which bypasses CORS
@@ -215,12 +228,18 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
         .headers_mut()
         .insert("access-control-allow-credentials", "true".parse().unwrap());
     if !preflight {
-        response.headers_mut().insert(
-            "access-control-expose-headers",
+        // The read-cap truncation header joins the exposed set only on the
+        // operator pages that can carry it, so a cross-origin operator UI
+        // can read it (Task 4 review m1); every other route keeps Python's
+        // exact three-header set.
+        let exposes = if response.headers().contains_key("x-result-truncated") {
+            "Retry-After, X-Request-ID, X-Result-Truncated, X-Verdaxis-Market-Support-Context-Invalid"
+        } else {
             "Retry-After, X-Request-ID, X-Verdaxis-Market-Support-Context-Invalid"
-                .parse()
-                .unwrap(),
-        );
+        };
+        response
+            .headers_mut()
+            .insert("access-control-expose-headers", exposes.parse().unwrap());
     }
     if allowed {
         response
@@ -245,10 +264,16 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/api/benchmarks",
+    "/api/demand",
+    "/api/fleet-intelligence",
     "/health/live",
     "/health/ready",
     "/health",
     "/api/ports",
+    "/api/availability",
+    "/api/compliance/fuels",
+    "/api/producers",
     "/api/catalog/products",
     "/api/catalog/delivery-points",
     "/api/news",
@@ -283,6 +308,15 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// The pre-auth 429. An auth route gets the auth envelope and the seconds until
+/// its window resets; the Phase 2 admin prefix keeps its existing response.
+fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
+    if path.starts_with("/api/auth/") {
+        return refusal.auth_failure().into_response();
+    }
+    rate_limit_response()
+}
+
 fn rate_limit_response() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
@@ -295,12 +329,12 @@ fn rate_limit_response() -> Response {
         .into_response()
 }
 
-/// Apply the two rules that sit just outside route dispatch: the Market Support
-/// context boundary and the fixed-window price limits (AD-01). Admission and
-/// CORS are separate outer layers.
+/// Apply the rules that sit just outside route dispatch: the pre-auth quota
+/// authority, the Market Support context boundary and the fixed-window price
+/// limits. Admission and CORS are separate outer layers.
 async fn dispatch_boundary(
     State(state): State<HttpState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
@@ -315,13 +349,15 @@ async fn dispatch_boundary(
             .get("x-forwarded-for")
             .and_then(|value| value.to_str().ok()),
     );
-    let now = state.started.elapsed().as_secs();
     // One shared pre-auth authority: Caddy calls this path before it decides
     // whether Python or Rust owns the admin request, so both owners draw from
-    // one counter in one process (decision 78). A refused request never reaches
-    // an upstream; the admitted request carries the mark below.
+    // one counter in one process. A refused request never reaches an upstream;
+    // the admitted request carries the mark below.
     if request.method() == axum::http::Method::GET && path == PREAUTH_PATH {
-        if state.phase2_limits.admit_admin(&client, now) {
+        if state
+            .phase2_limits
+            .admit_admin(&client, chrono::Utc::now().timestamp().max(0) as u64)
+        {
             return (StatusCode::NO_CONTENT, [(PREAUTH_COUNTED_HEADER, "1")]).into_response();
         }
         return rate_limit_response();
@@ -333,9 +369,14 @@ async fn dispatch_boundary(
         .headers()
         .get(PREAUTH_COUNTED_HEADER)
         .is_some_and(|value| value == "1");
-    if !counted && !state.phase2_limits.preauth(&client, path, now) {
-        return rate_limit_response();
+    let quota_now = chrono::Utc::now().timestamp().max(0) as u64;
+    if !counted && let Err(refusal) = state.phase2_limits.preauth_check(&client, path, quota_now) {
+        return preauth_refusal(path, refusal);
     }
+    request
+        .extensions_mut()
+        .insert(crate::auth::login::PreauthCharged(quota_now));
+    let path = request.uri().path();
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
@@ -393,16 +434,19 @@ async fn dispatch_boundary(
         );
         let now = state.started.elapsed().as_millis() as u64;
         let accepted = {
-            let mut buckets = state.buckets.lock().expect("rate bucket lock");
-            buckets.retain(|_, bucket| now.saturating_sub(bucket.started_ms) < 60_000);
-            admit(
-                buckets.entry((client, path.into())).or_insert(RateBucket {
-                    started_ms: now,
-                    used: 0,
-                }),
-                limit,
-                now,
-            )
+            let mut buckets = match state.buckets.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    // Keep the counters: clearing them would grant fresh quota.
+                    // Clear poison while holding the recovered guard so only
+                    // this recovery emits a warning, not every later request.
+                    let guard = poisoned.into_inner();
+                    state.buckets.clear_poison();
+                    tracing::warn!(recoveries = 1_u64, "price quota lock recovery");
+                    guard
+                }
+            };
+            buckets.accept(&client, path, limit, now)
         };
         if !accepted {
             return ApiError {
@@ -428,7 +472,13 @@ async fn dispatch_boundary(
 
 pub fn public_routes() -> Router<crate::AppState> {
     Router::new()
+        .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
+        .merge(crate::routes::availability::routes())
+        .merge(crate::routes::compliance_fuels::routes())
+        .merge(crate::routes::producers::routes())
+        .merge(crate::routes::demand::routes())
+        .merge(crate::routes::fleet_intelligence::routes())
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
         .merge(crate::routes::orderbook_snapshot::routes())
@@ -442,11 +492,53 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::mcp::mcp_router())
 }
 
+/// Authenticated business routes. Each group receives its own verification
+/// settings, because `VerificationSettings` is not `Clone`.
+pub fn authenticated_routes(
+    verification: crate::auth::VerificationSettings,
+    limits: crate::auth::limits::SharedLimits,
+) -> Vec<Router<crate::AppState>> {
+    vec![crate::business::vessels::routes(
+        crate::business::vessels::VesselAuthority::new(verification, limits),
+    )]
+}
+
+/// Administrator analytics routes (P02–P04).
+///
+/// Component composition only: the serving binary mounts these under the P group
+/// cutover. The returned router already carries its own route state, so the
+/// caller merges it into the serving router after `router_with`; the health and
+/// readiness routes are untouched.
+pub fn analytics_routes(
+    state: crate::AppState,
+    verification: std::sync::Arc<crate::auth::VerificationSettings>,
+    limits: crate::auth::limits::SharedLimits,
+) -> Router {
+    Router::new()
+        .merge(crate::analytics::legacy_dashboard::router(
+            state.clone(),
+            verification.clone(),
+            limits.clone(),
+        ))
+        .merge(crate::analytics::users::router(state, verification, limits))
+}
+
+/// Compose P01 without replacing health, readiness or any public route.
+/// The caller supplies the accepted provider adapter and shared quota authority.
+pub fn usage_router(
+    state: crate::AppState,
+    authority: crate::analytics::usage::UsageAuthority,
+) -> Router {
+    router_with(
+        public_routes().merge(crate::analytics::usage::routes(authority)),
+        state,
+    )
+}
+
 pub fn public_router(state: crate::AppState) -> Router {
     router_with(public_routes(), state)
 }
 
-/// The six Phase 2 groups, mounted only when the deploy projected the private
 /// Phase 2 settings. Every group draws its endpoint quota from the same
 /// authority the ingress gate uses, so one process owns the counters.
 ///
@@ -488,9 +580,6 @@ fn phase2_routes(
             )
             .merge(crate::crud::watchlists::router(
                 state.clone(),
-                // PD5: the activation is the release metadata record, never
-                // a clock reading or a fixed instant. PD4-G still hides every
-                // best-price event by type (decision 94).
                 crate::crud::watchlists::WatchlistSettings::new(
                     verification.clone(),
                     settings.watchlist_activation,
@@ -529,10 +618,60 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(phase2) => routes.merge(phase2),
         None => routes,
     };
+    let routes = if let Some(settings) = state.phase2.as_ref() {
+        let scores = crate::routes::compliance_scores::routes_with_context(Arc::new(
+            crate::routes::compliance_scores::RouteContext {
+                settings: Arc::new(settings.verification.clone()),
+                limits: limits.clone(),
+                clock: crate::routes::compliance_scores::Clock::Wall,
+            },
+        ));
+        let overlay = crate::routes::compliance_overlay::routes(
+            crate::routes::compliance_overlay::OverlayAuthority::new(
+                settings.verification.clone(),
+                limits.clone(),
+            ),
+        );
+        routes
+            .merge(scores.with_state(state.clone()))
+            .merge(overlay.with_state(state.clone()))
+    } else {
+        routes
+    };
+    let routes = match super::phase3::routes(&state, limits.clone()) {
+        Some(auth) => routes.merge(auth),
+        None => routes,
+    };
+    let routes = match super::phase4::routes(&state, limits.clone()) {
+        Some(business) => routes.merge(business),
+        None => routes,
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);
-    compose(routes, Some(state), limits)
+    let environment = state.config.environment.clone();
+    compose(routes, Some(state), limits, &environment)
+}
+
+/// Compose the serving router with a route group that already carries its own
+/// state (for example a component router built with `Router::with_state`).
+///
+/// Every serving route stays mounted: the three health routes and the public
+/// routes are composed exactly as `router_with` builds them, and the stated
+/// group is merged before the shared middleware and fallbacks are applied.
+/// Extra routes are only added; no serving route is replaced or removed.
+pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
+    // The dispatch boundary overrides axum's implicit HEAD handler.
+    let routes = Router::new()
+        .route("/health/live", axum::routing::get(crate::live))
+        .route("/health/ready", axum::routing::get(crate::ready))
+        .route("/health", axum::routing::get(crate::ready))
+        .merge(public_routes())
+        .fallback(fallback)
+        .with_state(state.clone())
+        .merge(stated)
+        .method_not_allowed_fallback(method_not_allowed);
+    middleware_with_state(routes, state)
 }
 
 async fn method_not_allowed() -> Response {
@@ -698,19 +837,194 @@ impl QueryFields {
     }
 }
 
-pub struct RateBucket {
-    pub started_ms: u64,
-    pub used: u32,
+/// The address-keyed AD-01 price-limit accounting: one fixed window per
+/// client and route, bounded and evicting so a flood of distinct addresses
+/// cannot grow memory without limit or make each request O(n).
+///
+/// Ported from the accepted PD2-SEC-1 pre-auth store: an ordered expiration
+/// index keeps expiry and eviction bounded, eviction drops the
+/// soonest-expiring entry (the oldest accounting; every entry shares the one
+/// 60 s window) and is counted by a warn-level number that names no client,
+/// and IPv6 clients are grouped to one /64 bucket with IPv4-mapped addresses
+/// folded onto their IPv4 bucket. A refused request never extends its window.
+#[derive(Default)]
+pub struct ClientBuckets {
+    buckets: HashMap<(String, String), (u64, u32)>,
+    expiration: BTreeSet<(u64, (String, String))>,
+    evictions: u64,
 }
 
-pub fn admit(bucket: &mut RateBucket, limit: u32, now_ms: u64) -> bool {
-    if now_ms.saturating_sub(bucket.started_ms) >= 60_000 {
-        bucket.started_ms = now_ms;
-        bucket.used = 0;
+/// Every entry shares one window length, so the soonest-expiring entry is the
+/// oldest accounting. Refusing the new client instead would let a flood of
+/// fresh addresses lock out every legitimate client.
+const MAX_BUCKETS: usize = 50_000;
+
+const WINDOW_MS: u64 = 60_000;
+
+// A small fixed batch bounds synchronous cleanup under the shared lock. At
+// 32 entries per request, stale accounting drains faster than new clients can
+// add it, without making one caller release all 50,000 expired entries.
+const EXPIRED_CLEANUP_BUDGET: usize = 32;
+
+impl ClientBuckets {
+    /// Reset the caller if expired, clean one bounded batch, then account it.
+    pub fn accept(&mut self, client: &str, path: &str, limit: u32, now_ms: u64) -> bool {
+        let identity = (network_identity(client), path.into());
+        if let Some(&(started_ms, _)) = self.buckets.get(&identity)
+            && started_ms.saturating_add(WINDOW_MS) <= now_ms
+        {
+            self.expiration
+                .remove(&(started_ms.saturating_add(WINDOW_MS), identity.clone()));
+            self.buckets.remove(&identity);
+        }
+        for _ in 0..EXPIRED_CLEANUP_BUDGET {
+            let Some((expires_at, _)) = self.expiration.first() else {
+                break;
+            };
+            if *expires_at > now_ms {
+                break;
+            }
+            let (_, expired) = self.expiration.pop_first().expect("expiration entry");
+            self.buckets.remove(&expired);
+        }
+        if !self.buckets.contains_key(&identity) {
+            if self.buckets.len() >= MAX_BUCKETS {
+                // Only the identity being admitted is new; its own entry does
+                // not exist yet, so eviction can never drop the caller's own
+                // accounting, only the soonest-expiring other entry.
+                let (_, evicted) = self.expiration.pop_first().expect("full quota index");
+                self.buckets.remove(&evicted);
+                self.evictions = self.evictions.saturating_add(1);
+                tracing::warn!(evictions = self.evictions, "price quota eviction");
+            }
+            let expires_at = now_ms.saturating_add(WINDOW_MS);
+            self.expiration.insert((expires_at, identity.clone()));
+            self.buckets.insert(identity.clone(), (now_ms, 0));
+        }
+        let bucket = self.buckets.get_mut(&identity).expect("quota entry");
+        debug_assert!(bucket.0.saturating_add(WINDOW_MS) > now_ms);
+        if bucket.1 >= limit {
+            return false;
+        }
+        bucket.1 += 1;
+        true
     }
-    if bucket.used >= limit {
-        return false;
+
+    /// Test visibility into the bounded size of the accounting.
+    pub fn entries(&self) -> usize {
+        self.buckets.len()
     }
-    bucket.used += 1;
-    true
+
+    /// Evictions since start. A plain number: it names no client.
+    pub fn evictions(&self) -> u64 {
+        self.evictions
+    }
+}
+
+/// One bucket per IPv4 address; IPv6 grouped to /64, with IPv4-mapped
+/// addresses folded onto their IPv4 bucket. Unparseable keys keep their own
+/// single shared bucket, so they cannot multiply buckets.
+fn network_identity(client: &str) -> String {
+    match client.parse::<IpAddr>() {
+        Ok(IpAddr::V6(address)) => {
+            if let Some(ipv4) = address.to_ipv4_mapped() {
+                return ipv4.to_string();
+            }
+            let prefix = u128::from(address) & (u128::MAX << 64);
+            Ipv6Addr::from(prefix).to_string()
+        }
+        Ok(IpAddr::V4(address)) => address.to_string(),
+        Err(_) => "unknown".into(),
+    }
+}
+
+#[cfg(test)]
+mod limiter_tests {
+    use super::*;
+    use axum::{body::Body, http::Request, routing::get};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn poisoned_price_accounting_recovers_without_resetting_spent_quotas() {
+        let state = HttpState {
+            started: Instant::now(),
+            buckets: Arc::new(Mutex::new(ClientBuckets::default())),
+            phase2_limits: crate::auth::limits::SharedLimits::default(),
+        };
+        let paths = [
+            ("/api/prices", 60),
+            ("/api/prices/reference", 30),
+            ("/api/prices/reference/export", 10),
+        ];
+        {
+            let mut buckets = state.buckets.lock().unwrap();
+            for (path, limit) in paths {
+                for _ in 0..limit {
+                    assert!(buckets.accept("unknown", path, limit, 0));
+                }
+            }
+        }
+        let buckets = state.buckets.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = buckets.lock().unwrap();
+                panic!("test unwind while holding price accounting");
+            })
+            .join()
+            .is_err()
+        );
+        assert!(state.buckets.is_poisoned());
+        let mut routes = Router::new();
+        for (path, _) in paths {
+            routes = routes.route(path, get(|| async { "prices" }));
+        }
+        let app = routes.layer(middleware::from_fn_with_state(
+            state.clone(),
+            dispatch_boundary,
+        ));
+        for (path, limit) in paths {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(response.headers().get("retry-after").is_none());
+            let body = axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::json!({"detail": format!("Rate limit exceeded: {limit} per 1 minute")})
+            );
+        }
+        assert!(!state.buckets.is_poisoned());
+        let buckets = state.buckets.lock().unwrap();
+        assert_eq!(buckets.entries(), 3);
+        assert_eq!(buckets.expiration.len(), 3);
+    }
+
+    #[test]
+    fn bounded_cleanup_keeps_one_index_tuple_per_identity() {
+        let mut store = ClientBuckets::default();
+        for index in 0..50_000_u32 {
+            assert!(store.accept(
+                &std::net::Ipv4Addr::from(index).to_string(),
+                "/api/prices",
+                1,
+                0
+            ));
+        }
+        for now in [60_000, 120_000, 180_000] {
+            assert!(store.accept("0.0.195.79", "/api/prices", 1, now));
+            assert_eq!(store.expiration.len(), store.buckets.len());
+            for (identity, (started, _)) in &store.buckets {
+                assert!(
+                    store
+                        .expiration
+                        .contains(&(started + WINDOW_MS, identity.clone()))
+                );
+            }
+        }
+    }
 }

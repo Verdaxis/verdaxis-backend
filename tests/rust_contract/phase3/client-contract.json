@@ -1,0 +1,368 @@
+{
+  "version": 1,
+  "description": "Binding Phase 3 client surface. Fields, types, statuses and cookie attributes that the frontend and MCP clients read. Message wording is free; a code listed here is part of the contract. A null code list means the status is contractual and the code value is not.",
+  "error_envelope": {
+    "shape": {"detail": {"code": "UPPER_SNAKE_CODE", "message": "clear text"}},
+    "code_pattern": "^[A-Z][A-Z0-9_]+$",
+    "www_authenticate": {"status": 401, "value": "Bearer"},
+    "client_tolerates": [
+      {"detail": "string"},
+      {"detail": [{"msg": "string"}]}
+    ]
+  },
+  "audit_fields": {
+    "request_id": {
+      "type": "string or null",
+      "rust_invitation_accept": "Use the middleware correlation id when present; otherwise accept X-Request-ID only when it has 1-36 ASCII characters from [A-Za-z0-9._:-]. Store null for other values.",
+      "python": "Stores the raw X-Request-ID header. Exotic header values can therefore differ; audit action names, actor, resource and changes remain contractual."
+    }
+  },
+  "cookies": {
+    "names": ["refresh_token", "device_session"],
+    "path": "/api/auth",
+    "http_only": true,
+    "secure": "every environment except development",
+    "same_site": "Lax",
+    "max_age_seconds": 604800,
+    "domain": null,
+    "javascript_readable": false,
+    "cleared_by": ["POST /api/auth/logout"]
+  },
+  "surfaces": [
+    {
+      "id": "S1",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "request": {
+        "encoding": "form",
+        "fields": {"username": "string", "password": "string"}
+      },
+      "success": {
+        "status": 200,
+        "fields": {
+          "access_token": "string",
+          "token_type": {"const": "bearer"}
+        }
+      },
+      "optional_success_fields": ["profile"],
+      "sets_cookies": ["refresh_token", "device_session"],
+      "errors": [
+        {
+          "status": 401,
+          "codes": ["AUTH_CREDENTIALS_INVALID"],
+          "www_authenticate": "Bearer"
+        },
+        {
+          "status": 403,
+          "codes": ["AUTH_EMAIL_UNVERIFIED", "AUTH_ACCOUNT_NOT_ACTIVE"]
+        },
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["access_token", "profile?", "status"],
+      "client_behaviour": "The frontend reads access_token and stores it in memory. When profile is absent it calls GET /auth/me. A 403 branch uses the code to tell an unverified email from an inactive account; a message-substring fallback remains until the frontend change lands."
+    },
+    {
+      "id": "S2",
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "request": {"encoding": "none", "fields": {}},
+      "success": {
+        "status": 200,
+        "fields": {
+          "access_token": "string",
+          "token_type": {"const": "bearer"}
+        }
+      },
+      "sets_cookies": ["refresh_token", "device_session"],
+      "errors": [
+        {
+          "status": 401,
+          "terminal": true,
+          "codes": [
+            "REFRESH_TOKEN_MISSING",
+            "REFRESH_TOKEN_EXPIRED",
+            "REFRESH_TOKEN_INVALID",
+            "REFRESH_SESSION_REVOKED",
+            "REFRESH_TOKEN_REPLAYED",
+            "REFRESH_ACCOUNT_INACTIVE",
+            "REFRESH_PASSWORD_CHANGED",
+            "REFRESH_DEVICE_REQUIRED"
+          ]
+        },
+        {
+          "status": 409,
+          "transient": true,
+          "codes": ["REFRESH_ROTATION_IN_PROGRESS"],
+          "fields": {"retry_after_seconds": "integer"}
+        },
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["access_token", "status", "detail.code", "retry_after_seconds"],
+      "client_behaviour": "The refresh token travels only in cookies. A terminal 401 clears the in-memory access token; a 409 under the rotation grace keeps it and is retried once; gateway statuses keep it."
+    },
+    {
+      "id": "S3",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "request": {"encoding": "none", "fields": {}},
+      "success": {"status": 204, "fields": {}},
+      "body": "ignored by the client",
+      "clears_cookies_on": ["success", "error"],
+      "sets_cookies": [],
+      "errors": [],
+      "client_reads": ["status"],
+      "client_behaviour": "The frontend ignores the body and navigates to the login page. Cookies are cleared on success and on every error path."
+    },
+    {
+      "id": "S4",
+      "method": "GET",
+      "path": "/api/auth/stream-token",
+      "request": {"encoding": "none", "fields": {}},
+      "success": {
+        "status": 200,
+        "fields": {"stream_token": "string"}
+      },
+      "sets_cookies": [],
+      "errors": [
+        {"status": 403, "codes": ["AUTH_ORGANIZATION_REQUIRED"]},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["stream_token", "status"],
+      "client_behaviour": "The stream hook puts stream_token in the event-source URL and refreshes once after a rejected request."
+    },
+    {
+      "id": "S5",
+      "method": "PUT",
+      "path": "/api/auth/me/password",
+      "request": {
+        "encoding": "json",
+        "fields": {"current_password": "string", "new_password": "string"}
+      },
+      "success": {
+        "status": 200,
+        "fields": {"access_token": "string"}
+      },
+      "sets_cookies": ["refresh_token", "device_session"],
+      "errors": [
+        {"status": 400, "codes": ["AUTH_CURRENT_PASSWORD_INVALID"]},
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["access_token", "status"],
+      "client_behaviour": "The settings page stores the returned access token and reports success. A wrong current password is a 400."
+    },
+    {
+      "id": "S6",
+      "method": "POST",
+      "path": "/api/auth/invitations/accept",
+      "request": {
+        "encoding": "json",
+        "fields": {
+          "token": "string",
+          "new_password": "string",
+          "accept_terms": "boolean"
+        }
+      },
+      "success": {
+        "status": 200,
+        "fields": {
+          "access_token": "string",
+          "token_type": {"const": "bearer"}
+        }
+      },
+      "sets_cookies": ["refresh_token", "device_session"],
+      "errors": [
+        {"status": 400, "codes": ["INVITATION_INVALID"]},
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["access_token", "token_type", "status"],
+      "client_behaviour": "The invitation page stores the token, accepts the terms and sets a password once. A second use of the token is a 400."
+    },
+    {
+      "id": "E1",
+      "method": "POST",
+      "path": "/api/auth/forgot-password",
+      "request": {"encoding": "json", "fields": {"email": "string"}},
+      "success": {
+        "status": 200,
+        "fields": {"message": "string"}
+      },
+      "uniform_for_every_valid_address": true,
+      "sets_cookies": [],
+      "errors": [
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["status"],
+      "client_behaviour": "The page shows the same neutral confirmation for every syntactically valid address."
+    },
+    {
+      "id": "E2",
+      "method": "POST",
+      "path": "/api/auth/reset-password",
+      "request": {
+        "encoding": "json",
+        "fields": {"token": "string", "new_password": "string"}
+      },
+      "success": {
+        "status": 200,
+        "fields": {"message": "string"}
+      },
+      "sets_cookies": [],
+      "errors": [
+        {"status": 400, "codes": ["RESET_TOKEN_INVALID"]},
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["status", "detail"],
+      "client_behaviour": "The reset page reports success without returning a token. A used, expired or unknown token is a 400."
+    },
+    {
+      "id": "E3",
+      "method": "POST",
+      "path": "/api/auth/verify-email",
+      "request": {"encoding": "query", "fields": {"token": "string"}},
+      "success": {
+        "status": 200,
+        "fields": {
+          "message": "string",
+          "email": "string",
+          "requires_org": "boolean"
+        }
+      },
+      "optional_success_fields": ["registration_token"],
+      "sets_cookies": [],
+      "errors": [
+        {"status": 400, "codes": ["EMAIL_TOKEN_INVALID"]},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["message", "email", "requires_org", "registration_token?"],
+      "client_behaviour": "The page shows the verified address. When requires_org is true it shows the organization form and calls /auth/register-with-org with the returned registration_token."
+    },
+    {
+      "id": "E4",
+      "method": "POST",
+      "path": "/api/auth/resend-verification-email",
+      "request": {"encoding": "json", "fields": {"email": "string"}},
+      "success": {
+        "status": 200,
+        "fields": {"message": "string"}
+      },
+      "uniform_for_every_valid_address": true,
+      "sets_cookies": [],
+      "errors": [
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["status"],
+      "client_behaviour": "The registration page shows the same neutral confirmation and starts its resend cooldown for every valid address."
+    },
+    {
+      "id": "E5",
+      "method": "POST",
+      "path": "/api/auth/register",
+      "request": {
+        "encoding": "json",
+        "fields": {
+          "email": "string",
+          "password": "string",
+          "role": "BUYER or SUPPLIER",
+          "first_name": "string or null",
+          "last_name": "string or null",
+          "referral_code": "string or null"
+        }
+      },
+      "success": {
+        "status": 202,
+        "body": {"status": "check_email"},
+        "uniform_for_every_valid_body": true
+      },
+      "sets_cookies": [],
+      "errors": [
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["status", "body.status"],
+      "client_behaviour": "The registration page shows one neutral check-your-email screen for 202 check_email. The organization step now starts from the verification link."
+    },
+    {
+      "id": "E6",
+      "method": "POST",
+      "path": "/api/auth/register-with-org",
+      "request": {
+        "encoding": "json",
+        "fields": {"registration_token": "string", "organization": "object"}
+      },
+      "success": {
+        "status": 200,
+        "fields": {"email": "string"},
+        "additional_user_fields_allowed": true
+      },
+      "sets_cookies": [],
+      "errors": [
+        {"status": 400, "codes": ["REGISTRATION_TOKEN_INVALID"]},
+        {"status": 409, "codes": ["REGISTRATION_CONFLICT"]},
+        {"status": 422, "codes": [], "note": "status only; code and message free"},
+        {"status": 429, "codes": [], "note": "status only; Retry-After present"}
+      ],
+      "client_reads": ["email", "status", "detail"],
+      "client_behaviour": "The organization page reads email to show the confirmation and starts its resend cooldown. The pending token is consumed once."
+    }
+  ],
+  "refresh_flow": {
+    "credential": "cookie only",
+    "on_401": "one refresh attempt then one retry",
+    "keep_token_on_statuses": [500, 502, 503, 504],
+    "clear_token_on_other_refusals": true,
+    "rotation_in_progress": {
+      "status": 409,
+      "code": "REFRESH_ROTATION_IN_PROGRESS",
+      "outcome": "transient",
+      "retries": 1
+    }
+  },
+  "cors": {
+    "origins": "closed per-environment set",
+    "credentials": true,
+    "wildcard": false
+  },
+  "named_client_changes": [
+    {
+      "id": "frontend_refresh_treats_rotation_in_progress_as_transient",
+      "surface": "S2",
+      "change": "Treat 409 REFRESH_ROTATION_IN_PROGRESS as a transient outcome: keep the in-memory token and retry once after retry_after_seconds."
+    },
+    {
+      "id": "frontend_login_reads_unverified_code",
+      "surface": "S1",
+      "change": "Read detail.code == AUTH_EMAIL_UNVERIFIED for the unverified branch instead of searching the message."
+    },
+    {
+      "id": "frontend_registration_is_email_first",
+      "surface": "E5, E3, E6",
+      "change": "Show the check-your-email screen for 202 check_email, then continue the organization step from the verify-email response."
+    }
+  ],
+  "phase4_allocation": {
+    "routes": ["GET /api/auth/me", "PUT /api/auth/me"],
+    "limits_per_minute": {
+      "GET /api/auth/me": 120,
+      "PUT /api/auth/me": 10
+    },
+    "note": "Recorded here so the Phase 4 profile tasks keep the per-route limits. The response projection is Phase 4."
+  },
+  "frontend_sources": {
+    "src/services/api.ts": "f74c835d9df3f420a7a63b6c3b1800ea57da87fe124e82558d0a5141970af409",
+    "src/services/authToken.ts": "75ccc9e90e5f72f9ba261b22aaff19e11799c3ffead614d5069767d5842aaaa9",
+    "src/services/backendAvailability.ts": "319757040f28de983d48e5f32df0df6f5338944a06eeba30d5366e565eb4f15a",
+    "src/context/AuthContext.tsx": "0351b176c181d8ba0058badc988849a818c3c27db8d03d69f0f66f8f7c6ac7bf",
+    "src/pages/LoginPage.tsx": "0d903587021431f7af550f448aa5bc68ca4fbd1705e28952e13f7d9a53e6fdff",
+    "src/pages/RegisterPage.tsx": "50a521f0b0f34fc01b9806e51d571c15ad9f1c75b636df12ad73c5a1b58475bb",
+    "src/pages/VerifyEmailPage.tsx": "e3d664f27a339506262fcc98ea9876e44ae910996d90ed0713fef32331049676",
+    "src/pages/ForgotPasswordPage.tsx": "94dce76be6f6939ebe0010e481a22272ec8453a373b169c0f000db0a55f48363",
+    "src/pages/ResetPasswordPage.tsx": "30c28121a4c0894e248a5a90a567b310ab9aebde653c6d29c4e35c711ba899d0",
+    "src/components/Settings.tsx": "c86b3bcf185679a024ad51d5f7db1083934f11e401c071ca72f4465f64cf9255",
+    "src/hooks/useSSE.ts": "a6eb243867e21ce0ed8b7487656ed85312ce04e55db5f164b26eec73b80492d9"
+  },
+  "frontend_sources_note": "Digests of the frontend files read when this contract was pinned. The frontend is a separate repository, so no test here reads them; the field and status contract above is the binding part. Three named changes above edit four of these files."
+}

@@ -35,6 +35,35 @@ class RustBudgetTests(unittest.TestCase):
         for changes, expected in [(dict(UVICORN_WORKERS=5), 69), (dict(DB_MAX_OVERFLOW=2), 69), (dict(DB_RESERVED_CONNECTIONS=21), 62)]:
             self.assertEqual(budget.derive_budget(self.settings(**changes), 9)["total"], expected)
 
+    def test_stream_listener_keeps_python_and_cache_connections(self):
+        result = budget.derive_budget(self.settings(), 17, cache_listener=1, stream_listener=1)
+        self.assertEqual(result["python_budget"], 52)
+        self.assertEqual(result["workers"], 4)
+        self.assertEqual(result["total"], 71)
+        self.assertEqual(result["stream_listener"], 1)
+        for bad in (2, -1, True, "1", None):
+            with self.assertRaises(ValueError):
+                budget.derive_budget(self.settings(), 17, stream_listener=bad)
+        with self.assertRaises(ValueError):
+            budget.derive_budget(self.settings(DB_MAX_CONNECTIONS=70), 17, 1, 1)
+        with self.assertRaises(ValueError):
+            budget.derive_budget(self.settings(UVICORN_WORKERS=1), 17, stream_listener=1)
+
+    def test_stream_listener_artifact_is_verified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = root / "runtime.env"
+            env.write_text("ENVIRONMENT=test\nRELEASE_SHA=test\nDATABASE_URL=sqlite+aiosqlite:///:memory:\n")
+            artifact = root / "budget.json"
+            budget.prepare(env, "a" * 40, artifact, stream_listener=1)
+            self.assertEqual(json.loads(artifact.read_text())["stream_listener"], 1)
+            budget.verify(env, "a" * 40, artifact)
+            recorded = json.loads(artifact.read_text())
+            recorded["stream_listener"] = 0
+            artifact.write_text(json.dumps(recorded))
+            with self.assertRaises(ValueError):
+                budget.verify(env, "a" * 40, artifact)
+
     def test_cache_listener_is_one_budgeted_connection_or_absent(self):
         plain = budget.derive_budget(self.settings(), 17)
         self.assertNotIn("cache_listener", plain)

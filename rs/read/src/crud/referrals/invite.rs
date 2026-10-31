@@ -144,18 +144,24 @@ impl MailClient {
         Self::build(endpoint, Some(key)).map_err(|_| "invalid stub client")
     }
     pub async fn send(&self, payload: &Value) -> bool {
+        self.send_with_idempotency(payload, None).await
+    }
+    pub async fn send_with_idempotency(&self, payload: &Value, idempotency: Option<&str>) -> bool {
         let Some(key) = self.key.as_ref().filter(|key| !key.is_empty()) else {
             return false;
         };
         // Do not parse, retain or log provider bodies or recipient addresses.
-        let Ok(mut response) = self
+        let request = self
             .client
             .post(&self.endpoint)
             .bearer_auth(key)
-            .json(payload)
-            .send()
-            .await
-        else {
+            .json(payload);
+        let request = if let Some(key) = idempotency {
+            request.header("Idempotency-Key", key)
+        } else {
+            request
+        };
+        let Ok(mut response) = request.send().await else {
             return false;
         };
         let accepted = matches!(response.status().as_u16(), 200 | 201);

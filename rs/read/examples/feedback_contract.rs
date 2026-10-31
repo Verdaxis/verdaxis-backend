@@ -28,6 +28,8 @@ mod adapter {
             pool_max: 17,
             python_budget: 52,
             configured_max_connections: 100,
+            compliance_eur_usd_rate: None,
+            fleet_artifact_path: "data/fleet_demand.json".into(),
             kyc_execution_gate_enabled: true,
             phase2: Default::default(),
         };
@@ -90,8 +92,11 @@ mod adapter {
                             Clock::Contract { instant, id },
                         )
                         .with_state(state);
-                        let app =
-                            verdaxis_read::runtime::http::middleware_with_limits(router, limits);
+                        let app = verdaxis_read::runtime::http::middleware_with_limits(
+                            router,
+                            limits,
+                            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+                        );
                         let response = app.oneshot(request).await.unwrap();
                         if lost && response.status().is_success() {
                             (

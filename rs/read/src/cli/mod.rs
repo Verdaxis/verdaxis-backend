@@ -439,15 +439,28 @@ fn report(command: &str, outcome: &str) {
 }
 
 async fn serve(args: &ServeArgs) -> Result<(), Exit> {
+    use crate::runtime::config::{fleet_startup_probe, resolve_fleet_artifact_path};
     use crate::runtime::policy::committed_policy;
-    use crate::{AppState, connect, router};
+    use crate::streams::runtime::{CapacityConfig, start_streams};
+    use crate::{AppState, connect, router, validate_config};
 
     let _ = tracing_subscriber::fmt().json().try_init();
-    let config = context::load_serve_config(args)?;
+    let mut config = context::load_serve_config(args)?;
+    validate_config(&config).map_err(|_| Exit::Precondition)?;
+    let working_directory = std::env::current_dir().map_err(|_| Exit::Dependency)?;
+    config.fleet_artifact_path =
+        resolve_fleet_artifact_path(&config.fleet_artifact_path, &working_directory)
+            .map_err(|_| Exit::Precondition)?;
+    fleet_startup_probe(&config.fleet_artifact_path).await;
     let pools = connect(&config).await.map_err(|_| Exit::Dependency)?;
     let bind = config.bind;
     let policy = committed_policy().map_err(|_| Exit::Precondition)?;
-    let state = AppState::new(config, pools, policy).map_err(|_| Exit::Precondition)?;
+    let mut state = AppState::new(config, pools, policy).map_err(|_| Exit::Precondition)?;
+    log_host_policy(&state.host_policy);
+    let streams = start_streams(&mut state, CapacityConfig::default()).await;
+    // Disabled caching starts no task; an enabled cache starts the authority
+    // refresh and invalidation loop before the service accepts traffic.
+    state.start_trading_cache();
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|_| Exit::Dependency)?;
@@ -455,6 +468,39 @@ async fn serve(args: &ServeArgs) -> Result<(), Exit> {
         listener,
         router(state).into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        if let Some(streams) = streams {
+            streams.shutdown().await;
+        }
+    })
     .await
     .map_err(|_| Exit::Dependency)
+}
+
+/// Say at startup whether the Host check is on, so a missing `ALLOWED_HOSTS`
+/// is visible in the journal instead of a silent default.
+fn log_host_policy(policy: &crate::runtime::host::HostPolicy) {
+    if policy.is_enforced() {
+        tracing::info!(
+            allowed_hosts = policy.configured_hosts().join(","),
+            "Host validation is enforced; loopback hosts are always allowed"
+        );
+    } else {
+        tracing::warn!("Host validation is off: ALLOWED_HOSTS is not set");
+    }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).expect("termination signal handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = tokio::signal::ctrl_c().await;
 }

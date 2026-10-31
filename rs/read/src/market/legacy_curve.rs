@@ -11,6 +11,7 @@ pub fn legacy_curve_query(tail: &'static str) -> OrderQuery {
             include_str!("../../sql/current_order_rule.sql"),
         ),
         "$13",
+        "$2",
     );
     OrderQuery(format!("WITH eligible_orders AS ({relation}) {tail}"))
 }

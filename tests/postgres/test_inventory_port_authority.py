@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.security import create_access_token
 from app.database import get_db
 from app.main import app
+from tests.postgres.retention_test_support import reset_outbox
 from tests.postgres.test_market_routes import _seed_route_market
 
 
@@ -21,7 +22,7 @@ async def test_inventory_port_http_as_runtime_role(market_pg, market_pg_url, cas
     seeded = await _seed_route_market(market_pg)
     port_id = "authority-" + uuid4().hex[:12]
     async with market_pg.begin() as connection:
-        await connection.execute(text("TRUNCATE market_event_outbox"))
+        await reset_outbox(connection)
         await connection.execute(text(
             "INSERT INTO ports (id,name,country,location,is_active) VALUES "
             "(:id,'Singapore','Singapore',ST_GeogFromText('SRID=4326;POINT(103.8 1.3)'),true)"

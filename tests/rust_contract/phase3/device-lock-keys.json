@@ -1,0 +1,33 @@
+{
+  "rule": "PostgreSQL advisory-lock key for a browser device: the first 8 bytes of the SHA-256 digest of the device cookie, big-endian, as a signed 64-bit integer",
+  "cookies": [
+    {"cookie": "p3-device-lock-vector-00-abcdefghijklmnopqr", "digest": "a7224bb0e5ca93626e1974aee1b83cca722f9923681f28820c1ad5e3cb542a78", "key": -6403472497025838238},
+    {"cookie": "p3-device-lock-vector-01-abcdefghijklmnopqr", "digest": "0d50c42948b4d88b1fd0deff1c08c6d7f4f48dc1d642bb707e24ddaa5fcc88ca", "key": 959482402222430347},
+    {"cookie": "p3-device-lock-vector-02-abcdefghijklmnopqr", "digest": "041f3216890acf1a302b9b6ee393a29feaf7ef2d0dad24c5bf5b395077ce8d0b", "key": 297011172799598362},
+    {"cookie": "p3-device-lock-vector-03-abcdefghijklmnopqr", "digest": "d6c5810c325ebc316f6337b7c508d6d596aea97ff0aeb1307984725be857de99", "key": -2970826489796314063},
+    {"cookie": "p3-device-lock-vector-04-abcdefghijklmnopqr", "digest": "7db08d0b4af47634b4272f105beff30d4a0c3de66fb8d60e488f5eb21d749a32", "key": 9056893930283759156},
+    {"cookie": "p3-device-lock-vector-05-abcdefghijklmnopqr", "digest": "5d8eff60147eed433f409dd1788dff3da2e3ec03dc7eb7f23169e47460737aee", "key": 6741606480346017091},
+    {"cookie": "p3-device-lock-vector-06-abcdefghijklmnopqr", "digest": "126277a7aecb75ebfa438db08d0c6de0bd0a9418a5586683ffe63906d04debd7", "key": 1324752802476160491},
+    {"cookie": "p3-device-lock-vector-07-abcdefghijklmnopqr", "digest": "da08e1f3c4bdaabda2d2aa549a4f9d794a239bf7c336e764e5e2a1bb928d5609", "key": -2735688336533509443},
+    {"cookie": "p3-device-lock-vector-08-abcdefghijklmnopqr", "digest": "d4f46a703167b2fa9e2fd3aa7bce4213de8e852cf750209f49aa1d9b9b672d21", "key": -3101737213253668102},
+    {"cookie": "p3-device-lock-vector-09-abcdefghijklmnopqr", "digest": "e6f62b646f9664fafcfd34ac5bc2a4d9a297f115a781cf52823ef0e5c54353fc", "key": -1804206890346453766},
+    {"cookie": "p3-device-lock-vector-10-abcdefghijklmnopqr", "digest": "613cc034bdd573454ceb53bd2352c0c322f6c6ea4774fba5b31bce6c2e06f0c0", "key": 7006686453037364037},
+    {"cookie": "p3-device-lock-vector-11-abcdefghijklmnopqr", "digest": "51592133e99cf80bfc0b819a1f899219deac688f6b98e6906264fd34ab04687b", "key": 5861752896845838347},
+    {"cookie": "p3-device-lock-vector-12-abcdefghijklmnopqr", "digest": "a1734018740a5d5a681705debf90b3e94d4e78df9541b3d8b1ef510b6c3fefe4", "key": -6813031337511199398},
+    {"cookie": "p3-device-lock-vector-13-abcdefghijklmnopqr", "digest": "708a9448699c750b0abca35cd48f15fc7554883ef3232ac9c483e6f71a154aed", "key": 8109457117764416779},
+    {"cookie": "p3-device-lock-vector-14-abcdefghijklmnopqr", "digest": "63bf4c724e3325eb35a3a46a4b8cd345bf61fd59c3e7a85f7b9c8ec025dadc35", "key": 7187547584128558571},
+    {"cookie": "p3-device-lock-vector-15-abcdefghijklmnopqr", "digest": "e6b91f8524867d02cbbb45e5973ae806e2aa246f4971fc0b8f36dd5ccd30f5e7", "key": -1821389917590749950},
+    {"cookie": "p3-device-lock-vector-16-abcdefghijklmnopqr", "digest": "bb8ae890e4d443f63433ba5b86826e27a2bb8bd8ce18121a26e30057d2f1d0a1", "key": -4932874732818906122},
+    {"cookie": "p3-device-lock-vector-17-abcdefghijklmnopqr", "digest": "f7f1d732707ffcf587f7e6e87f1caf46c2a96bcede8cf368f8806a0f5846ae0a", "key": -580446265318310667},
+    {"cookie": "p3-device-lock-vector-18-abcdefghijklmnopqr", "digest": "5e1ee8e7ee734727502e86c9d8291fbf25b7dd634a936923d557bfa61a412235", "key": 6782114171702167335},
+    {"cookie": "p3-device-lock-vector-19-abcdefghijklmnopqr", "digest": "b296a9b09ef0f8c1b4515f4c9ce2e66de75a29d50e72c75037e33b302dd1a4e0", "key": -5578084512405849919}
+  ],
+  "digests": [
+    {"digest": "0000000000000000000000000000000000000000000000000000000000000000", "key": 0},
+    {"digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "key": -1},
+    {"digest": "8000000000000000000000000000000000000000000000000000000000000000", "key": -9223372036854775808},
+    {"digest": "7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "key": 9223372036854775807},
+    {"digest": "ffffffffffffffff000000000000000000000000000000000000000000000000", "key": -1},
+    {"digest": "0000000000000001ffffffffffffffffffffffffffffffffffffffffffffffff", "key": 1}
+  ]
+}

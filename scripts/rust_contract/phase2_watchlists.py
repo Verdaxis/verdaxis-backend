@@ -15,6 +15,7 @@ from scripts.rust_contract.phase2_scenarios import (
     Scenario,
     ScenarioError,
     Server,
+    invalid_bearer_pair,
 )
 from scripts.rust_contract.phase2_watchlist_fixtures import (
     B30,
@@ -264,7 +265,8 @@ def _actions(context, gate_enabled):
           for name, raw in MALFORMED_UUIDS),
         Action("bad-bearer-before-uuid", "W04", "GET", "/api/watchlists/not-a-uuid", 401,
                headers={"authorization": "Bearer invalid", "x-request-id": REQUEST_ID},
-               assert_after=_unchanged),
+               assert_after=_unchanged, approved_difference="AUTH-REFUSAL",
+               assert_http_difference=invalid_bearer_pair()),
     ]
 
 
@@ -273,7 +275,7 @@ def _scenario(name, gate_enabled):
         rust_environment = {"WATCHLIST_TEST_CUTOFF": "2026-10-19T00:00:00Z",
                             "KYC_EXECUTION_GATE_ENABLED": "true" if gate_enabled else "false"}
         return [Server((context.python_bin, "-m", "scripts.rust_contract.phase2_oracle", "--port", "{port}")),
-                Server((str(context.root / "rs/target/debug/examples/watchlist_server"),), rust_environment)]
+                Server((str(context.rust_example("watchlist_server")),), rust_environment)]
     return Scenario(
         name, "watchlists", _setup, servers, lambda context: _actions(context, gate_enabled),
         build=("cargo", "build", "--manifest-path", "rs/Cargo.toml", "--locked", "-p", "verdaxis-read",

@@ -15,6 +15,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -493,8 +494,11 @@ exit 0
         environment = self.deploy_environment(self.old_sha)
         return environment
 
-    def deploy(self, release_sha: str, *, fail_phase: str = "", **overrides) -> subprocess.CompletedProcess[str]:
+    def deploy(self, release_sha: str, *, fail_phase: str = "", cache_listener: str | None = None, **overrides) -> subprocess.CompletedProcess[str]:
         self._write_deployed_env(release_sha)
+        if cache_listener is not None:
+            with (self.checkout / ".env").open("a") as environment_file:
+                environment_file.write(f"RUST_CACHE_LISTENER={cache_listener}\n")
         environment = self.deploy_environment(release_sha, fail_phase=fail_phase)
         environment.update(overrides)
         return subprocess.run(
@@ -925,6 +929,93 @@ def test_changed_budget_refuses_and_blocks(release_fixture):
     assert release_fixture.stopped_services() == set()
 
 
+def test_deploy_without_the_listener_key_keeps_the_budget_byte_identical(release_fixture):
+    """No key, or 0: the deployed artifact equals a flag-less preparation."""
+    for cache_listener in (None, "0"):
+        new_sha = release_fixture.push_rust_release(enabled=True)
+        release_fixture.build_artifact(new_sha)
+        result = release_fixture.deploy(new_sha, cache_listener=cache_listener)
+        assert result.returncode == 0, result.stderr
+        deployed = release_fixture.checkout / ".runtime-rust/budget.json"
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / "reference-budget.json"
+            _budget_module().prepare(
+                release_fixture.checkout / ".env", new_sha, reference
+            )
+            assert deployed.read_bytes() == reference.read_bytes()
+        assert "cache_listener" not in json.loads(deployed.read_text())
+        assert "--cache-listener 0" in _budget_line(release_fixture.ledger)
+
+
+def test_deploy_with_the_listener_flag_budgets_the_dedicated_connection(release_fixture):
+    """`RUST_CACHE_LISTENER=1` carries `cache_listener: 1` and its connection."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener="1")
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads(
+        (release_fixture.checkout / ".runtime-rust/budget.json").read_text()
+    )
+    assert deployed["cache_listener"] == 1
+    with tempfile.TemporaryDirectory() as directory:
+        reference = Path(directory) / "reference-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, reference, 1
+        )
+        plain = Path(directory) / "plain-budget.json"
+        _budget_module().prepare(
+            release_fixture.checkout / ".env", new_sha, plain
+        )
+        assert deployed == json.loads(reference.read_text())
+        assert deployed["total"] == json.loads(plain.read_text())["total"] + 1
+    ledger = release_fixture.ledger
+    assert "--cache-listener 1" in _budget_line(ledger)
+    # The deploy's own drift recheck accepts the recorded listener choice.
+    assert any(
+        "--verify" in e for e in ledger if "prepare_rust_budget.py" in e
+    )
+
+
+@pytest.mark.parametrize("value", ["2", "yes", "true", ""])
+def test_deploy_refuses_an_invalid_listener_value_before_schema_change(
+    release_fixture, value
+):
+    """Any other value refuses before the migration checkpoint helper runs."""
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha, cache_listener=value)
+    assert result.returncode != 0
+    assert "RUST_CACHE_LISTENER" in (result.stderr + result.stdout)
+    # The refusal happens at the budget step, before any schema change or
+    # service restart.
+    assert not any("apply_migration_checkpoint.py" in e for e in release_fixture.ledger)
+    assert not any(e.startswith("sudo:systemctl restart") for e in release_fixture.ledger)
+    # ...and leaves the deploy in the fail-closed blocked state.
+    assert "DEPLOYMENT_STATE=blocked" in release_fixture.state_text()
+    assert release_fixture.stopped_services() == set()
+
+
+def _budget_line(ledger: list[str]) -> str:
+    return next(e for e in ledger if "prepare_rust_budget.py" in e and "--verify" not in e)
+
+
+_BUDGET_MODULE = None
+
+
+def _budget_module():
+    """The one loaded instance, like `_load_preparer` above."""
+    global _BUDGET_MODULE
+    if _BUDGET_MODULE is None:
+        spec = importlib.util.spec_from_file_location(
+            "prepare_rust_budget", ROOT / "scripts" / "prepare_rust_budget.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        _BUDGET_MODULE = module
+    return _BUDGET_MODULE
+
+
 def test_stale_authorization_does_not_authorize_a_unit_start(release_fixture):
     """A leftover restart-authorized state denies unit starts until cleared.
 
@@ -1126,6 +1217,11 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         "FRONTEND_URL",
         "EMAIL_FROM",
         "RESEND_API_KEY",
+        "AUTH_DOMAIN_DATASETS_FILE",
+        "SELLER_FEE_PILOT_PER_MT_USD",
+        "SELLER_FEE_PROFESSIONAL_PER_MT_USD",
+        "UMAMI_ENABLED",
+        "ALLOWED_HOSTS",
     }
     # The shipped fixture `.env` carries the Private Beta switch state, so the
     # projection is proven to follow the deployed file rather than a default.
@@ -1134,6 +1230,8 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
         .splitlines()
     ) == sorted(
         [
+            "ALLOWED_HOSTS=api-staging.verdaxis.exchange",
+            'AUTH_DOMAIN_DATASETS_FILE="' + str(release_fixture.checkout / '.runtime-rust/auth-domains.json') + '"',
             'DATABASE_URL="postgresql://verdaxis_app_staging:fixture-password'
             '@127.0.0.1:5432/verdaxis_staging"',
             "DB_SESSION_TIME_ZONE=UTC",
@@ -1148,6 +1246,9 @@ def test_runtime_environment_carries_only_the_projected_settings(release_fixture
             "READ_ADMISSION_SLOTS=16",
             f"RELEASE_SHA={new_sha}",
             "RESEND_API_KEY=re_fixture_key",
+            "SELLER_FEE_PILOT_PER_MT_USD=2",
+            "SELLER_FEE_PROFESSIONAL_PER_MT_USD=1.50",
+            "UMAMI_ENABLED=false",
         ]
     )
 
@@ -1376,3 +1477,17 @@ def test_retry_after_rust_failure_then_second_release(release_fixture):
     second = release_fixture.push_new_release()
     release_fixture.build_artifact(second)
     assert release_fixture.deploy(second).returncode == 0
+
+
+def test_canonical_stream_release_prepares_enabled_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(__import__(__name__, fromlist=["MIGRATION_TARGET"]), "MIGRATION_TARGET", "sse_20261021_replay_floor")
+    release_fixture = RustReleaseFixture(tmp_path)
+    new_sha = release_fixture.push_rust_release(enabled=True)
+    release_fixture.build_artifact(new_sha)
+    result = release_fixture.deploy(new_sha)
+    assert result.returncode == 0, result.stderr
+    deployed = json.loads((release_fixture.checkout / ".runtime-rust/budget.json").read_text())
+    assert deployed["stream_listener"] == 1
+    assert deployed["workers"] == 4
+    assert deployed["total"] == deployed["python_budget"] + deployed["rust_pool"] + 1
+    assert "--stream-listener 1" in _budget_line(release_fixture.ledger)

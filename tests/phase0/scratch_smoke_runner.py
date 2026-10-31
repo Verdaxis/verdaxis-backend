@@ -50,7 +50,7 @@ def main() -> int:
     cmd("docker", "exec", name, "createdb", "-U", "postgres", "-O", "phase0_owner", DATABASE)
     cmd("docker", "exec", name, "psql", "-U", "postgres", "-d", DATABASE, "-c", "CREATE EXTENSION postgis")
     owner_url = f"postgresql+asyncpg://phase0_owner:{PASSWORD}@127.0.0.1:{port}/{DATABASE}"
-    python = str(ROOT / "venv/bin/python")
+    python = sys.executable
     guard = run / "guard"
     guard.mkdir(exist_ok=True)
     (guard / "sitecustomize.py").write_bytes((ROOT / "tests/phase0/network_guard.py").read_bytes())

@@ -31,6 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool_max: 17,
         python_budget: 52,
         configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
         phase2: Default::default(),
     };
     let state = AppState::new(
@@ -65,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let routes = router(state, settings).merge(identity);
     axum::serve(
         tokio::net::TcpListener::bind(bind).await?,
-        verdaxis_read::runtime::http::middleware(routes),
+        verdaxis_read::runtime::http::middleware(
+            routes,
+            &std::env::var("ENVIRONMENT").unwrap_or_default(),
+        ),
     )
     .await?;
     Ok(())

@@ -21,7 +21,7 @@ def headers():
 def servers(context):
     environment = {'JWT_ISSUER':'verdaxis','JWT_AUDIENCE':'verdaxis-api', 'FRONTEND_URL':'https://app.example///', 'EMAIL_FROM':'Verdaxis <sender@example.com>'}
     return (Server((context.python_bin,'-m','scripts.rust_contract.referral_oracle','--port','{port}'), environment),
-            Server(('rs/target/debug/examples/referral_contract',), environment))
+            Server((str(context.rust_example("referral_contract")),), environment))
 
 
 def unchanged(before, after, response, mail):
