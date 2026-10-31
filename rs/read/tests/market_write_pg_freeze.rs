@@ -103,6 +103,19 @@ impl Fixture {
     async fn state(&mut self, state: &str) {
         sqlx::query("UPDATE trades SET status=$2,confirmed_at=CASE WHEN $2 IN ('CONFIRMED','DELIVERED','PAID') THEN now() END,delivered_at=CASE WHEN $2 IN ('DELIVERED','PAID') THEN now() END,paid_at=CASE WHEN $2='PAID' THEN now() END,final_quantity_mt=CASE WHEN $2 IN ('DELIVERED','PAID') THEN quantity_mt END,final_price_per_mt=CASE WHEN $2 IN ('DELIVERED','PAID') THEN price_per_mt_usd END,final_total_usd=CASE WHEN $2 IN ('DELIVERED','PAID') THEN quantity_mt*price_per_mt_usd END WHERE id=$1").bind(self.trade).bind(state).execute(&mut self.admin).await.unwrap();
     }
+    async fn provenance(&mut self, buyer: &str, seller: &str) {
+        sqlx::raw_sql(include_str!("fixtures/phase9_freeze_provenance.sql"))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+        sqlx::query("SELECT freeze_fixture_set_provenance($1,$2,$3)")
+            .bind(self.trade)
+            .bind(buyer)
+            .bind(seller)
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
     async fn call(&self, action: &str, actor: u128, body: Value) -> (StatusCode, Value) {
         send(
             &self.router,
@@ -319,6 +332,37 @@ async fn freeze_refuses_a_terminal_trade() {
             .await
             .unwrap();
         assert_eq!(stored, state);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn freeze_refuses_a_trade_with_two_demonstration_parties() {
+    for state in ["PENDING_CONFIRMATION", "CONFIRMED", "DELIVERED", "PAID"] {
+        let mut f = Fixture::new(state).await;
+        f.provenance("DEMO", "DEMO").await;
+        let before = f.snapshot().await;
+        let counts = f.counts().await;
+        let (s, b) = f.freeze(ADMIN, "OTHER").await;
+        assert_eq!(s, StatusCode::CONFLICT, "{state}: {b}");
+        assert_eq!(code(&b), "TRADE_DEMO_NOT_FREEZABLE");
+        assert_eq!(f.counts().await, counts, "{state}: no freeze or audit row");
+        assert_eq!(f.snapshot().await, before, "{state}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn freeze_accepts_a_trade_with_one_real_party() {
+    for (buyer, seller) in [("DEMO", "REAL"), ("REAL", "DEMO")] {
+        let mut f = Fixture::new("CONFIRMED").await;
+        f.provenance(buyer, seller).await;
+        let (s, b) = f.freeze(ADMIN, "OTHER").await;
+        assert_eq!(s, StatusCode::CREATED, "{buyer}/{seller}: {b}");
+        assert_eq!(b["status"], "ACTIVE");
+        assert_eq!(f.counts().await, (1, 1, 1), "{buyer}/{seller}");
+        let (s, b) = f.call("unfreeze", ADMIN, json!({"note":"complete"})).await;
+        assert_eq!(s, StatusCode::OK, "{buyer}/{seller}: {b}");
     }
 }
 
