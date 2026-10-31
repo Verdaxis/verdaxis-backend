@@ -11,7 +11,7 @@ use std::{
     process::Command,
 };
 
-use verdaxis_read::{compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config, Config};
+use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config};
 
 /// The revision that precedes the offboarding revision on the shared chain.
 const PARENT: &str = "p5_20261020_read_indexes";
@@ -103,12 +103,14 @@ fn migration_graph() -> Vec<(String, Vec<String>)> {
     graph
 }
 
+/// The single- or double-quoted string literals in `text`, in order.
 fn quoted_values(text: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut rest = text;
-    while let Some(start) = rest.find('"') {
+    while let Some(start) = rest.find(['"', '\'']) {
+        let quote = rest[start..].chars().next().unwrap();
         let after = &rest[start + 1..];
-        let Some(end) = after.find('"') else { break };
+        let Some(end) = after.find(quote) else { break };
         values.push(after[..end].to_owned());
         rest = &after[end + 1..];
     }
@@ -125,16 +127,19 @@ fn checkpoint_requires_exact_transition() {
         .filter(|(_, target)| target == REVISION)
         .collect();
     to_revision.sort();
+    // Sorted order: the self row sorts before the row from the parent.
     let expected = [
-        (PARENT.to_owned(), REVISION.to_owned()),
         (REVISION.to_owned(), REVISION.to_owned()),
+        (PARENT.to_owned(), REVISION.to_owned()),
     ];
     assert_eq!(to_revision, expected.iter().collect::<Vec<_>>());
     // The new head moves nowhere else, and no earlier revision skips to it.
-    assert!(pairs
-        .iter()
-        .filter(|(current, _)| current == REVISION)
-        .all(|(_, target)| target == REVISION));
+    assert!(
+        pairs
+            .iter()
+            .filter(|(current, _)| current == REVISION)
+            .all(|(_, target)| target == REVISION)
+    );
     // Every row names revisions that exist in the migration chain.
     let known: Vec<String> = migration_graph()
         .into_iter()
@@ -249,9 +254,11 @@ fn migration_is_the_single_head_and_fits_the_version_column() {
         .filter(|revision| !parents.contains(revision))
         .collect();
     assert_eq!(heads, [&REVISION.to_owned()]);
-    assert!(repo_root()
-        .join("alembic/versions/ob_20261031_individual_offboarding.py")
-        .is_file());
+    assert!(
+        repo_root()
+            .join("alembic/versions/ob_20261031_individual_offboarding.py")
+            .is_file()
+    );
 }
 
 #[test]
@@ -353,8 +360,10 @@ fn runtime_policy_grants_the_audit_table_only_read_and_append() {
         "the audit table has no column-level grants"
     );
     // The convergence bundle applies this one policy file.
-    assert!(read("deploy/postgres/converge_runtime_object_acls.sql")
-        .contains(r"\ir app_acl_policy.sql"));
+    assert!(
+        read("deploy/postgres/converge_runtime_object_acls.sql")
+            .contains(r"\ir app_acl_policy.sql")
+    );
     // The role validator treats the table as append-only for the application and read-only for backup.
     assert!(read("deploy/postgres/validate_roles.sql").contains(AUDIT_TABLE));
 }

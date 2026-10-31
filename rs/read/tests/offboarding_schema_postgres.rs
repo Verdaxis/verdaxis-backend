@@ -23,7 +23,6 @@ const REVISION: &str = "ob_20261031_offboarding";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 const BACKUP_ROLE: &str = "verdaxis_backup_staging";
-const IGNORE: &str = "requires the migrated disposable PostgreSQL harness";
 
 const REJECTED_CONSTRAINT: &str = "ck_users_offboarded_requires_rejected";
 const DETACHED_CONSTRAINT: &str = "ck_users_offboarded_requires_detached";
@@ -66,11 +65,13 @@ impl Database {
 
     async fn organization(&mut self) -> Uuid {
         let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO organizations(id,name,type) VALUES($1,'Offboarding schema','FUEL_BUYER')")
-            .bind(id)
-            .execute(&mut self.migrator)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO organizations(id,name,type) VALUES($1,'Offboarding schema','FUEL_BUYER')",
+        )
+        .bind(id)
+        .execute(&mut self.migrator)
+        .await
+        .unwrap();
         id
     }
 
@@ -100,7 +101,12 @@ fn sqlstate_and_constraint(error: sqlx::Error) -> (String, Option<String>) {
 }
 
 /// The statement must fail on exactly the named constraint.
-async fn refused_by(conn: &mut PgConnection, statement: &'static str, user: Uuid, constraint: &str) {
+async fn refused_by(
+    conn: &mut PgConnection,
+    statement: &'static str,
+    user: Uuid,
+    constraint: &str,
+) {
     let error = sqlx::query(statement)
         .bind(user)
         .execute(conn)
@@ -157,8 +163,14 @@ async fn marker_requires_rejected_and_detached() {
 
     // Approval, attachment and a plain pending reset all fail while the marker is set.
     for (statement, constraint) in [
-        ("UPDATE users SET status='APPROVED' WHERE id=$1", REJECTED_CONSTRAINT),
-        ("UPDATE users SET status='PENDING' WHERE id=$1", REJECTED_CONSTRAINT),
+        (
+            "UPDATE users SET status='APPROVED' WHERE id=$1",
+            REJECTED_CONSTRAINT,
+        ),
+        (
+            "UPDATE users SET status='PENDING' WHERE id=$1",
+            REJECTED_CONSTRAINT,
+        ),
     ] {
         refused_by(&mut db.app, statement, subject, constraint).await;
     }
@@ -314,11 +326,12 @@ async fn offboarding_audit_is_append_only() {
         .execute(&mut db.app)
         .await
         .unwrap();
-    let urgent: bool = sqlx::query_scalar("SELECT urgent FROM individual_offboardings WHERE operation_id=$1")
-        .bind(operation)
-        .fetch_one(&mut db.app)
-        .await
-        .unwrap();
+    let urgent: bool =
+        sqlx::query_scalar("SELECT urgent FROM individual_offboardings WHERE operation_id=$1")
+            .bind(operation)
+            .fetch_one(&mut db.app)
+            .await
+            .unwrap();
     assert!(!urgent);
 
     // The runtime role can neither rewrite nor remove history.
@@ -378,12 +391,30 @@ async fn offboarding_audit_is_append_only() {
     // The record bounds are enforced by the database, whoever inserts.
     let long_reference = "x".repeat(65);
     let attempts: [(Uuid, Uuid, &str, &str, &str); 6] = [
-        (subject, subject, "LEFT_COMPANY", "CASE-1", "self offboarding"),
+        (
+            subject,
+            subject,
+            "LEFT_COMPANY",
+            "CASE-1",
+            "self offboarding",
+        ),
         (subject, actor, "left company", "CASE-1", "reason grammar"),
         (subject, actor, "L", "CASE-1", "reason length"),
-        (subject, actor, "LEFT_COMPANY", "has a space", "case reference whitespace"),
+        (
+            subject,
+            actor,
+            "LEFT_COMPANY",
+            "has a space",
+            "case reference whitespace",
+        ),
         (subject, actor, "LEFT_COMPANY", "", "case reference empty"),
-        (subject, actor, "LEFT_COMPANY", &long_reference, "case reference length"),
+        (
+            subject,
+            actor,
+            "LEFT_COMPANY",
+            &long_reference,
+            "case reference length",
+        ),
     ];
     for (subject_id, actor_id, reason, reference, label) in attempts {
         let error = sqlx::query(insert)
@@ -428,7 +459,11 @@ async fn offboarding_audit_is_append_only() {
     let removals: [(&str, &'static str, Uuid); 3] = [
         ("users", "DELETE FROM users WHERE id=$1", subject),
         ("users", "DELETE FROM users WHERE id=$1", actor),
-        ("organizations", "DELETE FROM organizations WHERE id=$1", former),
+        (
+            "organizations",
+            "DELETE FROM organizations WHERE id=$1",
+            former,
+        ),
     ];
     for (table, statement, id) in removals {
         let error = sqlx::query(statement)
@@ -480,8 +515,8 @@ async fn existing_runtime_grants_are_preserved() {
                     .bind(format!("public.{table}"))
                     .bind(privilege)
                     .fetch_one(&mut db.migrator)
-            .await
-            .unwrap();
+                    .await
+                    .unwrap();
             assert_eq!(actual, granted.contains(&privilege), "{table} {privilege}");
         }
     }
@@ -564,11 +599,12 @@ async fn downgrade_cannot_restore_access_or_erase_evidence() {
     refused(&alembic(&url, &["downgrade", PARENT]));
     assert_eq!(current_revision(&mut conn).await, REVISION);
     assert_eq!(column_and_table_exist(&mut conn).await, (true, true));
-    let still_marked: bool = sqlx::query_scalar("SELECT offboarded_at IS NOT NULL FROM users WHERE id=$1")
-        .bind(marked)
-        .fetch_one(&mut conn)
-        .await
-        .unwrap();
+    let still_marked: bool =
+        sqlx::query_scalar("SELECT offboarded_at IS NOT NULL FROM users WHERE id=$1")
+            .bind(marked)
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
     assert!(still_marked);
 
     // 2. Retained evidence alone blocks it, even after the marker is cleared by a reinstatement.
@@ -627,11 +663,13 @@ async fn downgrade_cannot_restore_access_or_erase_evidence() {
 
     // 4. Users that exist before the upgrade, in every existing state, survive it unchanged.
     let organization = Uuid::new_v4();
-    sqlx::query("INSERT INTO organizations(id,name,type) VALUES($1,'Offboarding upgrade','FUEL_BUYER')")
-        .bind(organization)
-        .execute(&mut conn)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO organizations(id,name,type) VALUES($1,'Offboarding upgrade','FUEL_BUYER')",
+    )
+    .bind(organization)
+    .execute(&mut conn)
+    .await
+    .unwrap();
     let mut existing = Vec::new();
     for status in ["PENDING", "APPROVED", "REJECTED"] {
         for attached in [false, true] {
