@@ -136,7 +136,8 @@ mod tests {
                 "prc_20261026_changes",
                 "p3_20261020_auth_tokens",
                 "sse_20261021_replay_floor",
-                "p5_20261020_read_indexes"
+                "p5_20261020_read_indexes",
+                "ob_20261031_offboarding"
             ])
         );
     }

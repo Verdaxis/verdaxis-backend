@@ -342,9 +342,11 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
         "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
+        "ob_20261031_offboarding",
     ] {
         base.migration_revision = revision.into();
-        assert!(validate_config(&base).is_ok());
+        assert!(validate_config(&base).is_ok(), "{revision}");
     }
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
