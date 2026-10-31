@@ -748,9 +748,11 @@ fn deploy_guard_runs_with_only_its_documented_tools() {
     let tool_path = fixture.root.join("tool-path");
     fs::create_dir_all(&tool_path).expect("tool directory");
     for tool in &tools {
-        assert!(header_words.contains(tool), "the guard header does not name {tool}");
-        std::os::unix::fs::symlink(find_on_path(tool), tool_path.join(tool))
-            .expect("tool link");
+        assert!(
+            header_words.contains(tool),
+            "the guard header does not name {tool}"
+        );
+        std::os::unix::fs::symlink(find_on_path(tool), tool_path.join(tool)).expect("tool link");
     }
     fixture.write_state("staging", SHA_A);
     let main = fixture.lock("staging");
