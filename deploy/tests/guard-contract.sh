@@ -202,6 +202,21 @@ expect_denied_at 'unshipped layout' 'misplaced helper' '' \
     --environment staging --expected-release-sha "$sha_a"
 rm -rf -- "$fixture/scripts" "$fixture/.runtime-deploy"
 
+# The runtime root is trusted only as a real, owner-searchable directory.
+fixture=$(new_fixture root)
+write_state "$fixture" staging "$sha_a" blocked
+ln -s -- "$fixture" "$work/root-link"
+expect_denied_at 'linked runtime root' 'untrusted runtime root' '' \
+    "$work/root-link/deploy/scripts/verify-deploy-start-guard.sh" \
+    --environment staging --expected-release-sha "$sha_a"
+chmod 0300 "$fixture"
+expect_denied 'unreadable runtime root' 'untrusted runtime root' "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+chmod 0755 "$fixture"
+expect_denied 'blocked state at the runtime root' \
+    'deployment state does not authorize a restart' "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+
 expect_denied 'no arguments' 'invalid arguments' "$fixture"
 expect_denied 'missing value' 'invalid arguments' "$fixture" --environment staging
 expect_denied 'extra argument' 'invalid arguments' "$fixture" \
@@ -376,6 +391,44 @@ chmod 0777 "$state_dir"
 expect_denied 'writable deploy directory' 'deploy state is not a private directory' \
     "$fixture" --environment staging --expected-release-sha "$sha_a"
 chmod 0755 "$state_dir"
+
+# The header lists the only external tools the guard calls; the guard must run
+# with nothing else on PATH, and the header must name every one of them.
+tools=(dirname stat dd flock)
+if [[ ! -d /proc/self/fd ]]; then
+    tools+=(perl)
+fi
+header=$(sed -n '1,/^set -/p' "$guard")
+tool_path=$work/tool-path
+mkdir -p -- "$tool_path"
+for tool in "${tools[@]}"; do
+    ln -s -- "$(type -ap "$tool" | head -n 1)" "$tool_path/$tool"
+    grep -Ewq -- "$tool" <<<"$header" || record "guard header does not name $tool"
+done
+timeout_bin=$(type -ap timeout | head -n 1)
+bash_bin=$(type -ap bash | head -n 1)
+fixture=$(new_fixture tools)
+write_state "$fixture" staging "$sha_a"
+hold_lock "$fixture/.runtime-deploy/staging.lock"
+hold_lock "$fixture/.runtime-deploy/staging.restart.lock"
+for sha in "$sha_a" "$sha_b"; do
+    status=0
+    env -i "PATH=$tool_path" "$timeout_bin" 8 "$bash_bin" "$(helper_at "$fixture")" \
+        --environment staging --expected-release-sha "$sha" \
+        >"$work/stdout" 2>"$work/stderr" || status=$?
+    if [[ "$sha" == "$sha_a" ]]; then
+        if [[ "$status" -ne 0 ]]; then
+            record "documented tools only: a permitted start was denied: $(head -n 1 "$work/stderr")"
+        else
+            check_allowed_output 'documented tools only'
+        fi
+    elif [[ "$status" -eq 0 ]]; then
+        record 'documented tools only: an invalid start was allowed'
+    else
+        check_denied_output 'documented tools only, wrong release' "$status" \
+            'deployment state does not authorize a restart'
+    fi
+done
 
 # The guard files are reviewed and independent of any interpreter.
 forbidden=$(printf '%s%s' 'py' 'thon')

@@ -213,15 +213,44 @@ fn run_guard_at(path: &Path, shim: Option<&Path>, arguments: &[&str]) -> Output 
         .expect("run deploy-start guard")
 }
 
-/// The first `stat` on PATH, which the shims delegate to.
-fn real_stat() -> PathBuf {
+/// The first `name` on PATH.
+fn find_on_path(name: &str) -> PathBuf {
     for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
-        let candidate = directory.join("stat");
+        let candidate = directory.join(name);
         if candidate.is_file() {
             return candidate;
         }
     }
-    panic!("stat is not on PATH");
+    panic!("{name} is not on PATH");
+}
+
+/// The first `stat` on PATH, which the shims delegate to.
+fn real_stat() -> PathBuf {
+    find_on_path("stat")
+}
+
+/// Run a staged guard with exactly one directory on PATH. The bounded runner
+/// and the shell are resolved first, so only the guard itself sees that PATH.
+fn run_guard_with_tools_only(guard: &Path, tools: &Path, arguments: &[&str]) -> Output {
+    Command::new(find_on_path("timeout"))
+        .arg("8")
+        .arg(find_on_path("bash"))
+        .arg(guard)
+        .args(arguments)
+        .env_clear()
+        .env("PATH", tools)
+        .output()
+        .expect("run deploy-start guard with its documented tools")
+}
+
+/// The leading comment block of the guard, up to its first `set` line.
+fn guard_header() -> String {
+    fs::read_to_string(guard_source())
+        .expect("guard source")
+        .lines()
+        .take_while(|line| !line.starts_with("set -"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn run_for(fixture: &Fixture, environment: &str, sha: &str) -> Output {
@@ -317,6 +346,29 @@ fn deploy_guard_allows_absent_state() {
     assert_denied(&output, "unshipped layout", "misplaced helper");
     fs::remove_dir_all(&top_level).expect("remove top-level scripts");
     fs::remove_dir_all(fixture.deploy_dir()).expect("remove deploy state");
+
+    // The runtime root is trusted only as a real, owner-searchable directory,
+    // and the state kept there is what the shipped layout must see.
+    fixture.write_phase("staging", SHA_A, "blocked");
+    let root_link = fixture.root.with_extension("link");
+    std::os::unix::fs::symlink(&fixture.root, &root_link).expect("runtime root link");
+    let output = run_guard_at(
+        &root_link.join("deploy/scripts/verify-deploy-start-guard.sh"),
+        None,
+        &["--environment", "staging", "--expected-release-sha", SHA_A],
+    );
+    fs::remove_file(&root_link).expect("remove runtime root link");
+    assert_denied(&output, "linked runtime root", "untrusted runtime root");
+    set_mode(&fixture.root, 0o300);
+    let output = run_for(&fixture, "staging", SHA_A);
+    set_mode(&fixture.root, 0o755);
+    assert_denied(&output, "unreadable runtime root", "untrusted runtime root");
+    assert_denied(
+        &run_for(&fixture, "staging", SHA_A),
+        "blocked state at the runtime root",
+        "deployment state does not authorize a restart",
+    );
+    fs::remove_dir_all(fixture.deploy_dir()).expect("remove blocked state");
 
     for (arguments, reason) in [
         (vec![], "invalid arguments"),
@@ -680,6 +732,48 @@ fn deploy_guard_denies_flock_and_descriptor_identity_errors() {
 
     // Without the shims the same fixture still authorizes the restart.
     assert_allowed(&run_guard(&fixture, &arguments), "unshimmed restart");
+}
+
+#[test]
+fn deploy_guard_runs_with_only_its_documented_tools() {
+    let mut tools = vec!["dirname", "stat", "dd", "flock"];
+    if !Path::new("/proc/self/fd").is_dir() {
+        tools.push("perl");
+    }
+    let header = guard_header();
+    let header_words: Vec<&str> = header
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .collect();
+    let mut fixture = Fixture::new("tools");
+    let tool_path = fixture.root.join("tool-path");
+    fs::create_dir_all(&tool_path).expect("tool directory");
+    for tool in &tools {
+        assert!(header_words.contains(tool), "the guard header does not name {tool}");
+        std::os::unix::fs::symlink(find_on_path(tool), tool_path.join(tool))
+            .expect("tool link");
+    }
+    fixture.write_state("staging", SHA_A);
+    let main = fixture.lock("staging");
+    let restart = fixture.restart_lock("staging");
+    fixture.hold(&main);
+    fixture.hold(&restart);
+
+    let output = run_guard_with_tools_only(
+        &fixture.guard(),
+        &tool_path,
+        &["--environment", "staging", "--expected-release-sha", SHA_A],
+    );
+    assert_allowed(&output, "documented tools only");
+    let output = run_guard_with_tools_only(
+        &fixture.guard(),
+        &tool_path,
+        &["--environment", "staging", "--expected-release-sha", SHA_B],
+    );
+    assert_denied(
+        &output,
+        "documented tools only, wrong release",
+        "deployment state does not authorize a restart",
+    );
 }
 
 #[test]
