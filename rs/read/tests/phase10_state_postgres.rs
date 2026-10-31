@@ -55,7 +55,7 @@ async fn target_attestation_rejects_wrong_database_and_role() {
     let mut production = connect(&production_url).await;
     assert_eq!(
         identity(&mut production).await,
-        ("verdaxis_rust_test".into(), "verdaxis_app".into())
+        (database.clone(), "verdaxis_app".into())
     );
     require_target(&mut production, Environment::Production, &database)
         .await
@@ -64,7 +64,7 @@ async fn target_attestation_rejects_wrong_database_and_role() {
     let mut staging = connect(&staging_url).await;
     assert_eq!(
         identity(&mut staging).await,
-        ("verdaxis_rust_test".into(), "verdaxis_app_staging".into())
+        (database.clone(), "verdaxis_app_staging".into())
     );
     require_target(&mut staging, Environment::Staging, &database)
         .await

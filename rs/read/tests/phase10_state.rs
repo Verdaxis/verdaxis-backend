@@ -276,6 +276,34 @@ fn state_files_outside_their_owner_directory_are_refused() {
 }
 
 #[test]
+fn state_files_with_a_second_link_are_refused() {
+    // A hard link lets another directory entry name the same inode, so the
+    // reader and the lock accept only a file with exactly one link.
+    let directory = TempDir::new();
+    let state = directory.path().join("state.json");
+    let lock = directory.path().join("job.lock");
+    std::fs::write(&state, br#"{"version":1,"state":"ok"}"#).expect("write a state file");
+    std::fs::write(&lock, b"").expect("write a lock file");
+    assert_eq!(read_bounded::<Record>(&state, 4096), Ok(record(1, "ok")));
+
+    std::fs::hard_link(&state, directory.path().join("state-alias.json"))
+        .expect("link the state file");
+    std::fs::hard_link(&lock, directory.path().join("lock-alias"))
+        .expect("link the lock file");
+
+    assert_eq!(
+        read_bounded::<Record>(&state, 4096),
+        Err(Exit::Precondition),
+        "a state file with a second link is refused"
+    );
+    assert_eq!(
+        StateLock::try_acquire(&lock).err(),
+        Some(Exit::Precondition),
+        "a lock file with a second link is refused"
+    );
+}
+
+#[test]
 fn state_lock_is_nonblocking() {
     let directory = TempDir::new();
     let path = directory.path().join("job.lock");
