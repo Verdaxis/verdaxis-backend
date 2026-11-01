@@ -480,9 +480,14 @@ async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock()
                 "EXPIRED" => "PIN_EXPIRED",
                 _ => "PIN_PARTIALLY_FILLED",
             };
-            for (order, action, event) in [
-                (owned_order, "order.cancelled", "PIN_WITHDRAWN"),
-                (counterparty_order, counterparty_action, counterparty_event),
+            for (order, action, event, status) in [
+                (owned_order, "order.cancelled", "PIN_WITHDRAWN", "CANCELLED"),
+                (
+                    counterparty_order,
+                    counterparty_action,
+                    counterparty_event,
+                    expected_status,
+                ),
             ] {
                 let order_audits: Vec<_> = audits
                     .iter()
@@ -502,6 +507,14 @@ async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock()
                     .collect();
                 assert_eq!(events.len(), 1);
                 assert_eq!(events[0]["event_type"], event);
+                // The remainder changed from 40 to 60, so both quantities travel
+                // with the event as JSON numbers, never as strings.
+                let payload = &events[0]["event_payload"];
+                assert!(payload["old_remaining_quantity_mt"].is_number());
+                assert!(payload["new_remaining_quantity_mt"].is_number());
+                assert_eq!(payload["old_remaining_quantity_mt"], serde_json::json!(40));
+                assert_eq!(payload["new_remaining_quantity_mt"], serde_json::json!(60));
+                assert_eq!(payload["status"], status);
             }
             let notifications: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
                 .fetch_one(&mut f.conn)
@@ -514,6 +527,64 @@ async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock()
             f.finish().await;
         }
     }
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn pin_event_for_a_status_only_change_carries_no_quantities() {
+    let mut f = Fixture::new().await;
+    let owned = f.order(true, 60, false).await;
+    sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id) VALUES($1,$2,'PIN',$3)")
+        .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(owned)
+        .execute(&mut f.conn).await.unwrap();
+    let mut tx = f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx, &f.command).await.unwrap();
+    tx.commit().await.unwrap();
+    let after = f.snapshot().await;
+    let events = after["watch"].as_array().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event_type"], "PIN_WITHDRAWN");
+    let payload = events[0]["event_payload"].as_object().unwrap();
+    assert_eq!(payload["status"], "CANCELLED");
+    assert!(!payload.contains_key("old_remaining_quantity_mt"));
+    assert!(!payload.contains_key("new_remaining_quantity_mt"));
+    f.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL authority"]
+async fn pin_event_for_a_restored_remainder_carries_exact_numbers() {
+    let mut f = Fixture::new().await;
+    let owned = f.order(true, 40, true).await;
+    let trade = f.trade(owned, "PENDING_CONFIRMATION").await;
+    // More digits than a binary double keeps, so any float round trip shows.
+    let restored: Decimal = "19.876543210987654322".parse().unwrap();
+    sqlx::query("UPDATE trades SET quantity_mt=$1 WHERE id=$2")
+        .bind(restored)
+        .bind(trade)
+        .execute(&mut f.conn)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id) VALUES($1,$2,'PIN',$3)")
+        .bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(owned)
+        .execute(&mut f.conn).await.unwrap();
+    let mut tx = f.conn.begin().await.unwrap();
+    invalidate_organization(&mut tx, &f.command).await.unwrap();
+    tx.commit().await.unwrap();
+    let after = f.snapshot().await;
+    let events = after["watch"].as_array().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["event_type"], "PIN_WITHDRAWN");
+    let payload = &events[0]["event_payload"];
+    assert!(payload["old_remaining_quantity_mt"].is_number());
+    assert!(payload["new_remaining_quantity_mt"].is_number());
+    assert_eq!(payload["old_remaining_quantity_mt"].to_string(), "40");
+    assert_eq!(
+        payload["new_remaining_quantity_mt"].to_string(),
+        "59.876543210987654322"
+    );
+    assert_eq!(payload["status"], "CANCELLED");
+    f.finish().await;
 }
 
 #[tokio::test]

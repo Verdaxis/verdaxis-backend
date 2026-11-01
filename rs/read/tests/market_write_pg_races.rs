@@ -1178,13 +1178,10 @@ async fn finite_seeded_lifecycle_sequences_preserve_the_ledger() {
                 StatusCode::OK,
             );
             stock.ledger().await;
-            assert_eq!(
-                stock.stock().await,
-                (Decimal::from(700), Decimal::from(300))
-            );
+            assert_eq!(stock.stock().await, (Decimal::from(1000), Decimal::ZERO));
             ok(
                 &stock.call(lifecycle(pending, "decline")).await,
-                StatusCode::OK,
+                StatusCode::BAD_REQUEST,
             );
             stock.ledger().await;
             assert_eq!(stock.stock().await, (Decimal::from(1000), Decimal::ZERO));
@@ -1301,7 +1298,7 @@ async fn publication_expiry_before_take_refuses_the_old_order() {
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
-async fn preserving_rejection_and_cancel_keep_pending_commitments() {
+async fn rejection_and_cancel_leave_no_pending_commitment() {
     for cancel_first in [false, true] {
         let mut f = Fixture::new().await;
         let order = f.listing().await;
@@ -1322,20 +1319,20 @@ async fn preserving_rejection_and_cancel_keep_pending_commitments() {
             ok(&a, StatusCode::OK);
             ok(&b, StatusCode::BAD_REQUEST);
         }
-        assert_eq!(f.stock().await, (Decimal::from(700), Decimal::from(300)));
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM trades WHERE status::text='PENDING_CONFIRMATION'",
-        )
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-        assert_eq!(pending, 1);
+        // Either order ends the same way: the pending trade is cancelled and
+        // its reservation is back in stock together with the order remainder.
+        assert_eq!(f.stock().await, (Decimal::from(1000), Decimal::ZERO));
+        let trades: Vec<String> = sqlx::query_scalar("SELECT status::text FROM trades")
+            .fetch_all(&mut f.admin)
+            .await
+            .unwrap();
+        assert_eq!(trades, ["CANCELLED"]);
     }
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
-async fn preserving_rejection_and_confirmation_observe_current_admission() {
+async fn rejection_and_confirmation_observe_current_admission() {
     for confirm_first in [false, true] {
         let mut f = Fixture::new().await;
         let order = f.listing().await;
@@ -1363,15 +1360,23 @@ async fn preserving_rejection_and_confirmation_observe_current_admission() {
                 StatusCode::FORBIDDEN
             },
         );
-        assert_eq!(
-            f.stock().await,
-            (
-                Decimal::from(700),
-                Decimal::from(if confirm_first { 0 } else { 300 })
-            )
-        );
-        if !confirm_first {
-            ok(&f.call(lifecycle(trade, "decline")).await, StatusCode::OK);
+        let status: String = sqlx::query_scalar("SELECT status::text FROM trades WHERE id=$1")
+            .bind(trade)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        if confirm_first {
+            // The confirmed trade keeps its commitment; only the order remainder returns.
+            assert_eq!(status, "CONFIRMED");
+            assert_eq!(f.stock().await, (Decimal::from(700), Decimal::ZERO));
+        } else {
+            // The rejection cancelled the pending trade, so nothing is left to decline.
+            assert_eq!(status, "CANCELLED");
+            assert_eq!(f.stock().await, (Decimal::from(1000), Decimal::ZERO));
+            ok(
+                &f.call(lifecycle(trade, "decline")).await,
+                StatusCode::BAD_REQUEST,
+            );
             f.ledger().await;
             assert_eq!(f.stock().await, (Decimal::from(1000), Decimal::ZERO));
         }
