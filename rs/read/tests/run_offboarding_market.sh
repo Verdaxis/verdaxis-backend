@@ -15,7 +15,8 @@
 #   RUST_TEST_PYTHON  interpreter with the application dependencies (default: python3)
 set -euo pipefail
 export SQLX_OFFLINE=true
-export RELEASE_SHA=$(git rev-parse HEAD)
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 python="${RUST_TEST_PYTHON:-python3}"
 export RUST_TEST_PYTHON="$python"
@@ -53,9 +54,11 @@ port=$(docker port "$container" 5432/tcp | head -1)
 port=${port##*:}
 
 templates=(verdaxis_offboarding_market_test verdaxis_matching_test verdaxis_effects_test)
+# The lock target's Python writer protocols reuse the migrator URL with the
+# runtime role name, so both roles share one disposable password.
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE rust_migrator LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_migrator_pw';
-CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_app_pw';
+CREATE ROLE rust_migrator LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
+CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_backup NOLOGIN;
 SQL
 for database in "${templates[@]}" verdaxis_rejection_test; do
@@ -67,11 +70,11 @@ done
 
 export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
 for database in "${templates[@]}"; do
-  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_role_pw@127.0.0.1:$port/$database"
   export MIGRATOR_DATABASE_URL="$DATABASE_URL"
   "$python" -m alembic upgrade head
   PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" \
-    PGUSER=rust_migrator PGPASSWORD=disposable_migrator_pw \
+    PGUSER=rust_migrator PGPASSWORD=disposable_role_pw \
     psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=rust_migrator -v backup_role=rust_backup \
@@ -81,7 +84,7 @@ done
 unset DATABASE_URL MIGRATOR_DATABASE_URL
 
 admin="postgresql://postgres:disposable_admin_pw@127.0.0.1:$port"
-app="postgresql://rust_app:disposable_app_pw@127.0.0.1:$port"
+app="postgresql://rust_app:disposable_role_pw@127.0.0.1:$port"
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="$admin/postgres"
 export POSTGRES_ADMIN_TEST_DATABASE_URL="postgresql+asyncpg://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_OFFBOARDING_MARKET_ADMIN_DATABASE_URL="$admin/verdaxis_offboarding_market_test"
@@ -94,7 +97,7 @@ export RUST_CONSERVATION_ADMIN_DATABASE_URL="$admin/verdaxis_effects_test"
 export RUST_CONSERVATION_DATABASE_URL="$app/verdaxis_effects_test"
 export RUST_CONSERVATION_TEMPLATE_DATABASE=verdaxis_effects_test
 # The invalidation and lock targets create their own schemas here.
-export RUST_TEST_MIGRATOR_DATABASE_URL="postgresql://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rejection_test"
+export RUST_TEST_MIGRATOR_DATABASE_URL="postgresql://rust_migrator:disposable_role_pw@127.0.0.1:$port/verdaxis_rejection_test"
 export RUST_TEST_DATABASE_URL="$app/verdaxis_rejection_test"
 
 log=$(mktemp "${TMPDIR:-/tmp}/offboarding-market.XXXXXX")

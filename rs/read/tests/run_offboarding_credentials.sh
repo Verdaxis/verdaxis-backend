@@ -14,7 +14,8 @@
 #   RUST_TEST_PYTHON  interpreter with the application dependencies (default: python3)
 set -euo pipefail
 export SQLX_OFFLINE=true
-export RELEASE_SHA=$(git rev-parse HEAD)
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 python="${RUST_TEST_PYTHON:-python3}"
 export RUST_TEST_PYTHON="$python"

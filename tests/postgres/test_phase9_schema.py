@@ -77,7 +77,9 @@ def test_rust_owned_freeze_declaration_is_exact():
 def test_unlisted_column_still_reports_schema_drift(freeze_database, relation):
     import sys
 
-    sql, _ = freeze_database
+    sql, migrate = freeze_database
+    # The drift check compares against the single head.
+    migrate("upgrade", HEAD)
     sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
     url = make_url(database_url(sql, "MARKET_INTEGRITY_TEST_DATABASE_URL")).set(
         drivername="postgresql+asyncpg"
@@ -355,7 +357,7 @@ def test_preparer_accepts_reviewed_production_checkpoints(tmp_path):
 
 def test_release_pin_lists_the_new_head():
     revisions = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION]
+    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION, HEAD]
     checkpoints = {tuple(line.split()) for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
                    if line and not line.startswith("#")}
     assert (PARENT, REVISION) in checkpoints
@@ -519,11 +521,11 @@ LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 RELEASE_ALLOWLIST = [
     "kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache",
     "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor",
-    READ_INDEXES, PARENT, REVISION,
+    READ_INDEXES, PARENT, REVISION, HEAD,
 ]
 PRODUCTION_CHECKPOINTS = {
     "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens",
-    "sse_20261021_replay_floor", READ_INDEXES, PARENT, REVISION,
+    "sse_20261021_replay_floor", READ_INDEXES, PARENT, REVISION, HEAD,
 }
 NON_LITERAL_REVISIONS = ("*", "head", "heads", "", "unlisted_revision", f"{REVISION}_next")
 FREEZE_FUNCTIONS = {"trades_freeze_guard", "trade_freezes_history_guard"}

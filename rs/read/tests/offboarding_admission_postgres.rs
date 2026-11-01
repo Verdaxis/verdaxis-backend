@@ -939,6 +939,7 @@ async fn offboarding_commit_wins_over_waiting_mutation() {
     assert!(!ran.load(Ordering::SeqCst));
 }
 
+#[cfg(feature = "contract-tests")]
 const MARKER_CONSTRAINTS: [(&str, &str); 2] = [
     (
         "ck_users_offboarded_requires_rejected",
@@ -956,6 +957,7 @@ const MARKER_CONSTRAINTS: [(&str, &str); 2] = [
 /// later writes are still checked; [`restore_marker_constraints`] validates
 /// them again. A `NOT VALID` constraint still checks every new row version,
 /// so an outstanding invitation secret is written with the row.
+#[cfg(feature = "contract-tests")]
 async fn marked_but_admissible(
     world: &World,
     organization: Uuid,
@@ -1001,6 +1003,7 @@ async fn marked_but_admissible(
 }
 
 /// Clear the marker on the forbidden rows and validate the constraints again.
+#[cfg(feature = "contract-tests")]
 async fn restore_marker_constraints(world: &World, accounts: &[&Account]) {
     for account in accounts {
         sqlx::query("UPDATE users SET offboarded_at = NULL WHERE id = $1")
@@ -1019,8 +1022,9 @@ async fn restore_marker_constraints(world: &World, accounts: &[&Account]) {
     }
 }
 
-/// A refresh whose route pauses after the user row filter. Returns the
-/// response and whether the route reached the pause.
+/// A refresh whose route pauses after the user row filter (a contract-test
+/// hook). Returns the response and whether the route reached the pause.
+#[cfg(feature = "contract-tests")]
 async fn refresh_past_user_filter(world: &World, session: &Session) -> ((u16, Value), bool) {
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     let mut state = auth::refresh::RefreshState::new(
@@ -1057,6 +1061,7 @@ async fn refresh_past_user_filter(world: &World, session: &Session) -> ((u16, Va
 /// Each marker check below runs on an account that every other rule would
 /// admit, next to an unmarked twin that is admitted, so removing the check
 /// makes the case fail.
+#[cfg(feature = "contract-tests")]
 #[tokio::test]
 #[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn marker_refuses_where_every_other_rule_admits() {
