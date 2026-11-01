@@ -288,6 +288,16 @@ async fn onboarding_candidates_match_the_python_projection() {
             Some(before(60)),
         )
         .await;
+    // The active user has completed every gate, so only the missing login
+    // separates it from a first-login alert.
+    sqlx::query("INSERT INTO organization_join_requests VALUES ($1, $2, $3, 'APPROVED', $4, $4)")
+        .bind(Uuid::new_v4())
+        .bind(logged_in)
+        .bind(approved)
+        .bind(before(5 * 3600))
+        .execute(&mut fixture.admin)
+        .await
+        .unwrap();
     // Membership, user approvals (the latest APPROVED transition only) and the
     // organization approval audit row feed the first-login time.
     sqlx::query("INSERT INTO organization_join_requests VALUES ($1, $2, $3, 'APPROVED', $4, $4)")
@@ -417,15 +427,16 @@ async fn onboarding_candidates_match_the_python_projection() {
     )
     .await
     .unwrap();
+    let messages = sender.messages.lock().unwrap().clone();
     assert_eq!(
         outcome,
         Outcome::Checked {
             candidates: 6,
             alerts: 3,
             recoveries: 0
-        }
+        },
+        "{messages:?}"
     );
-    let messages = sender.messages.lock().unwrap().clone();
     let stages: Vec<&str> = messages
         .iter()
         .map(|m| m.lines().find(|l| l.starts_with("Stage: ")).unwrap())
