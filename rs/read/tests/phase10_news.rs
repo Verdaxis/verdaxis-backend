@@ -212,14 +212,16 @@ async fn webz_items_win_and_rss_is_not_read() {
     assert_eq!(query["includeSyndicated"], "false");
     assert_eq!(query["q"], webz_query());
     assert!(query["q"].starts_with("site_type:news AND (((title:(\"bio methanol\" OR "));
-    assert!(query["q"].ends_with("\"marine fuel regulation\")))"));
+    assert!(query["q"].ends_with("\"marine fuel regulation\"))"));
 }
 
 #[tokio::test]
 async fn empty_or_unavailable_webz_falls_back_to_rss() {
     for webz_answer in [
         Ok(webz_body(json!([]))),
-        Ok(webz_body(json!([{"title": "", "url": "https://x.example.org/a"}]))),
+        Ok(webz_body(
+            json!([{"title": "", "url": "https://x.example.org/a"}]),
+        )),
         Ok(b"not json".to_vec()),
         Ok(serde_json::to_vec(&json!({"posts": "nope"})).unwrap()),
         Err(FetchError::Unavailable),
@@ -267,7 +269,10 @@ async fn feeds_keep_order_and_the_per_run_cap() {
         ("https://a.test/rss", Ok(many("a", 150))),
         ("https://b.test/rss", Ok(many("b", 150))),
         ("https://c.test/rss", Err(FetchError::Unavailable)),
-        ("https://d.test/rss", Ok(b"<html>not a feed</html>".to_vec())),
+        (
+            "https://d.test/rss",
+            Ok(b"<html>not a feed</html>".to_vec()),
+        ),
         ("https://e.test/rss", Ok(many("e", 150))),
     ]);
     let sources = NewsSources {
@@ -322,9 +327,18 @@ fn sized(bytes: usize) -> Response {
 #[tokio::test]
 async fn news_rejects_oversize_provider_body_and_feed() {
     let router = Router::new()
-        .route("/webz-at-cap", get(|| async { sized(WEBZ_MAX_RESPONSE_BYTES) }))
-        .route("/webz-over", get(|| async { sized(WEBZ_MAX_RESPONSE_BYTES + 1) }))
-        .route("/feed-over", get(|| async { sized(RSS_MAX_BYTES_PER_FEED + 1) }))
+        .route(
+            "/webz-at-cap",
+            get(|| async { sized(WEBZ_MAX_RESPONSE_BYTES) }),
+        )
+        .route(
+            "/webz-over",
+            get(|| async { sized(WEBZ_MAX_RESPONSE_BYTES + 1) }),
+        )
+        .route(
+            "/feed-over",
+            get(|| async { sized(RSS_MAX_BYTES_PER_FEED + 1) }),
+        )
         .route("/missing", get(|| async { StatusCode::NOT_FOUND }))
         .route(
             "/moved",
@@ -355,7 +369,9 @@ async fn news_rejects_oversize_provider_body_and_feed() {
 
     // A body exactly at the cap is read; one byte more is refused.
     assert_eq!(
-        read("/webz-at-cap", WEBZ_MAX_RESPONSE_BYTES).await.map(|body| body.len()),
+        read("/webz-at-cap", WEBZ_MAX_RESPONSE_BYTES)
+            .await
+            .map(|body| body.len()),
         Ok(WEBZ_MAX_RESPONSE_BYTES)
     );
     assert_eq!(
@@ -368,7 +384,10 @@ async fn news_rejects_oversize_provider_body_and_feed() {
     );
     // Non-2xx answers and redirects are failures, not bodies.
     assert_eq!(read("/missing", 1024).await, Err(FetchError::Unavailable));
-    assert_eq!(read("/moved", WEBZ_MAX_RESPONSE_BYTES).await, Err(FetchError::Unavailable));
+    assert_eq!(
+        read("/moved", WEBZ_MAX_RESPONSE_BYTES).await,
+        Err(FetchError::Unavailable)
+    );
 
     // An oversize Webz body falls back to the feeds; an oversize feed adds no item.
     let sources = NewsSources {
@@ -379,7 +398,12 @@ async fn news_rejects_oversize_provider_body_and_feed() {
         }),
         feeds: vec![feed("Big", &format!("{base}/feed-over"), "feed.test")],
     };
-    assert!(sources.fetch_webz(sources.webz.as_ref().unwrap(), now()).await.is_none());
+    assert!(
+        sources
+            .fetch_webz(sources.webz.as_ref().unwrap(), now())
+            .await
+            .is_none()
+    );
     assert!(sources.fetch_news_items(now()).await.is_empty());
 }
 
@@ -387,17 +411,25 @@ async fn news_rejects_oversize_provider_body_and_feed() {
 async fn webz_token_is_sent_as_a_query_parameter_and_never_printed() {
     let router = Router::new().route(
         "/filter",
-        get(|axum::extract::RawQuery(query): axum::extract::RawQuery| async move {
-            let query = query.unwrap_or_default();
-            let ok = query.contains("token=webz-fixture-token")
-                && query.contains("format=json")
-                && query.contains("includeSyndicated=false");
-            let status = if ok { StatusCode::OK } else { StatusCode::BAD_REQUEST };
-            Response::builder()
-                .status(status)
-                .body(Body::from(serde_json::to_vec(&json!({"posts": []})).unwrap()))
-                .unwrap()
-        }),
+        get(
+            |axum::extract::RawQuery(query): axum::extract::RawQuery| async move {
+                let query = query.unwrap_or_default();
+                let ok = query.contains("token=webz-fixture-token")
+                    && query.contains("format=json")
+                    && query.contains("includeSyndicated=false");
+                let status = if ok {
+                    StatusCode::OK
+                } else {
+                    StatusCode::BAD_REQUEST
+                };
+                Response::builder()
+                    .status(status)
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({"posts": []})).unwrap(),
+                    ))
+                    .unwrap()
+            },
+        ),
     );
     let base = serve(router).await;
     let sources = NewsSources {
@@ -517,7 +549,10 @@ fn feed_entries_are_bounded_and_publisher_checked() {
     ]);
     let items = parse_feed(&body, &spec, now()).expect("a feed that parses");
     let urls: Vec<&str> = items.iter().map(|item| item.url.as_str()).collect();
-    assert_eq!(urls, vec!["https://publisher.test/good", "https://publisher.test/max"]);
+    assert_eq!(
+        urls,
+        vec!["https://publisher.test/good", "https://publisher.test/max"]
+    );
     assert_eq!(items[0].source, "Pub");
     assert_eq!(items[0].source_url, "https://publisher.test/rss");
     assert_eq!(
@@ -577,7 +612,10 @@ fn webz_posts_are_validated_field_by_field() {
     assert_eq!(item.source, "host.example.org");
     assert_eq!(item.source_url, "https://Host.Example.org:8443");
     assert_eq!(item.summary.as_deref(), Some("Line one line two"));
-    assert_eq!(item.published_at, Utc.timestamp_opt(1_788_000_000, 0).unwrap());
+    assert_eq!(
+        item.published_at,
+        Utc.timestamp_opt(1_788_000_000, 0).unwrap()
+    );
 
     let item = accept(json!({
         "title": "  Spaced   title ",
@@ -628,7 +666,10 @@ fn webz_published_accepts_epoch_and_iso_values() {
     let expected = Utc.with_ymd_and_hms(2026, 10, 31, 10, 0, 0).unwrap();
     assert_eq!(at(json!(expected.timestamp())), expected);
     assert_eq!(at(json!(expected.timestamp_millis())), expected);
-    assert_eq!(at(json!(expected.timestamp() as f64 + 0.5)).timestamp(), expected.timestamp());
+    assert_eq!(
+        at(json!(expected.timestamp() as f64 + 0.5)).timestamp(),
+        expected.timestamp()
+    );
     for text in [
         "2026-10-31T10:00:00Z",
         "2026-10-31T10:00:00+00:00",
@@ -670,10 +711,19 @@ fn duplicates_collapse_by_url_and_by_source_and_headline() {
         candidate("Fresh", "https://s.test/4", "Pub"),
     ]);
     let urls: Vec<&str> = kept.iter().map(|item| item.url.as_str()).collect();
-    assert_eq!(urls, vec!["https://s.test/1", "https://s.test/3", "https://s.test/4"]);
+    assert_eq!(
+        urls,
+        vec!["https://s.test/1", "https://s.test/3", "https://s.test/4"]
+    );
 
     let many: Vec<Candidate> = (0..300)
-        .map(|index| candidate(&format!("t{index}"), &format!("https://s.test/{index}"), "P"))
+        .map(|index| {
+            candidate(
+                &format!("t{index}"),
+                &format!("https://s.test/{index}"),
+                "P",
+            )
+        })
         .collect();
     assert_eq!(dedupe_candidates(many).len(), RSS_MAX_ENTRIES_PER_RUN);
 }
@@ -705,8 +755,14 @@ fn local_labels_follow_the_keyword_priority() {
 #[test]
 fn model_answers_are_found_in_plain_fenced_and_surrounded_text() {
     assert_eq!(extract_json("{\"a\": 1}"), Some(json!({"a": 1})));
-    assert_eq!(extract_json("```json\n{\"a\": 1}\n```"), Some(json!({"a": 1})));
-    assert_eq!(extract_json("```\n{\"a\": 1}\n```  "), Some(json!({"a": 1})));
+    assert_eq!(
+        extract_json("```json\n{\"a\": 1}\n```"),
+        Some(json!({"a": 1}))
+    );
+    assert_eq!(
+        extract_json("```\n{\"a\": 1}\n```  "),
+        Some(json!({"a": 1}))
+    );
     assert_eq!(
         extract_json("Sure! {\"category\": \"carbon\"} Hope that helps."),
         Some(json!({"category": "carbon"}))
@@ -741,9 +797,24 @@ async fn a_model_answer_sets_category_relevance_and_summary() {
 async fn invalid_model_fields_fall_back_to_their_defaults() {
     for (response, category, relevance, summary) in [
         (answer("weather", json!(9), json!(7)), "markets", 3, None),
-        (answer("shipping", json!(0), json!(null)), "shipping", 3, None),
-        (answer("shipping", json!("4"), json!("")), "shipping", 3, None),
-        (answer("shipping", json!(4.5), json!("ok")), "shipping", 3, Some("ok")),
+        (
+            answer("shipping", json!(0), json!(null)),
+            "shipping",
+            3,
+            None,
+        ),
+        (
+            answer("shipping", json!("4"), json!("")),
+            "shipping",
+            3,
+            None,
+        ),
+        (
+            answer("shipping", json!(4.5), json!("ok")),
+            "shipping",
+            3,
+            Some("ok"),
+        ),
         (Ok("{\"relevance\": 2}".into()), "markets", 2, None),
     ] {
         let model = FakeModel::always(response);
@@ -753,6 +824,63 @@ async fn invalid_model_fields_fall_back_to_their_defaults() {
         assert_eq!(label.relevance, relevance);
         assert_eq!(label.summary.as_deref(), summary);
     }
+}
+
+/// A model summary is stored under the same rule as a Webz summary: plain text
+/// with no control characters, whitespace collapsed, non-empty and bounded.
+#[tokio::test]
+async fn model_summaries_are_bounded_plain_text() {
+    let summary_of = |summary: Value| async move {
+        let model = FakeModel::always(answer("carbon", json!(4), summary));
+        let mut categorizer = Categorizer::new(Some(&model));
+        categorizer.categorize("Anything").await.summary
+    };
+
+    // Markup is not interpreted or removed: it is stored as inert text, exactly
+    // as a Webz summary would be.
+    assert_eq!(
+        summary_of(json!("<script>alert(1)</script> <b>bold</b>"))
+            .await
+            .as_deref(),
+        Some("<script>alert(1)</script> <b>bold</b>")
+    );
+    // Whitespace collapses and line breaks are allowed.
+    assert_eq!(
+        summary_of(json!("  Line one\nline   two\t "))
+            .await
+            .as_deref(),
+        Some("Line one line two")
+    );
+    // The length bound counts characters and is inclusive.
+    let at_limit = "s".repeat(NEWS_SUMMARY_MAX_CHARS);
+    assert_eq!(summary_of(json!(at_limit.clone())).await, Some(at_limit));
+    assert_eq!(
+        summary_of(json!("s".repeat(NEWS_SUMMARY_MAX_CHARS + 1))).await,
+        None
+    );
+    assert_eq!(
+        summary_of(json!("é".repeat(NEWS_SUMMARY_MAX_CHARS + 1))).await,
+        None,
+        "characters, not bytes"
+    );
+    // Control characters other than tab, carriage return and line feed refuse
+    // the whole summary.
+    for bad in ["a\u{0}b", "a\u{1b}[31mred", "a\u{7f}b", "a\u{8}b"] {
+        assert_eq!(summary_of(json!(bad)).await, None, "{bad:?}");
+    }
+    // Empty, blank and non-text summaries are no summary; the label stays.
+    for empty in [
+        json!(""),
+        json!("   \n "),
+        json!(null),
+        json!(7),
+        json!(["x"]),
+    ] {
+        assert_eq!(summary_of(empty.clone()).await, None, "{empty}");
+    }
+    let model = FakeModel::always(answer("carbon", json!(4), json!("x".repeat(5000))));
+    let label = Categorizer::new(Some(&model)).categorize("Anything").await;
+    assert_eq!((label.category.as_str(), label.relevance), ("carbon", 4));
 }
 
 #[tokio::test]
@@ -770,7 +898,10 @@ async fn unusable_model_text_uses_the_local_label() {
 async fn no_key_means_no_provider_call() {
     let mut categorizer = Categorizer::<&FakeModel>::new(None);
     assert!(!categorizer.provider_enabled());
-    assert_eq!(categorizer.categorize("IMO regulation").await.category, "regulation");
+    assert_eq!(
+        categorizer.categorize("IMO regulation").await.category,
+        "regulation"
+    );
 }
 
 #[tokio::test]
@@ -795,7 +926,11 @@ async fn three_provider_failures_open_the_breaker_for_a_minute() {
     assert_eq!(model.calls(), 3, "the breaker opens after three failures");
     tokio::time::advance(Duration::from_secs(61)).await;
     categorizer.categorize("LNG bunker").await;
-    assert_eq!(model.calls(), 4, "the breaker allows a call after its cooldown");
+    assert_eq!(
+        model.calls(),
+        4,
+        "the breaker allows a call after its cooldown"
+    );
 }
 
 #[tokio::test]
@@ -823,8 +958,12 @@ async fn the_gemini_client_sends_the_key_in_a_header_and_reads_the_first_candida
         "/v1beta/models/gemini-2.5-flash-lite:generateContent",
         axum::routing::post(
             |headers: axum::http::HeaderMap, axum::Json(body): axum::Json<Value>| async move {
-                let key_ok = headers.get("x-goog-api-key").is_some_and(|value| value == "fixture-key");
-                let prompt = body["contents"][0]["parts"][0]["text"].as_str().unwrap_or_default();
+                let key_ok = headers
+                    .get("x-goog-api-key")
+                    .is_some_and(|value| value == "fixture-key");
+                let prompt = body["contents"][0]["parts"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default();
                 if !key_ok || !prompt.ends_with("Headline: Carbon news") {
                     return (StatusCode::BAD_REQUEST, axum::Json(json!({}))).into_response();
                 }
@@ -841,7 +980,10 @@ async fn the_gemini_client_sends_the_key_in_a_header_and_reads_the_first_candida
     let base = serve(router).await;
     let client = GeminiClient::new(Secret::new("fixture-key"), &base).unwrap();
     let text = client
-        .generate(&format!("prefix\nHeadline: Carbon news"), Duration::from_secs(15))
+        .generate(
+            &format!("prefix\nHeadline: Carbon news"),
+            Duration::from_secs(15),
+        )
         .await
         .unwrap();
     assert_eq!(text, "{\"category\": \"carbon\"}");
@@ -854,29 +996,32 @@ async fn the_gemini_client_classifies_refusals_and_retries_transient_failures() 
 
     let hits = Arc::new(AtomicU32::new(0));
     let counter = hits.clone();
-    let router = Router::new()
-        .route(
-            "/v1beta/models/gemini-2.5-flash-lite:generateContent",
-            axum::routing::post(move || {
-                let counter = counter.clone();
-                async move {
-                    // First call: a server error. Second call: success.
-                    if counter.fetch_add(1, Ordering::SeqCst) == 0 {
-                        (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({})))
-                            .into_response()
-                    } else {
-                        (
-                            StatusCode::OK,
-                            axum::Json(json!({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})),
-                        )
-                            .into_response()
-                    }
+    let router = Router::new().route(
+        "/v1beta/models/gemini-2.5-flash-lite:generateContent",
+        axum::routing::post(move || {
+            let counter = counter.clone();
+            async move {
+                // First call: a server error. Second call: success.
+                if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+                    (StatusCode::SERVICE_UNAVAILABLE, axum::Json(json!({}))).into_response()
+                } else {
+                    (
+                        StatusCode::OK,
+                        axum::Json(
+                            json!({"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}),
+                        ),
+                    )
+                        .into_response()
                 }
-            }),
-        );
+            }
+        }),
+    );
     let base = serve(router).await;
     let client = GeminiClient::new(Secret::new("k"), &base).unwrap();
-    assert_eq!(client.generate("p", Duration::from_secs(15)).await, Ok("ok".to_owned()));
+    assert_eq!(
+        client.generate("p", Duration::from_secs(15)).await,
+        Ok("ok".to_owned())
+    );
     assert_eq!(hits.load(Ordering::SeqCst), 2);
 
     for (status, body, expected) in [
@@ -892,18 +1037,23 @@ async fn the_gemini_client_classifies_refusals_and_retries_transient_failures() 
             json!({"error": {"status": "PERMISSION_DENIED", "message": "x"}}),
             ModelError::Auth,
         ),
-        (400, json!({"error": {"message": "bad request"}}), ModelError::Other),
+        (
+            400,
+            json!({"error": {"message": "bad request"}}),
+            ModelError::Other,
+        ),
         (404, json!({}), ModelError::Other),
     ] {
-        let router = Router::new().route(
-            "/v1beta/models/gemini-2.5-flash-lite:generateContent",
-            axum::routing::post(move || {
-                let body = body.clone();
-                async move {
-                    (StatusCode::from_u16(status).unwrap(), axum::Json(body)).into_response()
-                }
-            }),
-        );
+        let router =
+            Router::new().route(
+                "/v1beta/models/gemini-2.5-flash-lite:generateContent",
+                axum::routing::post(move || {
+                    let body = body.clone();
+                    async move {
+                        (StatusCode::from_u16(status).unwrap(), axum::Json(body)).into_response()
+                    }
+                }),
+            );
         let base = serve(router).await;
         let client = GeminiClient::new(Secret::new("k"), &base).unwrap();
         assert_eq!(
@@ -914,7 +1064,10 @@ async fn the_gemini_client_classifies_refusals_and_retries_transient_failures() 
     }
     // A budget below the retry delay cannot make a call.
     let client = GeminiClient::new(Secret::new("k"), "http://127.0.0.1:9").unwrap();
-    assert_eq!(client.generate("p", Duration::from_millis(100)).await, Err(ModelError::Other));
+    assert_eq!(
+        client.generate("p", Duration::from_millis(100)).await,
+        Err(ModelError::Other)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -958,8 +1111,11 @@ fn configuration_reads_the_three_settings_and_refuses_a_foreign_webz_url() {
         "https://API.WEBZ.IO:443/filterWebContent",
     ] {
         assert!(
-            NewsConfig::from_environment(&environment(&[("WEBZ_API_TOKEN", "t"), ("WEBZ_API_URL", url)]))
-                .is_ok(),
+            NewsConfig::from_environment(&environment(&[
+                ("WEBZ_API_TOKEN", "t"),
+                ("WEBZ_API_URL", url)
+            ]))
+            .is_ok(),
             "{url}"
         );
     }
@@ -976,7 +1132,10 @@ fn configuration_reads_the_three_settings_and_refuses_a_foreign_webz_url() {
         "",
     ] {
         assert_eq!(
-            NewsConfig::from_environment(&environment(&[("WEBZ_API_TOKEN", "t"), ("WEBZ_API_URL", url)])),
+            NewsConfig::from_environment(&environment(&[
+                ("WEBZ_API_TOKEN", "t"),
+                ("WEBZ_API_URL", url)
+            ])),
             Err(Exit::Precondition),
             "{url}"
         );
@@ -1028,8 +1187,11 @@ fn the_default_feed_list_is_the_five_maritime_publishers() {
     for feed in &feeds {
         assert!(feed.url.starts_with("https://"));
         assert!(
-            validated_article_url(&format!("https://{}/x", feed.article_domains[0]), &feed.article_domains)
-                .is_some()
+            validated_article_url(
+                &format!("https://{}/x", feed.article_domains[0]),
+                &feed.article_domains
+            )
+            .is_some()
         );
     }
 }

@@ -66,7 +66,19 @@ impl Fixture {
         pool_for(&url(variable), &self.schema).await
     }
 
-    async fn rows(&self) -> Vec<(String, String, Option<String>, String, String, String, i32, DateTime<Utc>, DateTime<Utc>)> {
+    async fn rows(
+        &self,
+    ) -> Vec<(
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        i32,
+        DateTime<Utc>,
+        DateTime<Utc>,
+    )> {
         sqlx::query_as(
             "SELECT url, title, summary, source, source_url, category, relevance, published_at, fetched_at \
              FROM news_items ORDER BY url",
@@ -95,9 +107,9 @@ impl Fixture {
             "DROP SCHEMA {} CASCADE",
             self.schema
         )))
-            .execute(&self.admin)
-            .await
-            .expect("drop the schema");
+        .execute(&self.admin)
+        .await
+        .expect("drop the schema");
     }
 }
 
@@ -196,11 +208,7 @@ fn production(database: &str) -> RefreshTarget<'_> {
     }
 }
 
-async fn run_once(
-    pool: &PgPool,
-    database: &str,
-    fetch: &SharedFetch,
-) -> Result<Refresh, Exit> {
+async fn run_once(pool: &PgPool, database: &str, fetch: &SharedFetch) -> Result<Refresh, Exit> {
     refresh_news(
         pool,
         production(database),
@@ -221,7 +229,9 @@ async fn news_inserts_only_new_urls() {
     let production_url = url("RUST_TEST_PRODUCTION_DATABASE_URL");
     let database = database_of(&production_url);
     let pool = fixture.pool("RUST_TEST_PRODUCTION_DATABASE_URL").await;
-    fixture.seed("https://news.example.org/stored", "Stored title").await;
+    fixture
+        .seed("https://news.example.org/stored", "Stored title")
+        .await;
 
     let fetch = SharedFetch::new(
         json!([
@@ -240,7 +250,11 @@ async fn news_inserts_only_new_urls() {
     let outcome = run_once(&pool, &database, &fetch).await;
     assert_eq!(
         outcome,
-        Ok(Refresh::Completed { fetched: 3, new: 2, inserted: 2 })
+        Ok(Refresh::Completed {
+            fetched: 3,
+            new: 2,
+            inserted: 2
+        })
     );
     assert_eq!(fetch.calls(), 1);
 
@@ -262,7 +276,10 @@ async fn news_inserts_only_new_urls() {
     assert_eq!(second.4, "https://news.example.org");
     assert_eq!(second.5, "regulation");
     assert_eq!(second.6, 3);
-    assert_eq!(second.7, Utc.with_ymd_and_hms(2026, 10, 31, 10, 0, 0).unwrap());
+    assert_eq!(
+        second.7,
+        Utc.with_ymd_and_hms(2026, 10, 31, 10, 0, 0).unwrap()
+    );
     assert_eq!(second.8, fixed_now());
     let third = by_url("https://news.example.org/third");
     assert_eq!(third.2, None);
@@ -272,7 +289,11 @@ async fn news_inserts_only_new_urls() {
     let outcome = run_once(&pool, &database, &fetch).await;
     assert_eq!(
         outcome,
-        Ok(Refresh::Completed { fetched: 3, new: 0, inserted: 0 })
+        Ok(Refresh::Completed {
+            fetched: 3,
+            new: 0,
+            inserted: 0
+        })
     );
     assert_eq!(fixture.rows().await.len(), 3);
 
@@ -301,7 +322,11 @@ async fn an_empty_fetch_commits_nothing_and_succeeds() {
     let fetch = SharedFetch::new(json!([]), false);
     assert_eq!(
         run_once(&pool, &database, &fetch).await,
-        Ok(Refresh::Completed { fetched: 0, new: 0, inserted: 0 })
+        Ok(Refresh::Completed {
+            fetched: 0,
+            new: 0,
+            inserted: 0
+        })
     );
     assert!(fixture.rows().await.is_empty());
     fixture.finish().await;
@@ -312,7 +337,10 @@ async fn news_lock_busy_is_a_successful_noop() {
     let fixture = Fixture::new().await;
     let database = database_of(&url("RUST_TEST_PRODUCTION_DATABASE_URL"));
     let pool = fixture.pool("RUST_TEST_PRODUCTION_DATABASE_URL").await;
-    let fetch = SharedFetch::new(json!([post("Port news", "https://news.example.org/a")]), false);
+    let fetch = SharedFetch::new(
+        json!([post("Port news", "https://news.example.org/a")]),
+        false,
+    );
 
     // Another process (the Python command, in production) holds the same
     // transaction-scoped advisory key.
@@ -326,7 +354,10 @@ async fn news_lock_busy_is_a_successful_noop() {
         .await
         .unwrap();
 
-    assert_eq!(run_once(&pool, &database, &fetch).await, Ok(Refresh::LockBusy));
+    assert_eq!(
+        run_once(&pool, &database, &fetch).await,
+        Ok(Refresh::LockBusy)
+    );
     assert_eq!(fetch.calls(), 0, "a busy lock means no provider request");
     assert!(fixture.rows().await.is_empty());
 
@@ -334,7 +365,11 @@ async fn news_lock_busy_is_a_successful_noop() {
     sqlx::query("COMMIT").execute(&mut holder).await.unwrap();
     assert_eq!(
         run_once(&pool, &database, &fetch).await,
-        Ok(Refresh::Completed { fetched: 1, new: 1, inserted: 1 })
+        Ok(Refresh::Completed {
+            fetched: 1,
+            new: 1,
+            inserted: 1
+        })
     );
     fixture.finish().await;
 }
@@ -390,7 +425,11 @@ async fn news_overlap_inserts_once() {
     let (first_outcome, ()) = tokio::join!(first, overlap);
     assert_eq!(
         first_outcome,
-        Ok(Refresh::Completed { fetched: 2, new: 2, inserted: 2 })
+        Ok(Refresh::Completed {
+            fetched: 2,
+            new: 2,
+            inserted: 2
+        })
     );
     assert_eq!(fetch.calls(), 1, "one provider request in all");
     assert_eq!(fixture.rows().await.len(), 2, "no duplicate URL");
@@ -427,7 +466,10 @@ async fn a_url_stored_after_the_check_is_skipped_and_model_labels_are_kept() {
     let pool = fixture.pool("RUST_TEST_PRODUCTION_DATABASE_URL").await;
     let raced = "https://news.example.org/raced";
     let fetch = SharedFetch::new(
-        json!([post("Raced headline", raced), post("Plain headline", "https://news.example.org/plain")]),
+        json!([
+            post("Raced headline", raced),
+            post("Plain headline", "https://news.example.org/plain")
+        ]),
         false,
     );
     let model = RacingModel {
@@ -444,13 +486,20 @@ async fn a_url_stored_after_the_check_is_skipped_and_model_labels_are_kept() {
     .await;
     assert_eq!(
         outcome,
-        Ok(Refresh::Completed { fetched: 2, new: 2, inserted: 1 }),
+        Ok(Refresh::Completed {
+            fetched: 2,
+            new: 2,
+            inserted: 1
+        }),
         "the conflicting URL is skipped, not an error"
     );
     let rows = fixture.rows().await;
     assert_eq!(rows.len(), 2);
     let raced_row = rows.iter().find(|row| row.0 == raced).unwrap();
-    assert_eq!(raced_row.1, "Other writer", "the earlier writer keeps its row");
+    assert_eq!(
+        raced_row.1, "Other writer",
+        "the earlier writer keeps its row"
+    );
     let plain = rows.iter().find(|row| row.0.ends_with("/plain")).unwrap();
     assert_eq!(plain.2.as_deref(), Some("Model summary"));
     assert_eq!(plain.5, "carbon");
@@ -487,7 +536,11 @@ async fn target_attestation_refuses_before_any_fetch_or_write() {
         Err(Exit::Precondition)
     );
 
-    assert_eq!(fetch.calls(), 0, "no provider request after a refused target");
+    assert_eq!(
+        fetch.calls(),
+        0,
+        "no provider request after a refused target"
+    );
     assert!(fixture.rows().await.is_empty());
 
     // The staging role passes as staging.
@@ -502,7 +555,14 @@ async fn target_attestation_refuses_before_any_fetch_or_write() {
         fixed_now,
     )
     .await;
-    assert_eq!(outcome, Ok(Refresh::Completed { fetched: 1, new: 1, inserted: 1 }));
+    assert_eq!(
+        outcome,
+        Ok(Refresh::Completed {
+            fetched: 1,
+            new: 1,
+            inserted: 1
+        })
+    );
     fixture.finish().await;
 }
 
@@ -512,8 +572,14 @@ async fn a_database_failure_is_a_dependency_exit_and_writes_nothing() {
     let database = database_of(&url("RUST_TEST_PRODUCTION_DATABASE_URL"));
     // The table is not on this pool's search path.
     let pool = pool_for(&url("RUST_TEST_PRODUCTION_DATABASE_URL"), "pg_catalog").await;
-    let fetch = SharedFetch::new(json!([post("Port news", "https://news.example.org/a")]), false);
-    assert_eq!(run_once(&pool, &database, &fetch).await, Err(Exit::Dependency));
+    let fetch = SharedFetch::new(
+        json!([post("Port news", "https://news.example.org/a")]),
+        false,
+    );
+    assert_eq!(
+        run_once(&pool, &database, &fetch).await,
+        Err(Exit::Dependency)
+    );
     assert!(fixture.rows().await.is_empty());
     fixture.finish().await;
 }
