@@ -1349,6 +1349,7 @@ async fn preview_reports_advisory_counts() {
             .await
             .unwrap();
     }
+    let mut pending = Vec::new();
     for (status, count) in [
         ("PENDING_CONFIRMATION", 2),
         ("CONFIRMED", 3),
@@ -1356,7 +1357,7 @@ async fn preview_reports_advisory_counts() {
         ("PAID", 4),
     ] {
         for _ in 0..count {
-            trade(
+            let id = trade(
                 &harness,
                 counterparty,
                 seed.organization,
@@ -1364,8 +1365,23 @@ async fn preview_reports_advisory_counts() {
                 status,
             )
             .await;
+            if status == "PENDING_CONFIRMATION" {
+                pending.push(id);
+            }
         }
     }
+    // One of the two pending trades is frozen: the preview reports it as a
+    // blocker next to the pending count.
+    sqlx::query(
+        "INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id,version) \
+         VALUES($1,$2,'ACTIVE','COMPLIANCE_REVIEW','fixture review',$3,1)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(pending[0])
+    .bind(seed.admin)
+    .execute(&harness.owner)
+    .await
+    .unwrap();
     let before = harness.snapshot(seed.subject).await;
     let (status, preview) = harness.preview(Some(seed.admin), seed.subject).await;
     assert_eq!(status, StatusCode::OK, "{preview}");
@@ -1380,6 +1396,7 @@ async fn preview_reports_advisory_counts() {
     assert_eq!(preview["offboarded_at"], Value::Null);
     assert_eq!(preview["open_owned_orders"], 2);
     assert_eq!(preview["pending_trades"], 2);
+    assert_eq!(preview["frozen_pending_trades"], 1);
     assert_eq!(preview["confirmed_trades"], 3);
     assert_eq!(preview["delivered_trades"], 1);
     assert_eq!(preview["informational_counts_capped"], false);
@@ -1396,6 +1413,7 @@ async fn preview_reports_advisory_counts() {
             "confirmed_trades",
             "delivered_trades",
             "email",
+            "frozen_pending_trades",
             "informational_counts_capped",
             "offboarded_at",
             "open_owned_orders",
@@ -1493,9 +1511,16 @@ async fn order(harness: &Harness, organization: Uuid, owner: Uuid, status: &str)
 }
 
 /// One trade where the subject is the recorded seller.
-async fn trade(harness: &Harness, buyer: Uuid, seller: Uuid, seller_user: Uuid, status: &str) {
+async fn trade(
+    harness: &Harness,
+    buyer: Uuid,
+    seller: Uuid,
+    seller_user: Uuid,
+    status: &str,
+) -> Uuid {
+    let id = Uuid::new_v4();
     sqlx::query(include_str!("fixtures/offboarding_command_trade.sql"))
-        .bind(Uuid::new_v4())
+        .bind(id)
         .bind(buyer)
         .bind(seller)
         .bind(seller_user)
@@ -1505,6 +1530,7 @@ async fn trade(harness: &Harness, buyer: Uuid, seller: Uuid, seller_user: Uuid, 
         .execute(&harness.owner)
         .await
         .unwrap();
+    id
 }
 
 #[tokio::test]

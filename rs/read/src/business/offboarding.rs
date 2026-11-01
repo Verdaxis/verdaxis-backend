@@ -754,6 +754,10 @@ pub struct OffboardingPreview {
     pub offboarded_at: Option<DateTime<Utc>>,
     pub open_owned_orders: i64,
     pub pending_trades: i64,
+    /// Pending trades of the person under an active freeze. Each one blocks
+    /// the command: it refuses with `409 MARKET_INVALIDATION_TRADE_FROZEN`
+    /// until an administrator clears the freeze.
+    pub frozen_pending_trades: i64,
     pub confirmed_trades: i64,
     pub delivered_trades: i64,
     /// True when a confirmed or delivered count exceeded the bound and is
@@ -799,6 +803,9 @@ pub async fn preview(
           AND status IN ('OPEN','PARTIALLY_FILLED') LIMIT $2) AS rows) AS open_owned_orders,\
          (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
           AND status='PENDING_CONFIRMATION' LIMIT $2) AS rows) AS pending_trades,\
+         (SELECT count(*) FROM (SELECT 1 FROM trades t WHERE (t.buyer_user_id=$1 OR t.seller_user_id=$1) \
+          AND t.status='PENDING_CONFIRMATION' AND EXISTS(SELECT 1 FROM trade_freezes f \
+          WHERE f.trade_id=t.id AND f.status='ACTIVE') LIMIT $2) AS rows) AS frozen_pending_trades,\
          (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
           AND status='CONFIRMED' LIMIT $2) AS rows) AS confirmed_trades,\
          (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
@@ -829,6 +836,7 @@ pub async fn preview(
         offboarded_at: row.get("offboarded_at"),
         open_owned_orders,
         pending_trades,
+        frozen_pending_trades: counts.get("frozen_pending_trades"),
         confirmed_trades: confirmed_trades.min(PREVIEW_COUNT_LIMIT),
         delivered_trades: delivered_trades.min(PREVIEW_COUNT_LIMIT),
         informational_counts_capped: confirmed_trades > PREVIEW_COUNT_LIMIT
