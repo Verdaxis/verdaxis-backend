@@ -665,7 +665,7 @@ fn market_write_authority_declares_the_shared_context_without_a_constructor() {
     fn context(_: &WriteContext) {}
     let _ = (actor, support, context);
 
-    // PD89-12: private constructors and no construction path. A value that any
+    // Private constructors and no construction path. A value that any
     // caller can mint is not authority evidence, so the module declares no
     // constructor, default or conversion for them.
     let source = include_str!("../src/order_write/authority.rs");
