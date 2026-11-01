@@ -408,13 +408,14 @@ fn health_rejects_a_zero_or_short_release_sha() {
 
     // A bad identity file stops the run before any request, with one fixed code.
     let server = router();
+    let mut config = config_for(&scratch, &server, "/ready");
+    let zero = scratch.join("zero.identity");
     std::fs::write(
-        &file,
+        &zero,
         format!("ENVIRONMENT=production\nRELEASE_SHA={}\n", "0".repeat(40)),
     )
     .unwrap();
-    let mut config = config_for(&scratch, &server, "/ready");
-    config.endpoints[0].identity_file = file;
+    config.endpoints[0].identity_file = zero;
     assert_eq!(run(&config, &AdmitAll), Exit::Usage);
     let published = read_status(&config.status_file);
     assert_eq!(published["category"], "failure");

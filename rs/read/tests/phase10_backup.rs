@@ -14,7 +14,7 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use support::{contract_fixture, TempDir};
-use verdaxis_read::cli::monitors::backup::{collect, run, verify_backups, BackupConfig};
+use verdaxis_read::cli::monitors::backup::{collect, run_at, verify_backups, BackupConfig};
 use verdaxis_read::cli::monitors::status::{
     failure_status, Admission, AdmitAll, Category, CheckResult, Status,
 };
@@ -927,7 +927,7 @@ fn backup_streams_gzip_within_the_128_mib_unit_limit() {
     );
     let peak: u64 = text
         .lines()
-        .find_map(|line| line.strip_prefix("PEAK_RSS_BYTES="))
+        .find_map(|line| line.split_once("PEAK_RSS_BYTES=").map(|(_, value)| value))
         .expect("child reports its peak")
         .trim()
         .parse()
@@ -977,7 +977,7 @@ fn read_status(path: &Path) -> Value {
 fn backup_status_is_private_and_key_compatible() {
     let scratch = fixture();
     let config = config(scratch.path());
-    assert_eq!(run(&config, &AdmitAll), Exit::Ok);
+    assert_eq!(run_at(&config, &AdmitAll, now()), Exit::Ok);
     let mode = std::fs::metadata(&config.output)
         .unwrap()
         .permissions()
@@ -1030,7 +1030,7 @@ fn backup_status_is_private_and_key_compatible() {
 
     // A failing run exits 2, keeps the earlier success time, and names a class, not a path.
     std::fs::remove_file(artifact(scratch.path(), "umami")).unwrap();
-    assert_eq!(run(&config, &AdmitAll), Exit::Usage);
+    assert_eq!(run_at(&config, &AdmitAll, now()), Exit::Usage);
     let failed = read_status(&config.output);
     assert_eq!(failed["category"], "failure");
     let umami = failed["checks"]
@@ -1087,10 +1087,10 @@ impl Admission for Refusing {
 fn backup_publication_waits_for_handoff_admission() {
     let scratch = fixture();
     let config = config(scratch.path());
-    assert_eq!(run(&config, &AdmitAll), Exit::Ok);
+    assert_eq!(run_at(&config, &AdmitAll, now()), Exit::Ok);
     let before = std::fs::read(&config.output).unwrap();
     std::fs::remove_file(artifact(scratch.path(), "umami")).unwrap();
-    assert_eq!(run(&config, &Refusing), Exit::Dependency);
+    assert_eq!(run_at(&config, &Refusing, now()), Exit::Dependency);
     assert_eq!(std::fs::read(&config.output).unwrap(), before);
     assert_eq!(
         std::fs::read_dir(config.output.parent().unwrap())
@@ -1109,5 +1109,5 @@ fn backup_fatal_error_status_is_fixed_and_named() {
     let mut config = config(scratch.path());
     std::fs::write(scratch.join("blocker"), b"file").unwrap();
     config.output = scratch.join("blocker/inner/status.json");
-    assert_eq!(run(&config, &AdmitAll), Exit::Dependency);
+    assert_eq!(run_at(&config, &AdmitAll, now()), Exit::Dependency);
 }
