@@ -1,7 +1,10 @@
 //! Typed command boundary. Execution is registered by each command's owning task.
 pub mod context;
 pub mod gate;
+pub mod jobs;
 pub mod mail;
+pub mod monitors;
+pub mod ops;
 pub mod state;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
