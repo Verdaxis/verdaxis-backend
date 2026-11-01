@@ -23,6 +23,7 @@ use verdaxis_read::cli::jobs::auth::{
     clean_expired_auth_state, execute, run,
 };
 use verdaxis_read::cli::mail::approval::{ApprovalOutcome, deliver_due, retry_due};
+use verdaxis_read::cli::mail::recipient_digest;
 use verdaxis_read::cli::{Environment, Exit, IdentityArgs, JobArgs, JobKind};
 
 const SCHEMA_SQL: &str = include_str!("fixtures/phase10_auth_maintenance_schema.sql");
@@ -186,6 +187,34 @@ impl Fixture {
         .await
         .unwrap();
         id
+    }
+
+    /// One Rust-owned reset token row for `user`.
+    async fn reset_token(
+        &mut self,
+        user: Uuid,
+        expires_at: DateTime<Utc>,
+        used_at: Option<DateTime<Utc>>,
+    ) {
+        sqlx::query(
+            "INSERT INTO password_reset_tokens(user_id,token_hash,expires_at,used_at) \
+             VALUES($1,$2,$3,$4)",
+        )
+        .bind(user)
+        .bind(format!("{}{}", user.simple(), user.simple()))
+        .bind(expires_at)
+        .bind(used_at)
+        .execute(&mut self.admin)
+        .await
+        .unwrap();
+    }
+
+    async fn has_reset_token(&mut self, user: Uuid) -> bool {
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM password_reset_tokens WHERE user_id=$1)")
+            .bind(user)
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap()
     }
 
     /// Queue one frozen approval mail exactly as the approval route does.
@@ -363,6 +392,43 @@ impl Provider {
 
     fn sent(&self) -> Vec<(String, String)> {
         self.sends.lock().unwrap().clone()
+    }
+}
+
+/// A log sink for the mail delivery records.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Captured {
+    type Writer = Self;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+impl Captured {
+    /// The `mail_delivery` records that name this recipient's digest.
+    fn deliveries_for(&self, address: &str) -> Vec<Value> {
+        let text = String::from_utf8(self.0.lock().unwrap().clone()).unwrap();
+        assert!(!text.contains(address), "an address was logged: {text}");
+        let digest = recipient_digest(address);
+        text.lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|record| record["fields"]["message"] == "mail_delivery")
+            .filter(|record| record["fields"]["recipient_digest"] == digest.as_str())
+            .collect()
     }
 }
 
@@ -737,6 +803,7 @@ async fn job_commits_cleanup_before_mail_and_reports_counts() {
         .session(user, Uuid::new_v4(), false, None, now - Duration::hours(1))
         .await;
     let transition = f.queue_mail(user, now - Duration::minutes(1)).await;
+    f.reset_token(user, now - Duration::minutes(1), None).await;
 
     // The provider call checks, from another process, that cleanup committed.
     let observer = f.second_pool().await;
@@ -780,6 +847,7 @@ async fn job_commits_cleanup_before_mail_and_reports_counts() {
             "pending_registrations_deleted": 0,
             "password_reset_hashes_cleared": 0,
             "email_verification_hashes_cleared": 0,
+            "password_reset_tokens_deleted": 1,
             "approval_emails_attempted": 1,
             "approval_emails_completed": 1,
             "approval_emails_deferred": 0,
@@ -1199,5 +1267,193 @@ async fn approval_mail_never_holds_a_user_lock_across_provider_io() {
     assert_eq!(counts.completed, 1);
     assert_eq!(provider.sent(), vec![(recipient(user), key(transition))]);
     assert_eq!(f.mail_state(user).await, (None, None, None));
+    f.finish().await;
+}
+
+// ---------------------------------------------------------------------------
+// Reset tokens, lease clock and delivery log
+// ---------------------------------------------------------------------------
+
+/// After the cleanup commits, the job removes expired Rust-owned reset tokens.
+/// A token row another request holds is skipped, not awaited; a live or a used
+/// but unexpired token stays.
+#[tokio::test]
+async fn job_sweeps_expired_reset_tokens_after_cleanup() {
+    let mut f = Fixture::new().await;
+    let now = Utc::now();
+    let expired = f.user(Uuid::new_v4()).await;
+    let live = f.user(Uuid::new_v4()).await;
+    let held = f.user(Uuid::new_v4()).await;
+    let used = f.user(Uuid::new_v4()).await;
+    f.reset_token(expired, now - Duration::minutes(1), None)
+        .await;
+    f.reset_token(live, now + Duration::minutes(30), None).await;
+    f.reset_token(held, now - Duration::minutes(1), None).await;
+    f.reset_token(used, now + Duration::minutes(30), Some(now))
+        .await;
+
+    let mut holder = f.connection().await;
+    let holder_pid = backend_pid(&mut holder).await;
+    sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
+    sqlx::query("SELECT user_id FROM password_reset_tokens WHERE user_id=$1 FOR UPDATE")
+        .bind(held)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    let pool = f.pool.clone();
+    let provider = Provider::default();
+    let sender = provider.sender(true);
+    let job = tokio::spawn(async move {
+        run(
+            &pool,
+            CleanupBatchSize::default(),
+            ApprovalMailBatchSize::default(),
+            Utc::now,
+            sender,
+        )
+        .await
+    });
+    let mut watcher = f.connection().await;
+    let waited = blocked_or_finished(&mut watcher, holder_pid, &job).await;
+    sqlx::query("COMMIT").execute(&mut holder).await.unwrap();
+    let report = job.await.unwrap().unwrap();
+    assert!(!waited, "the sweep waited on a held token row");
+    assert_eq!(report.reset_tokens_deleted, 1);
+    assert!(!f.has_reset_token(expired).await);
+    assert!(f.has_reset_token(live).await);
+    assert!(f.has_reset_token(held).await);
+    assert!(f.has_reset_token(used).await);
+
+    let next = run(
+        &f.pool,
+        CleanupBatchSize::default(),
+        ApprovalMailBatchSize::default(),
+        Utc::now,
+        provider.sender(true),
+    )
+    .await
+    .unwrap();
+    assert_eq!(next.reset_tokens_deleted, 1);
+    assert!(!f.has_reset_token(held).await);
+    assert!(f.has_reset_token(live).await);
+    assert!(f.has_reset_token(used).await);
+    f.finish().await;
+}
+
+/// The five-minute lease is measured from the time the claim holds the row,
+/// not from before a lock wait (`account_approval_email.py:73`).
+#[tokio::test]
+async fn approval_mail_lease_starts_after_the_lock_wait() {
+    let mut f = Fixture::new().await;
+    let t0 = instant();
+    let user = f.user(Uuid::new_v4()).await;
+    let transition = f.queue_mail(user, t0 - Duration::minutes(1)).await;
+    let fake_now = Arc::new(Mutex::new(t0));
+    let clock = {
+        let fake_now = fake_now.clone();
+        move || *fake_now.lock().unwrap()
+    };
+
+    let mut holder = f.connection().await;
+    let holder_pid = backend_pid(&mut holder).await;
+    sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
+    sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(user)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    let provider = Provider::default();
+    let entered_signal = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let pool = f.pool.clone();
+    let sender = provider.gated(entered_signal.clone(), release.clone());
+    let job = tokio::spawn(async move {
+        retry_due(&pool, ApprovalMailBatchSize::default(), clock, sender).await
+    });
+    let mut watcher = f.connection().await;
+    assert!(
+        blocked_or_finished(&mut watcher, holder_pid, &job).await,
+        "the claim waits for the held user row"
+    );
+    // Ten minutes pass while the claim waits; then the holder lets go.
+    let after_wait = t0 + Duration::minutes(10);
+    *fake_now.lock().unwrap() = after_wait;
+    sqlx::query("ROLLBACK").execute(&mut holder).await.unwrap();
+    entered(&entered_signal).await;
+    let (claimed, _, lease_until) = f.mail_state(user).await;
+    assert_eq!(claimed, Some(transition));
+    assert_eq!(
+        lease_until,
+        Some(after_wait + Duration::minutes(5)),
+        "the lease starts when the claim holds the row"
+    );
+    release.notify_one();
+    let counts = job.await.unwrap().unwrap();
+    assert_eq!(counts.completed, 1);
+    assert_eq!(f.mail_state(user).await, (None, None, None));
+    f.finish().await;
+}
+
+/// Every provider call writes one delivery record by recipient digest,
+/// including a call the 10-second deadline cuts off. That transition is
+/// deferred one hour, as a refusal is.
+#[tokio::test]
+async fn approval_mail_logs_a_timed_out_provider_call() {
+    let sink = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(sink.clone())
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let mut f = Fixture::new().await;
+    let now = Utc::now();
+
+    let answered = f.user(Uuid::new_v4()).await;
+    let answered_transition = f.queue_mail(answered, now - Duration::minutes(1)).await;
+    let accepted = Provider::default();
+    let outcome = deliver_due(
+        &f.pool,
+        answered,
+        answered_transition,
+        &Utc::now,
+        &accepted.sender(true),
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, ApprovalOutcome::Sent);
+    let records = sink.deliveries_for(&recipient(answered));
+    assert_eq!(
+        records.len(),
+        1,
+        "one record per provider call: {records:?}"
+    );
+    assert_eq!(records[0]["fields"]["delivery"], "sent");
+
+    let silent = f.user(Uuid::new_v4()).await;
+    let silent_transition = f.queue_mail(silent, now - Duration::minutes(1)).await;
+    let never_answers =
+        |_: FrozenApprovalPayload, _: String| -> SendFuture { Box::pin(std::future::pending()) };
+    let started = Utc::now();
+    let outcome = deliver_due(
+        &f.pool,
+        silent,
+        silent_transition,
+        &Utc::now,
+        &never_answers,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome, ApprovalOutcome::Deferred);
+    let records = sink.deliveries_for(&recipient(silent));
+    assert_eq!(
+        records.len(),
+        1,
+        "the timed-out call is logged: {records:?}"
+    );
+    assert_eq!(records[0]["fields"]["delivery"], "refused");
+    let (kept, _, retry_at) = f.mail_state(silent).await;
+    assert_eq!(kept, Some(silent_transition));
+    assert!(retry_at.unwrap() >= started + Duration::hours(1));
     f.finish().await;
 }

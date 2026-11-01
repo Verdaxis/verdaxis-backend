@@ -1,6 +1,7 @@
 -- Authentication-state tables the auth maintenance job reads and writes.
--- Column names and types follow app/models/user.py, refresh_session.py and
--- registration.py; only the columns the job and its races touch are present.
+-- Column names and types follow app/models/user.py, refresh_session.py,
+-- registration.py and the reset-token migration; only the columns the job
+-- and its races touch are present.
 -- The caller sets search_path to a disposable schema first.
 CREATE TABLE users(
     id uuid PRIMARY KEY,
@@ -48,6 +49,21 @@ CREATE TABLE pending_registrations(
 CREATE UNIQUE INDEX uq_pending_registrations_email_active
     ON pending_registrations (lower(email)) WHERE used_at IS NULL;
 
--- deploy/postgres/app_acl_policy.sql grants the application role table-level
--- DML on all three tables.
+-- Rust-owned reset tokens (alembic/versions/p3_20261020_auth_tokens.py).
+CREATE TABLE password_reset_tokens(
+    user_id uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    token_hash text NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    used_at timestamptz
+);
+CREATE INDEX ix_password_reset_tokens_expires_at ON password_reset_tokens (expires_at);
+
+-- deploy/postgres/app_acl_policy.sql: table-level DML on the first three
+-- tables; SELECT, DELETE and per-column INSERT/UPDATE on the reset tokens
+-- (row locks need UPDATE on at least one column).
 GRANT SELECT, INSERT, UPDATE, DELETE ON users, refresh_sessions, pending_registrations TO rust_app;
+GRANT SELECT, DELETE ON password_reset_tokens TO rust_app;
+GRANT INSERT (user_id, token_hash, expires_at, created_at, used_at),
+      UPDATE (token_hash, expires_at, created_at, used_at)
+    ON password_reset_tokens TO rust_app;

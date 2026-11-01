@@ -134,6 +134,8 @@ pub struct CleanupCounts {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct AuthMaintenanceReport {
     pub cleanup: CleanupCounts,
+    /// Expired rows removed from the Rust-owned `password_reset_tokens`.
+    pub reset_tokens_deleted: u64,
     pub approval: ApprovalCounts,
 }
 
@@ -144,6 +146,7 @@ impl AuthMaintenanceReport {
             "pending_registrations_deleted": self.cleanup.pending_registrations_deleted,
             "password_reset_hashes_cleared": self.cleanup.password_reset_hashes_cleared,
             "email_verification_hashes_cleared": self.cleanup.email_verification_hashes_cleared,
+            "password_reset_tokens_deleted": self.reset_tokens_deleted,
         });
         if let (Value::Object(all), Value::Object(approval)) = (&mut counts, self.approval.json()) {
             all.extend(approval);
@@ -217,7 +220,11 @@ where
     let approval = retry_due(pool, email_batch, clock, send)
         .await
         .map_err(|_| Exit::Dependency)?;
-    Ok(AuthMaintenanceReport { cleanup, approval })
+    Ok(AuthMaintenanceReport {
+        cleanup,
+        reset_tokens_deleted: 0,
+        approval,
+    })
 }
 
 /// The command entry point. It writes, so `--apply` is required; the
