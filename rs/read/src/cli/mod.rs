@@ -409,6 +409,12 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
                 exit
             }
         },
+        Command::Monitor(args) if args.kind == MonitorKind::Health => {
+            run_local_monitor(&args, monitors::health::run_default).await
+        }
+        Command::Monitor(args) if args.kind == MonitorKind::BackupVerify => {
+            run_local_monitor(&args, monitors::backup::run_default).await
+        }
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.
@@ -432,6 +438,22 @@ impl Command {
             Self::Canary(_) => "canary",
         }
     }
+}
+
+/// Run a local monitor that takes no flags. The monitor reads local files only,
+/// so it runs on a blocking thread and never opens a database pool.
+async fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
+    if args.environment.is_some()
+        || args.event.is_some()
+        || args.remind.is_some()
+        || args.telegram_disabled
+    {
+        report("monitor", "usage_refused");
+        return Exit::Usage;
+    }
+    tokio::task::spawn_blocking(run)
+        .await
+        .unwrap_or(Exit::Dependency)
 }
 
 fn report(command: &str, outcome: &str) {

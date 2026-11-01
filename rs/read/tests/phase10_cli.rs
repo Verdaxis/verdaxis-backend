@@ -189,3 +189,25 @@ fn dispatch_never_panics_on_bad_utf8_arguments() {
         .unwrap();
     assert!(output.status.success());
 }
+
+#[test]
+fn local_monitors_refuse_flags_they_do_not_take() {
+    // The refusal happens before the monitor reads or writes anything.
+    for values in [
+        vec!["monitor", "health", "--event", "health"],
+        vec!["monitor", "health", "--remind", "all"],
+        vec!["monitor", "health", "--telegram-disabled"],
+        vec!["monitor", "backup-verify", "--event", "backup"],
+        vec!["monitor", "backup-verify", "--telegram-disabled"],
+    ] {
+        assert!(
+            parse_arguments(args(&values)).is_ok(),
+            "parses: {values:?}"
+        );
+        assert_eq!(
+            binary(&values).status.code(),
+            Some(2),
+            "usage refusal: {values:?}"
+        );
+    }
+}
