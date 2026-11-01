@@ -163,6 +163,26 @@ keys disable evidence storage/download without changing readiness. The exact
 method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
 The following component sections describe their local exports, not activation.
 
+## Rust market write serving composition
+
+`runtime/market_write.rs` mounts the 43 market operations (orders, inventory,
+trades and their lifecycle, freeze administration, commissions, match
+suggestions and market support) under the same condition as Phase 4: the Phase 2
+verification settings exist. One `MarketWriteSettings`, built at startup from
+`AUTO_MATCHING_ENABLED`, the six `MARKET_SUPPORT_*` keys (Python's defaults and
+bounds) and the Umami collector keys, configures every component; a malformed
+key stops the start. `PUT` (amend) and `DELETE` (cancel) on
+`/api/orderbook/{id}` come from two components that axum merges on one path.
+Without the composition, `POST /api/orderbook` keeps the read service's
+unauthenticated boundary answer. No pool or task is added. Mounting routes no
+traffic: `deploy/caddy/rust-market-write.caddy` owns exactly the operations of
+`tests/rust_contract/phase89/switch-routes.json`, and the market switch imports
+it together with the reviewed Phase 7 retirement snippet
+(`deploy/caddy/phase10-phase7-retire.caddy`). Every Rust outbox insert also sends
+Python's commit-time wake (`pg_notify('verdaxis_market_events', '')`), so live
+subscribers do not wait for the dispatchers' poll. See
+`docs/rust-phase89-switch.md`.
+
 ## Rust business transaction foundation
 
 `rs/read/src/business/` supplies caller-owned audit/status appenders and an
@@ -957,6 +977,12 @@ and never changes a target snapshot. Organization market-access invalidation
 keeps its synchronous legacy watchlist rows in `order_write/events.rs`.
 `bootstrap_watermark` is an explicit operator step that creates the watermark at
 the sequenced high-water barrier and refuses once any trusted evidence exists.
+The operator runs it once with `verdaxis-read --bootstrap-watchlist-producer
+--budget-file <path>` under the deployed environment; the command prints only
+`outcome=<created|already_present> watermark=<n>` or `refused reason=<reason>`.
+`scripts/deploy.sh` records the two activation keys in the release metadata,
+carries them forward unchanged on every later deploy, never changes a recorded
+instant and drops both keys below the producer checkpoint.
 The serving process starts the consumer only when `.runtime-release.env` names
 `WATCHLIST_EVENT_PRODUCER=rust-market-v1` beside a valid
 `WATCHLIST_PRODUCER_ACTIVATED_AT` and the verified `RELEASE_SHA`;
