@@ -381,6 +381,7 @@ def project_runtime_environment(
         "p5_20261020_read_indexes",
         "p89_20261022_watchlist_producer",
         "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding",
     }:
         raise RustRuntimeError("production requires its reviewed union checkpoint")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:

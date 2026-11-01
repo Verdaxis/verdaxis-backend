@@ -176,7 +176,7 @@ def test_producer_schema_revision_is_additive_and_single_headed(supplier_scratch
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    assert graph.get_heads() == ["ob_20261031_offboarding"]
     assert graph.get_revision("p89_20261022_trade_freeze").down_revision == REVISION
     assert graph.get_revision(REVISION).down_revision == PARENT
     after = json.loads(sql("""SELECT json_agg(row_to_json(c) ORDER BY table_name,column_name) FROM
@@ -294,7 +294,7 @@ def test_producer_metadata_matches_migrated_head(supplier_scratch_database):
     from alembic.script import ScriptDirectory
 
     graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    assert graph.get_heads() == ["ob_20261031_offboarding"]
     migrate("upgrade", graph.get_current_head())
     url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(
         database=sql("SELECT current_database()")
@@ -314,7 +314,7 @@ def test_unlisted_event_column_still_reports_schema_drift(supplier_scratch_datab
     from alembic.script import ScriptDirectory
 
     graph = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert graph.get_heads() == ["p89_20261022_trade_freeze"]
+    assert graph.get_heads() == ["ob_20261031_offboarding"]
     migrate("upgrade", graph.get_current_head())
     sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
     url = make_url(os.environ["MARKET_INTEGRITY_TEST_DATABASE_URL"]).set(

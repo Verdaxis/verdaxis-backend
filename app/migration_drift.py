@@ -62,6 +62,8 @@ EXTERNAL_SCHEMA_FINGERPRINTS = {
     ("public", "rfq_quotes", "last_counter_by", "column", "VARCHAR(10)", True, "NULL", ()),
     ("public", "rfqs", "ix_rfqs_reference_number", "index", None, None, None, ("reference_number",)),
     ("public", "rfqs", "reference_number_key", "unique_constraint", None, None, None, ("reference_number",)),
+    # Marker column owned by the individual-offboarding revision; the ORM does not map it.
+    ("public", "users", "offboarded_at", "column", "TIMESTAMP", True, None, ()),
 }
 
 # Rust owns these explicitly declared producer and trade freeze objects.
@@ -124,6 +126,7 @@ LEGACY_TABLES = {
 MIGRATION_OWNED_TABLES = {
     "market_event_replay_state",
     "market_event_retention_control",
+    "individual_offboardings",
 }
 MIGRATION_OWNED_INDEXES = {"ix_market_event_outbox_participants_gin"}
 
