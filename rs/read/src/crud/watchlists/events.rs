@@ -1,11 +1,11 @@
 //! W07 and W08: the watchlist event feed and its read state.
 //!
-//! Python is the event producer until the trusted Rust producer exists. This
-//! module reads the rows it commits and applies the PD4-G read guard: a feed
-//! that can carry a price signal must not expose an order outside the full
-//! public order scope, so best-price events and events sourced from a hidden
-//! order are filtered before `LIMIT`. That keeps pages full instead of
-//! returning short pages whose hidden rows would have occupied the limit.
+//! Every statement here filters rows with the shared admission relation
+//! (`admission.rs`) inside the statement: the feed before `LIMIT`, so pages
+//! stay full instead of returning short pages whose hidden rows would have
+//! occupied the limit, and the acknowledgement before its read and its update,
+//! so a hidden row can be neither read nor marked read.
+use super::admission::{EventAdmission, event_visible_sql, source_order_sql};
 use super::http::{WatchlistState, not_found, run};
 use super::reads::VisibleSnapshot;
 use super::validation::{path_uuid, unprocessable};
@@ -26,21 +26,6 @@ use uuid::Uuid;
 const DEFAULT_LIMIT: i64 = 20;
 const MINIMUM_LIMIT: i64 = 1;
 const MAXIMUM_LIMIT: i64 = 100;
-const BEST_PRICE_EVENT: &str = "SLICE_BEST_PRICE_MOVED";
-
-/// The one rule that reads an event's source order from its payload: the
-/// `order_id` text as PostgreSQL reads a UUID, else no source order. The feed,
-/// the read state and the container counts all select this expression, so a
-/// spelling that one parser reads and another does not cannot make them
-/// disagree. `pg_input_is_valid` gates the cast so a bad value never fails a
-/// read.
-macro_rules! source_order_sql {
-    () => {
-        "CASE WHEN pg_input_is_valid(e.event_payload->>'order_id','uuid') \
-         THEN (e.event_payload->>'order_id')::uuid END AS source_order"
-    };
-}
-pub(super) use source_order_sql;
 
 const SOURCE_KINDS: &[&str] = &[
     "CONFIRMED_TRADE",
@@ -154,37 +139,6 @@ pub fn parse_event_query(raw: &str) -> Result<EventQuery, ApiError> {
     Ok(EventQuery { limit, cursor })
 }
 
-/// The PD4-G read guard.
-///
-/// Every best-price event is hidden: current rows carry no producer
-/// attestation, so a public source order cannot vouch for the historical
-/// aggregate prices in their payload. A PIN must point at a publicly visible
-/// order. An event whose own payload names a source order is visible only when
-/// that order is public. An event with no source order and a non-PIN target is
-/// historical and stays visible.
-pub fn event_visible(
-    event_type: &str,
-    source_order: Option<Uuid>,
-    target: Option<&TargetColumns>,
-    visible: &VisibleSnapshot,
-) -> bool {
-    if event_type == BEST_PRICE_EVENT {
-        return false;
-    }
-    // A deleted target has no PIN context to check; W08 reports it as its own
-    // missing-target case after committing the read.
-    if let Some(target) = target
-        && target.target_type == "PIN"
-        && !target.order.is_some_and(|id| visible.contains(id))
-    {
-        return false;
-    }
-    if source_order.is_some_and(|id| !visible.contains(id)) {
-        return false;
-    }
-    true
-}
-
 // ------------------------------------------------------------------ projection
 
 /// The target columns an event response reads. `live_point_name` is null when
@@ -200,7 +154,7 @@ pub struct TargetColumns {
     pub live_point_name: Option<String>,
 }
 
-/// One event row with the target columns and the guard input it needs.
+/// One event row with the target columns it projects.
 #[derive(Debug, Clone)]
 pub struct StoredEvent {
     pub id: Uuid,
@@ -319,7 +273,7 @@ impl StoredEvent {
             availability_window_code: text(payload, "availability_window_code")
                 .map(str::to_owned)
                 .or_else(|| target.window.clone()),
-            // The order the guard checked, never a second reading of the text.
+            // The order admission checked, never a second reading of the text.
             order_id: self.source_order.or(target.order),
             is_read: self.is_read,
             created_at: self.created_at,
@@ -329,10 +283,9 @@ impl StoredEvent {
 
 // ----------------------------------------------------------------------- reads
 
-// Both reads select the shared source-order rule above. The guard runs inside
-// the query, before `LIMIT`, so pages stay full.
+// Every statement embeds the admission relation with the public order scope
+// as `$visible` and the recorded activation as `$activation`.
 const FEED_SQL: &str = concat!(
-    "SELECT * FROM (",
     "SELECT e.id,e.watchlist_id,e.watchlist_target_id,",
     "e.event_type::text AS event_type,e.event_payload,e.is_read,e.created_at,",
     "t.target_type::text AS target_type,t.market_product_code AS target_product,",
@@ -345,13 +298,11 @@ const FEED_SQL: &str = concat!(
     "FROM watchlist_events e ",
     "JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
     "LEFT JOIN delivery_points p ON p.id=t.delivery_point_id ",
-    "WHERE e.watchlist_id=$1) feed ",
-    "WHERE event_type<>$2 ",
-    "AND (target_type<>'PIN' OR target_order=ANY($3)) ",
-    "AND (source_order IS NULL OR source_order=ANY($3)) ",
-    "AND ($4::timestamptz IS NULL OR created_at<$4 ",
-    "     OR (created_at=$4 AND id<$5)) ",
-    "ORDER BY created_at DESC,id DESC LIMIT $6"
+    "WHERE e.watchlist_id=$1 AND ",
+    event_visible_sql!("$2", "$3"),
+    " AND ($4::timestamptz IS NULL OR e.created_at<$4 ",
+    "OR (e.created_at=$4 AND e.id<$5)) ",
+    "ORDER BY e.created_at DESC,e.id DESC LIMIT $6"
 );
 
 const SINGLE_SQL: &str = concat!(
@@ -367,7 +318,20 @@ const SINGLE_SQL: &str = concat!(
     "FROM watchlist_events e ",
     "LEFT JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
     "LEFT JOIN delivery_points p ON p.id=t.delivery_point_id ",
-    "WHERE e.id=$1 AND e.watchlist_id=$2"
+    "WHERE e.id=$1 AND e.watchlist_id=$2 AND ",
+    event_visible_sql!("$3", "$4")
+);
+
+// `AND is_read=false` re-checks the row after a concurrent reader's lock is
+// released: under READ COMMITTED the loser writes nothing.
+const ACKNOWLEDGE_SQL: &str = concat!(
+    "WITH visible_event AS (",
+    "SELECT e.id FROM watchlist_events e ",
+    "LEFT JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
+    "WHERE e.id=$1 AND e.watchlist_id=$2 AND ",
+    event_visible_sql!("$3", "$4"),
+    ") UPDATE watchlist_events SET is_read=true ",
+    "WHERE id IN (SELECT id FROM visible_event) AND is_read=false"
 );
 
 /// One row to `StoredEvent`. The target is absent only on the single-event
@@ -409,12 +373,13 @@ fn stored(row: &sqlx::postgres::PgRow) -> Result<StoredEvent, sqlx::Error> {
     })
 }
 
-/// One page of the container feed. The guard runs in SQL before `LIMIT`, so a
-/// page is full whenever visible rows remain.
+/// One page of the container feed. Admission runs in SQL before `LIMIT`, so a
+/// page is full whenever admitted rows remain.
 pub async fn feed_page(
     connection: &mut PgConnection,
     watchlist: Uuid,
     visible: &VisibleSnapshot,
+    admission: EventAdmission,
     query: EventQuery,
 ) -> Result<EventsPage, ApiError> {
     let (after, after_id) = match query.cursor {
@@ -423,8 +388,8 @@ pub async fn feed_page(
     };
     let rows = sqlx::query(FEED_SQL)
         .bind(watchlist)
-        .bind(BEST_PRICE_EVENT)
         .bind(visible.visible_ids())
+        .bind(admission.activation())
         .bind(after)
         .bind(after_id)
         .bind(query.limit + 1)
@@ -452,14 +417,19 @@ pub async fn feed_page(
     Ok(EventsPage { items, next_cursor })
 }
 
+/// The event, when it exists in this container and admission admits it.
 async fn load_event(
     connection: &mut PgConnection,
     watchlist: Uuid,
     event_id: Uuid,
+    visible: &VisibleSnapshot,
+    admission: EventAdmission,
 ) -> Result<Option<StoredEvent>, ApiError> {
     let row = sqlx::query(SINGLE_SQL)
         .bind(event_id)
         .bind(watchlist)
+        .bind(visible.visible_ids())
+        .bind(admission.activation())
         .fetch_optional(&mut *connection)
         .await
         .map_err(|_| ApiError::database())?;
@@ -471,27 +441,27 @@ async fn load_event(
 
 /// Mark one event read.
 ///
-/// A guarded event is refused before any write, so the read guard cannot be
-/// bypassed with a write. An already-read event writes nothing. `None` means
-/// the read was committed but the target row is gone: the route reports
+/// A row that admission refuses reads as absent, the same 404 as a missing
+/// row, and is never written, so the rule cannot be bypassed with a write. The
+/// update repeats the relation. An already-read event writes nothing. `None`
+/// means the read was committed but the target row is gone: the route reports
 /// `Event target not found` after the commit, as the route contract states.
 pub async fn acknowledge(
     connection: &mut PgConnection,
     watchlist: Uuid,
     event_id: Uuid,
     visible: &VisibleSnapshot,
+    admission: EventAdmission,
 ) -> Result<Option<WatchlistEvent>, ApiError> {
-    let Some(event) = load_event(connection, watchlist, event_id).await? else {
+    let Some(event) = load_event(connection, watchlist, event_id, visible, admission).await? else {
         return Err(not_found("Event not found"));
     };
-    if !event_visible_ws(&event, visible) {
-        return Err(not_found("Event not found"));
-    }
     if !event.is_read {
-        // `AND is_read=false` re-checks the row after a concurrent reader's
-        // lock is released: under READ COMMITTED the loser writes nothing.
-        sqlx::query("UPDATE watchlist_events SET is_read=true WHERE id=$1 AND is_read=false")
+        sqlx::query(ACKNOWLEDGE_SQL)
             .bind(event_id)
+            .bind(watchlist)
+            .bind(visible.visible_ids())
+            .bind(admission.activation())
             .execute(&mut *connection)
             .await
             .map_err(|_| ApiError::database())?;
@@ -502,15 +472,6 @@ pub async fn acknowledge(
     let mut event = event;
     event.is_read = true;
     event.project().map(Some)
-}
-
-fn event_visible_ws(event: &StoredEvent, visible: &VisibleSnapshot) -> bool {
-    event_visible(
-        &event.event_type,
-        event.source_order,
-        event.target.as_ref(),
-        visible,
-    )
 }
 
 // -------------------------------------------------------------------- handlers
@@ -529,6 +490,7 @@ pub(super) async fn list(
     let now = Utc::now();
     let policy = state.app.policy.clone();
     let config = state.app.config.clone();
+    let admission = state.settings.admission();
     let raw_query = raw_query.unwrap_or_default();
     let result = run(
         &state,
@@ -560,7 +522,7 @@ pub(super) async fn list(
                 )
                 .await
                 .map_err(|_| ApiError::database())?;
-                feed_page(connection, watchlist, &visible, query).await
+                feed_page(connection, watchlist, &visible, admission, query).await
             })
         },
     )
@@ -580,6 +542,7 @@ pub(super) async fn mark_read(
     let now = Utc::now();
     let policy = state.app.policy.clone();
     let config = state.app.config.clone();
+    let admission = state.settings.admission();
     let result = run(
         &state,
         &headers,
@@ -620,7 +583,7 @@ pub(super) async fn mark_read(
                 .await
                 .map_err(|_| ApiError::database())?;
                 // Ok commits the read; TargetMissing is then reported as 404.
-                acknowledge(connection, watchlist, event_id, &visible).await
+                acknowledge(connection, watchlist, event_id, &visible, admission).await
             })
         },
     )

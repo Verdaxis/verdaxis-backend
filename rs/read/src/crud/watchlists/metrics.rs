@@ -1,16 +1,9 @@
-//! Metrics consume the shared public visibility result, never a second policy.
-use super::Target;
+//! Container counts over the shared admission relation and public order scope.
+use super::admission::{EventAdmission, event_visible_sql};
 use chrono::{DateTime, Utc};
-use std::collections::{HashMap, HashSet};
+use sqlx::Row;
+use std::collections::HashMap;
 use uuid::Uuid;
-
-pub struct Event {
-    pub target_id: Uuid,
-    pub event_type: String,
-    pub order_id: Option<Uuid>,
-    pub is_read: bool,
-    pub created_at: DateTime<Utc>,
-}
 
 #[derive(Default)]
 pub struct Metrics {
@@ -43,46 +36,41 @@ pub async fn visible_order_rows(
     .await
 }
 
+// Admission runs in `WHERE`, before aggregation, so a refused row moves
+// neither a count nor a latest time. The inner join keeps the feed's target
+// rule: a row whose target is gone has no target to count toward.
+const EVENT_METRICS_SQL: &str = concat!(
+    "SELECT e.watchlist_target_id,",
+    "count(*) FILTER (WHERE NOT e.is_read) AS unread,",
+    "max(e.created_at) AS latest ",
+    "FROM watchlist_events e ",
+    "JOIN watchlist_targets t ON t.id=e.watchlist_target_id ",
+    "WHERE e.watchlist_id=$1 AND ",
+    event_visible_sql!("$2", "$3"),
+    " GROUP BY e.watchlist_target_id"
+);
+
 impl Metrics {
-    /// PD2/PD4-G: filter before counting/latest aggregation; retain every row.
-    /// Current rows have no trusted producer attestation. Best-price event type
-    /// is therefore a durable deny rule, regardless of source ID or timestamp.
-    /// The explicit cutoff is reserved for the later trusted producer (PD5).
-    pub fn from_visible_events(
-        targets: &[Target],
-        events: &[Event],
-        visible_orders: &HashSet<Uuid>,
-        _best_price_cutoff: DateTime<Utc>,
-    ) -> Self {
-        let allowed = targets
-            .iter()
-            .filter(|target| {
-                target.target_type == "SLICE"
-                    || target
-                        .order_id
-                        .is_some_and(|id| visible_orders.contains(&id))
-            })
-            .map(|target| target.id)
-            .collect::<HashSet<_>>();
-        let mut result = Self::default();
-        for event in events {
-            if !allowed.contains(&event.target_id)
-                || event
-                    .order_id
-                    .is_some_and(|id| !visible_orders.contains(&id))
-                || event.event_type == "SLICE_BEST_PRICE_MOVED"
-            {
-                continue;
-            }
-            if !event.is_read {
-                *result.unread.entry(event.target_id).or_default() += 1;
-            }
-            result
-                .latest
-                .entry(event.target_id)
-                .and_modify(|value| *value = (*value).max(event.created_at))
-                .or_insert(event.created_at);
+    /// Unread count and latest event time per target, over admitted rows only.
+    /// Active-order counts are filled by the caller from the same captured scope.
+    pub(super) async fn load_events(
+        connection: &mut sqlx::PgConnection,
+        watchlist: Uuid,
+        visible_order_ids: Vec<Uuid>,
+        admission: EventAdmission,
+    ) -> Result<Self, sqlx::Error> {
+        let rows = sqlx::query(EVENT_METRICS_SQL)
+            .bind(watchlist)
+            .bind(visible_order_ids)
+            .bind(admission.activation())
+            .fetch_all(connection)
+            .await?;
+        let mut metrics = Self::default();
+        for row in rows {
+            let target: Uuid = row.try_get("watchlist_target_id")?;
+            metrics.unread.insert(target, row.try_get("unread")?);
+            metrics.latest.insert(target, row.try_get("latest")?);
         }
-        result
+        Ok(metrics)
     }
 }
