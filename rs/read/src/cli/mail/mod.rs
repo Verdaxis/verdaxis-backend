@@ -3,6 +3,8 @@
 //! The provider client is the accepted Phase 2 [`MailClient`]; this module adds
 //! only the logging rule. A delivery record names the recipient by a short
 //! digest, never by the address, and the provider payload is never logged.
+pub mod kyc;
+
 use crate::crud::referrals::invite::MailClient;
 use serde_json::Value;
 use sha2::Digest;

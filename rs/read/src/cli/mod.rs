@@ -409,6 +409,7 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
                 exit
             }
         },
+        Command::Job(job) if job.kind == JobKind::KycNotices => jobs::kyc::run(&job).await,
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.
