@@ -249,6 +249,58 @@ def test_release_metadata_drops_producer_keys_below_the_producer_checkpoint(tmp_
     assert "require the producer checkpoint" in refused.stderr
 
 
+def test_release_metadata_refuses_an_instant_that_is_not_a_real_utc_time(tmp_path):
+    """The recorded instant never changes later, so only a real UTC time
+    (a calendar date and clock time, offset Z or +00:00) is ever recorded."""
+    checkout, release_sha = _release_with_producer_checkpoints(tmp_path)
+    for instant in (
+        "2026-02-30T10:00:00+00:00",
+        "2026-11-01T25:00:00Z",
+        "2026-11-01T10:61:00Z",
+        "2026-11-01T10:00:61+00:00",
+        "2026-11-01T18:00:00+08:00",
+        "2026-11-01T10:00:00-00:00",
+        "2026-11-01T10:00:00+24:00",
+    ):
+        _record(checkout)
+        before = _published(checkout)
+        result = _deploy(
+            tmp_path,
+            checkout,
+            release_sha,
+            supplied={
+                "WATCHLIST_EVENT_PRODUCER": "rust-market-v1",
+                "WATCHLIST_PRODUCER_ACTIVATED_AT": instant,
+            },
+        )
+        assert result.returncode != 0, instant
+        assert "real UTC time" in result.stderr, (instant, result.stderr)
+        assert _published(checkout) == before
+        assert "+ write immutable release metadata" not in result.stdout
+
+
+def test_release_metadata_records_a_utc_instant_with_fraction_and_z(tmp_path):
+    checkout, release_sha = _release_with_producer_checkpoints(tmp_path)
+    _record(checkout)
+    instant = "2028-02-29T23:59:59.123456Z"
+    result = _deploy(
+        tmp_path,
+        checkout,
+        release_sha,
+        supplied={
+            "WATCHLIST_EVENT_PRODUCER": "rust-market-v1",
+            "WATCHLIST_PRODUCER_ACTIVATED_AT": instant,
+        },
+    )
+    assert "+ write immutable release metadata" in result.stdout, result.stderr
+    assert _published(checkout) == _expected(
+        release_sha,
+        FREEZE,
+        "WATCHLIST_EVENT_PRODUCER=rust-market-v1",
+        f"WATCHLIST_PRODUCER_ACTIVATED_AT={instant}",
+    )
+
+
 def test_dry_run_prints_the_producer_keys(tmp_path):
     checkout, _release_sha = _release_with_producer_checkpoints(tmp_path)
     _record(

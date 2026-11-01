@@ -21,7 +21,7 @@ def test_release_identity_accepts_the_three_key_file():
 
 @pytest.mark.parametrize("producer", ["rust-market-v1", "legacy-python"])
 @pytest.mark.parametrize(
-    "instant", ["2026-11-01T10:00:00+00:00", "2026-11-01T18:00:00.123456+08:00", "2026-11-01T10:00:00Z"]
+    "instant", ["2026-11-01T10:00:00+00:00", "2028-02-29T18:00:00.123456+00:00", "2026-11-01T10:00:00Z"]
 )
 def test_release_identity_accepts_the_producer_keys(producer, instant):
     text = BASE + f"WATCHLIST_EVENT_PRODUCER={producer}\nWATCHLIST_PRODUCER_ACTIVATED_AT={instant}\n"
@@ -41,6 +41,11 @@ def test_release_identity_accepts_the_producer_keys(producer, instant):
         BASE + PRODUCER + INSTANT.rstrip("\n"),
         IDENTITY + "MIGRATION_REVISION=p5_20261020_read_indexes\n" + PRODUCER + INSTANT,
         PRODUCER + INSTANT + BASE,
+        BASE + PRODUCER + "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-02-30T10:00:00+00:00\n",
+        BASE + PRODUCER + "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T25:00:00Z\n",
+        BASE + PRODUCER + "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T10:00:61Z\n",
+        BASE + PRODUCER + "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T18:00:00+08:00\n",
+        BASE + PRODUCER + "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T10:00:00-00:00\n",
     ],
 )
 def test_release_identity_refuses_any_other_file(text):
