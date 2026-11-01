@@ -290,7 +290,22 @@ async fn timeout_prefix_is_the_first_statement() {
 }
 
 async fn cleanup(actor: Uuid, side: TradeSide) -> Result<(), error::MarketWriteError> {
-    let f = Fixture::open().await;
+    cleanup_with_buyer_organization(actor, side, "APPROVED").await
+}
+
+/// Runs cleanup admission after setting the buyer organization's verification status.
+async fn cleanup_with_buyer_organization(
+    actor: Uuid,
+    side: TradeSide,
+    buyer_organization_status: &str,
+) -> Result<(), error::MarketWriteError> {
+    let mut f = Fixture::open().await;
+    sqlx::query("UPDATE organizations SET verification_status=$1 WHERE id=$2")
+        .bind(buyer_organization_status)
+        .bind(id(10))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     let access = f.access(actor).await;
     let mut conn = f.pool.acquire().await.unwrap();
     let mut tx = conn.begin().await.unwrap();
@@ -310,7 +325,15 @@ async fn cleanup(actor: Uuid, side: TradeSide) -> Result<(), error::MarketWriteE
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn cleanup_admission_survives_rejection() {
-    cleanup(id(1), TradeSide::Buyer).await.unwrap();
+    cleanup_with_buyer_organization(id(1), TradeSide::Buyer, "REJECTED")
+        .await
+        .unwrap();
+}
+#[tokio::test]
+#[ignore = "requires explicit disposable PostgreSQL"]
+async fn cleanup_refuses_a_detached_member_of_an_approved_organization() {
+    let error = cleanup(id(1), TradeSide::Buyer).await.unwrap_err();
+    assert_eq!(error.status, axum::http::StatusCode::FORBIDDEN);
 }
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
