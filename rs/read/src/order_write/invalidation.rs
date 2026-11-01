@@ -223,6 +223,22 @@ async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, Inval
     })
 }
 
+/// Set both timeouts for the rest of the transaction, or until set again.
+async fn set_timeouts(
+    conn: &mut PgConnection,
+    lock: &str,
+    statement: &str,
+) -> Result<(), InvalidationError> {
+    sqlx::query(
+        "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)",
+    )
+    .bind(lock)
+    .bind(statement)
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 async fn drift(conn: &mut PgConnection) -> Result<(), InvalidationError> {
     // Use a real SQLSTATE so the existing owner retries the entire transaction.
     sqlx::raw_sql(
@@ -255,20 +271,29 @@ pub async fn invalidate_organization(
 /// that record the subject, releasing their reservations once.
 ///
 /// The caller holds the canonical organization and user prefix, the subject's
-/// row included; the subject row lock taken here is then already held. Market
-/// locks follow it in the shared order. A row that appears after discovery, or
-/// a scope over the bound, refuses the whole transaction. This subcommand
-/// never completes or retries a transaction.
+/// row included. The subject row is only confirmed here with `NOWAIT`: a
+/// caller that did not lock it never waits out of the sorted user order, and
+/// a row another session holds refuses at once with `55P03`. Market locks
+/// follow in the shared order. A row that appears after discovery, a scope
+/// over the bound, or a frozen pending trade in the scope refuses the whole
+/// transaction. This subcommand never
+/// completes or retries a transaction.
+///
+/// While it runs, market locks wait at most 500 ms (`MARKET_LOCK_TIMEOUT`) and
+/// statements at most 5 s. A slice or row held longer refuses with `55P03`.
+/// On success the caller's own `lock_timeout` and `statement_timeout` are in
+/// force again; on an error the caller rolls back.
 pub async fn invalidate_user(
     conn: &mut PgConnection,
     command: &InvalidateUser,
 ) -> Result<InvalidationResult, InvalidationError> {
     // The subject's own market commands take this row first, so holding it
     // keeps the scope from gaining the subject's new orders.
-    let subject: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
-        .bind(command.subject_id)
-        .fetch_optional(&mut *conn)
-        .await?;
+    let subject: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE NOWAIT")
+            .bind(command.subject_id)
+            .fetch_optional(&mut *conn)
+            .await?;
     if subject.is_none() {
         return Err(refusal(
             "USER_NOT_FOUND",
@@ -356,13 +381,14 @@ async fn invalidate(
             "A market slice has an invalid availability window.",
         )
     })?;
-    sqlx::query(
-        "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)",
+    // The market bounds apply to this subcommand only; the caller's own
+    // values are set again before a successful return.
+    let caller_timeouts: (String, String) = sqlx::query_as(
+        "SELECT current_setting('lock_timeout'),current_setting('statement_timeout')",
     )
-    .bind(MARKET_LOCK_TIMEOUT)
-    .bind(MARKET_STATEMENT_TIMEOUT)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
+    set_timeouts(conn, MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT).await?;
     for key in lock_keys {
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(key)
@@ -380,6 +406,21 @@ async fn invalidate(
             .await?;
     if locked != trade_ids {
         drift(conn).await?;
+    }
+    // The database refuses any status change of a frozen trade. Freeze
+    // administration locks the trade row first, so with the trades locked
+    // the answer holds until commit: refuse the whole scope before any write.
+    let frozen: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM trade_freezes WHERE trade_id=ANY($1) AND status='ACTIVE')",
+    )
+    .bind(&trade_ids)
+    .fetch_one(&mut *conn)
+    .await?;
+    if frozen {
+        return Err(refusal(
+            "MARKET_INVALIDATION_TRADE_FROZEN",
+            "A pending trade in this market scope is frozen; clear the freeze first.",
+        ));
     }
     let order_ids: Vec<_> = before.orders.iter().map(|o| o.id).collect();
     let locked: Vec<Uuid> = sqlx::query_scalar(
@@ -500,6 +541,7 @@ async fn invalidate(
         participants.into_iter().collect(),
     )
     .await?;
+    set_timeouts(conn, &caller_timeouts.0, &caller_timeouts.1).await?;
     Ok(InvalidationResult {
         withdrawn_orders: withdrawn,
         cancelled_trade_ids: trade_ids,
