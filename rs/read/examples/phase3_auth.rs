@@ -242,8 +242,9 @@ async fn cleanup(
         String,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
     ) = sqlx::query_as(
-        "SELECT status::text,password_changed_at,authentication_revoked_at FROM users WHERE id=$1",
+        "SELECT status::text,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1",
     )
     .bind(access.subject)
     .fetch_one(&pool)
@@ -259,6 +260,7 @@ async fn cleanup(
         } else {
             row.2.map(|v| v.timestamp_micros())
         },
+        offboarded: row.3.is_some(),
     };
     match auth::cutoff_refusal(
         auth::TokenIssuance {
