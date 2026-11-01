@@ -332,6 +332,9 @@ async def dispatch(command, engine, factory):
             if loop.time() > deadline:
                 break
             await asyncio.sleep(0.02)
+        # Keep the dispatcher running past its next poll, so a repeated
+        # delivery of the same row would be recorded too.
+        await asyncio.sleep(float(args["settle_seconds"]))
     finally:
         await dispatcher.stop()
     replay = {}
@@ -371,8 +374,9 @@ COMMANDS = {
 
 
 def describe(error: BaseException) -> dict:
-    from app.services.db_errors import database_sqlstate
     from fastapi import HTTPException
+
+    from app.services.db_errors import database_sqlstate
 
     value = {"type": type(error).__name__, "message": str(error)[:500]}
     if isinstance(error, HTTPException):

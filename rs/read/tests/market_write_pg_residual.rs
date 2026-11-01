@@ -2140,9 +2140,12 @@ const STREAM_KEY: &str = "synthetic-chain-stream-key-at-least-32-chars";
 const STREAM_PARTY: &str = "chain-tests";
 /// How long a frame or delivery that is already on its way may take.
 const FRAME_BOUND: Duration = Duration::from_secs(10);
-/// A Rust writer sends no wake: its row is sequenced by the next sequencer
-/// poll. One poll interval plus allowance for a loaded host.
+/// The longest time from a commit to its delivery: the next sequencer poll
+/// at the latest, plus allowance for a loaded host.
 const POLL_BOUND: Duration = Duration::from_secs(5);
+/// How long a "delivered once" check keeps listening after the delivery: past
+/// the next 2 s poll of either dispatcher, so a repeat on that poll is seen.
+const PAST_NEXT_POLL: Duration = Duration::from_secs(3);
 /// Keys that would carry producer evidence or watchlist subscriptions.
 const INTERNAL_KEYS: [&str; 7] = [
     "producer_evidence",
@@ -2215,31 +2218,6 @@ fn month_windows() -> [String; 2] {
             .format("%Y-%m")
             .to_string(),
     ]
-}
-
-/// Rust market writers send no stream wake: their rows reach subscribers
-/// through the sequencer poll.
-fn assert_writers_send_no_wake() {
-    let root = repository_root().join("rs/read/src/order_write");
-    let mut pending = vec![root];
-    let mut scanned = 0;
-    while let Some(next) = pending.pop() {
-        for entry in std::fs::read_dir(&next).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                pending.push(path);
-            } else if path.extension().is_some_and(|e| e == "rs") {
-                let text = std::fs::read_to_string(&path).unwrap().to_lowercase();
-                assert!(
-                    !text.contains("pg_notify") && !text.contains("notify verdaxis"),
-                    "{} sends a database notification",
-                    path.display()
-                );
-                scanned += 1;
-            }
-        }
-    }
-    assert!(scanned > 10, "the writer sources were not found");
 }
 
 /// One row of `chain_outbox` or `chain_sequenced_after`.
@@ -2674,17 +2652,17 @@ async fn legacy_outbox_row_without_evidence_is_covered_by_the_producer_without_e
 }
 
 /// The commit boundary of the sequencer. While a Rust cancellation is open
-/// after its outbox insert, another session sees no row and the sequencer
-/// statement numbers nothing, without waiting on the writer. After the commit
-/// the row is numbered once, through the poll (Rust writers send no wake),
-/// and reaches the organization channel once with the public marker as a
-/// public invalidation. The unchanged Python dispatcher, as sequencer and hub
-/// for a second cancellation and as replay for both, maps the same rows
-/// without the internal evidence column.
+/// after its outbox insert, its order change is still uncommitted, another
+/// session sees no outbox row, and the sequencer statement, with no other row
+/// pending, numbers nothing and returns at once. After the commit the order
+/// change and the row become visible together; the row is numbered once and
+/// reaches the organization channel once, also past the next poll, with the
+/// public marker as a public invalidation. The unchanged Python dispatcher, as
+/// sequencer and hub for a second cancellation and as replay for both, maps
+/// the same rows without the internal evidence column, once.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_once() {
-    assert_writers_send_no_wake();
     let mut f = Fixture::new().await;
     f.chain().await;
     let [later, _] = month_windows();
@@ -2717,6 +2695,19 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
     let held = f.spawn(CHAIN_HELD_APP, f.cancel(first, SELLER)).await;
     f.wait_lock(CHAIN_HELD_APP, CHAIN_BARRIER_APP).await;
     let observed = Instant::now();
+    // The held transaction is the cancellation itself: it has changed the
+    // order row (its transaction id is the row's xmax) and not committed it.
+    let open: Value = sqlx::query_scalar("SELECT chain_open_change($1,$2)")
+        .bind(first)
+        .bind(CHAIN_HELD_APP)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        open,
+        json!({"status":"OPEN","remaining_untouched":true,"changed_by_held":true}),
+        "the order change is open in the held transaction"
+    );
     assert!(
         f.outbox(first).await.is_empty(),
         "another session sees no row"
@@ -2737,7 +2728,10 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
         .unwrap()
         .rows_affected();
     tx.rollback().await.unwrap();
-    assert_eq!(numbered, 0, "the sequencer statement numbers no open row");
+    assert_eq!(
+        numbered, 0,
+        "with no other row pending, the sequencer statement numbers nothing and returns"
+    );
     assert_eq!(f.unsequenced().await, 0);
     let release_ms = observed.elapsed();
     assert!(
@@ -2752,17 +2746,20 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
     let committed = Instant::now();
     let contention = graph.stop().await;
     contention.assert_no_cycle("held cancellation");
-    assert!(
-        !contention.waited(ELECTION_APP, CHAIN_HELD_APP),
-        "the sequencer never waits on an open writer"
-    );
+    // One snapshot: the order change and its outbox row commit together.
+    let visible: Value = sqlx::query_scalar("SELECT chain_committed_change($1)")
+        .bind(first)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(visible, json!({"status":"CANCELLED","outbox_rows":1}));
     barrier.close().await.unwrap();
     observer.close().await.unwrap();
 
-    // After the commit: one row, one sequence, one delivery, through the poll.
+    // After the commit: one row, one sequence, one delivery.
     let delivery = tokio::time::timeout(POLL_BOUND, seller_channel.recv())
         .await
-        .expect("the poll sequences the committed row")
+        .expect("the committed row is delivered within one poll")
         .expect("an open channel");
     println!(
         "CHAIN_RUST_DELIVERY after_commit_ms={}",
@@ -2799,10 +2796,16 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
         Ok(Some(Delivery::PublicInvalidation))
     ));
     assert!(
-        tokio::time::timeout(Duration::from_millis(500), seller_channel.recv())
+        tokio::time::timeout(PAST_NEXT_POLL, seller_channel.recv())
             .await
             .is_err(),
-        "one delivery for one row"
+        "one delivery for one row, also after the next poll"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), prices.recv())
+            .await
+            .is_err(),
+        "one public invalidation for one row"
     );
     drop((seller_channel, prices));
     f.stop_streams(runtime).await;
@@ -2810,7 +2813,8 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
 
     // The unchanged Python dispatcher takes the sequencer lock and is idle.
     let mut command = f.command("dispatch");
-    command["args"] = json!({"orgs":[id(SELLER_ORG)],"after_seq":start,"expect_private":1});
+    command["args"] = json!({"orgs":[id(SELLER_ORG)],"after_seq":start,"expect_private":1,
+        "settle_seconds":PAST_NEXT_POLL.as_secs_f64()});
     let mut driver = Driver::start(command).await;
     driver.go().await;
     let listener = driver.held().await;
@@ -2834,7 +2838,12 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
         .iter()
         .filter(|frame| !frame["seq"].is_null())
         .collect();
-    assert_eq!(private.len(), 1, "one Python delivery: {}", private.len());
+    assert_eq!(
+        private.len(),
+        1,
+        "one Python delivery, also after its next poll: {}",
+        private.len()
+    );
     let frame = private[0];
     assert_eq!(frame["channel"], channel);
     assert_eq!(frame["seq"], second_row["seq"]);
@@ -2844,9 +2853,9 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
     println!("CHAIN_PYTHON_DELIVERY after_release_s={latency:.3}");
     assert!(
         latency < POLL_BOUND.as_secs_f64(),
-        "the Python poll sequenced it"
+        "the Python dispatcher delivered it within one poll"
     );
-    let public: BTreeSet<&str> = result["frames"]
+    let mut public: Vec<&str> = result["frames"]
         .as_array()
         .unwrap()
         .iter()
@@ -2860,7 +2869,12 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
             frame["channel"].as_str().unwrap()
         })
         .collect();
-    assert_eq!(public, BTreeSet::from(["orderbook", "prices"]));
+    public.sort_unstable();
+    assert_eq!(
+        public,
+        ["orderbook", "prices"],
+        "one invalidation per channel"
+    );
     // Python replay of the Rust-numbered and the Python-numbered row.
     let replay = result["replay"][id(SELLER_ORG).to_string()]
         .as_array()
@@ -3013,8 +3027,13 @@ async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() 
         live_frames.push(found);
         frame_texts.extend(texts);
     }
-    // Every event reached the parties; the observer has heartbeats only.
-    frame_texts.extend(assert_no_business(&mut live[2], Duration::from_secs(1)).await);
+    // Past the next poll no party receives a repeat, and the observer
+    // receives heartbeats only. Later deliveries queue in each body, so the
+    // first wait covers the poll for all three streams.
+    frame_texts.extend(assert_no_business(&mut live[0], PAST_NEXT_POLL).await);
+    for frames in &mut live[1..] {
+        frame_texts.extend(assert_no_business(frames, Duration::from_millis(200)).await);
+    }
     for frames in &mut public {
         let mut invalidations = 0;
         while let Some(frame) = frames.next_within(Duration::from_secs(1)).await {

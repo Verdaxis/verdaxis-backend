@@ -88,3 +88,22 @@ $$;
 CREATE OR REPLACE FUNCTION chain_watermark() RETURNS bigint LANGUAGE sql AS $$
     SELECT consumed_through_seq FROM watchlist_producer_state
 $$;
+
+-- The order as another session sees it while a writer named `app` is held:
+-- committed status, an untouched remainder, and whether the held writer's
+-- open transaction is the one that changed the row (it is the row's xmax).
+CREATE OR REPLACE FUNCTION chain_open_change(target uuid, app text) RETURNS jsonb LANGUAGE sql AS $$
+    SELECT jsonb_build_object('status',o.status::text,
+        'remaining_untouched',o.remaining_quantity_mt=o.quantity_mt,
+        'changed_by_held',o.xmax::text=(SELECT a.backend_xid::text FROM pg_stat_activity a
+            WHERE a.datname=current_database() AND a.application_name=app AND a.backend_xid IS NOT NULL
+            LIMIT 1))
+    FROM orderbook_orders o WHERE o.id=target
+$$;
+
+-- The order status and its outbox row count, read in one snapshot.
+CREATE OR REPLACE FUNCTION chain_committed_change(target uuid) RETURNS jsonb LANGUAGE sql AS $$
+    SELECT jsonb_build_object(
+        'status',(SELECT status::text FROM orderbook_orders WHERE id=target),
+        'outbox_rows',(SELECT count(*) FROM market_event_outbox WHERE aggregate_id=target::text))
+$$;
