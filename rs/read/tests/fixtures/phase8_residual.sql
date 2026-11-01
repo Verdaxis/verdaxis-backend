@@ -183,6 +183,12 @@ SELECT jsonb_build_object(
  'inventory',(SELECT md5(coalesce(string_agg(to_jsonb(i)::text,',' ORDER BY i.id),'')) FROM inventory_items i),
  'notifications',(SELECT md5(coalesce(string_agg(to_jsonb(n)::text,',' ORDER BY n.id),'')) FROM notifications n),
  'negotiations',(SELECT md5(coalesce(string_agg(to_jsonb(n)::text,',' ORDER BY n.id),'')) FROM negotiations n),
+ 'negotiation_rounds',(SELECT md5(coalesce(string_agg(to_jsonb(r)::text,',' ORDER BY r.id),'')) FROM negotiation_rounds r),
+ 'watchlist_targets',(SELECT md5(coalesce(string_agg(to_jsonb(w)::text,',' ORDER BY w.id),'')) FROM watchlist_targets w),
+ 'watchlist_events',(SELECT md5(coalesce(string_agg(to_jsonb(e)::text,',' ORDER BY e.id),'')) FROM watchlist_events e),
+ 'match_suggestions',(SELECT md5(coalesce(string_agg(to_jsonb(m)::text,',' ORDER BY m.id),'')) FROM match_suggestions m),
+ 'commissions',(SELECT md5(coalesce(string_agg(to_jsonb(c)::text,',' ORDER BY c.id),'')) FROM commissions c),
+ 'reference_count',(SELECT (SELECT count(*) FROM negotiation_rounds)+(SELECT count(*) FROM watchlist_targets)+(SELECT count(*) FROM watchlist_events)+(SELECT count(*) FROM match_suggestions)+(SELECT count(*) FROM commissions)),
  'audit_count',(SELECT count(*) FROM audit_logs),
  'outbox_count',(SELECT count(*) FROM market_event_outbox),
  'receipt_count',(SELECT count(*) FROM market_command_results),
@@ -252,4 +258,59 @@ SELECT jsonb_build_object(
  'rounds',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.id),'[]'::jsonb) FROM negotiation_rounds r),
  'offers',(SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY s.id),'[]'::jsonb) FROM supplier_offers s),
  'referenced_orders',(SELECT count(*) FROM orderbook_orders o WHERE EXISTS(SELECT 1 FROM negotiations n WHERE n.bid_order_id=o.id OR n.ask_order_id=o.id)));
+$$;
+
+-- The demo seed organizations that the coverage refresh assigns orders to,
+-- as a deployed database has them.
+CREATE OR REPLACE FUNCTION residual_demo_seed_organizations() RETURNS void LANGUAGE sql AS $$
+    INSERT INTO organizations(id,name,type,supplier_tier,verification_status,provenance) VALUES
+      ('4da7b285-34ee-5443-9406-f96b4ed1a251','Verdaxis Demo Buyer 01','SHIPPING_LINE',NULL,'APPROVED','DEMO'),
+      ('0dbce576-2026-5925-ab66-674d505e98ad','Verdaxis Demo Buyer 02','SHIPPING_LINE',NULL,'APPROVED','DEMO'),
+      ('3cd0bc8a-0e92-5eb8-9ae3-3c87a7460a6a','Verdaxis Demo Buyer 03','SHIPPING_LINE',NULL,'APPROVED','DEMO'),
+      ('277491df-cb0d-5f2d-a2cf-5746829c6da6','Verdaxis Demo Buyer 04','SHIPPING_LINE',NULL,'APPROVED','DEMO'),
+      ('3b302066-d65c-5c3e-8fcc-70b3da3bcafd','Verdaxis Demo Buyer 05','SHIPPING_LINE',NULL,'APPROVED','DEMO'),
+      ('79609f48-0a3e-560e-a1e1-63d90601d84a','Verdaxis Demo Supplier 01','FUEL_SUPPLIER','MAJOR_TRADER','APPROVED','DEMO'),
+      ('2c4e387e-de22-5adb-ad88-9274ba84ebe1','Verdaxis Demo Supplier 02','FUEL_SUPPLIER','MAJOR_TRADER','APPROVED','DEMO'),
+      ('612953c7-567a-58b3-bc42-ee817d2bbe74','Verdaxis Demo Supplier 03','FUEL_SUPPLIER','TIER_1_PRODUCER','APPROVED','DEMO'),
+      ('93ccda09-54b3-53ee-afc0-759d3048161f','Verdaxis Demo Supplier 04','FUEL_SUPPLIER','REGIONAL_SUPPLIER','APPROVED','DEMO'),
+      ('82426590-0963-5486-9b05-f81e97afe6ef','Verdaxis Demo Supplier 05','FUEL_SUPPLIER','MAJOR_TRADER','APPROVED','DEMO')
+    ON CONFLICT(id) DO NOTHING;
+$$;
+
+-- One row in every table the retained deleters clear before trades, all
+-- referencing one trade and its two orders (triggers off: the rows only need
+-- to exist and reference them).
+CREATE OR REPLACE FUNCTION residual_trade_references(target uuid) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE bid uuid; ask uuid; buyer uuid; watch uuid:=gen_random_uuid(); pin uuid:=gen_random_uuid();
+BEGIN
+    SELECT bid_order_id,ask_order_id,buyer_id INTO STRICT bid,ask,buyer FROM trades WHERE id=target;
+    PERFORM residual_phase7_references(bid,ask);
+    PERFORM set_config('session_replication_role','replica',true);
+    INSERT INTO watchlists(id,user_id,name,kind) VALUES(watch,'00000000-0000-0000-0000-000000003001','Fixture references','CUSTOM');
+    INSERT INTO watchlist_targets(id,watchlist_id,target_type,order_id,market_product_code,delivery_point_id,availability_window_code,snapshot_price_per_mt_usd,snapshot_quantity_mt,snapshot_remaining_quantity_mt,snapshot_status)
+    SELECT pin,watch,'PIN',o.id,'B30',o.delivery_point_id,o.availability_window,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.status::text FROM orderbook_orders o WHERE o.id=ask;
+    INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at)
+    VALUES(gen_random_uuid(),watch,pin,'PIN_FILLED','{}',false,now());
+    INSERT INTO match_suggestions(id,bid_order_id,ask_order_id,score,match_reasons,status,recipient_org_id,created_at)
+    VALUES(gen_random_uuid(),bid,ask,50,'[]','SUGGESTED',buyer,now());
+    INSERT INTO commissions(id,match_id,trade_id,amount_usd,status,created_at,updated_at)
+    VALUES(gen_random_uuid(),gen_random_uuid(),target,1,'PENDING',now(),now());
+    PERFORM set_config('session_replication_role','origin',true);
+END $$;
+
+-- Every directed lock wait among the named backends, at one instant.
+CREATE OR REPLACE FUNCTION residual_wait_edges(apps text[]) RETURNS jsonb LANGUAGE sql AS $$
+    SELECT coalesce(jsonb_agg(DISTINCT jsonb_build_array(a.application_name,b.application_name)),'[]'::jsonb)
+    FROM pg_stat_activity a JOIN pg_stat_activity b ON b.pid=ANY(pg_blocking_pids(a.pid))
+    WHERE a.datname=current_database() AND a.wait_event_type='Lock'
+      AND a.application_name=ANY(apps) AND b.application_name=ANY(apps)
+$$;
+
+-- The 64-bit key of the advisory lock the named backend waits for.
+CREATE OR REPLACE FUNCTION residual_waiting_advisory(waiter text) RETURNS bigint LANGUAGE sql AS $$
+    SELECT (l.classid::bigint << 32) | l.objid::bigint
+    FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+    WHERE a.datname=current_database() AND a.application_name=waiter
+      AND l.locktype='advisory' AND l.objsubid=1 AND NOT l.granted
+    LIMIT 1
 $$;

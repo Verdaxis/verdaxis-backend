@@ -4,13 +4,17 @@
 //! delivery, the demo activity tick and prune, the operator quarantine and the
 //! seed. Each Python writer runs unmodified in a child process
 //! (`tests/postgres/phase8_residual_driver.py`) on a fresh clone of the
-//! migrated database. Lock waits are observed in `pg_stat_activity` and every
-//! observed wait is released well inside the 500 ms market lock bound.
+//! migrated database. Lock waits are observed in `pg_stat_activity`; every
+//! observed wait is released at once, and the time until the waiter stops
+//! waiting is measured at the database. A wait-graph sampler fails a schedule
+//! on any lock cycle it does not specify.
 #[path = "support/market_database.rs"]
 mod market_database;
 
+use std::collections::BTreeSet;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::{
@@ -46,6 +50,8 @@ const RUST_HELD_APP: &str = "residual-rust-held";
 const BARRIER_APP: &str = "residual-barrier";
 const HOLDER_APP: &str = "residual-holder";
 const FORBIDDEN_APP: &str = "residual-forbidden";
+const QUARANTINE_ONE_APP: &str = "phase8_residual_py_one";
+const QUARANTINE_TWO_APP: &str = "phase8_residual_py_two";
 /// Longest time from an observed lock wait to its release. It keeps the
 /// waiter inside the 500 ms market lock bound on a loaded host.
 const RELEASE_BUDGET: Duration = Duration::from_millis(350);
@@ -56,7 +62,7 @@ const BOUNDED_CODES: [&str; 4] = [
     "TRANSACTION_RETRY_EXHAUSTED",
     "MARKET_SLICE_CHANGED",
 ];
-// Statement names the driver pauses after (see `PAUSE_POINTS` in the driver).
+// Statement names the driver pauses after (see `STATEMENTS` in the driver).
 /// The scan statement that takes the order row locks.
 const SCAN_LOCK: &str = "scan_order_locks";
 /// The delivery recheck that takes the recipient and order row locks.
@@ -383,11 +389,24 @@ impl Fixture {
             reply
         })
     }
-    /// A contender that returned a bounded refusal is retried once after the
-    /// competing writer committed; the refusal is recorded, never hidden.
-    async fn settle(&self, reply: Reply, command: Command) -> Reply {
+    /// A contender released below its lock bound must succeed at once. A
+    /// bounded refusal is accepted only as a long hold: the sampled wait graph
+    /// has no cycle and the released Python writer never waited on `rust_app`.
+    /// It is recorded and the command is repeated once after the writer committed.
+    async fn first_attempt(
+        &self,
+        reply: Reply,
+        contention: &Contention,
+        rust_app: &str,
+        command: Command,
+    ) -> Reply {
+        contention.assert_no_cycle(rust_app);
         if bounded(&reply) {
-            println!("BOUNDED_CONTENDER status={} body={}", reply.0, reply.1);
+            assert!(
+                !contention.waited(PYTHON_APP, rust_app),
+                "a bounded refusal after the Python writer waited on Rust: {contention:?}"
+            );
+            println!("LONG_HOLD status={} body={}", reply.0, reply.1);
             return self.call(command).await;
         }
         reply
@@ -594,6 +613,12 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
+    async fn demo_seed_organizations(&mut self) {
+        sqlx::query("SELECT residual_demo_seed_organizations()")
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
     async fn demo_organizations(&mut self) {
         sqlx::query("SELECT residual_demo_organizations()")
             .execute(&mut self.admin)
@@ -674,12 +699,139 @@ impl Fixture {
     }
 }
 
-/// Release a paused Python writer and check the observation-to-release time.
-async fn release_within_budget(driver: &mut Driver, observed: Instant) {
+/// Release a paused Python writer and return how long, measured at the
+/// database, `waiter` still waited on `blocker` after the wait was observed.
+async fn release_and_time(
+    f: &mut Fixture,
+    driver: &mut Driver,
+    observed: Instant,
+    waiter: &str,
+    blocker: &str,
+) -> Duration {
     driver.release().await;
-    let elapsed = observed.elapsed();
-    println!("PYTHON_RELEASE elapsed_ms={}", elapsed.as_millis());
-    assert!(elapsed < RELEASE_BUDGET, "release took {elapsed:?}");
+    loop {
+        let pid: Option<i32> = sqlx::query_scalar("SELECT residual_waiting($1,$2)")
+            .bind(waiter)
+            .bind(blocker)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        if pid.is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let held = observed.elapsed();
+    println!(
+        "RELEASED_WAIT waiter={waiter} blocker={blocker} held_ms={}",
+        held.as_millis()
+    );
+    held
+}
+
+/// The lock waits sampled among this suite's backends during one schedule.
+#[derive(Debug, Default)]
+struct Contention {
+    edges: BTreeSet<(String, String)>,
+    cycle: Option<Vec<(String, String)>>,
+}
+impl Contention {
+    fn waited(&self, waiter: &str, blocker: &str) -> bool {
+        self.edges
+            .contains(&(waiter.to_owned(), blocker.to_owned()))
+    }
+    fn assert_no_cycle(&self, label: &str) {
+        assert!(
+            self.cycle.is_none(),
+            "{label}: unexpected lock cycle {:?}",
+            self.cycle
+        );
+    }
+}
+/// A cycle among the waits observed at one instant, if any.
+fn find_cycle(edges: &[(String, String)]) -> Option<Vec<(String, String)>> {
+    fn walk(
+        edges: &[(String, String)],
+        start: &str,
+        node: &str,
+        path: &mut Vec<(String, String)>,
+    ) -> bool {
+        for edge in edges.iter().filter(|(waiter, _)| waiter == node) {
+            if path.contains(edge) {
+                continue;
+            }
+            path.push(edge.clone());
+            if edge.1 == start || walk(edges, start, &edge.1, path) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+    edges.iter().find_map(|(start, _)| {
+        let mut path = Vec::new();
+        walk(edges, start, start, &mut path).then_some(path)
+    })
+}
+/// Samples `pg_locks` wait edges among the named backends until stopped.
+struct WaitGraph {
+    stop: Arc<AtomicBool>,
+    task: tokio::task::JoinHandle<Contention>,
+}
+impl WaitGraph {
+    async fn start(admin_url: &str) -> Self {
+        let mut connection = PgConnection::connect(admin_url).await.unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let flag = stop.clone();
+        let task = tokio::spawn(async move {
+            let apps = [
+                PYTHON_APP,
+                RUST_APP,
+                RUST_HELD_APP,
+                BARRIER_APP,
+                HOLDER_APP,
+                FORBIDDEN_APP,
+                QUARANTINE_ONE_APP,
+                QUARANTINE_TWO_APP,
+            ];
+            let mut contention = Contention::default();
+            while !flag.load(Ordering::Relaxed) {
+                let snapshot: Value = sqlx::query_scalar("SELECT residual_wait_edges($1)")
+                    .bind(&apps[..])
+                    .fetch_one(&mut connection)
+                    .await
+                    .unwrap();
+                let edges: Vec<(String, String)> = snapshot
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|edge| {
+                        (
+                            edge[0].as_str().unwrap().to_owned(),
+                            edge[1].as_str().unwrap().to_owned(),
+                        )
+                    })
+                    .collect();
+                if contention.cycle.is_none() {
+                    contention.cycle = find_cycle(&edges);
+                }
+                contention.edges.extend(edges);
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            connection.close().await.ok();
+            contention
+        });
+        Self { stop, task }
+    }
+    async fn stop(self) -> Contention {
+        self.stop.store(true, Ordering::Relaxed);
+        let contention = self.task.await.unwrap();
+        println!(
+            "WAIT_GRAPH edges={:?} cycle={:?}",
+            contention.edges, contention.cycle
+        );
+        contention
+    }
 }
 
 fn in_hours(hours: i64) -> chrono::DateTime<chrono::Utc> {
@@ -694,7 +846,14 @@ fn in_hours(hours: i64) -> chrono::DateTime<chrono::Utc> {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn reminder_scan_row_locks_bound_a_rust_cancel() {
-    for above_budget in [false, true] {
+    // Released early, the scan meets a lock cycle: its notice insert needs a
+    // key-share lock on the recipient's user row, which the waiting Rust
+    // cancellation (the order's owner) already holds FOR UPDATE, while Rust
+    // waits on the order row the scan holds. Rust's 500 ms bound ends the
+    // cycle before the deadlock detector (one second): Rust answers the
+    // retryable busy code with no effect, the scan commits, a retry succeeds.
+    // Held past the bound, the scan never waits on Rust: a plain long hold.
+    for released_early in [true, false] {
         let mut f = Fixture::new().await;
         let order = f.listing().await;
         f.expire_at(order, in_hours(6)).await;
@@ -704,35 +863,63 @@ async fn reminder_scan_row_locks_bound_a_rust_cancel() {
         let mut scan = Driver::start(command).await;
         scan.go().await;
         let python = scan.held().await;
+        let graph = WaitGraph::start(&f.admin_url).await;
         let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
         let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-        let observed = Instant::now();
         println!(
-            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-scan:{python} above_budget={above_budget}"
+            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-scan:{python} released_early={released_early}"
         );
-        if above_budget {
-            let reply = cancel.await.unwrap();
-            expect_status(&reply, StatusCode::CONFLICT);
-            assert_eq!(code(&reply), "MARKET_BUSY");
-            assert_eq!(
-                f.snapshot().await,
-                before,
-                "a bounded refusal has no effect"
-            );
+        if released_early {
             scan.release().await;
-            assert_eq!(ok(&scan.finish().await)["created"], 1);
-            expect_status(
-                &f.call(f.cancel(order, SELLER)).await,
-                StatusCode::NO_CONTENT,
+            let reverse = f.wait_lock(PYTHON_APP, RUST_APP).await;
+            let waits: Value = sqlx::query_scalar("SELECT residual_lock_waits($1)")
+                .bind(PYTHON_APP)
+                .fetch_one(&mut f.admin)
+                .await
+                .unwrap();
+            println!("REVERSE_WAIT python-scan:{reverse} waits={waits}");
+            assert!(
+                waits
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|wait| wait["relation"] == "users"),
+                "the scan waits on the recipient's user row: {waits}"
             );
-        } else {
-            release_within_budget(&mut scan, observed).await;
-            let reply = f
-                .settle(cancel.await.unwrap(), f.cancel(order, SELLER))
-                .await;
-            expect_status(&reply, StatusCode::NO_CONTENT);
-            assert_eq!(ok(&scan.finish().await)["created"], 1);
         }
+        let reply = cancel.await.unwrap();
+        expect_status(&reply, StatusCode::CONFLICT);
+        assert_eq!(code(&reply), "MARKET_BUSY");
+        if !released_early {
+            scan.release().await;
+        }
+        assert_eq!(ok(&scan.finish().await)["created"], 1);
+        let contention = graph.stop().await;
+        if released_early {
+            let cycle = contention.cycle.clone().expect("the cycle was observed");
+            assert!(cycle.contains(&(RUST_APP.to_owned(), PYTHON_APP.to_owned())));
+            assert!(cycle.contains(&(PYTHON_APP.to_owned(), RUST_APP.to_owned())));
+        } else {
+            contention.assert_no_cycle("scan held past the bound");
+            assert!(!contention.waited(PYTHON_APP, RUST_APP));
+        }
+        // The refused cancellation left no effect; the scan's notice is the
+        // only new row.
+        let refused = f.snapshot().await;
+        for key in [
+            "orders",
+            "inventory",
+            "audit_count",
+            "outbox_count",
+            "receipt_count",
+        ] {
+            assert_eq!(refused[key], before[key], "{key} after the refusal");
+        }
+        assert_eq!(f.order(order).await["status"], "OPEN");
+        expect_status(
+            &f.call(f.cancel(order, SELLER)).await,
+            StatusCode::NO_CONTENT,
+        );
         let after = f.snapshot().await;
         assert_eq!(
             after["audit_count"].as_i64().unwrap(),
@@ -797,6 +984,7 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
         .await
         .unwrap();
     let mut scan = Driver::start(f.command("reminder_scan")).await;
+    let graph = WaitGraph::start(&f.admin_url).await;
     scan.go().await;
     f.wait_lock(PYTHON_APP, HOLDER_APP).await;
     let create = f.spawn(RUST_APP, f.bid("2", "110", "SPOT", None)).await;
@@ -818,6 +1006,14 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
         deadlocks = f.deadlocks().await;
     }
     println!("OPPOSITE_ORDER_DEADLOCKS detected={deadlocks}");
+    let contention = graph.stop().await;
+    let cycle = contention
+        .cycle
+        .clone()
+        .expect("the opposite row orders formed a cycle");
+    assert!(cycle.contains(&(RUST_APP.to_owned(), PYTHON_APP.to_owned())));
+    assert!(cycle.contains(&(PYTHON_APP.to_owned(), RUST_APP.to_owned())));
+    assert!(deadlocks >= 1, "the deadlock detector broke the cycle");
     let python_victim = python["ok"] == false;
     if python_victim {
         assert_eq!(
@@ -830,8 +1026,10 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
             "an aborted scan commits no notice"
         );
     } else {
+        // The scan committed: both orders were eligible when it locked them.
+        assert_eq!(ok(&python)["created"], 2);
         for order in [first, second] {
-            assert!(f.reminders_for(order).await.len() <= 1);
+            assert_eq!(f.reminders_for(order).await.len(), 1, "{order}");
         }
     }
     assert!(
@@ -848,12 +1046,7 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
     );
     let rerun = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
     println!("OPPOSITE_ORDER_RESCAN created={rerun}");
-    for order in [first, second] {
-        assert!(
-            f.reminders_for(order).await.len() <= 1,
-            "one notice per order and expiry"
-        );
-    }
+    assert_eq!(rerun, 0, "no second notice for an order and expiry");
     f.ledger().await;
 }
 
@@ -919,6 +1112,7 @@ async fn reminder_delivery_claim_bounds_a_rust_cancel() {
         let mut delivery = Driver::start(command).await;
         delivery.go().await;
         let python = delivery.held().await;
+        let graph = WaitGraph::start(&f.admin_url).await;
         let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
         let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
         let observed = Instant::now();
@@ -937,17 +1131,27 @@ async fn reminder_delivery_claim_bounds_a_rust_cancel() {
             delivery.release().await;
             let result = delivery.finish().await;
             assert_eq!(ok(&result)["sent"], 1);
+            graph
+                .stop()
+                .await
+                .assert_no_cycle("delivery held past the bound");
             expect_status(
                 &f.call(f.cancel(order, SELLER)).await,
                 StatusCode::NO_CONTENT,
             );
         } else {
-            release_within_budget(&mut delivery, observed).await;
+            let held =
+                release_and_time(&mut f, &mut delivery, observed, RUST_APP, PYTHON_APP).await;
+            let first = cancel.await.unwrap();
+            let result = delivery.finish().await;
+            let contention = graph.stop().await;
+            if !bounded(&first) {
+                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
+            }
             let reply = f
-                .settle(cancel.await.unwrap(), f.cancel(order, SELLER))
+                .first_attempt(first, &contention, RUST_APP, f.cancel(order, SELLER))
                 .await;
             expect_status(&reply, StatusCode::NO_CONTENT);
-            let result = delivery.finish().await;
             assert_eq!(ok(&result)["sent"], 1);
         }
         assert_eq!(f.reminders_for(order).await[0]["status"], "sent");
@@ -1131,6 +1335,7 @@ async fn demo_slice_holder_bounds_a_rust_create_without_party_deadlock() {
         let mut tick = Driver::start(command).await;
         tick.go().await;
         let python = tick.held().await;
+        let graph = WaitGraph::start(&f.admin_url).await;
         let create = f.spawn(RUST_APP, f.bid("5", "960", &window, None)).await;
         let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
         let observed = Instant::now();
@@ -1152,16 +1357,30 @@ async fn demo_slice_holder_bounds_a_rust_create_without_party_deadlock() {
             tick.release().await;
             let result = tick.finish().await;
             assert_eq!(ok(&result)["created_trades"], 1);
+            graph
+                .stop()
+                .await
+                .assert_no_cycle("tick held past the bound");
             expect_status(
                 &f.call(f.bid("5", "960", &window, None)).await,
                 StatusCode::CREATED,
             );
         } else {
-            release_within_budget(&mut tick, observed).await;
+            let held = release_and_time(&mut f, &mut tick, observed, RUST_APP, PYTHON_APP).await;
             let result = tick.finish().await;
             assert_eq!(ok(&result)["created_trades"], 1);
+            let first = create.await.unwrap();
+            let contention = graph.stop().await;
+            if !bounded(&first) {
+                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
+            }
             let reply = f
-                .settle(create.await.unwrap(), f.bid("5", "960", &window, None))
+                .first_attempt(
+                    first,
+                    &contention,
+                    RUST_APP,
+                    f.bid("5", "960", &window, None),
+                )
                 .await;
             expect_status(&reply, StatusCode::CREATED);
         }
@@ -1288,6 +1507,94 @@ async fn demo_tick_rows_are_exactly_the_documented_columns_and_read_by_rust() {
     expect_status(&f.read("/api/orderbook/asks").await, StatusCode::OK);
 }
 
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_coverage_slice_locks_bound_rust_writers_in_both_directions() {
+    // Coverage holds its sorted slice locks while it writes the demo book: a
+    // Rust cancellation in one of those slices waits on that slice key and
+    // its bound refuses it with no effect.
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    let order = f.listing().await;
+    let before = f.snapshot().await;
+    let mut command = f.command("demo_coverage");
+    command["pause"] = json!(FIRST_ORDER_INSERT);
+    let mut coverage = Driver::start(command).await;
+    coverage.go().await;
+    let python = coverage.held().await;
+    let graph = WaitGraph::start(&f.admin_url).await;
+    let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
+    let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
+    println!("OBSERVED_WAIT waiter=rust:{rust} blocker=python-coverage:{python}");
+    let awaited: Option<i64> = sqlx::query_scalar("SELECT residual_waiting_advisory($1)")
+        .bind(RUST_APP)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    let spot: i64 = sqlx::query_scalar("SELECT residual_slice_key($1::uuid,$2,'SPOT')")
+        .bind(PRODUCT)
+        .bind(f.point)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(awaited, Some(spot), "Rust waits on the covered slice key");
+    let reply = cancel.await.unwrap();
+    expect_status(&reply, StatusCode::CONFLICT);
+    assert_eq!(code(&reply), "MARKET_BUSY");
+    assert_eq!(
+        f.snapshot().await,
+        before,
+        "a bounded refusal has no effect"
+    );
+    coverage.release().await;
+    let result = coverage.finish().await;
+    assert!(ok(&result)["coverage_created"].as_i64().unwrap() > 0);
+    graph
+        .stop()
+        .await
+        .assert_no_cycle("coverage held past the bound");
+    expect_status(
+        &f.call(f.cancel(order, SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
+    f.ledger().await;
+
+    // Rust holds a covered slice: coverage refuses at its slice bound, unwritten.
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    let order = f.listing().await;
+    let mut coverage = Driver::start(f.command("demo_coverage")).await;
+    let mut barrier = f.barrier().await;
+    let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
+    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
+    let before = f.snapshot().await;
+    let graph = WaitGraph::start(&f.admin_url).await;
+    coverage.go().await;
+    let python = f.wait_lock(PYTHON_APP, RUST_HELD_APP).await;
+    println!("OBSERVED_WAIT waiter=python-coverage:{python} blocker={RUST_HELD_APP}");
+    let result = coverage.finish().await;
+    assert_eq!(result["ok"], false);
+    assert_eq!(result["error"]["type"], "HTTPException");
+    assert_eq!(result["error"]["status_code"], 409);
+    assert_eq!(
+        f.snapshot().await,
+        before,
+        "the refused coverage wrote no row"
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT residual_release()")
+            .fetch_one(&mut barrier)
+            .await
+            .unwrap()
+    );
+    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
+    graph
+        .stop()
+        .await
+        .assert_no_cycle("Rust held the slice past the coverage bound");
+    f.ledger().await;
+}
+
 // ---- retained deleters and freeze history --------------------------------
 
 #[tokio::test]
@@ -1317,7 +1624,16 @@ async fn demo_prune_quarantine_and_seed_reset_refuse_freeze_history_without_part
         .execute(&mut f.admin)
         .await
         .unwrap();
+    // One row in every table the deleters clear before trades (watchlist
+    // events and targets, suggestions, commissions, negotiation rounds and
+    // negotiations), all on the ACTIVE-frozen trade and its orders.
+    sqlx::query("SELECT residual_trade_references($1::uuid)")
+        .bind(trades[0]["id"].as_str().unwrap())
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
     let before = f.snapshot().await;
+    assert_eq!(before["reference_count"], 5, "{before}");
     let refused = |result: &Value, expected: &str, label: &str| {
         assert_eq!(sqlstate(result), expected, "{label}: {result}");
     };
@@ -1376,6 +1692,7 @@ async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
         let mut quarantine = Driver::start(command).await;
         quarantine.go().await;
         let python = quarantine.held().await;
+        let graph = WaitGraph::start(&f.admin_url).await;
         let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
         let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
         let observed = Instant::now();
@@ -1393,17 +1710,27 @@ async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
             );
             quarantine.release().await;
             ok(&quarantine.finish().await);
+            graph
+                .stop()
+                .await
+                .assert_no_cycle("quarantine held past the bound");
             expect_status(
                 &f.call(f.cancel(order, SELLER)).await,
                 StatusCode::NO_CONTENT,
             );
         } else {
-            release_within_budget(&mut quarantine, observed).await;
+            let held =
+                release_and_time(&mut f, &mut quarantine, observed, RUST_APP, PYTHON_APP).await;
+            let first = cancel.await.unwrap();
+            ok(&quarantine.finish().await);
+            let contention = graph.stop().await;
+            if !bounded(&first) {
+                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
+            }
             let reply = f
-                .settle(cancel.await.unwrap(), f.cancel(order, SELLER))
+                .first_attempt(first, &contention, RUST_APP, f.cancel(order, SELLER))
                 .await;
             expect_status(&reply, StatusCode::NO_CONTENT);
-            ok(&quarantine.finish().await);
         }
         let after = f.snapshot().await;
         assert_eq!(after["quarantine_count"], 1);
@@ -1427,6 +1754,7 @@ async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
     let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
     f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
     let before = f.snapshot().await;
+    let graph = WaitGraph::start(&f.admin_url).await;
     quarantine.go().await;
     let python = f.wait_lock(PYTHON_APP, RUST_HELD_APP).await;
     println!("OBSERVED_WAIT waiter=python-quarantine:{python} blocker={RUST_HELD_APP}");
@@ -1444,6 +1772,10 @@ async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
             .unwrap()
     );
     expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
+    graph
+        .stop()
+        .await
+        .assert_no_cycle("Rust held the slice past the quarantine bound");
 
     // Two runs naming two slices in opposite orders take them in one order.
     let mut f = Fixture::new().await;
@@ -1455,44 +1787,62 @@ async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
     {
         f.demo_ask(*order, 900, window).await;
     }
-    let deadlocks = f.deadlocks().await;
     let mut first = f.owner_command("quarantine");
-    first["application_name"] = json!("phase8_residual_py_one");
+    first["application_name"] = json!(QUARANTINE_ONE_APP);
     first["args"] = json!({"order_ids":[orders[1],orders[0]]});
     first["pause"] = json!(ADVISORY);
+    // The maintenance key, then the first slice in canonical order.
     first["pause_count"] = json!(2);
     let mut second = f.owner_command("quarantine");
-    second["application_name"] = json!("phase8_residual_py_two");
+    second["application_name"] = json!(QUARANTINE_TWO_APP);
     second["args"] = json!({"order_ids":[orders[2],orders[3]]});
     let mut one = Driver::start(first).await;
-    let mut two = Driver::start(second.clone()).await;
+    let mut two = Driver::start(second).await;
+    let graph = WaitGraph::start(&f.admin_url).await;
     one.go().await;
     one.held().await;
     two.go().await;
-    f.wait_lock("phase8_residual_py_two", "phase8_residual_py_one")
-        .await;
+    f.wait_lock(QUARANTINE_TWO_APP, QUARANTINE_ONE_APP).await;
     let observed = Instant::now();
-    release_within_budget(&mut one, observed).await;
+    // Both runs sort their slices: the second waits on the lowest slice key
+    // (the month window sorts before SPOT), not on the slice it named first.
+    let awaited: Option<i64> = sqlx::query_scalar("SELECT residual_waiting_advisory($1)")
+        .bind(QUARANTINE_TWO_APP)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    let lowest: i64 = sqlx::query_scalar("SELECT residual_slice_key($1::uuid,$2,$3)")
+        .bind(PRODUCT)
+        .bind(f.point)
+        .bind(&month)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(
+        awaited,
+        Some(lowest),
+        "the second run waits on the lowest sorted slice"
+    );
+    let held = release_and_time(
+        &mut f,
+        &mut one,
+        observed,
+        QUARANTINE_TWO_APP,
+        QUARANTINE_ONE_APP,
+    )
+    .await;
     ok(&one.finish().await);
     let result = two.finish().await;
-    if result["ok"] == false {
-        assert_eq!(
-            sqlstate(&result),
-            "55P03",
-            "only the lock bound may refuse: {result}"
-        );
-        println!("BOUNDED_CONTENDER quarantine-two 55P03; rerun after the first committed");
-        ok(&f.python(second).await);
-    }
+    graph
+        .stop()
+        .await
+        .assert_no_cycle("two quarantine runs naming slices in opposite orders");
+    ok(&result);
+    assert!(held < RELEASE_BUDGET, "the second run was held {held:?}");
     assert_eq!(f.snapshot().await["quarantine_count"], 4);
     for order in &orders {
         assert_eq!(f.order(*order).await, Value::Null, "{order} quarantined");
     }
-    assert_eq!(
-        f.deadlocks().await,
-        deadlocks,
-        "sorted slice locks form no cycle"
-    );
 }
 
 #[tokio::test]
@@ -1610,6 +1960,15 @@ async fn rust_writers_leave_negotiation_and_offer_references_intact() {
         .await
         .unwrap();
     assert_eq!(references["referenced_orders"], 2);
+    // The supplier offer belongs to the listing's own supplier and user.
+    assert_eq!(
+        references["offers"][0]["supplier_org_id"],
+        json!(id(SELLER_ORG))
+    );
+    assert_eq!(
+        references["offers"][0]["supplier_user_id"],
+        json!(id(SELLER))
+    );
     let take = f.take(listing, "10").await;
     let steps = [
         ("take", take),
@@ -1628,18 +1987,33 @@ async fn rust_writers_leave_negotiation_and_offer_references_intact() {
         ),
         ("cancel bid", f.cancel(bid, BUYER)),
         ("cancel listing", f.cancel(listing, SELLER)),
+        // A new publication of the same inventory after the references exist.
+        (
+            "publish again",
+            Command::new(
+                "POST",
+                format!("/api/inventory/{}/publish", id(ITEM)),
+                SELLER,
+                Value::Null,
+            ),
+        ),
     ];
-    for (label, command) in steps {
+    let expected = [
+        StatusCode::OK,
+        StatusCode::OK,
+        StatusCode::OK,
+        StatusCode::NO_CONTENT,
+        StatusCode::NO_CONTENT,
+        StatusCode::OK,
+    ];
+    for ((label, command), status) in steps.into_iter().zip(expected) {
         let reply = f.call(command).await;
         println!(
             "PHASE7_REFERENCE_STEP {label} status={} code={}",
             reply.0,
             code(&reply)
         );
-        assert!(
-            reply.0.is_success() || reply.0.is_client_error(),
-            "{label}: {reply:?}"
-        );
+        expect_status(&reply, status);
         let state: Value = sqlx::query_scalar("SELECT residual_phase7_state()")
             .fetch_one(&mut f.admin)
             .await
@@ -1657,21 +2031,21 @@ async fn rust_writers_leave_negotiation_and_offer_references_intact() {
 // ---- negative control ----------------------------------------------------
 
 /// A writer that takes the slice before a user row, the order Rust forbids,
-/// forms a cycle with a Rust cancellation that the server breaks with 40P01.
-/// It shows that these schedules would detect such a lock order.
+/// forms a cycle with a Rust cancellation. Under the same server settings and
+/// the same wait-graph sampler as the bounded cells, the sampler records the
+/// cycle and the cells' assertion refuses it; Rust's 500 ms bound ends it.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
-async fn forbidden_slice_then_user_order_is_detected_as_a_deadlock() {
+async fn forbidden_slice_then_user_order_is_detected_as_a_lock_cycle() {
     let mut f = Fixture::new().await;
     let order = f.listing().await;
-    f.fast_deadlock_detection().await;
-    let before = f.deadlocks().await;
     let slice: i64 = sqlx::query_scalar("SELECT residual_slice_key($1::uuid,$2,'SPOT')")
         .bind(PRODUCT)
         .bind(f.point)
         .fetch_one(&mut f.admin)
         .await
         .unwrap();
+    let before = f.snapshot().await;
     let mut forbidden = PgConnection::connect(&f.admin_url).await.unwrap();
     sqlx::raw_sql("SELECT set_config('application_name','residual-forbidden',false); BEGIN")
         .execute(&mut forbidden)
@@ -1682,42 +2056,54 @@ async fn forbidden_slice_then_user_order_is_detected_as_a_deadlock() {
         .execute(&mut forbidden)
         .await
         .unwrap();
+    let graph = WaitGraph::start(&f.admin_url).await;
     let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
     f.wait_lock(RUST_APP, FORBIDDEN_APP).await;
-    // Let the Rust waiter's own deadlock check pass first, so the cycle closes
-    // on the forbidden writer's request.
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    let request = sqlx::query("SELECT residual_forbidden_user($1)")
-        .bind(id(SELLER))
-        .execute(&mut forbidden)
-        .await;
-    let forbidden_code = match &request {
-        Err(sqlx::Error::Database(error)) => error.code().map(|c| c.to_string()),
-        Err(error) => panic!("unexpected error {error}"),
-        Ok(_) => None,
-    };
+    // Rust holds the owner's user row and waits on the slice; now the writer
+    // asks for that user row.
+    let request = tokio::spawn(async move {
+        let result = sqlx::query("SELECT residual_forbidden_user($1)")
+            .bind(id(SELLER))
+            .execute(&mut forbidden)
+            .await
+            .map(|_| ());
+        (forbidden, result)
+    });
+    f.wait_lock(FORBIDDEN_APP, RUST_APP).await;
+    let reply = cancel.await.unwrap();
+    expect_status(&reply, StatusCode::CONFLICT);
+    assert_eq!(code(&reply), "MARKET_BUSY", "the lock bound ends the cycle");
+    let (mut forbidden, result) = request.await.unwrap();
+    assert!(
+        result.is_ok(),
+        "the writer gets the row once Rust gives up: {result:?}"
+    );
     sqlx::raw_sql("ROLLBACK")
         .execute(&mut forbidden)
         .await
         .unwrap();
     forbidden.close().await.unwrap();
-    let reply = f
-        .settle(cancel.await.unwrap(), f.cancel(order, SELLER))
-        .await;
-    expect_status(&reply, StatusCode::NO_CONTENT);
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut after = f.deadlocks().await;
-    while after == before && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        after = f.deadlocks().await;
-    }
-    println!(
-        "NEGATIVE_CONTROL forbidden_code={forbidden_code:?} deadlocks_before={before} after={after}"
-    );
-    assert!(after > before, "the server detected the cycle");
+    let contention = graph.stop().await;
+    let cycle = contention
+        .cycle
+        .clone()
+        .expect("the sampler records the cycle");
+    assert!(cycle.contains(&(RUST_APP.to_owned(), FORBIDDEN_APP.to_owned())));
+    assert!(cycle.contains(&(FORBIDDEN_APP.to_owned(), RUST_APP.to_owned())));
+    let refused = std::panic::catch_unwind(|| contention.assert_no_cycle("negative control"));
     assert!(
-        forbidden_code.as_deref() == Some("40P01") || forbidden_code.is_none(),
-        "the cycle ends in a deadlock refusal: {forbidden_code:?}"
+        refused.is_err(),
+        "the bounded cells' check refuses this schedule"
+    );
+    println!("NEGATIVE_CONTROL cycle={cycle:?} rust_status={}", reply.0);
+    assert_eq!(
+        f.snapshot().await,
+        before,
+        "the refused cancellation has no effect"
+    );
+    expect_status(
+        &f.call(f.cancel(order, SELLER)).await,
+        StatusCode::NO_CONTENT,
     );
     f.ledger().await;
 }

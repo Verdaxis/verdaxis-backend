@@ -190,6 +190,29 @@ async def demo_tick(command, engine, factory):
     return result
 
 
+async def demo_coverage(command, engine, factory):
+    """The coverage step of the demo timer, then its outbox event, as the CLI runs them."""
+    from app.seeds import market_seed
+    from app.services import demo_activity
+
+    # Fixture size only: the B30 Rotterdam market. Locks, SQL and rows are the
+    # unchanged coverage refresh.
+    demo_activity.PRICING = {"B30": {"Rotterdam": market_seed.PRICING["B30"]["Rotterdam"]}}
+    cli = load_demo_cli()
+    async with factory() as db:
+        coverage = await demo_activity.ensure_demo_market_coverage(db, now=instant(command.get("now")))
+        await cli._enqueue_demo_refresh(
+            db,
+            operation="coverage",
+            changed=any(
+                coverage.get(key, 0)
+                for key in ("coverage_created", "coverage_refreshed", "coverage_expired", "legacy_activity_expired")
+            ),
+        )
+        await db.commit()
+    return coverage
+
+
 async def demo_prune(command, engine, factory):
     from app.services.demo_activity import prune_demo_activity
 
@@ -265,6 +288,7 @@ COMMANDS = {
     "reminder_delivery": reminder_delivery,
     "demo_find_ticks": demo_find_ticks,
     "demo_tick": demo_tick,
+    "demo_coverage": demo_coverage,
     "demo_prune": demo_prune,
     "quarantine": quarantine,
     "seed_reset": seed_reset,
