@@ -95,6 +95,19 @@ pub fn mask_email(address: &str) -> String {
     format!("{first}***@{}", visible(domain))
 }
 
+/// The role as `scripts/check_users.py:12` prints it: from Python 3.12 an
+/// f-string of the `UserRole` enum gives `UserRole.<name>`, and a missing role
+/// gives `None`. A stored value that is not a model member would make Python
+/// fail on load; here it is printed after the same prefix (accepted difference).
+/// The value passes through the same control-character filter as every other
+/// printed field.
+fn python_role(role: Option<&str>) -> String {
+    role.map_or_else(
+        || "None".to_owned(),
+        |role| format!("UserRole.{}", visible(role)),
+    )
+}
+
 /// Replace control characters so a stored value cannot move the cursor or
 /// start an escape sequence on the operator's terminal.
 fn visible(text: &str) -> String {
@@ -160,15 +173,15 @@ impl UsersReport {
     }
 
     /// The text form is the one of `scripts/check_users.py:11-13`: the header
-    /// and one ` - {email} (Role: {role})` line per user, with the stored role
-    /// value. A cut listing ends with one line that gives the total.
+    /// and one ` - {email} (Role: {role})` line per user, with the role spelled
+    /// as Python 3.12 prints it (`UserRole.BUYER`, `None` when absent). A cut listing ends with one line that gives the total.
     pub fn render_text(&self) -> String {
         let mut text = format!("Found {} users:\n", self.total);
         for user in &self.users {
             text.push_str(&format!(
                 " - {} (Role: {})\n",
                 visible(&user.email),
-                user.role.as_deref().unwrap_or("None"),
+                python_role(user.role.as_deref()),
             ));
         }
         if self.truncated {
@@ -348,7 +361,9 @@ impl BlockersReport {
             text.push_str(&format!(
                 "user={} role={} status={} email_verified={} organization_id={} kyc_status={}\n",
                 user.id,
-                user.role.as_deref().unwrap_or("None"),
+                user.role
+                    .as_deref()
+                    .map_or_else(|| "None".to_owned(), visible),
                 visible(&user.status),
                 if user.email_verified { "True" } else { "False" },
                 organization,
