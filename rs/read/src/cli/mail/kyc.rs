@@ -276,7 +276,7 @@ impl KycNotice {
         for grace_id in page {
             let Some(notice) = claim(&mut conn, grace_id)
                 .await
-                .map_err(|_| PageError::new(Exit::Dependency, KycCounts::default()))?
+                .map_err(|_| PageError::new(Exit::Dependency, counts))?
             else {
                 counts.skipped += 1;
                 continue;

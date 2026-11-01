@@ -10,9 +10,12 @@
 //! authorization.
 //!
 //! Exit codes: 0 done (including nothing to send), 2 usage refusal (gate off,
-//! no `--apply`, live send not authorized), 3 precondition refusal, 4 database
-//! unavailable, 5 a claimed notice whose provider result is not "accepted":
-//! its claim stays and is never retried automatically.
+//! no `--apply`, live send not authorized), 3 precondition refusal (including a
+//! gate switch missing from the environment and a deploy-state directory that
+//! is unset or relative), 4 database unavailable with no unaccepted send, 5 a
+//! claimed notice whose provider result is not "accepted", also when a later
+//! database error ended the run: its claim stays and is never retried
+//! automatically.
 use crate::cli::context::{self, Purpose, RunContext};
 use crate::cli::gate::{require_apply, require_job_preflight};
 use crate::cli::mail::kyc::{KycCounts, KycNotice, MAX_PER_INVOCATION, PAGE_SIZE, PageError};
@@ -64,15 +67,17 @@ fn is_full_sha(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// A boolean switch with the deployed spellings. Absent takes `default`.
-fn switch(value: Option<&String>, default: bool) -> Result<bool, Exit> {
-    match value {
-        None => Ok(default),
-        Some(text) => match text.trim().to_ascii_lowercase().as_str() {
-            "true" | "t" | "y" | "yes" | "1" | "on" => Ok(true),
-            "false" | "f" | "n" | "no" | "0" | "off" => Ok(false),
-            _ => Err(Exit::Precondition),
-        },
+/// The KYC gate switch, with the deployed spellings. It must be present in the
+/// job environment: an absent value is refused, never read as "on", because the
+/// job would then disagree with a service that has the gate off.
+fn gate_enabled(value: Option<&String>) -> Result<bool, Exit> {
+    match value
+        .map(|text| text.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("true" | "t" | "y" | "yes" | "1" | "on") => Ok(true),
+        Some("false" | "f" | "n" | "no" | "0" | "off") => Ok(false),
+        _ => Err(Exit::Precondition),
     }
 }
 
@@ -85,7 +90,7 @@ pub fn preflight(
 ) -> Result<KycJobPlan, Exit> {
     debug_assert_eq!(args.kind, JobKind::KycNotices);
     let expected_sha = &args.identity.release_sha;
-    if !is_full_sha(expected_sha) {
+    if !is_full_sha(expected_sha) || !deploy_state.is_absolute() {
         return Err(Exit::Precondition);
     }
     let value = |key: &str| vars.get(key).map(String::as_str).unwrap_or("");
@@ -97,7 +102,7 @@ pub fn preflight(
         deploy_state,
     )?;
     // With the gate off no user depends on grace, so a notice would be wrong.
-    if !switch(vars.get("KYC_EXECUTION_GATE_ENABLED"), true)? {
+    if !gate_enabled(vars.get("KYC_EXECUTION_GATE_ENABLED"))? {
         return Err(Exit::Usage);
     }
     require_apply(args.apply)?;
@@ -158,7 +163,14 @@ async fn execute(notice: &KycNotice, ctx: &RunContext) -> Exit {
         let limit = remaining.min(u64::from(PAGE_SIZE)) as u32;
         let page = match notice.send_page(ctx, limit).await {
             Ok(page) => page,
-            Err(PageError { exit, .. }) => {
+            Err(PageError { exit, counts }) => {
+                total.add(counts);
+                if total.failed > 0 {
+                    // A notice was claimed and not accepted before the error:
+                    // an operator reviews it, whatever stopped the run after it.
+                    report("ambiguous", total);
+                    return Exit::Ambiguous;
+                }
                 report("failed", total);
                 return exit;
             }
@@ -224,14 +236,16 @@ where
 }
 
 /// The deploy state path of the environment: `<state dir>/<environment>.state`.
+/// The directory must be set and absolute, so the check looks at the same place
+/// from every working directory.
 pub fn deploy_state_path(
     vars: &HashMap<String, String>,
     environment: Environment,
 ) -> Result<PathBuf, Exit> {
-    let directory = vars
-        .get("DEPLOY_STATE_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".runtime-deploy"));
+    let directory = PathBuf::from(vars.get("DEPLOY_STATE_DIR").ok_or(Exit::Precondition)?);
+    if !directory.is_absolute() {
+        return Err(Exit::Precondition);
+    }
     Ok(directory.join(format!("{}.state", environment.as_str())))
 }
 
