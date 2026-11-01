@@ -513,9 +513,18 @@ valid_watchlist_producer() {
     [[ "$1" == "legacy-python" || "$1" == "rust-market-v1" ]]
 }
 
-# RFC 3339 date and time with seconds and an explicit offset.
+# A real UTC time in RFC 3339 form: seconds, an optional fraction and the
+# offset Z or +00:00, on a calendar date and clock time that GNU date reads
+# back unchanged (so 2026-02-30 or 25:00 is refused). The instant is recorded
+# once and never changes, so nothing else may be recorded.
 valid_activation_instant() {
-    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$ ]]
+    local day clock normalized
+    [[ "$1" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]{1,9})?(Z|\+00:00)$ ]] \
+        || return 1
+    day="${BASH_REMATCH[1]}"
+    clock="${BASH_REMATCH[2]}"
+    normalized="$(TZ=UTC date -u -d "$day $clock" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" || return 1
+    [[ "$normalized" == "$day $clock" ]]
 }
 
 # Decide the watchlist producer keys of the release about to be published.
@@ -544,7 +553,7 @@ resolve_watchlist_producer_keys() {
         return 1
     fi
     if [[ -n "$instant" ]] && ! valid_activation_instant "$instant"; then
-        echo "WATCHLIST_PRODUCER_ACTIVATED_AT must be an RFC 3339 time with an offset; refusing." >&2
+        echo "WATCHLIST_PRODUCER_ACTIVATED_AT must be a real UTC time (RFC 3339, offset Z or +00:00); refusing." >&2
         return 1
     fi
     if [[ -n "$recorded_instant" && "$instant" != "$recorded_instant" ]]; then
