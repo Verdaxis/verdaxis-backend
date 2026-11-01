@@ -201,6 +201,7 @@ pub(super) async fn organization_effects(
     .await?;
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,created_at,delivery_attempts) VALUES($1,'market_access_invalidated','organization',$2,$3::jsonb,$4::jsonb,$5,0)")
-        .bind(id).bind(command.organization_id.to_string()).bind(json!(participants)).bind(json!({"schema_version":1,"organization_id":command.organization_id,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"reference":format!("organization:{}",command.organization_id),"_public_market_invalidation":true})).bind(command.now).execute(conn).await?;
+        .bind(id).bind(command.organization_id.to_string()).bind(json!(participants)).bind(json!({"schema_version":1,"organization_id":command.organization_id,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"reference":format!("organization:{}",command.organization_id),"_public_market_invalidation":true})).bind(command.now).execute(&mut *conn).await?;
+    super::transaction::wake_market_event_dispatchers(conn).await?;
     Ok(id)
 }

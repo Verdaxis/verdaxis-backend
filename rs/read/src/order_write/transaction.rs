@@ -763,6 +763,9 @@ impl WriteSession for PgWriteSession {
                 .execute(&mut *connection)
                 .await
                 .map_err(|error| write_error(&error))?;
+            wake_market_event_dispatchers(connection)
+                .await
+                .map_err(|error| write_error(&error))?;
             Ok(())
         })
     }
@@ -2658,7 +2661,24 @@ pub(super) async fn append_market_effect(
     sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,producer_evidence,created_at) VALUES($1,$2,$3,$4,$5::json,$6::json,$7,$8)")
         .bind(id).bind(&event.event_type).bind(&event.aggregate_type)
         .bind(&event.aggregate_id).bind(participants).bind(payload).bind(evidence)
-        .bind(at).execute(conn).await?;
+        .bind(at).execute(&mut *conn).await?;
+    wake_market_event_dispatchers(conn).await
+}
+
+/// Wake the market event dispatchers when the caller's transaction commits.
+///
+/// This is the signal Python's writers send after an outbox insert
+/// (`NOTIFY verdaxis_market_events`, empty payload): PostgreSQL delivers it
+/// only on commit, so it never precedes the durable rows, and it folds
+/// repeated identical signals of one transaction into one. A lost signal
+/// only delays delivery until the dispatcher's next poll.
+pub(super) async fn wake_market_event_dispatchers(
+    conn: &mut PgConnection,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_notify($1, '')")
+        .bind(crate::streams::election::WAKE_CHANNEL)
+        .execute(conn)
+        .await?;
     Ok(())
 }
 
