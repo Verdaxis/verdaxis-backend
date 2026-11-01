@@ -4,5 +4,6 @@
 pub mod auth;
 pub mod kyc;
 pub mod news;
+pub mod onboarding;
 pub mod prune;
 pub mod reminders;
