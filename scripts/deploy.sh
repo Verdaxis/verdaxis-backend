@@ -573,9 +573,11 @@ write_release_artifact() {
     printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\nMIGRATION_REVISION=%s\n' \
         "$DEPLOY_ENVIRONMENT" "$release_sha" "$migration_revision" \
         > "$temporary_file"
-    if [[ -n "$RELEASE_WATCHLIST_EVENT_PRODUCER" ]]; then
+    # The keys are absent until a release records an activation; the
+    # resolver sets them before this runs.
+    if [[ -n "${RELEASE_WATCHLIST_EVENT_PRODUCER:-}" ]]; then
         printf 'WATCHLIST_EVENT_PRODUCER=%s\nWATCHLIST_PRODUCER_ACTIVATED_AT=%s\n' \
-            "$RELEASE_WATCHLIST_EVENT_PRODUCER" "$RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT" \
+            "$RELEASE_WATCHLIST_EVENT_PRODUCER" "${RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT:-}" \
             >> "$temporary_file"
     fi
     chmod 0600 "$temporary_file"
