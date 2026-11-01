@@ -518,3 +518,31 @@ fn mail_transport_logs_recipient_digest_never_address() {
         "the digest is stable across case and surrounding whitespace"
     );
 }
+
+#[test]
+fn deploy_state_gate_refuses_empty_and_relative_paths() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    // Neither path names an existing file, so only the path check can refuse.
+    for path in ["", ".runtime-deploy/production.state", "production.state"] {
+        assert!(!std::path::Path::new(path).exists());
+        assert_eq!(
+            require_deploy_state_absent(std::path::Path::new(path)),
+            Err(Exit::Precondition),
+            "path {path:?}"
+        );
+        assert_eq!(
+            require_job_preflight(
+                "staging",
+                sha,
+                Environment::Staging,
+                sha,
+                std::path::Path::new(path)
+            ),
+            Err(Exit::Precondition),
+            "preflight with path {path:?}"
+        );
+    }
+    let directory = TempDir::new();
+    require_deploy_state_absent(&directory.path().join("absent.state"))
+        .expect("an absolute path that does not exist passes");
+}

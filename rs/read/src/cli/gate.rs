@@ -39,8 +39,13 @@ pub fn require_identity(
 ///
 /// `symlink_metadata` does not follow the final component, so a dangling state
 /// link is still present state. `Path::exists` follows it and would wrongly
-/// report the path absent.
+/// report the path absent. An empty or relative path is refused: an empty path
+/// is always "not found" and a relative one depends on the working directory,
+/// so either could hide a live deploy behind an unset or misbuilt value.
 pub fn require_deploy_state_absent(state: &Path) -> Result<(), Exit> {
+    if !state.is_absolute() {
+        return Err(Exit::Precondition);
+    }
     match std::fs::symlink_metadata(state) {
         Ok(_) => Err(Exit::Precondition),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
