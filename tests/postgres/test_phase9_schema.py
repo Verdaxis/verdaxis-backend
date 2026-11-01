@@ -161,6 +161,11 @@ def clear_freeze(sql):
         cleared_by_user_id='{ACTOR}',clear_note='Review complete',version=version+1""")
 
 
+# The PostgreSQL test harness (scripts/run_product_analytics_postgres_tests.sh)
+# exports the runtime app role's connection URL as DATABASE_URL.
+APP_DATABASE_URL = "DATABASE_URL"
+
+
 def database_url(sql, variable="POSTGRES_ADMIN_TEST_DATABASE_URL"):
     return make_url(os.environ[variable]).set(
         drivername="postgresql", database=sql("SELECT current_database()")
@@ -376,7 +381,7 @@ def test_direct_status_transition_rolls_back_staged_rows(freeze_database, status
     sql(freeze_insert())
 
     async def attempt():
-        connection = await asyncpg.connect(database_url(sql, "RUNTIME_TEST_APP_DATABASE_URL"))
+        connection = await asyncpg.connect(database_url(sql, APP_DATABASE_URL))
         try:
             assert await connection.fetchval("SELECT current_user") == app
             with pytest.raises(asyncpg.PostgresError) as refusal:
@@ -442,8 +447,8 @@ def test_independent_freeze_inserts_have_one_active_winner(freeze_database):
     app, _ = converge(sql)
 
     async def race():
-        first = await asyncpg.connect(database_url(sql, "RUNTIME_TEST_APP_DATABASE_URL"))
-        second = await asyncpg.connect(database_url(sql, "RUNTIME_TEST_APP_DATABASE_URL"))
+        first = await asyncpg.connect(database_url(sql, APP_DATABASE_URL))
+        second = await asyncpg.connect(database_url(sql, APP_DATABASE_URL))
         observer = await asyncpg.connect(database_url(sql))
         pending = None
         try:
