@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Market invalidation, matching, conservation and lock acceptance on disposable
-# PostgreSQL databases.
+# Market invalidation, responsibility reassignment, matching, conservation and
+# lock acceptance on disposable PostgreSQL databases.
 #
-# Starts one disposable container on a Docker-assigned loopback port. Three
+# Starts one disposable container on a Docker-assigned loopback port. Four
 # databases are migrated to the Alembic head with the runtime ACL bundle and
 # serve as templates that the tests clone per case; one more database holds the
 # hand-made schemas of the invalidation and lock targets. Each target runs its
@@ -24,6 +24,7 @@ export RUST_TEST_PYTHON="$python"
 # Each target and the number of cases it must run.
 targets=(
   "offboarding_market_postgres 15"
+  "offboarding_reassignment_postgres 10"
   "phase4_market_invalidation 26"
   "market_write_pg_matching 22"
   "market_write_pg_conservation 8"
@@ -53,7 +54,7 @@ done
 port=$(docker port "$container" 5432/tcp | head -1)
 port=${port##*:}
 
-templates=(verdaxis_offboarding_market_test verdaxis_matching_test verdaxis_effects_test)
+templates=(verdaxis_offboarding_market_test verdaxis_offboarding_reassignment_test verdaxis_matching_test verdaxis_effects_test)
 # The lock target's Python writer protocols reuse the migrator URL with the
 # runtime role name, so both roles share one disposable password.
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
@@ -90,6 +91,9 @@ export POSTGRES_ADMIN_TEST_DATABASE_URL="postgresql+asyncpg://postgres:disposabl
 export RUST_OFFBOARDING_MARKET_ADMIN_DATABASE_URL="$admin/verdaxis_offboarding_market_test"
 export RUST_OFFBOARDING_MARKET_DATABASE_URL="$app/verdaxis_offboarding_market_test"
 export RUST_OFFBOARDING_MARKET_TEMPLATE_DATABASE=verdaxis_offboarding_market_test
+export RUST_OFFBOARDING_REASSIGNMENT_ADMIN_DATABASE_URL="$admin/verdaxis_offboarding_reassignment_test"
+export RUST_OFFBOARDING_REASSIGNMENT_DATABASE_URL="$app/verdaxis_offboarding_reassignment_test"
+export RUST_OFFBOARDING_REASSIGNMENT_TEMPLATE_DATABASE=verdaxis_offboarding_reassignment_test
 export RUST_MATCHING_ADMIN_DATABASE_URL="$admin/verdaxis_matching_test"
 export RUST_MATCHING_DATABASE_URL="$app/verdaxis_matching_test"
 export RUST_MATCHING_TEMPLATE_DATABASE=verdaxis_matching_test

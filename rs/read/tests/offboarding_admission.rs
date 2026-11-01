@@ -469,7 +469,7 @@ const ADMISSIONS: [&str; 15] = [
 
 /// A token consumer that hands the verified token to another module, and the
 /// modules that admit it there.
-const DELEGATES: [(&str, &[&str]); 12] = [
+const DELEGATES: [(&str, &[&str]); 13] = [
     (
         "runtime/phase4.rs",
         &["business/organizations.rs", "business/joins.rs"],
@@ -493,6 +493,10 @@ const DELEGATES: [(&str, &[&str]); 12] = [
         &["order_write/order_create.rs"],
     ),
     ("routes/market_write/orders.rs", &["order_write/orders.rs"]),
+    (
+        "routes/market_write/reassignment.rs",
+        &["order_write/reassignment.rs"],
+    ),
     (
         "routes/market_write/support.rs",
         &["order_write/support.rs"],

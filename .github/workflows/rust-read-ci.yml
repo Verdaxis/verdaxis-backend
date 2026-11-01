@@ -358,7 +358,7 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_offboarding_command.sh
-      - name: Market invalidation, matching, conservation and locks
+      - name: Market invalidation, reassignment, matching, conservation and locks
         if: matrix.check == 'postgres'
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
