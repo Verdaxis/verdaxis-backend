@@ -9,9 +9,10 @@
 //! The latest attempt decides first: a newer started or failed attempt keeps an
 //! older success red. Only a newer success whose backup id and finish time match
 //! the published metadata and the archives turns the check green again.
+use super::alert_journal::{self, JournalAdmission};
 use super::status::{
-    Admission, AdmitAll, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status,
-    build_status, exit_for, failure_status, guarded, load_monitor_status, parse_bounded_timestamp,
+    Admission, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status, build_status,
+    exit_for, failure_status, guarded, load_monitor_status, parse_bounded_timestamp,
     parse_strict_json, parse_utc_timestamp, publish, quarantine, report, report_refused,
 };
 use crate::cli::Exit;
@@ -638,7 +639,11 @@ pub fn run_at(config: &BackupConfig, admission: &dyn Admission, now: DateTime<Ut
     }
 }
 
-/// The installed command: default layout, no journal yet.
+/// The installed command: default layout, admission into the installed
+/// alert journal before the status is published.
 pub fn run_default() -> Exit {
-    run(&BackupConfig::default(), &AdmitAll)
+    run(
+        &BackupConfig::default(),
+        &JournalAdmission::installed(alert_journal::Check::Backup),
+    )
 }

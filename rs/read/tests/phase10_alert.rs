@@ -34,8 +34,8 @@ use tokio::sync::Notify;
 use verdaxis_read::cli::Exit;
 use verdaxis_read::cli::monitors::alert::{
     AlertSettings, BlockReason, Clock, Delivery, Destination, DispatchHook, DispatchStage,
-    Dispatcher, DispatcherConfig, HttpTransport, Kind, Outcome, Resolution, SendOutcome,
-    Transport, exit_for,
+    Dispatcher, DispatcherConfig, HttpTransport, Kind, Outcome, Resolution, SendOutcome, Transport,
+    exit_for,
 };
 use verdaxis_read::cli::monitors::alert_journal::{
     AdmissionHook, AdmissionStage, Admitted, AlertObservation, AlertState, Check, EntryAccess,
@@ -77,11 +77,8 @@ impl Layout {
     }
 
     fn at(owner: Option<TempDir>, base: PathBuf) -> Self {
-        let mut config = DispatcherConfig::new(
-            base.join("alert"),
-            base.join("health"),
-            base.join("backup"),
-        );
+        let mut config =
+            DispatcherConfig::new(base.join("alert"), base.join("health"), base.join("backup"));
         config.lock_timeout = SHORT_LOCK;
         Self {
             _owner: owner,
@@ -112,17 +109,17 @@ impl Layout {
     }
 
     fn pending(&self, check: Check) -> Vec<u64> {
-        let mut sequences: Vec<u64> = match std::fs::read_dir(self.journal(check).handoff_directory())
-        {
-            Ok(reader) => reader
-                .filter_map(|item| item.ok())
-                .filter_map(|item| {
-                    let name = item.file_name().to_string_lossy().into_owned();
-                    name.strip_suffix(".json")?.parse().ok()
-                })
-                .collect(),
-            Err(_) => Vec::new(),
-        };
+        let mut sequences: Vec<u64> =
+            match std::fs::read_dir(self.journal(check).handoff_directory()) {
+                Ok(reader) => reader
+                    .filter_map(|item| item.ok())
+                    .filter_map(|item| {
+                        let name = item.file_name().to_string_lossy().into_owned();
+                        name.strip_suffix(".json")?.parse().ok()
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
         sequences.sort_unstable();
         sequences
     }
@@ -359,7 +356,8 @@ fn log_line(sent: &Sent) -> String {
         sent.state.as_str(),
         sent.kind.as_str(),
         sent.destination.as_str(),
-        sent.sequence.map_or("-".to_owned(), |sequence| sequence.to_string())
+        sent.sequence
+            .map_or("-".to_owned(), |sequence| sequence.to_string())
     )
 }
 
@@ -565,7 +563,12 @@ fn child_process_entry() {
 fn child(layout: &Layout, role: &str, extra: &[(&str, &str)]) -> Output {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
-        .args(["--exact", "child_process_entry", "--nocapture", "--test-threads=1"])
+        .args([
+            "--exact",
+            "child_process_entry",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .env(CHILD_ROLE, role)
         .env(CHILD_DIR, layout.path())
         .env_remove(CHILD_STAGE)
@@ -674,7 +677,11 @@ impl FakeHttp {
                     .unwrap()
                     .push((path, String::from_utf8_lossy(&body).into_owned()));
                 let code = answer.load(Ordering::SeqCst);
-                let reply = if code == 200 { "{\"ok\":true}" } else { "{\"ok\":false}" };
+                let reply = if code == 200 {
+                    "{\"ok\":true}"
+                } else {
+                    "{\"ok\":false}"
+                };
                 let _ = write!(
                     stream,
                     "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
@@ -726,8 +733,12 @@ impl FakeHttp {
 #[test]
 fn alert_dispatch_serializes_events() {
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
-    let healthy = layout.enqueue(Check::Health, AlertState::Healthy).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let healthy = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
     assert!(healthy > failure);
     let gate = Arc::new(Gate::default());
     gate.armed.store(true, Ordering::SeqCst);
@@ -777,8 +788,16 @@ fn alert_dispatch_serializes_events() {
         transport.delivered(),
         vec![
             (AlertState::Failure, Kind::Failure, Destination::Telegram),
-            (AlertState::Failure, Kind::Failure, Destination::Healthchecks),
-            (AlertState::Healthy, Kind::Recovery, Destination::Healthchecks),
+            (
+                AlertState::Failure,
+                Kind::Failure,
+                Destination::Healthchecks
+            ),
+            (
+                AlertState::Healthy,
+                Kind::Recovery,
+                Destination::Healthchecks
+            ),
             (AlertState::Healthy, Kind::Recovery, Destination::Telegram),
         ]
     );
@@ -798,8 +817,12 @@ fn alert_dispatch_serializes_events() {
 #[test]
 fn alert_healthy_wakeup_before_failure_retry_cannot_overtake() {
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
-    let healthy = layout.enqueue(Check::Backup, AlertState::Healthy).sequence();
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
+    let healthy = layout
+        .enqueue(Check::Backup, AlertState::Healthy)
+        .sequence();
     let transport = FakeTransport::default();
     transport.script(Destination::Telegram, &[SendOutcome::NotDelivered]);
     let clock = FakeClock::real();
@@ -858,7 +881,9 @@ fn alert_healthy_wakeup_before_failure_retry_cannot_overtake() {
 fn alert_different_checks_do_not_share_a_global_lock() {
     let layout = Layout::new();
     layout.enqueue(Check::Health, AlertState::Failure);
-    let backup = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
+    let backup = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
     let transport = FakeTransport::default();
     let clock = FakeClock::real();
     let settings = settings();
@@ -870,7 +895,10 @@ fn alert_different_checks_do_not_share_a_global_lock() {
         rt.block_on(dispatcher.wake(Check::Backup)),
         Ok(Outcome::Delivered(backup))
     );
-    assert_eq!(rt.block_on(dispatcher.wake(Check::Health)), Err(Exit::Dependency));
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Err(Exit::Dependency)
+    );
     drop(held);
 
     // A held health journal lock does not stop the backup producer either.
@@ -888,13 +916,20 @@ fn alert_different_checks_do_not_share_a_global_lock() {
         Err(Refusal::LockTimeout)
     );
     drop(held);
-    assert!(transport.sends().iter().all(|sent| sent.check == Check::Backup));
+    assert!(
+        transport
+            .sends()
+            .iter()
+            .all(|sent| sent.check == Check::Backup)
+    );
 }
 
 #[test]
 fn alert_delivery_lock_timeout_retains_admitted_head() {
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let transport = FakeTransport::default();
     let clock = FakeClock::real();
     let settings = settings();
@@ -905,7 +940,11 @@ fn alert_delivery_lock_timeout_retains_admitted_head() {
     let started = std::time::Instant::now();
     let result = rt.block_on(dispatcher.wake(Check::Health));
     assert_eq!(result, Err(Exit::Dependency));
-    assert_eq!(exit_for(&result) as i32, 4, "a lock timeout is never a no-op success");
+    assert_eq!(
+        exit_for(&result) as i32,
+        4,
+        "a lock timeout is never a no-op success"
+    );
     assert!(started.elapsed() >= SHORT_LOCK);
     assert_eq!(layout.pending(Check::Health), vec![failure.0]);
     assert!(layout.delivery(Check::Health).is_none());
@@ -925,7 +964,9 @@ fn alert_delivery_lock_timeout_retains_admitted_head() {
 fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
     // A crash while the Telegram send is in flight.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let output = child(
         &layout,
         "dispatch-health",
@@ -944,7 +985,10 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
         progress["head"]["destinations"]["healthchecks"]["status"],
         "delivered"
     );
-    assert_eq!(progress["head"]["destinations"]["telegram"]["status"], "in_flight");
+    assert_eq!(
+        progress["head"]["destinations"]["telegram"]["status"],
+        "in_flight"
+    );
     assert_eq!(layout.pending(Check::Health), vec![failure.0]);
 
     // A restart cannot know whether Telegram got it: the check blocks.
@@ -954,7 +998,10 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
     let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
     let rt = runtime();
     let blocked = rt.block_on(dispatcher.wake(Check::Health));
-    assert_eq!(blocked, Ok(Outcome::Blocked(failure, BlockReason::Uncertain)));
+    assert_eq!(
+        blocked,
+        Ok(Outcome::Blocked(failure, BlockReason::Uncertain))
+    );
     assert_eq!(exit_for(&blocked), Exit::Ambiguous);
     assert!(transport.sends().is_empty());
 
@@ -983,8 +1030,14 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
     // A crash after the state document is published but before the
     // acknowledgement resumes without any send.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
-    let output = child(&layout, "dispatch-health", &[(CHILD_STAGE, "legacy_published")]);
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let output = child(
+        &layout,
+        "dispatch-health",
+        &[(CHILD_STAGE, "legacy_published")],
+    );
     assert!(killed_by_abort(&output), "{output:?}");
     let log = layout.base.join("sends.log");
     assert_eq!(logged(&log).len(), 2);
@@ -1004,13 +1057,14 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
 fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
     // Exhaustion: three failed attempts, 5 s apart, then a block.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
-    let healthy = layout.enqueue(Check::Health, AlertState::Healthy).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let healthy = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
     let transport = FakeTransport::default();
-    transport.script(
-        Destination::Telegram,
-        &[SendOutcome::NotDelivered; 3],
-    );
+    transport.script(Destination::Telegram, &[SendOutcome::NotDelivered; 3]);
     let clock = FakeClock::real();
     let settings = settings();
     let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
@@ -1024,7 +1078,10 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
         Ok(Outcome::RetryLater(failure))
     );
     let exhausted = rt.block_on(dispatcher.wake(Check::Health));
-    assert_eq!(exhausted, Ok(Outcome::Blocked(failure, BlockReason::Exhausted)));
+    assert_eq!(
+        exhausted,
+        Ok(Outcome::Blocked(failure, BlockReason::Exhausted))
+    );
     assert_eq!(exit_for(&exhausted), Exit::Precondition);
     assert_eq!(clock.slept(), vec![Duration::from_secs(5); 2]);
     // Blocked: no send at all, and the healthy sequence never moves ahead.
@@ -1042,7 +1099,10 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
     );
     assert_eq!(layout.pending(Check::Health), vec![failure.0, healthy.0]);
     // Re-arm only the exhausted sequence; a wrong one is refused.
-    assert_eq!(dispatcher.rearm(Check::Health, healthy), Err(Exit::Precondition));
+    assert_eq!(
+        dispatcher.rearm(Check::Health, healthy),
+        Err(Exit::Precondition)
+    );
     dispatcher.rearm(Check::Health, failure).unwrap();
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
@@ -1056,13 +1116,20 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
 
     // Uncertainty: an unknown result blocks until reconciled, with no resend.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
-    let healthy = layout.enqueue(Check::Backup, AlertState::Healthy).sequence();
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
+    let healthy = layout
+        .enqueue(Check::Backup, AlertState::Healthy)
+        .sequence();
     let transport = FakeTransport::default();
     transport.script(Destination::Telegram, &[SendOutcome::Uncertain]);
     let dispatcher = self::dispatcher(&layout, &settings, &transport, &clock);
     let uncertain = rt.block_on(dispatcher.wake(Check::Backup));
-    assert_eq!(uncertain, Ok(Outcome::Blocked(failure, BlockReason::Uncertain)));
+    assert_eq!(
+        uncertain,
+        Ok(Outcome::Blocked(failure, BlockReason::Uncertain))
+    );
     assert_eq!(exit_for(&uncertain), Exit::Ambiguous);
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Backup)),
@@ -1070,7 +1137,10 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
     );
     assert_eq!(transport.sends().len(), 2);
     // Re-arming does not settle an uncertain send.
-    assert_eq!(dispatcher.rearm(Check::Backup, failure), Err(Exit::Precondition));
+    assert_eq!(
+        dispatcher.rearm(Check::Backup, failure),
+        Err(Exit::Precondition)
+    );
     dispatcher
         .reconcile(
             Check::Backup,
@@ -1083,7 +1153,11 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
         rt.block_on(dispatcher.wake(Check::Backup)),
         Ok(Outcome::Delivered(failure))
     );
-    assert_eq!(transport.sends().len(), 2, "a reconciled send is not repeated");
+    assert_eq!(
+        transport.sends().len(),
+        2,
+        "a reconciled send is not repeated"
+    );
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Backup)),
         Ok(Outcome::Delivered(healthy))
@@ -1109,7 +1183,10 @@ fn alert_enqueue_is_durable_idempotent_and_bounded_before_status_publication() {
     let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&entry_path), 0o600);
     assert_eq!(mode(&layout.journal(Check::Health).cursor()), 0o600);
-    assert_eq!(mode(&layout.journal(Check::Health).handoff_directory()), 0o700);
+    assert_eq!(
+        mode(&layout.journal(Check::Health).handoff_directory()),
+        0o700
+    );
     assert!(std::fs::metadata(&entry_path).unwrap().len() <= 4096);
     let cursor = layout.cursor(Check::Health);
     assert_eq!(cursor["admitted"]["sequence"], json!(first.0));
@@ -1136,7 +1213,9 @@ fn alert_enqueue_is_durable_idempotent_and_bounded_before_status_publication() {
     }
     let watched = layout
         .producer(Check::Backup)
-        .with_hook(Arc::new(StatusAbsentAtCommit(layout.base.join("backup/status.json"))));
+        .with_hook(Arc::new(StatusAbsentAtCommit(
+            layout.base.join("backup/status.json"),
+        )));
     let exit = run_at(
         &layout.backup_config(),
         &JournalAdmission::new(watched),
@@ -1291,7 +1370,11 @@ fn alert_journal_lock_timeout_refuses_before_admission_then_converges() {
         while let Ok(Outcome::Delivered(_)) = rt.block_on(dispatcher.wake(Check::Backup)) {}
         assert!(layout.pending(Check::Backup).is_empty());
         assert_eq!(layout.legacy(Check::Backup).unwrap()["state"], "healthy");
-        let kinds: Vec<Kind> = transport.delivered().iter().map(|(_, kind, _)| *kind).collect();
+        let kinds: Vec<Kind> = transport
+            .delivered()
+            .iter()
+            .map(|(_, kind, _)| *kind)
+            .collect();
         if prior == AlertState::Failure {
             assert_eq!(
                 kinds,
@@ -1374,7 +1457,11 @@ fn alert_producer_death_before_commit_then_changed_observation_converges() {
             rt.block_on(dispatcher.remind(Check::Backup)),
             Ok(Outcome::Delivered(Sequence(pending[1])))
         );
-        let kinds: Vec<Kind> = transport.delivered().iter().map(|(_, kind, _)| *kind).collect();
+        let kinds: Vec<Kind> = transport
+            .delivered()
+            .iter()
+            .map(|(_, kind, _)| *kind)
+            .collect();
         assert_eq!(
             kinds,
             vec![Kind::Failure, Kind::Failure, Kind::Recovery, Kind::Recovery]
@@ -1401,7 +1488,11 @@ fn alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping() {
         // under the lock, never admitted twice.
         let retried = layout.enqueue(Check::Health, AlertState::Failure);
         if renamed {
-            assert_eq!(retried, Admitted::AlreadyAdmitted(Sequence(reserved)), "{stage}");
+            assert_eq!(
+                retried,
+                Admitted::AlreadyAdmitted(Sequence(reserved)),
+                "{stage}"
+            );
         } else {
             assert!(
                 matches!(retried, Admitted::Committed(sequence) if sequence.0 > reserved),
@@ -1434,7 +1525,11 @@ fn alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping() {
             .filter(|(_, _, destination)| *destination == Destination::Telegram)
             .map(|(state, _, _)| *state)
             .collect();
-        assert_eq!(states, vec![AlertState::Failure, AlertState::Healthy], "{stage}");
+        assert_eq!(
+            states,
+            vec![AlertState::Failure, AlertState::Healthy],
+            "{stage}"
+        );
     }
 }
 
@@ -1450,10 +1545,18 @@ fn alert_failed_enqueue_has_failed_unit_and_no_status_publication() {
     break_backup(&layout);
     let refused = child(&layout, "produce-backup", &[]);
     std::fs::set_permissions(&handoff, std::fs::Permissions::from_mode(0o700)).unwrap();
-    assert_eq!(refused.status.code(), Some(4), "the unit fails: {refused:?}");
+    assert_eq!(
+        refused.status.code(),
+        Some(4),
+        "the unit fails: {refused:?}"
+    );
     assert!(String::from_utf8_lossy(&refused.stderr).contains("\"publish_refused\""));
     assert_eq!(layout.status_bytes().unwrap(), status_before);
-    assert_eq!(layout.pending(Check::Backup).len(), 1, "only the first admission");
+    assert_eq!(
+        layout.pending(Check::Backup).len(),
+        1,
+        "only the first admission"
+    );
 
     // The reviewed units keep a refusal visible: no success override, no
     // ignored command failure, and check-only wakeups.
@@ -1461,12 +1564,17 @@ fn alert_failed_enqueue_has_failed_unit_and_no_status_publication() {
         ("verdaxis-health.service", "health"),
         ("verdaxis-backup-verify.service", "backup"),
     ] {
-        let text = std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
+        let text =
+            std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
         assert!(!text.contains("SuccessExitStatus"), "{unit}");
         assert!(!text.contains("ExecStart=-"), "{unit}");
         assert!(!text.contains("Restart="), "{unit}");
-        assert!(text.contains(&format!("OnFailure=verdaxis-monitor-alert@{check}.service\n")));
-        assert!(text.contains(&format!("OnSuccess=verdaxis-monitor-alert@{check}.service\n")));
+        assert!(text.contains(&format!(
+            "OnFailure=verdaxis-monitor-alert@{check}.service\n"
+        )));
+        assert!(text.contains(&format!(
+            "OnSuccess=verdaxis-monitor-alert@{check}.service\n"
+        )));
         assert!(text.contains("ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor "));
         assert!(!text.contains("python"), "{unit}");
     }
@@ -1511,7 +1619,13 @@ fn alert_handoff_real_identities_enqueue_and_dispatch() {
             .output()
             .expect("getfacl");
         let text = String::from_utf8_lossy(&acl.stdout);
-        for line in ["user::rw-", "user:65534:r--", "group::---", "mask::r--", "other::---"] {
+        for line in [
+            "user::rw-",
+            "user:65534:r--",
+            "group::---",
+            "mask::r--",
+            "other::---",
+        ] {
             assert!(text.lines().any(|found| found == line), "{line} in {text}");
         }
         // The dispatcher reads and removes it.
@@ -1565,7 +1679,8 @@ fn alert_handoff_producers_cannot_read_other_check_receipts_or_credentials() {
     assert!(!layout.config.alert_directory.exists());
     // Producer units load no environment file and reach no alert state.
     for unit in ["verdaxis-health.service", "verdaxis-backup-verify.service"] {
-        let text = std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
+        let text =
+            std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
         assert!(!text.contains("EnvironmentFile"), "{unit}");
         assert!(!text.contains("verdaxis-monitor-alert/"), "{unit}");
         assert!(!text.contains("alert.env"), "{unit}");
@@ -1576,7 +1691,8 @@ fn alert_handoff_producers_cannot_read_other_check_receipts_or_credentials() {
         "verdaxis-monitor-alert@.service",
         "verdaxis-monitor-alert-reminder.service",
     ] {
-        let text = std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
+        let text =
+            std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
         assert!(text.contains(
             "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff\n"
         ));
@@ -1612,7 +1728,8 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
     }
     assert_eq!(rules, expected);
     let tmpfiles =
-        std::fs::read_to_string(contract_fixture("alert-handoff/verdaxis-monitor.tmpfiles")).unwrap();
+        std::fs::read_to_string(contract_fixture("alert-handoff/verdaxis-monitor.tmpfiles"))
+            .unwrap();
     for line in [
         "d /var/lib/verdaxis-health/alert-handoff 0700 verdaxis-health verdaxis-health -",
         "d /var/lib/verdaxis-backup-verify/alert-handoff 0700 verdaxis-backup-reader verdaxis-backup-readers -",
@@ -1627,7 +1744,9 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
     // an entry its owner made read-only is still delivered and removed, and
     // the producer's cursor is never touched.
     let layout = Layout::new();
-    let sequence = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let sequence = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let entry = layout.journal(Check::Health).entry(sequence);
     std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o400)).unwrap();
     let entry_bytes = std::fs::read(&entry).unwrap();
@@ -1655,14 +1774,19 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
     );
     // A link in place of the head is never followed or skipped.
     let layout = Layout::new();
-    let sequence = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let sequence = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let entry = layout.journal(Check::Health).entry(sequence);
     let target = layout.base.join("elsewhere.json");
     std::fs::rename(&entry, &target).unwrap();
     std::os::unix::fs::symlink(&target, &entry).unwrap();
     let dispatcher = self::dispatcher(&layout, &settings, &transport, &clock);
     let blocked = rt.block_on(dispatcher.wake(Check::Health));
-    assert_eq!(blocked, Ok(Outcome::Blocked(sequence, BlockReason::InvalidEntry)));
+    assert_eq!(
+        blocked,
+        Ok(Outcome::Blocked(sequence, BlockReason::InvalidEntry))
+    );
     assert_eq!(exit_for(&blocked), Exit::Precondition);
 }
 
@@ -1682,7 +1806,9 @@ fn alert_python_rust_same_check_handover_preserves_failure_then_healthy() {
 
     // Fenced transfer: Python is stopped; the native producer admits the
     // recovery and the native dispatcher delivers it from Python's receipts.
-    let sequence = layout.enqueue(Check::Health, AlertState::Healthy).sequence();
+    let sequence = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
     let transport = HttpTransport::new();
     let clock = FakeClock::real();
     let settings = server.settings();
@@ -1693,7 +1819,10 @@ fn alert_python_rust_same_check_handover_preserves_failure_then_healthy() {
     );
     assert_eq!(
         server.texts(),
-        vec!["Verdaxis local health: FAILURE", "Verdaxis local health: RECOVERY"]
+        vec![
+            "Verdaxis local health: FAILURE",
+            "Verdaxis local health: RECOVERY"
+        ]
     );
     let native_state = layout.legacy(Check::Health).unwrap();
     assert_eq!(native_state["state"], "healthy");
@@ -1702,8 +1831,14 @@ fn alert_python_rust_same_check_handover_preserves_failure_then_healthy() {
         python_state["receipts"]["telegram"]["failure"],
         "Python's failure receipt is kept"
     );
-    assert!(python_accepts_state(&layout.config.legacy_state(Check::Health)));
-    assert_eq!(layout.lock_mode(Check::Health), 0o400, "native ownership is fenced");
+    assert!(python_accepts_state(
+        &layout.config.legacy_state(Check::Health)
+    ));
+    assert_eq!(
+        layout.lock_mode(Check::Health),
+        0o400,
+        "native ownership is fenced"
+    );
 }
 
 #[test]
@@ -1711,7 +1846,9 @@ fn alert_python_direct_invocation_is_fenced_until_native_journal_drained() {
     let layout = Layout::new();
     let server = FakeHttp::start();
     let alert_directory = layout.config.alert_directory.clone();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let transport = HttpTransport::new();
     let clock = FakeClock::real();
     let settings = server.settings();
@@ -1730,7 +1867,10 @@ fn alert_python_direct_invocation_is_fenced_until_native_journal_drained() {
     // A direct Python invocation cannot overtake the native journal.
     let state_before = std::fs::read(layout.config.legacy_state(Check::Health)).ok();
     let python = run_python(&["--event", "health-healthy"], &alert_directory, &server);
-    assert!(!python.status.success(), "fenced Python must fail: {python:?}");
+    assert!(
+        !python.status.success(),
+        "fenced Python must fail: {python:?}"
+    );
     let python = run_python(&["--remind", "all"], &alert_directory, &server);
     assert!(!python.status.success(), "fenced Python reminder must fail");
     assert_eq!(server.requests.lock().unwrap().len(), requests_before);
@@ -1739,7 +1879,10 @@ fn alert_python_direct_invocation_is_fenced_until_native_journal_drained() {
         state_before
     );
     // The handback is refused while the native journal is not drained.
-    assert_eq!(dispatcher.release_to_python(Check::Health), Err(Exit::Precondition));
+    assert_eq!(
+        dispatcher.release_to_python(Check::Health),
+        Err(Exit::Precondition)
+    );
     assert_eq!(layout.lock_mode(Check::Health), 0o400);
 
     // Drained, the check is released and Python follows the native receipts.
@@ -1765,7 +1908,9 @@ fn alert_python_direct_invocation_is_fenced_until_native_journal_drained() {
 #[test]
 fn alert_acknowledgement_before_remove_survives_restart_and_revert() {
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let died = child(&layout, "dispatch-health", &[(CHILD_STAGE, "acknowledged")]);
     assert!(killed_by_abort(&died), "{died:?}");
     let log = layout.base.join("sends.log");
@@ -1781,18 +1926,26 @@ fn alert_acknowledgement_before_remove_survives_restart_and_revert() {
     let settings = settings();
     let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
     let rt = runtime();
-    assert_eq!(rt.block_on(dispatcher.wake(Check::Health)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Idle)
+    );
     assert!(layout.pending(Check::Health).is_empty());
     assert_eq!(logged(&log).len(), 2);
 
     // A blocked revert: a new head is pending, so the handback is refused.
-    let healthy = layout.enqueue(Check::Health, AlertState::Healthy).sequence();
+    let healthy = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
     transport.script(Destination::Telegram, &[SendOutcome::NotDelivered]);
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::RetryLater(healthy))
     );
-    assert_eq!(dispatcher.release_to_python(Check::Health), Err(Exit::Precondition));
+    assert_eq!(
+        dispatcher.release_to_python(Check::Health),
+        Err(Exit::Precondition)
+    );
     assert_eq!(layout.lock_mode(Check::Health), 0o400);
     // Drained, the revert succeeds and Python accepts the projected state.
     assert_eq!(
@@ -1811,7 +1964,9 @@ fn alert_acknowledgement_before_remove_survives_restart_and_revert() {
 #[test]
 fn alert_receipts_prevent_duplicate_delivery_per_destination() {
     let layout = Layout::new();
-    let first = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let first = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let transport = FakeTransport::default();
     let clock = FakeClock::real();
     let settings = settings();
@@ -1836,13 +1991,19 @@ fn alert_receipts_prevent_duplicate_delivery_per_destination() {
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::Delivered(second))
     );
-    assert_eq!(transport.sends().len(), 2, "receipts suppress the duplicate");
+    assert_eq!(
+        transport.sends().len(),
+        2,
+        "receipts suppress the duplicate"
+    );
     let progress = layout.delivery(Check::Health).unwrap();
     assert_eq!(progress["acknowledged"]["sequence"], json!(second.0));
 
     // A healthy observation without a confirmed failure is not sent either.
     let layout = Layout::new();
-    let healthy = layout.enqueue(Check::Backup, AlertState::Healthy).sequence();
+    let healthy = layout
+        .enqueue(Check::Backup, AlertState::Healthy)
+        .sequence();
     let transport = FakeTransport::default();
     let dispatcher = self::dispatcher(&layout, &settings, &transport, &clock);
     assert_eq!(
@@ -1862,43 +2023,74 @@ fn alert_reminder_respects_the_hourly_repeat() {
     let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
     let rt = runtime();
     // No state yet: nothing to remind.
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Health)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Health)),
+        Ok(Outcome::Idle)
+    );
     // A pending failure is drained by the reminder as the head, not repeated.
-    let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     assert_eq!(
         rt.block_on(dispatcher.remind(Check::Health)),
         Ok(Outcome::Delivered(failure))
     );
     assert_eq!(transport.sends().len(), 2);
     clock.advance(Span::minutes(30));
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Health)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Health)),
+        Ok(Outcome::Idle)
+    );
     assert_eq!(transport.sends().len(), 2);
     clock.advance(Span::minutes(30));
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Health)), Ok(Outcome::Reminded));
-    let kinds: Vec<Kind> = transport.sends()[2..].iter().map(|sent| sent.kind).collect();
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Health)),
+        Ok(Outcome::Reminded)
+    );
+    let kinds: Vec<Kind> = transport.sends()[2..]
+        .iter()
+        .map(|sent| sent.kind)
+        .collect();
     assert_eq!(kinds, vec![Kind::Reminder, Kind::Reminder]);
-    assert!(transport.sends()[2..].iter().all(|sent| sent.sequence.is_none()));
+    assert!(
+        transport.sends()[2..]
+            .iter()
+            .all(|sent| sent.sequence.is_none())
+    );
     clock.advance(Span::minutes(59));
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Health)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Health)),
+        Ok(Outcome::Idle)
+    );
     // After the recovery is acknowledged, no older failure is repeated.
-    let healthy = layout.enqueue(Check::Health, AlertState::Healthy).sequence();
+    let healthy = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
     assert_eq!(
         rt.block_on(dispatcher.remind(Check::Health)),
         Ok(Outcome::Delivered(healthy))
     );
     let sent = transport.sends().len();
     clock.advance(Span::hours(3));
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Health)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Health)),
+        Ok(Outcome::Idle)
+    );
     assert_eq!(transport.sends().len(), sent);
     // The other check has no state of its own.
-    assert_eq!(rt.block_on(dispatcher.remind(Check::Backup)), Ok(Outcome::Idle));
+    assert_eq!(
+        rt.block_on(dispatcher.remind(Check::Backup)),
+        Ok(Outcome::Idle)
+    );
 }
 
 #[test]
 fn alert_telegram_and_healthchecks_failures_are_independent() {
     for failing in [Destination::Telegram, Destination::Healthchecks] {
         let layout = Layout::new();
-        let failure = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+        let failure = layout
+            .enqueue(Check::Health, AlertState::Failure)
+            .sequence();
         let transport = FakeTransport::default();
         transport.script(failing, &[SendOutcome::NotDelivered]);
         let clock = FakeClock::real();
@@ -1941,7 +2133,9 @@ fn alert_telegram_and_healthchecks_failures_are_independent() {
     }
     // Only Healthchecks configured: Telegram is not required.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
     let transport = FakeTransport::default();
     let clock = FakeClock::real();
     let only = variables_settings(&[("HEALTHCHECKS_BACKUP_URL", "http://127.0.0.1:9/hc")]);
@@ -1953,7 +2147,9 @@ fn alert_telegram_and_healthchecks_failures_are_independent() {
     assert_eq!(transport.sends().len(), 1);
     // Nothing configured: acknowledged, and exit 2 as in Python.
     let layout = Layout::new();
-    let failure = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
     let none = AlertSettings::default();
     let dispatcher = self::dispatcher(&layout, &none, &transport, &clock);
     let result = runtime().block_on(dispatcher.wake(Check::Backup));
@@ -1967,10 +2163,17 @@ fn alert_telegram_and_healthchecks_failures_are_independent() {
 fn alert_state_is_atomic_and_schema_compatible() {
     let schema: Value = read_json(&contract_fixture("alert-journal.schema.json")).unwrap();
     let layout = Layout::new();
-    let sequence = layout.enqueue(Check::Backup, AlertState::Failure).sequence();
+    let sequence = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
     let bytes = std::fs::read(layout.journal(Check::Backup).entry(sequence)).unwrap();
     let entry: Value = serde_json::from_slice(&bytes).unwrap();
-    let keys: Vec<&str> = entry.as_object().unwrap().keys().map(String::as_str).collect();
+    let keys: Vec<&str> = entry
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     let required: Vec<&str> = schema["required"]
         .as_array()
         .unwrap()
@@ -1979,14 +2182,26 @@ fn alert_state_is_atomic_and_schema_compatible() {
         .collect();
     assert_eq!(keys, required, "sorted keys, exactly the schema's");
     assert_eq!(schema["additionalProperties"], json!(false));
-    assert_eq!(schema["properties"]["schema_version"]["const"], entry["schema_version"]);
-    assert_eq!(schema["properties"]["state"]["enum"], json!(["failure", "healthy"]));
-    assert_eq!(schema["properties"]["check"]["enum"], json!(["backup", "health"]));
+    assert_eq!(
+        schema["properties"]["schema_version"]["const"],
+        entry["schema_version"]
+    );
+    assert_eq!(
+        schema["properties"]["state"]["enum"],
+        json!(["failure", "healthy"])
+    );
+    assert_eq!(
+        schema["properties"]["check"]["enum"],
+        json!(["backup", "health"])
+    );
     assert_eq!(schema["x-bounds"]["max_pending_entries"], json!(256));
     assert_eq!(schema["x-bounds"]["max_pending_bytes"], json!(1_048_576));
     assert_eq!(schema["x-bounds"]["max_entry_bytes"], json!(4096));
     let observed = entry["observed_at"].as_str().unwrap();
-    assert!(observed.len() == 20 && observed.ends_with('Z'), "{observed}");
+    assert!(
+        observed.len() == 20 && observed.ends_with('Z'),
+        "{observed}"
+    );
     assert_eq!(bytes, serde_json::to_vec(&entry).unwrap(), "compact JSON");
 
     // The dispatcher's documents are private, complete and leave no temp files.
@@ -2008,13 +2223,25 @@ fn alert_state_is_atomic_and_schema_compatible() {
         .collect();
     assert!(names.iter().all(|name| !name.contains(".tmp")), "{names:?}");
     let legacy = layout.legacy(Check::Backup).unwrap();
-    let legacy_keys: Vec<&str> = legacy.as_object().unwrap().keys().map(String::as_str).collect();
-    assert_eq!(legacy_keys, ["observed_at", "receipts", "schema_version", "state"]);
+    let legacy_keys: Vec<&str> = legacy
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        legacy_keys,
+        ["observed_at", "receipts", "schema_version", "state"]
+    );
     assert_eq!(legacy["schema_version"], json!(3));
-    assert!(python_accepts_state(&layout.config.legacy_state(Check::Backup)));
+    assert!(python_accepts_state(
+        &layout.config.legacy_state(Check::Backup)
+    ));
 
     // A damaged progress document is quarantined; the head is retried, never skipped.
-    let recovery = layout.enqueue(Check::Backup, AlertState::Healthy).sequence();
+    let recovery = layout
+        .enqueue(Check::Backup, AlertState::Healthy)
+        .sequence();
     transport.script(Destination::Telegram, &[SendOutcome::NotDelivered]);
     assert_eq!(
         runtime().block_on(dispatcher.wake(Check::Backup)),
@@ -2048,13 +2275,21 @@ fn alert_never_prints_a_token_or_chat_id() {
         vec!["monitor", "alert", "--event", "health"],
         vec!["monitor", "alert", "--remind", "all"],
         vec!["monitor", "alert", "--event", TOKEN],
-        vec!["monitor", "alert", "--reconcile", "health:1:telegram:delivered"],
+        vec![
+            "monitor",
+            "alert",
+            "--reconcile",
+            "health:1:telegram:delivered",
+        ],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
             .args(&arguments)
             .env("TELEGRAM_BOT_TOKEN", TOKEN)
             .env("TELEGRAM_CHAT_ID", CHAT)
-            .env("HEALTHCHECKS_HEALTH_URL", "http://127.0.0.1:9/hc-health-secret")
+            .env(
+                "HEALTHCHECKS_HEALTH_URL",
+                "http://127.0.0.1:9/hc-health-secret",
+            )
             .output()
             .unwrap();
         assert_ne!(output.status.code(), Some(0), "{arguments:?}");
@@ -2069,7 +2304,9 @@ fn alert_never_prints_a_token_or_chat_id() {
     // A real delivery puts the token only in the request path.
     let layout = Layout::new();
     let server = FakeHttp::start();
-    let sequence = layout.enqueue(Check::Health, AlertState::Failure).sequence();
+    let sequence = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
     let transport = HttpTransport::new();
     let clock = FakeClock::real();
     let settings = server.settings();

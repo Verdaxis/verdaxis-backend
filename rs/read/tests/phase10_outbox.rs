@@ -154,9 +154,25 @@ fn outbox_probe_exit_codes_and_thresholds_match_python() {
     // The command: a missing DSN or another monitor's flag is a usage refusal.
     for arguments in [
         vec!["monitor", "outbox"],
-        vec!["monitor", "outbox", "--dsn", "dbname=x", "--event", "health"],
-        vec!["monitor", "outbox", "--dsn", "dbname=x", "--query-timeout", "21"],
-        vec!["monitor", "outbox", "--dsn", "dbname=x", "--query-timeout", "0"],
+        vec![
+            "monitor", "outbox", "--dsn", "dbname=x", "--event", "health",
+        ],
+        vec![
+            "monitor",
+            "outbox",
+            "--dsn",
+            "dbname=x",
+            "--query-timeout",
+            "21",
+        ],
+        vec![
+            "monitor",
+            "outbox",
+            "--dsn",
+            "dbname=x",
+            "--query-timeout",
+            "0",
+        ],
         vec!["monitor", "outbox", "--dsn", "dbname=x", "--dry-run"],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
@@ -174,9 +190,7 @@ fn outbox_output_never_contains_the_dsn() {
     let port = closed.local_addr().unwrap().port();
     drop(closed);
     for dsn in [
-        format!(
-            "host=127.0.0.1 port={port} dbname=secretdb user=secretuser password='secret pw'"
-        ),
+        format!("host=127.0.0.1 port={port} dbname=secretdb user=secretuser password='secret pw'"),
         format!("postgres://secretuser:secretpw@127.0.0.1:{port}/secretdb"),
         "host=127.0.0.1 nonsense secretdb".to_owned(),
         "host=127.0.0.1 port=notaport user=secretuser".to_owned(),
@@ -191,7 +205,13 @@ fn outbox_output_never_contains_the_dsn() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         for text in [&stdout, &stderr] {
-            for secret in ["secretdb", "secretuser", "secret pw", "secretpw", "notaport"] {
+            for secret in [
+                "secretdb",
+                "secretuser",
+                "secret pw",
+                "secretpw",
+                "notaport",
+            ] {
                 assert!(!text.contains(secret), "{secret} leaked: {text}");
             }
         }
@@ -239,7 +259,10 @@ fn outbox_query_is_bounded_read_only_and_times_out() {
     assert_eq!(status["pending_count"], 2, "{line}");
     let age = status["oldest_pending_seconds"].as_i64().unwrap();
     assert!((400..460).contains(&age), "{line}");
-    assert_eq!(status["breaches"], serde_json::json!(["oldest_pending_seconds"]));
+    assert_eq!(
+        status["breaches"],
+        serde_json::json!(["oldest_pending_seconds"])
+    );
     assert_eq!(exit, Exit::Breached);
     assert!(line.len() < MAX_OUTPUT_BYTES);
 
@@ -266,7 +289,9 @@ fn outbox_query_is_bounded_read_only_and_times_out() {
     // The probe's session is read-only even for a role that may write, and
     // the query is one bounded aggregate.
     rt.block_on(async {
-        let mut session = open_read_only(&target, Duration::from_secs(20)).await.unwrap();
+        let mut session = open_read_only(&target, Duration::from_secs(20))
+            .await
+            .unwrap();
         let refused = sqlx::query(
             "INSERT INTO public.market_event_outbox (created_at, stream_seq) VALUES (now(), NULL)",
         )

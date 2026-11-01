@@ -238,7 +238,11 @@ pub struct Delivery {
 impl Delivery {
     /// The Telegram text, exactly Python's wording.
     pub fn text(&self) -> String {
-        format!("Verdaxis local {}: {}", self.check.as_str(), self.kind.as_str())
+        format!(
+            "Verdaxis local {}: {}",
+            self.check.as_str(),
+            self.kind.as_str()
+        )
     }
 }
 
@@ -321,10 +325,7 @@ impl Transport for HttpTransport {
                 let Some(telegram) = &settings.telegram else {
                     return SendOutcome::NotDelivered;
                 };
-                let url = format!(
-                    "{}/bot{}/sendMessage",
-                    telegram.api_base, telegram.token
-                );
+                let url = format!("{}/bot{}/sendMessage", telegram.api_base, telegram.token);
                 let body = serde_json::json!({
                     "chat_id": telegram.chat_id,
                     "text": delivery.text(),
@@ -422,7 +423,9 @@ pub struct LegacyState {
 /// Python's `valid_alert_state`, for a parsed document.
 fn valid_legacy_state(value: &serde_json::Value, now: DateTime<Utc>) -> Option<LegacyState> {
     let document: LegacyState = serde_json::from_value(value.clone()).ok()?;
-    if value.get("schema_version").and_then(serde_json::Value::as_u64)
+    if value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
         != Some(u64::from(LEGACY_SCHEMA_VERSION))
     {
         return None;
@@ -768,18 +771,23 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
 
     /// `--event <check>`: deliver the oldest unacknowledged entry, if any.
     pub async fn wake(&self, check: Check) -> Result<Outcome, Exit> {
-        // Stub until the implementation commit.
-        let _ = check;
-        Ok(Outcome::Idle)
+        let lock = self.delivery_lock(check)?;
+        let outcome = self.drain_head(check).await?;
+        drop(lock);
+        Ok(outcome.unwrap_or(Outcome::Idle))
     }
 
     /// `--remind <check>`: drain a pending head first; with an empty journal,
     /// repeat a lasting failure once an hour. A healthy state is never
     /// reminded, and a reminder never publishes a new state.
     pub async fn remind(&self, check: Check) -> Result<Outcome, Exit> {
-        // Stub until the implementation commit.
-        let _ = check;
-        Ok(Outcome::Idle)
+        let lock = self.delivery_lock(check)?;
+        let outcome = match self.drain_head(check).await? {
+            Some(outcome) => outcome,
+            None => self.remind_failure(check).await?,
+        };
+        drop(lock);
+        Ok(outcome)
     }
 
     /// `--reconcile`: record an operator's finding for one uncertain
@@ -791,25 +799,75 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         destination: Destination,
         resolution: Resolution,
     ) -> Result<(), Exit> {
-        // Stub until the implementation commit.
-        let _ = (check, sequence, destination, resolution);
-        Err(Exit::Precondition)
+        let _lock = self.delivery_lock(check)?;
+        let mut delivery = self.load_delivery(check)?;
+        let now = utc_text(self.clock.now());
+        let head = delivery
+            .head
+            .as_mut()
+            .filter(|head| head.sequence == sequence)
+            .ok_or(Exit::Precondition)?;
+        let progress = head
+            .destinations
+            .get_mut(&destination)
+            .filter(|progress| {
+                matches!(
+                    progress.status,
+                    DestinationStatus::Uncertain | DestinationStatus::InFlight
+                )
+            })
+            .ok_or(Exit::Precondition)?;
+        match resolution {
+            Resolution::Delivered => {
+                progress.status = DestinationStatus::Delivered;
+                progress.delivered_at = Some(now);
+            }
+            Resolution::NotDelivered => progress.status = DestinationStatus::Pending,
+        }
+        let unresolved = head.destinations.values().any(|progress| {
+            matches!(
+                progress.status,
+                DestinationStatus::Uncertain | DestinationStatus::InFlight
+            )
+        });
+        if !unresolved && head.blocked == Some(BlockReason::Uncertain) {
+            head.blocked = None;
+        }
+        self.save_delivery(check, &delivery)
     }
 
     /// `--rearm`: give an exhausted head a fresh set of attempts.
     pub fn rearm(&self, check: Check, sequence: Sequence) -> Result<(), Exit> {
-        // Stub until the implementation commit.
-        let _ = (check, sequence);
-        Err(Exit::Precondition)
+        let _lock = self.delivery_lock(check)?;
+        let mut delivery = self.load_delivery(check)?;
+        let head = delivery
+            .head
+            .as_mut()
+            .filter(|head| {
+                head.sequence == sequence && head.blocked == Some(BlockReason::Exhausted)
+            })
+            .ok_or(Exit::Precondition)?;
+        head.attempts = 0;
+        head.blocked = None;
+        self.save_delivery(check, &delivery)
     }
 
     /// `--release`: hand the check back to the Python dispatcher. Refused
     /// unless the journal is empty, no head is in progress and the state
     /// document is valid for Python.
     pub fn release_to_python(&self, check: Check) -> Result<(), Exit> {
-        // Stub until the implementation commit.
-        let _ = check;
-        Err(Exit::Precondition)
+        let lock = self.delivery_lock(check)?;
+        let delivery = self.load_delivery(check)?;
+        if delivery.head.is_some() {
+            return Err(Exit::Precondition);
+        }
+        if self.reader(check).head()? != Head::Empty {
+            return Err(Exit::Precondition);
+        }
+        if self.load_legacy(check)? == LegacyLoad::Malformed {
+            return Err(Exit::Precondition);
+        }
+        set_lock_mode(&lock.file, PYTHON_LOCK_MODE)
     }
 
     // ---- locks ----
@@ -990,7 +1048,9 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
             if let Ok(wait) = (last + spacing - self.clock.now()).to_std()
                 && !wait.is_zero()
             {
-                self.clock.sleep(wait.min(self.config.attempt_spacing)).await;
+                self.clock
+                    .sleep(wait.min(self.config.attempt_spacing))
+                    .await;
             }
         }
         {
@@ -1020,7 +1080,12 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
             match outcome {
                 SendOutcome::Delivered => {
                     let now = utc_text(self.clock.now());
-                    self.set_status(delivery, destination, DestinationStatus::Delivered, Some(now))?
+                    self.set_status(
+                        delivery,
+                        destination,
+                        DestinationStatus::Delivered,
+                        Some(now),
+                    )?
                 }
                 SendOutcome::NotDelivered => {
                     self.set_status(delivery, destination, DestinationStatus::Pending, None)?
@@ -1407,7 +1472,10 @@ pub fn parse_action(args: &MonitorArgs) -> Option<Action> {
     }
     if let Some(text) = &args.rearm {
         let (check, sequence) = text.split_once(':')?;
-        return Some(Action::Rearm(Check::parse(check)?, parse_sequence(sequence)?));
+        return Some(Action::Rearm(
+            Check::parse(check)?,
+            parse_sequence(sequence)?,
+        ));
     }
     args.release
         .as_deref()

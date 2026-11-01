@@ -744,9 +744,62 @@ impl Producer {
 
     /// Admit `observation`, or refuse it without changing the journal.
     pub fn enqueue(&self, observation: &AlertObservation) -> Result<Admitted, Refusal> {
-        // Stub until the implementation commit.
-        let _ = observation;
-        Err(Refusal::Unavailable)
+        if observation.check != self.paths.check {
+            return Err(Refusal::Unavailable);
+        }
+        let handoff = self.paths.handoff_directory();
+        create_private_directory(&self.paths.state_directory)?;
+        create_private_directory(&handoff)?;
+        let lock_file =
+            open_producer_lock(&self.paths.journal_lock()).map_err(|_| Refusal::Unavailable)?;
+        let _lock =
+            lock_with_timeout(lock_file, self.limits.lock_timeout).map_err(
+                |failure| match failure {
+                    LockFailure::TimedOut => Refusal::LockTimeout,
+                    LockFailure::Unavailable => Refusal::Unavailable,
+                },
+            )?;
+        self.reached(AdmissionStage::LockHeld);
+
+        let listing = self.quarantine_strays()?;
+        let mut cursor = self.recover(&listing, observation.observed_at)?;
+        if let Some(admitted) = cursor.admitted
+            && admitted.state == observation.state
+        {
+            return Ok(Admitted::AlreadyAdmitted(Sequence(admitted.sequence)));
+        }
+
+        let sequence = Sequence(cursor.next_sequence);
+        let entry = JournalEntry {
+            check: observation.check,
+            observed_at: utc_text(observation.observed_at),
+            schema_version: ENTRY_SCHEMA_VERSION,
+            sequence: sequence.0,
+            state: observation.state,
+        };
+        let bytes = serde_json::to_vec(&entry).map_err(|_| Refusal::Unavailable)?;
+        let pending_bytes: u64 = listing.entries.values().sum();
+        if listing.entries.len() >= self.limits.max_entries
+            || pending_bytes + bytes.len() as u64 > self.limits.max_bytes
+        {
+            return Err(Refusal::Full);
+        }
+
+        cursor.next_sequence = sequence.0.checked_add(1).ok_or(Refusal::Unavailable)?;
+        cursor.reserved = Some(sequence.0);
+        self.write_cursor(&cursor)?;
+        self.reached(AdmissionStage::Reserved);
+
+        self.commit_entry(sequence, &bytes)?;
+
+        cursor.admitted = Some(AdmittedState {
+            sequence: sequence.0,
+            state: observation.state,
+        });
+        cursor.reserved = None;
+        self.write_cursor(&cursor)?;
+        self.reached(AdmissionStage::Recorded);
+        Ok(Admitted::Committed(sequence))
     }
 
     /// Write the entry under a temp name, give it its access, sync it, rename
@@ -973,8 +1026,7 @@ impl JournalAdmission {
 
 impl Admission for JournalAdmission {
     fn admit(&self, status: &Status) -> Result<(), Exit> {
-        let observed_at =
-            parse_bounded_timestamp(&status.generated_at).ok_or(Exit::Dependency)?;
+        let observed_at = parse_bounded_timestamp(&status.generated_at).ok_or(Exit::Dependency)?;
         let observation = AlertObservation {
             check: self.producer.paths.check,
             state: AlertState::from_category(status.category),
@@ -1041,22 +1093,63 @@ impl JournalReader {
 
     /// The oldest committed entry, by numeric sequence.
     pub fn head(&self) -> Result<Head, Exit> {
-        // Stub until the implementation commit.
-        Ok(Head::Empty)
+        let Some(_lock) = self.lock()? else {
+            return Ok(Head::Empty);
+        };
+        let listing =
+            list_handoff(&self.paths.handoff_directory()).map_err(|_| Exit::Dependency)?;
+        let oldest_regular = listing.entries.keys().next().copied();
+        let oldest_irregular = listing.irregular.keys().next().copied();
+        if let Some(irregular) = oldest_irregular
+            && oldest_regular.is_none_or(|regular| irregular < regular)
+        {
+            return Ok(Head::Invalid(irregular));
+        }
+        let Some(sequence) = oldest_regular else {
+            return Ok(Head::Empty);
+        };
+        match read_entry(&self.paths, sequence) {
+            Ok((entry, bytes)) => Ok(Head::Entry {
+                sequence,
+                entry,
+                digest: digest_hex(&bytes),
+            }),
+            Err(EntryFault::Invalid) => Ok(Head::Invalid(sequence)),
+            Err(EntryFault::Missing | EntryFault::Unreadable) => Err(Exit::Dependency),
+        }
     }
 
     /// Every committed sequence, oldest first.
     pub fn pending(&self) -> Result<Vec<Sequence>, Exit> {
-        // Stub until the implementation commit.
-        Ok(Vec::new())
+        let Some(_lock) = self.lock()? else {
+            return Ok(Vec::new());
+        };
+        let listing =
+            list_handoff(&self.paths.handoff_directory()).map_err(|_| Exit::Dependency)?;
+        let mut pending: Vec<Sequence> = listing
+            .entries
+            .keys()
+            .chain(listing.irregular.keys())
+            .copied()
+            .collect();
+        pending.sort_unstable();
+        Ok(pending)
     }
 
     /// Remove an acknowledged entry under the journal lock and sync the
     /// directory. The entry must still hold the acknowledged bytes; an entry
     /// that is already gone is not an error.
     pub fn remove(&self, sequence: Sequence, digest: &str) -> Result<(), Exit> {
-        // Stub until the implementation commit.
-        let _ = (sequence, digest);
-        Ok(())
+        let Some(_lock) = self.lock()? else {
+            return Ok(());
+        };
+        match read_entry(&self.paths, sequence) {
+            Ok((_, bytes)) if digest_hex(&bytes) == digest => {}
+            Ok(_) | Err(EntryFault::Invalid) => return Err(Exit::Precondition),
+            Err(EntryFault::Missing) => return Ok(()),
+            Err(EntryFault::Unreadable) => return Err(Exit::Dependency),
+        }
+        std::fs::remove_file(self.paths.entry(sequence)).map_err(|_| Exit::Dependency)?;
+        sync_directory(&self.paths.handoff_directory()).map_err(|_| Exit::Dependency)
     }
 }

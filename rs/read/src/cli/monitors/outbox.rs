@@ -81,10 +81,24 @@ impl ProbeError {
 
 /// Python's `evaluate`: the status document of one measurement.
 pub fn evaluate(backlog: Backlog, thresholds: Thresholds, checked_at: DateTime<Utc>) -> Value {
-        // Stub until the implementation commit.
-        let _ = (backlog, thresholds, checked_at);
-        json!({"probe": PROBE, "ok": false})
+    let mut breaches = Vec::new();
+    if backlog.pending_count > thresholds.max_pending {
+        breaches.push("pending_count");
     }
+    if backlog.oldest_pending_seconds > thresholds.max_age_seconds {
+        breaches.push("oldest_pending_seconds");
+    }
+    json!({
+        "breaches": breaches,
+        "checked_at": checked_at.to_rfc3339_opts(SecondsFormat::Micros, false),
+        "max_age_seconds": thresholds.max_age_seconds,
+        "max_pending": thresholds.max_pending,
+        "ok": breaches.is_empty(),
+        "oldest_pending_seconds": backlog.oldest_pending_seconds,
+        "pending_count": backlog.pending_count,
+        "probe": PROBE,
+    })
+}
 
 /// The exit code and the stdout line for one probe result.
 pub fn report(
@@ -159,10 +173,15 @@ fn keyword_dsn_to_url(dsn: &str) -> Result<url::Url, ProbeError> {
             "host" | "hostaddr" if value.starts_with('/') => {
                 url.query_pairs_mut().append_pair("host", &value);
             }
-            "host" | "hostaddr" => url.set_host(Some(&value)).map_err(|_| ProbeError::InvalidTarget)?,
+            "host" | "hostaddr" => url
+                .set_host(Some(&value))
+                .map_err(|_| ProbeError::InvalidTarget)?,
             "port" => {
-                let port = value.parse::<u16>().map_err(|_| ProbeError::InvalidTarget)?;
-                url.set_port(Some(port)).map_err(|_| ProbeError::InvalidTarget)?;
+                let port = value
+                    .parse::<u16>()
+                    .map_err(|_| ProbeError::InvalidTarget)?;
+                url.set_port(Some(port))
+                    .map_err(|_| ProbeError::InvalidTarget)?;
             }
             "dbname" => url.set_path(&format!("/{}", percent_encode(&value))),
             "user" => url
@@ -190,7 +209,10 @@ fn keyword_pairs(dsn: &str) -> Result<Vec<(String, String)>, ProbeError> {
     let mut pairs = Vec::new();
     let mut characters = dsn.chars().peekable();
     loop {
-        while characters.next_if(|character| character.is_whitespace()).is_some() {}
+        while characters
+            .next_if(|character| character.is_whitespace())
+            .is_some()
+        {}
         if characters.peek().is_none() {
             return Ok(pairs);
         }
@@ -200,11 +222,17 @@ fn keyword_pairs(dsn: &str) -> Result<Vec<(String, String)>, ProbeError> {
         {
             key.push(character);
         }
-        while characters.next_if(|character| character.is_whitespace()).is_some() {}
+        while characters
+            .next_if(|character| character.is_whitespace())
+            .is_some()
+        {}
         if characters.next() != Some('=') || key.is_empty() {
             return Err(ProbeError::InvalidTarget);
         }
-        while characters.next_if(|character| character.is_whitespace()).is_some() {}
+        while characters
+            .next_if(|character| character.is_whitespace())
+            .is_some()
+        {}
         let mut value = String::new();
         if characters.next_if_eq(&'\'').is_some() {
             loop {
@@ -216,8 +244,7 @@ fn keyword_pairs(dsn: &str) -> Result<Vec<(String, String)>, ProbeError> {
                 }
             }
         } else {
-            while let Some(character) = characters.next_if(|character| !character.is_whitespace())
-            {
+            while let Some(character) = characters.next_if(|character| !character.is_whitespace()) {
                 value.push(character);
             }
         }
@@ -227,13 +254,23 @@ fn keyword_pairs(dsn: &str) -> Result<Vec<(String, String)>, ProbeError> {
 
 /// Where the backlog numbers come from; tests replace it.
 pub trait BacklogSource: Sync {
-    fn measure(&self, timeout: Duration) -> impl Future<Output = Result<Backlog, ProbeError>> + Send;
+    fn measure(
+        &self,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<Backlog, ProbeError>> + Send;
 }
 
 /// Open a session for the probe: read-only by default, with the statement
 /// timeout, connected within `timeout`.
-pub async fn open_read_only(target: &Target, timeout: Duration) -> Result<PgConnection, ProbeError> {
-    match tokio::time::timeout(timeout, PgConnection::connect_with(&target.session(timeout))).await
+pub async fn open_read_only(
+    target: &Target,
+    timeout: Duration,
+) -> Result<PgConnection, ProbeError> {
+    match tokio::time::timeout(
+        timeout,
+        PgConnection::connect_with(&target.session(timeout)),
+    )
+    .await
     {
         Ok(Ok(connection)) => Ok(connection),
         Ok(Err(_)) => Err(ProbeError::QueryFailed),
@@ -243,9 +280,32 @@ pub async fn open_read_only(target: &Target, timeout: Duration) -> Result<PgConn
 
 impl BacklogSource for Target {
     async fn measure(&self, timeout: Duration) -> Result<Backlog, ProbeError> {
-        // Stub until the implementation commit.
-        let _ = timeout;
-        Err(ProbeError::QueryFailed)
+        let work = async {
+            let mut connection = open_read_only(self, timeout).await?;
+            let mut transaction = connection
+                .begin_with("BEGIN READ ONLY")
+                .await
+                .map_err(|_| ProbeError::QueryFailed)?;
+            let row: (i64, i64) = sqlx::query_as(BACKLOG_QUERY)
+                .fetch_one(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    match error.as_database_error().and_then(|error| error.code()) {
+                        // query_canceled: the statement timeout fired.
+                        Some(code) if code == "57014" => ProbeError::TimedOut,
+                        _ => ProbeError::QueryFailed,
+                    }
+                })?;
+            let _ = transaction.rollback().await;
+            let _ = connection.close().await;
+            Ok(Backlog {
+                pending_count: row.0,
+                oldest_pending_seconds: row.1,
+            })
+        };
+        tokio::time::timeout(timeout, work)
+            .await
+            .unwrap_or(Err(ProbeError::TimedOut))
     }
 }
 
