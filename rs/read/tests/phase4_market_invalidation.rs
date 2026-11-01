@@ -490,7 +490,10 @@ async fn rejection_restores_both_linked_sides_and_releases_only_terminal_stock()
                     .collect();
                 assert_eq!(order_audits.len(), 1);
                 assert_eq!(order_audits[0]["action"], action);
-                assert_eq!(order_audits[0]["changes"]["reason"], "organization_rejected");
+                assert_eq!(
+                    order_audits[0]["changes"]["reason"],
+                    "organization_rejected"
+                );
                 let events: Vec<_> = after["watch"]
                     .as_array()
                     .unwrap()
