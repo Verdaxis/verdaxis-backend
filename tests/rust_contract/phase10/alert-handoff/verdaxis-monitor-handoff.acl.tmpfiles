@@ -1,0 +1,11 @@
+# Alert handoff ACLs (plan section 6.4). Apply after verdaxis-monitor.tmpfiles.
+# The dispatcher identity may traverse each producer state directory (no
+# listing), lock each stable journal lock read-only, and read and remove
+# committed entries. Owning-group and other entries stay empty. A new entry
+# inherits the default ACL; the producer also sets its access ACL explicitly.
+a /var/lib/verdaxis-health - - - - u::rwx,u:verdaxis-monitor-alert:--x,g::---,m::--x,o::---
+a /var/lib/verdaxis-health/.health.journal.lock - - - - u::rw-,u:verdaxis-monitor-alert:r--,g::---,m::r--,o::---
+a /var/lib/verdaxis-health/alert-handoff - - - - u::rwx,u:verdaxis-monitor-alert:rwx,g::---,m::rwx,o::---,d:u::rwx,d:u:verdaxis-monitor-alert:r--,d:g::---,d:m::r--,d:o::---
+a /var/lib/verdaxis-backup-verify - - - - u::rwx,u:verdaxis-monitor-alert:--x,g::---,m::--x,o::---
+a /var/lib/verdaxis-backup-verify/.backup.journal.lock - - - - u::rw-,u:verdaxis-monitor-alert:r--,g::---,m::r--,o::---
+a /var/lib/verdaxis-backup-verify/alert-handoff - - - - u::rwx,u:verdaxis-monitor-alert:rwx,g::---,m::rwx,o::---,d:u::rwx,d:u:verdaxis-monitor-alert:r--,d:g::---,d:m::r--,d:o::---

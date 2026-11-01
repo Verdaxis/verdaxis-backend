@@ -253,6 +253,8 @@ fn outcome(result: &Result<PruneReport, Exit>) -> &'static str {
         Err(Exit::Precondition) => "precondition_refused",
         Err(Exit::Dependency) => "dependency_unavailable",
         Err(Exit::Ambiguous) => "ambiguous",
+        // Only `monitor outbox` uses this code; the prune never returns it.
+        Err(Exit::Breached) => "unexpected_exit",
         Err(Exit::Ok) => "pruned",
     }
 }

@@ -57,6 +57,9 @@ where
 #[repr(i32)]
 pub enum Exit {
     Ok = 0,
+    /// `monitor outbox` only: a backlog threshold is breached. The external
+    /// monitor reads exit 1 as a breach, as with the Python probe.
+    Breached = 1,
     Usage = 2,
     Precondition = 3,
     Dependency = 4,
@@ -195,8 +198,30 @@ pub struct MonitorArgs {
     pub release_sha: Option<String>,
     #[arg(long, conflicts_with = "remind")]
     pub event: Option<String>,
-    #[arg(long, value_parser = ["all"], conflicts_with = "event")]
+    #[arg(long, value_parser = ["all", "health", "backup"], conflicts_with = "event")]
     pub remind: Option<String>,
+    /// `monitor alert`: an operator's finding for an uncertain send,
+    /// `<check>:<sequence>:<destination>:<delivered|not-delivered>`.
+    #[arg(long)]
+    pub reconcile: Option<String>,
+    /// `monitor alert`: new attempts for an exhausted head, `<check>:<sequence>`.
+    #[arg(long)]
+    pub rearm: Option<String>,
+    /// `monitor alert`: hand a drained check back to the Python dispatcher.
+    #[arg(long)]
+    pub release: Option<String>,
+    /// `monitor outbox`: the read-only libpq DSN (never printed).
+    #[arg(long)]
+    pub dsn: Option<String>,
+    /// `monitor outbox`: breach above this many unsequenced rows.
+    #[arg(long, allow_negative_numbers = true)]
+    pub max_pending: Option<i64>,
+    /// `monitor outbox`: breach above this age of the oldest unsequenced row.
+    #[arg(long, allow_negative_numbers = true)]
+    pub max_age_seconds: Option<i64>,
+    /// `monitor outbox`: the query deadline in seconds (1 to 20).
+    #[arg(long)]
+    pub query_timeout: Option<u64>,
     #[arg(long)]
     pub telegram_disabled: bool,
     /// `monitor onboarding`: the alert state file.
@@ -447,8 +472,16 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
                 bootstrap: args.bootstrap,
                 show_emails: args.show_emails,
                 telegram_disabled: args.telegram_disabled,
-                // `--event` and `--remind` belong to `monitor alert`.
-                other_monitor_flags: args.event.is_some() || args.remind.is_some(),
+                // These flags belong to `monitor alert` and `monitor outbox`.
+                other_monitor_flags: args.event.is_some()
+                    || args.remind.is_some()
+                    || args.reconcile.is_some()
+                    || args.rearm.is_some()
+                    || args.release.is_some()
+                    || args.dsn.is_some()
+                    || args.max_pending.is_some()
+                    || args.max_age_seconds.is_some()
+                    || args.query_timeout.is_some(),
             })
             .await
         }
@@ -457,6 +490,12 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         }
         Command::Monitor(args) if args.kind == MonitorKind::BackupVerify => {
             run_local_monitor(&args, monitors::backup::run_default)
+        }
+        Command::Monitor(args) if args.kind == MonitorKind::Alert => {
+            monitors::alert::run_command(&args).await
+        }
+        Command::Monitor(args) if args.kind == MonitorKind::Outbox => {
+            monitors::outbox::run_command(&args).await
         }
         Command::Monitor(args) if args.uses_onboarding_flags() => {
             // A flag another monitor does not read is refused, never ignored.
