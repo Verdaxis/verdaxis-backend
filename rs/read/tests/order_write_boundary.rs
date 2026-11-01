@@ -502,6 +502,14 @@ const BUSINESS_EXPORTS: &[&str] = &[
     "rebuild_live_slice_benchmarks_for_keys",
 ];
 
+// The individual market scope for account offboarding: the same borrowed,
+// completion-free contract as `invalidate_organization`, scoped to one person.
+const USER_SCOPE_EXPORTS: &[&str] = &["InvalidateUser", "invalidate_user"];
+
+fn business_export(name: &str) -> bool {
+    BUSINESS_EXPORTS.contains(&name) || USER_SCOPE_EXPORTS.contains(&name)
+}
+
 fn rust_tokens(text: &str) -> Vec<String> {
     let literals = literal_ranges(text);
     let bytes = text.as_bytes();
@@ -590,10 +598,7 @@ fn boundary_reference_allowed(text: &str, test_path: bool) -> bool {
                         return false;
                     }
                     cursor += 1;
-                    if !tokens
-                        .get(cursor)
-                        .is_some_and(|name| BUSINESS_EXPORTS.contains(&name.as_str()))
-                    {
+                    if !tokens.get(cursor).is_some_and(|name| business_export(name)) {
                         return false;
                     }
                 }
@@ -626,7 +631,7 @@ fn boundary_reference_allowed(text: &str, test_path: bool) -> bool {
                     // The test-only lock helpers may be named from a test file;
                     // a production file reaches this branch with `test_path`
                     // false, so only the CF4_04 exports pass there.
-                    let allowed = BUSINESS_EXPORTS.contains(&token.as_str())
+                    let allowed = business_export(token)
                         || (test_path && TEST_LOCK_HELPERS.contains(&token.as_str()));
                     if !allowed {
                         return false;
@@ -653,7 +658,7 @@ fn boundary_reference_allowed(text: &str, test_path: bool) -> bool {
             if tokens.get(cursor).map(String::as_str) != Some("}") {
                 return false;
             }
-        } else if !(BUSINESS_EXPORTS.contains(&item.as_str())
+        } else if !(business_export(item)
             || (test_path && TEST_LOCK_HELPERS.contains(&item.as_str())))
             || tokens.get(index + 3).map(String::as_str) == Some("::")
         {
@@ -685,6 +690,14 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
     );
     assert!(boundary_reference_allowed(
         "crate::order_write::invalidate_organization(conn, command)",
+        false
+    ));
+    assert!(boundary_reference_allowed(
+        "use crate::order_write::{InvalidateUser, InvalidationError, invalidate_user};",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateUser, execute_order_command};",
         false
     ));
     assert!(!boundary_reference_allowed(
