@@ -593,7 +593,9 @@ async fn moved_actor_authority_precedes_linked_resource_consistency() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn authorized_recorded_user_meets_the_inventory_consistency_refusal() {
-    for action in ["confirm", "decline", "deliver", "pay"] {
+    // Only confirm and decline lock and read the linked inventory; settlement
+    // actions check the market slice and never touch stock.
+    for action in ["confirm", "decline"] {
         let mut f = Fixture::new().await;
         prepare_for(&mut f, action).await;
         sqlx::query("SELECT membership_fixture_inconsistent($1,'inventory')")
