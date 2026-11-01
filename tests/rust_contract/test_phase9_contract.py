@@ -107,7 +107,7 @@ def validate_requirements(ledger):
     assert all(by_route[route]["response"]["status"] == 200 for route in ("O2", "I5", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "M1", "M2", "F2", "F3"))
     assert by_route["F1"]["response"]["statuses"] == [201, 200]
     assert DEMO_FREEZE_REFUSAL in by_route["F1"]["refusals"]
-    assert by_route["F1"]["scenarios"]["demo_trade"] == DEMO_FREEZE_SCENARIO
+    assert by_route["F1"]["scenarios"].get("demo_trade") == DEMO_FREEZE_SCENARIO
     assert by_route["I5"]["response"]["fields"] == {"status": "published", "listing_id": "UUID"}
     assert by_route["T2"]["response"]["empty"] == {
         "total_count": 0, "action_required_count": 0,
@@ -286,6 +286,10 @@ def test_phase9_ledger_requires_each_contract_family(change):
             del freeze["scenarios"]["demo_trade"]
     with pytest.raises(AssertionError):
         validate_requirements(ledger)
+
+
+def test_producer_identity_literal_is_not_a_transport():
+    assert transport_calls('pub const LEGACY_PRODUCER: &str = "legacy-python";') == []
 
 
 @pytest.mark.parametrize("source", [
