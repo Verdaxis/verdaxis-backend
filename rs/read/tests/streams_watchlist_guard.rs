@@ -2,8 +2,9 @@
 //!
 //! The stream transport carries committed market events. It never writes
 //! watchlist events. The feed and the counts apply one admission rule: a
-//! `SLICE_BEST_PRICE_MOVED` row is hidden unless the trusted producer wrote it
-//! and attested it at or after the recorded activation, so the rows stored
+//! `SLICE_BEST_PRICE_MOVED` or `SLICE_WENT_QUIET` row is hidden unless the
+//! trusted producer wrote it and attested it at or after the recorded
+//! activation, so the rows stored
 //! here, which carry no producer identity, stay hidden whatever the activation
 //! value; and a row whose source order or pinned order is outside the current
 //! public order scope is hidden too. The rule applies before feed pagination
@@ -811,11 +812,11 @@ async fn guard_precedes_pagination_and_counts() {
         true,
     )
     .await;
-    let quiet = insert_event(
+    let benchmark = insert_event(
         &mut fixture,
         &watch,
         watch.spot_slice,
-        "SLICE_WENT_QUIET",
+        "SLICE_BENCHMARK_MOVED",
         None,
         at(2),
         true,
@@ -857,7 +858,7 @@ async fn guard_precedes_pagination_and_counts() {
     )
     .await
     .expect("the second page");
-    assert_eq!(ids(&second.items), vec![quiet]);
+    assert_eq!(ids(&second.items), vec![benchmark]);
     assert_eq!(second.next_cursor, None);
 
     let summary = summary_at(&mut app, &market, &watch, &scope, admission).await;
@@ -924,7 +925,8 @@ async fn watchlist_feed_metrics_contract() {
             false,
         ),
         (8, watch.later_slice, BEST_PRICE, None, true, false),
-        (9, watch.spot_slice, "SLICE_WENT_QUIET", None, true, true),
+        // Went-quiet rows, like best-price rows, need the trusted producer.
+        (9, watch.spot_slice, "SLICE_WENT_QUIET", None, true, false),
     ] {
         let id = insert_event(
             &mut fixture,

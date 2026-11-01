@@ -1,11 +1,12 @@
 //! Task 15: the watchlist event feed (W07) and read state (W08).
 //!
 //! The cursor grammar, query bounds and the payload projection run without a
-//! database. The admission rule is one SQL relation, so its cases need a
-//! database: the PostgreSQL module below and `market_write_pg_producer_visibility`. The feed order, guard-before-limit pagination,
-//! committed read state and the missing-target path need disposable PostgreSQL;
-//! they provision their own fixture schema and skip when it is absent, so an
-//! offline `cargo test --workspace` stays green.
+//! database. The admission rule is one SQL relation, so its cases need one:
+//! the PostgreSQL module below and `market_write_pg_producer_visibility`. The
+//! feed order, guard-before-limit pagination, committed read state and the
+//! missing-target path need disposable PostgreSQL; they provision their own
+//! fixture schema and skip when it is absent, so an offline
+//! `cargo test --workspace` stays green.
 
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Map, Value, json};

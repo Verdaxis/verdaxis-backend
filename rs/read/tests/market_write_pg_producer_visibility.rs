@@ -1,11 +1,12 @@
 //! Watchlist event admission: one trusted-source rule for the feed, the
 //! acknowledgement and the container counts.
 //!
-//! A best-price row is admitted only when the trusted producer wrote it and
-//! attested its scope at or after the activation instant the release
-//! recorded; rows of any other producer stay hidden for that class. Every
-//! class still needs a public source order and, for a PIN, a public pinned
-//! order. The three surfaces must give the same answer for every row.
+//! A best-price or went-quiet row is admitted only when the trusted producer
+//! wrote it and attested its scope at or after the activation instant the
+//! release recorded; rows of any other producer stay hidden for those classes.
+//! A row that names a source order needs that order public, except a
+//! went-quiet row, which names the order that just ended. A PIN needs a public
+//! pinned order. The three surfaces must give the same answer for every row.
 //!
 //! The source rules run in every build. The database cases need a migrated
 //! disposable template (`RUST_PRODUCER_*`); each case clones its own database.
@@ -131,7 +132,7 @@ fn trusted_identity_is_read_only_by_admission_and_written_only_by_the_producer()
 
 /// The feed, the acknowledgement read and its update, and the counts each
 /// embed the one relation. No other watchlist source spells the guarded
-/// class or the trusted identity, so no second predicate can drift, and the
+/// classes or the trusted identity, so no second predicate can drift, and the
 /// handlers cannot build an admission of their own: the settings build the
 /// only one, from the release value, with no fixed instant in its place.
 #[test]
@@ -156,7 +157,7 @@ fn feed_acknowledgement_and_metrics_share_one_relation() {
             "{name} keeps a second visibility predicate"
         );
         if name.starts_with("src/crud/watchlists/") && name != "src/crud/watchlists/admission.rs" {
-            for literal in [BEST_PRICE, "rust-market-v1"] {
+            for literal in [BEST_PRICE, "SLICE_WENT_QUIET", "rust-market-v1"] {
                 assert!(!text.contains(literal), "{name} spells `{literal}`");
             }
         }
@@ -655,15 +656,16 @@ async fn event_visible_agrees_across_feed_acknowledgement_and_metrics() {
                 true,
                 true,
             ),
+            // A went-quiet row names the order that just ended.
             (
                 spot,
                 "SLICE_WENT_QUIET",
-                None,
+                closed,
                 true,
                 Some(a + Duration::hours(1)),
                 None,
                 true,
-                true,
+                false,
             ),
             (
                 later,
@@ -930,8 +932,8 @@ async fn hidden_rows_do_not_shorten_a_visible_page() {
 
 /// Trusted rows that name an order follow that order's current public scope:
 /// when it leaves the scope, the feed, the counts and the acknowledgement all
-/// refuse them. A trusted best-price row names no order, so its attestation
-/// and the activation decide alone and it stays visible.
+/// refuse them. A trusted best-price row that names no order is decided by its
+/// attestation and the activation alone, so it stays visible.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn order_leaving_the_public_scope_hides_the_trusted_event() {
@@ -1013,6 +1015,64 @@ async fn order_leaving_the_public_scope_hides_the_trusted_event() {
             .expect("the best-price row stays acknowledgeable")
             .is_some()
     );
+}
+
+/// A went-quiet row names the order that just ended, which is never public
+/// again, so the order rule does not apply to this class. Instead the trusted
+/// producer's attestation at or after the activation admits it: a realistic
+/// trusted row is listed, counted and acknowledged, while untrusted rows (with
+/// or without an order) and a row attested before the activation stay hidden,
+/// and with no recorded activation every went-quiet row stays hidden.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn went_quiet_rows_need_trusted_attestation_after_activation() {
+    let mut f = Fixture::new().await;
+    let a = activation();
+    let ended = Some(f.closed_order);
+    let at = a + Duration::seconds(1);
+    let trusted = f
+        .event(f.spot_slice, "SLICE_WENT_QUIET", ended, at, Some(at))
+        .await;
+    let mut hidden = Vec::new();
+    for (source, created, trust) in [
+        (ended, at + Duration::seconds(1), None),
+        (None, at + Duration::seconds(2), None),
+        (
+            ended,
+            at + Duration::seconds(3),
+            Some(a - Duration::microseconds(1)),
+        ),
+    ] {
+        hidden.push(
+            f.event(f.spot_slice, "SLICE_WENT_QUIET", source, created, trust)
+                .await,
+        );
+    }
+    let scope = f.scope().await;
+    let before = f.rows().await;
+
+    assert!(f.feed(&scope, unrecorded(), 20).await.is_empty());
+    let summary = f.summary(&scope, unrecorded()).await;
+    f.assert_counts(&summary, &[]);
+    for id in hidden.iter().chain([&trusted]) {
+        assert_eq!(f.acknowledge(&scope, unrecorded(), *id).await.err(), Some(404));
+    }
+    assert_eq!(f.rows().await, before, "refusals write nothing");
+
+    let feed = f.feed(&scope, recorded(), 20).await;
+    assert_eq!(ids(&feed), vec![trusted]);
+    let summary = f.summary(&scope, recorded()).await;
+    f.assert_counts(&summary, &[(f.spot_slice, false, at)]);
+    for id in &hidden {
+        assert_eq!(f.acknowledge(&scope, recorded(), *id).await.err(), Some(404));
+    }
+    assert_eq!(f.rows().await, before, "refusals write nothing");
+    let acknowledged = f
+        .acknowledge(&scope, recorded(), trusted)
+        .await
+        .expect("the trusted row can be acknowledged")
+        .expect("its target exists");
+    assert!(acknowledged.is_read);
 }
 
 // -------------------------------------------------------------- served routes
