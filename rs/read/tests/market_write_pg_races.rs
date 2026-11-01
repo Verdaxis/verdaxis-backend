@@ -102,6 +102,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_seed("SELECT races_seed()").await
+    }
+    async fn with_seed(seed: &str) -> Self {
         let database = market_database::MarketDatabase::new("RUST_RACES").await;
         let admin_url = database.admin_url.clone();
         let runtime_url = database.runtime_url.clone();
@@ -131,7 +134,7 @@ impl Fixture {
         ] {
             sqlx::raw_sql(source).execute(&mut admin).await.unwrap();
         }
-        sqlx::query("SELECT races_seed()")
+        sqlx::query(sqlx::AssertSqlSafe(seed.to_owned()))
             .execute(&mut admin)
             .await
             .unwrap();
@@ -1392,11 +1395,7 @@ async fn rejection_and_confirmation_observe_current_admission() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn revoke_and_assisted_create_serialize_authority() {
     for create_first in [false, true] {
-        let mut f = Fixture::new().await;
-        sqlx::query("SELECT create_fixture_seed(0)")
-            .execute(&mut f.admin)
-            .await
-            .unwrap();
+        let mut f = Fixture::with_seed("SELECT create_fixture_seed(0)").await;
         let mut create = f.create("200", "90").keyed("assisted");
         create.actor = 0x3001;
         create.body["support_confirmation"] = json!({"external_instruction_reference":"Customer instruction","instruction_at":(chrono::Utc::now()-chrono::Duration::minutes(5)).to_rfc3339(),"evidence_excerpt":"Authorized standing order","acknowledge_exact_terms":true,"acknowledge_executable_standing_order":true});
