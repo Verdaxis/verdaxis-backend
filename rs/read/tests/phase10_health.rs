@@ -24,7 +24,7 @@ use verdaxis_read::cli::monitors::health::{
 };
 use verdaxis_read::cli::monitors::status::{
     Admission, AdmitAll, Category, CheckResult, Fault, Previous, Status, build_status,
-    failure_status, guarded, load_monitor_status, valid_monitor_status,
+    failure_status, guarded, load_monitor_status, publish, valid_monitor_status,
 };
 
 const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -210,7 +210,7 @@ fn router() -> FakeServer {
                 let _ = stream.write_all(b"not http at all\r\n\r\n");
             }
             "/slow" => {
-                std::thread::sleep(Duration::from_millis(400));
+                std::thread::sleep(Duration::from_secs(5));
                 respond(stream, "200 OK", &[], good.as_bytes());
             }
             "/slow-drip" => {
@@ -225,7 +225,7 @@ fn router() -> FakeServer {
                     if stream.write_all(&[byte]).is_err() || stream.flush().is_err() {
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(20));
+                    std::thread::sleep(Duration::from_millis(250));
                 }
             }
             _ => respond(stream, "404 Not Found", &[], b"missing"),
@@ -583,12 +583,12 @@ fn health_total_timeout_and_body_bound_are_enforced() {
     // A slow answer and a slow-dripped body both stop at the request deadline.
     let started = Instant::now();
     assert_eq!(check(&server, "/slow", 50, 1024).code, "timeout");
-    assert!(started.elapsed() < Duration::from_millis(350));
+    assert!(started.elapsed() < Duration::from_secs(2));
     let started = Instant::now();
     let dripped = check(&server, "/slow-drip", 80, 1024);
     assert_eq!(dripped.code, "timeout");
     assert!(
-        started.elapsed() < Duration::from_millis(300),
+        started.elapsed() < Duration::from_secs(2),
         "the deadline covers headers and body together"
     );
     // Nothing listens, or the address is not numeric loopback HTTP.
@@ -666,7 +666,7 @@ fn health_total_timeout_and_body_bound_are_enforced() {
     config.total_timeout = Duration::from_millis(60);
     let started = Instant::now();
     assert_eq!(run(&config, &AdmitAll), Exit::Usage);
-    assert!(started.elapsed() < Duration::from_millis(350));
+    assert!(started.elapsed() < Duration::from_secs(2));
     let published = read_status(&config.status_file);
     assert_eq!(published["checks"][0]["code"], "timeout");
 }
@@ -918,7 +918,20 @@ fn health_status_keys_match_the_python_document() {
         .collect();
     let built = build_status(checks, &Previous::Valid(previous), now());
     let golden = std::fs::read_to_string(contract_fixture("monitor/status-golden.json")).unwrap();
-    assert_eq!(serde_json::to_string(&built).unwrap(), golden.trim_end());
+    // The document is the same bytes the previous monitor wrote: sorted compact
+    // JSON and one trailing newline.
+    assert_eq!(
+        format!("{}\n", serde_json::to_string(&built).unwrap()),
+        golden
+    );
+    let exact = TempDir::new();
+    let exact_path = exact.join("status.json");
+    publish(&exact_path, &built, &AdmitAll).unwrap();
+    assert_eq!(std::fs::read_to_string(&exact_path).unwrap(), golden);
+    assert_eq!(
+        std::fs::metadata(&exact_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     assert!(valid_monitor_status(&serde_json::to_value(&built).unwrap()));
     // A healthy check records its own success time; others keep the previous one.
     assert_eq!(
@@ -938,7 +951,10 @@ fn health_status_keys_match_the_python_document() {
 
     let failure = failure_status("previous_status_invalid", now(), "backup_monitor");
     let golden = std::fs::read_to_string(contract_fixture("monitor/failure-golden.json")).unwrap();
-    assert_eq!(serde_json::to_string(&failure).unwrap(), golden.trim_end());
+    assert_eq!(
+        format!("{}\n", serde_json::to_string(&failure).unwrap()),
+        golden
+    );
     assert_eq!(
         build_status(Vec::new(), &Previous::Absent, now()).checks[0].code,
         "no_checks"

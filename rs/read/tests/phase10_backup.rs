@@ -835,6 +835,49 @@ fn backup_missing_empty_and_corrupt_gzip_artifacts_fail() {
     );
 }
 
+/// Damage inside a well-formed gzip file is caught from the stream itself: the
+/// deflate data, the CRC-32 and the length trailer each have their own check.
+#[test]
+fn backup_gzip_body_checksum_and_trailer_damage_are_invalid() {
+    let good = gzip(&dump());
+    let header_bytes = 10;
+    assert!(good.len() > header_bytes + 8 + 4);
+    let damage: Vec<(&str, Vec<u8>)> = vec![
+        ("corrupt deflate body", {
+            let mut bytes = good.clone();
+            bytes[header_bytes + 2] ^= 0xff;
+            bytes
+        }),
+        ("wrong CRC-32", {
+            let mut bytes = good.clone();
+            let crc = bytes.len() - 8;
+            bytes[crc] ^= 0xff;
+            bytes
+        }),
+        ("wrong length field", {
+            let mut bytes = good.clone();
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0x01;
+            bytes
+        }),
+        ("cut trailer", good[..good.len() - 4].to_vec()),
+        ("trailer missing", good[..good.len() - 8].to_vec()),
+    ];
+    for (label, bytes) in damage {
+        let scratch = fixture();
+        let path = artifact(scratch.path(), "umami");
+        std::fs::write(&path, &bytes).unwrap();
+        set_time(&path, completed());
+        let results = verify(scratch.path());
+        let umami = results.iter().find(|r| r.name == "umami_artifact").unwrap();
+        assert_eq!(
+            (umami.category, umami.code.as_str()),
+            (Category::Failure, "gzip_invalid"),
+            "{label}"
+        );
+    }
+}
+
 #[test]
 fn backup_valid_gzip_without_a_plausible_dump_fails() {
     let marker_only = b"-- PostgreSQL database dump\n".to_vec();
