@@ -731,68 +731,77 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
     let take_router = contract_router(take_pool.clone(), KEY, true);
     let cancel_router =
         verdaxis_read::routes::market_write::orders::contract_router(cancel_pool.clone(), KEY);
-    let mut blocker = f.admin.begin().await.unwrap();
-    let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *blocker)
-        .await
-        .unwrap();
-    sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
-        .bind(id(0x2000))
-        .execute(&mut *blocker)
-        .await
-        .unwrap();
-    let held_at = std::time::Instant::now();
-    let take = tokio::spawn(async move {
-        send(
-            &take_router,
-            "POST",
-            "/api/trades/",
-            Some(BUYER),
-            &[],
-            Some(json!({"order_id":id(ORDER),"quantity_mt":"3","expected_terms_digest":digest})),
-        )
-        .await
-    });
-    let cancel = tokio::spawn(async move {
-        let now = chrono::Utc::now().timestamp();
-        let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
-        cancel_router
-            .oneshot(
-                Request::builder()
-                    .method("DELETE")
-                    .uri(format!("/api/orderbook/{}", id(ORDER)))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Body::empty())
-                    .unwrap(),
+    // Both commands must queue behind the held party row inside one snapshot.
+    // A command stops waiting at the 500 ms command lock timeout, counted from
+    // its own start of waiting, so the holder never uses a fixed pause: it polls
+    // the activity view until both waits show and releases at once. On a loaded
+    // host one command can reach its timeout before the other queues; then the
+    // holder stays until both commands have refused, which writes nothing, and
+    // the attempt repeats.
+    const MAX_ATTEMPTS: usize = 3;
+    let mut outcome = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        let mut blocker = f.admin.begin().await.unwrap();
+        let holder: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await
+            .unwrap();
+        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+            .bind(id(0x2000))
+            .execute(&mut *blocker)
+            .await
+            .unwrap();
+        let take_router = take_router.clone();
+        let cancel_router = cancel_router.clone();
+        let digest = digest.clone();
+        let take = tokio::spawn(async move {
+            send(
+                &take_router,
+                "POST",
+                "/api/trades/",
+                Some(BUYER),
+                &[],
+                Some(
+                    json!({"order_id":id(ORDER),"quantity_mt":"3","expected_terms_digest":digest}),
+                ),
             )
             .await
-            .unwrap()
-            .status()
-    });
-    let observed = tokio::time::timeout(std::time::Duration::from_millis(300), async {
-        loop {
-            // A queued row-lock waiter can block on the other owner. Follow that
-            // chain to the held transaction in the same activity snapshot.
-            let waiting: Vec<(i32, String)> = sqlx::query_as("WITH RECURSIVE blocked AS (SELECT pid,application_name,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'), chain AS (SELECT pid,application_name,unnest(blockers) AS blocker FROM blocked UNION SELECT c.pid,c.application_name,unnest(b.blockers) FROM chain c JOIN blocked b ON b.pid=c.blocker) SELECT DISTINCT pid,application_name FROM chain WHERE blocker=$1 AND application_name IN ('trade-take-owner','trade-cancel-owner') ORDER BY application_name")
-                .bind(holder).fetch_all(&mut observer).await.unwrap();
-            if waiting.len() == 2 && waiting[0].0 != waiting[1].0
-                && waiting[0].1 == "trade-cancel-owner" && waiting[1].1 == "trade-take-owner" {
-                break waiting;
-            }
-            tokio::task::yield_now().await;
+        });
+        let cancel = tokio::spawn(async move {
+            let now = chrono::Utc::now().timestamp();
+            let token=encode(&Header::default(),&json!({"sub":id(SELLER),"type":"access","iat":now,"exp":now+600,"iss":"cancel-tests","aud":"cancel-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();
+            cancel_router
+                .oneshot(
+                    Request::builder()
+                        .method("DELETE")
+                        .uri(format!("/api/orderbook/{}", id(ORDER)))
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+        });
+        let both_queued = both_commands_queue_behind(&mut observer, holder, &take, &cancel).await;
+        if both_queued {
+            blocker.commit().await.unwrap();
+            outcome = Some((take.await.unwrap(), cancel.await.unwrap()));
+            break;
         }
-    }).await;
-    blocker.commit().await.unwrap();
-    assert!(
-        held_at.elapsed() < std::time::Duration::from_millis(400),
-        "prefix hold must stay below the command lock timeout"
-    );
-    assert!(
-        observed.is_ok(),
-        "both named command backends must wait on the same holder in one snapshot"
-    );
-    let take = take.await.unwrap();
-    let cancel = cancel.await.unwrap();
+        let lapsed = (take.await.unwrap(), cancel.await.unwrap());
+        blocker.rollback().await.unwrap();
+        assert_eq!(
+            (lapsed.0.0, lapsed.1),
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                StatusCode::SERVICE_UNAVAILABLE
+            ),
+            "attempt {attempt}: a command that stops waiting must refuse without writing: {lapsed:?}"
+        );
+        assert_eq!(f.state().await["trades"], 0);
+    }
+    let (take, cancel) = outcome.expect("both commands never queued together in three attempts");
     assert!(matches!(take.0.as_u16(), 200 | 400 | 409 | 503), "{take:?}");
     assert!(matches!(cancel.as_u16(), 204 | 409 | 503));
     let state = f.state().await;
@@ -807,6 +816,43 @@ async fn independent_take_and_cancel_serialize_on_the_held_party_prefix() {
         assert_eq!(reserved, rust_decimal::Decimal::from(3 * pending));
     } else {
         assert_eq!(reserved, rust_decimal::Decimal::from(10));
+    }
+}
+
+/// Polls the activity view until the take and cancel commands both wait,
+/// directly or through the other, on the held transaction. It returns false as
+/// soon as either command has finished while the holder is still held: that
+/// command reached the lock timeout before the other one queued.
+async fn both_commands_queue_behind(
+    observer: &mut PgConnection,
+    holder: i32,
+    take: &tokio::task::JoinHandle<(StatusCode, Value)>,
+    cancel: &tokio::task::JoinHandle<StatusCode>,
+) -> bool {
+    // The limit only ends a hung run; each command ends its own wait at the lock timeout.
+    const OBSERVATION_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(5);
+    let started = std::time::Instant::now();
+    loop {
+        if take.is_finished() || cancel.is_finished() {
+            return false;
+        }
+        // A queued row-lock waiter can block on the other owner. Follow that
+        // chain to the held transaction in the same activity snapshot.
+        let waiting: Vec<(i32, String)> = sqlx::query_as("WITH RECURSIVE blocked AS (SELECT pid,application_name,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'), chain AS (SELECT pid,application_name,unnest(blockers) AS blocker FROM blocked UNION SELECT c.pid,c.application_name,unnest(b.blockers) FROM chain c JOIN blocked b ON b.pid=c.blocker) SELECT DISTINCT pid,application_name FROM chain WHERE blocker=$1 AND application_name IN ('trade-take-owner','trade-cancel-owner') ORDER BY application_name")
+            .bind(holder).fetch_all(&mut *observer).await.unwrap();
+        if waiting.len() == 2
+            && waiting[0].0 != waiting[1].0
+            && waiting[0].1 == "trade-cancel-owner"
+            && waiting[1].1 == "trade-take-owner"
+        {
+            return true;
+        }
+        assert!(
+            started.elapsed() < OBSERVATION_LIMIT,
+            "no command queued behind the holder"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
     }
 }
 
