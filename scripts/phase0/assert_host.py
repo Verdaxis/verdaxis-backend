@@ -166,6 +166,24 @@ def stopped_units() -> None:
         ]))
 
 
+# The release metadata deploy.sh writes: the three identity keys, then either
+# nothing or exactly the two watchlist producer keys, in this order.
+PRODUCER_LINES = re.compile(
+    r"WATCHLIST_EVENT_PRODUCER=(legacy-python|rust-market-v1)\n"
+    r"WATCHLIST_PRODUCER_ACTIVATED_AT=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})\n"
+)
+
+
+def release_identity_matches(text: str, identity: str, revision: str) -> bool:
+    """True when `text` is the release metadata of this identity and revision."""
+    base = identity + f"MIGRATION_REVISION={revision}\n"
+    if not text.startswith(base):
+        return False
+    rest = text[len(base):]
+    return rest == "" or PRODUCER_LINES.fullmatch(rest) is not None
+
+
 def verify_tuple(manifest: dict) -> None:
     sha = manifest["release_sha"]
     if re.fullmatch(r"[0-9a-f]{40}", sha) is None:
@@ -186,7 +204,9 @@ def verify_tuple(manifest: dict) -> None:
     if (ROOT / ".runtime-monitor.env").read_text() != identity:
         raise ValueError("Monitor identity differs")
     revision = manifest["identity"]["revision"]
-    if (ROOT / ".runtime-release.env").read_text() != identity + f"MIGRATION_REVISION={revision}\n":
+    if not release_identity_matches(
+        (ROOT / ".runtime-release.env").read_text(), identity, revision
+    ):
         raise ValueError("Runtime identity differs")
     for name, digest in artifacts.items():
         path = Path(name)
