@@ -57,6 +57,22 @@ LANGUAGE sql AS $$
     SELECT count(*) FROM inserted;
 $$;
 
+-- The same rows, inserted from the newest date to the oldest, so that heap
+-- order is the reverse of date order.
+CREATE FUNCTION seed_login_days_newest_first(first_day date, last_day date) RETURNS bigint
+LANGUAGE sql AS $$
+    WITH inserted AS (
+        INSERT INTO user_login_days
+            (id, activity_date, user_id, role, login_count, first_login_at, last_login_at)
+        SELECT gen_random_uuid(), day::date, users.id, 'BUYER', 1,
+               day + interval '8 hours', day + interval '8 hours'
+        FROM generate_series(last_day::timestamp, first_day::timestamp, interval '-1 day') AS day
+        CROSS JOIN users
+        RETURNING 1
+    )
+    SELECT count(*) FROM inserted;
+$$;
+
 -- One transition per user, dated far outside any login-day retention window.
 CREATE FUNCTION seed_status_transitions(effective timestamptz) RETURNS bigint
 LANGUAGE sql AS $$
@@ -81,6 +97,16 @@ BEGIN
     IF nextval('prune_failure_attempts') <= TG_ARGV[0]::bigint THEN
         RAISE EXCEPTION 'injected failure' USING ERRCODE = TG_ARGV[1];
     END IF;
+    RETURN NULL;
+END;
+$$;
+
+-- Statement trigger that makes every delete outlast any run bound.
+CREATE FUNCTION slow_delete() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM nextval('prune_failure_attempts');
+    PERFORM pg_sleep(30);
     RETURN NULL;
 END;
 $$;

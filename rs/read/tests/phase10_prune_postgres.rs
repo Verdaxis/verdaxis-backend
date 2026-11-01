@@ -143,6 +143,21 @@ impl Fixture {
             .expect("seed login days")
     }
 
+    /// Like `seed`, with the rows inserted from the newest date to the oldest.
+    async fn seed_newest_first(&mut self, users: i32, first: NaiveDate, last: NaiveDate) -> i64 {
+        sqlx::query("SELECT seed_users($1)")
+            .bind(users)
+            .execute(&mut self.admin)
+            .await
+            .expect("seed users");
+        sqlx::query_scalar("SELECT seed_login_days_newest_first($1, $2)")
+            .bind(first)
+            .bind(last)
+            .fetch_one(&mut self.admin)
+            .await
+            .expect("seed login days newest first")
+    }
+
     async fn login_ids(&mut self) -> Vec<Uuid> {
         sqlx::query_scalar("SELECT id FROM user_login_days ORDER BY id")
             .fetch_all(&mut self.admin)
@@ -378,8 +393,10 @@ async fn prune_refuses_wrong_environment_or_sha() {
     other_sha.configured_sha = "f".repeat(40);
     let mut uppercase_sha = Invocation::production();
     uppercase_sha.configured_sha = SHA.to_uppercase();
-    let mut abbreviated_sha = Invocation::production();
-    abbreviated_sha.expected_sha = SHA[..7].into();
+    let mut empty_path = Invocation::production();
+    empty_path.deploy_state = PathBuf::new();
+    let mut relative_path = Invocation::production();
+    relative_path.deploy_state = PathBuf::from(".runtime-deploy/production.state");
     let mut expects_staging = Invocation::production();
     expects_staging.expected_environment = Environment::Staging;
     let live_deploy = Invocation::production();
@@ -394,7 +411,8 @@ async fn prune_refuses_wrong_environment_or_sha() {
         ("configured environment differs", &wrong_environment),
         ("configured release differs", &other_sha),
         ("uppercase release", &uppercase_sha),
-        ("abbreviated release", &abbreviated_sha),
+        ("deploy state path is empty", &empty_path),
+        ("deploy state path is relative", &relative_path),
         ("expected environment differs", &expects_staging),
         ("deploy state present", &live_deploy),
         ("deploy state is a dangling link", &dangling_deploy),
@@ -419,6 +437,23 @@ async fn prune_refuses_wrong_environment_or_sha() {
         other_job.execute_default(&idle, now).await,
         Err(Exit::Usage)
     );
+    // The expected release must be a full lowercase SHA, even when the runtime
+    // reports the same malformed value (an empty pair would compare equal).
+    for (label, expected, configured) in [
+        ("abbreviated", SHA[..7].to_owned(), SHA.to_owned()),
+        ("uppercase", SHA.to_uppercase(), SHA.to_uppercase()),
+        ("empty", String::new(), String::new()),
+        ("too long", format!("{SHA}0"), format!("{SHA}0")),
+    ] {
+        let mut malformed = Invocation::production();
+        malformed.expected_sha = expected;
+        malformed.configured_sha = configured;
+        assert_eq!(
+            malformed.execute_default(&idle, now).await,
+            Err(Exit::Usage),
+            "{label} expected release"
+        );
+    }
     assert_eq!(
         idle.size(),
         0,
@@ -513,8 +548,12 @@ async fn prune_is_idempotent_on_the_same_day() {
 async fn prune_deletes_in_bounded_batches_oldest_first() {
     let today = day(2026, 7, 15);
     let mut fixture = Fixture::new().await;
-    // One user: six dates past the window (805 down to 800 dates back).
-    fixture.seed(1, today - TimeDelta::days(805), today).await;
+    // One user: six dates past the window (805 down to 800 dates back). The
+    // rows are inserted newest date first, so only an explicit ordering removes
+    // the oldest dates first.
+    fixture
+        .seed_newest_first(1, today - TimeDelta::days(805), today)
+        .await;
     let pool = production_pool(&fixture);
     let invocation = Invocation::production();
     let now = instant(today, 12, 0);
@@ -522,6 +561,7 @@ async fn prune_deletes_in_bounded_batches_oldest_first() {
         batch_rows: 2,
         max_batches: 2,
         deadline: Duration::from_secs(60),
+        ..PruneLimits::default()
     };
 
     let first = invocation
@@ -560,6 +600,7 @@ async fn prune_deletes_in_bounded_batches_oldest_first() {
                 batch_rows: 2,
                 max_batches: 10,
                 deadline: Duration::ZERO,
+                ..PruneLimits::default()
             },
         )
         .await
@@ -754,5 +795,87 @@ async fn context_entry_prunes_and_reports_success() {
 
     assert_eq!(exit, Exit::Ok);
     assert_eq!(fixture.login_count().await, 800);
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn delete_gives_up_when_a_table_lock_is_held() {
+    let today = day(2026, 7, 15);
+    let mut fixture = Fixture::new().await;
+    fixture.seed(1, today - TimeDelta::days(805), today).await;
+    let pool = production_pool(&fixture);
+    let invocation = Invocation::production();
+    let now = instant(today, 12, 0);
+    let impatient = PruneLimits {
+        lock_timeout: Duration::from_millis(500),
+        ..PruneLimits::default()
+    };
+
+    // A schema change holds the table exclusively.
+    let mut holder = fixture.second_connection().await;
+    sqlx::query("BEGIN")
+        .execute(&mut holder)
+        .await
+        .expect("begin");
+    sqlx::query("LOCK TABLE user_login_days IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut holder)
+        .await
+        .expect("lock the table");
+
+    let started = std::time::Instant::now();
+    let refused = tokio::time::timeout(
+        Duration::from_secs(30),
+        invocation.execute(&pool, now, impatient),
+    )
+    .await
+    .expect("the delete does not wait for the lock without bound");
+    assert_eq!(refused, Err(Exit::Dependency));
+    assert!(started.elapsed() < Duration::from_secs(15));
+
+    sqlx::query("ROLLBACK")
+        .execute(&mut holder)
+        .await
+        .expect("release the lock");
+    assert_eq!(fixture.login_count().await, 806, "nothing was deleted");
+    // The refusal leaves the pooled connection usable: a rerun prunes.
+    let rerun = invocation
+        .execute(&pool, now, impatient)
+        .await
+        .expect("rerun after release");
+    assert_eq!(rerun.deleted, 6);
+    fixture.finish().await;
+}
+
+#[tokio::test]
+async fn delete_stops_at_the_run_deadline() {
+    let today = day(2026, 7, 15);
+    let mut fixture = Fixture::new().await;
+    fixture.seed(1, today - TimeDelta::days(805), today).await;
+    // Every delete statement sleeps far longer than the run allows.
+    sqlx::raw_sql(
+        "CREATE TRIGGER slow_before_delete BEFORE DELETE ON user_login_days
+         FOR EACH STATEMENT EXECUTE FUNCTION slow_delete()",
+    )
+    .execute(&mut fixture.admin)
+    .await
+    .expect("install the slow trigger");
+    let pool = production_pool(&fixture);
+    let short_run = PruneLimits {
+        deadline: Duration::from_secs(1),
+        ..PruneLimits::default()
+    };
+
+    let started = std::time::Instant::now();
+    let result = Invocation::production()
+        .execute(&pool, instant(today, 12, 0), short_run)
+        .await;
+
+    assert_eq!(result, Err(Exit::Dependency));
+    assert!(
+        started.elapsed() < Duration::from_secs(15),
+        "the statement timeout, not the trigger, ended the delete"
+    );
+    assert_eq!(attempts(&mut fixture).await, 1, "a timeout is not retried");
+    assert_eq!(fixture.login_count().await, 806);
     fixture.finish().await;
 }

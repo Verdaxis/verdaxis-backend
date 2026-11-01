@@ -32,6 +32,10 @@ pub const DEFAULT_MAX_BATCHES: u32 = 200;
 /// finish; the margin covers the statement already in flight.
 pub const DEFAULT_RUN_DEADLINE: Duration = Duration::from_secs(240);
 
+/// How long one delete waits for a table or row lock before it gives up. This is
+/// the application's own lock timeout (`DB_LOCK_TIMEOUT_MS`).
+pub const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// SQLSTATE classes a delete may retry: serialization failure and deadlock.
 const RETRYABLE_SQLSTATES: [&str; 2] = ["40001", "40P01"];
 
@@ -55,6 +59,7 @@ pub struct PruneLimits {
     pub batch_rows: i64,
     pub max_batches: u32,
     pub deadline: Duration,
+    pub lock_timeout: Duration,
 }
 
 impl Default for PruneLimits {
@@ -63,6 +68,7 @@ impl Default for PruneLimits {
             batch_rows: DEFAULT_BATCH_ROWS,
             max_batches: DEFAULT_MAX_BATCHES,
             deadline: DEFAULT_RUN_DEADLINE,
+            lock_timeout: DEFAULT_LOCK_TIMEOUT,
         }
     }
 }
