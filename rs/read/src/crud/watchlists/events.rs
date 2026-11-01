@@ -305,6 +305,10 @@ const FEED_SQL: &str = concat!(
     "ORDER BY e.created_at DESC,e.id DESC LIMIT $6"
 );
 
+// The acknowledgement reads the target with a LEFT JOIN so that a row whose
+// target is gone still gets the route's committed "Event target not found"
+// answer. On the migrated schema the target foreign key cascades the delete,
+// so that path is reached only where no such key exists.
 const SINGLE_SQL: &str = concat!(
     "SELECT e.id,e.watchlist_id,e.watchlist_target_id,",
     "e.event_type::text AS event_type,e.event_payload,e.is_read,e.created_at,",

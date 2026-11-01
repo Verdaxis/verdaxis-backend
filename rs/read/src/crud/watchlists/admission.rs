@@ -9,16 +9,20 @@
 //! public order scope the caller captured on its transaction:
 //!
 //! 1. A `SLICE_BEST_PRICE_MOVED` row carries aggregate prices that no current
-//!    order can vouch for. It is admitted only when the trusted producer wrote
-//!    it (`producer = 'rust-market-v1'` with a source identity) and its scope
-//!    was attested at or after the activation instant this release recorded.
-//!    Without a recorded activation no best-price row is admitted. Rows of any
-//!    other producer stay hidden for this class, whatever their timestamps.
+//!    order can vouch for, and a `SLICE_WENT_QUIET` row names the order that
+//!    just ended, which is never public again. A row of either class is
+//!    admitted only when the trusted producer wrote it
+//!    (`producer = 'rust-market-v1'` with a source identity) and its scope was
+//!    attested at or after the activation instant this release recorded.
+//!    Without a recorded activation no row of these classes is admitted. Rows
+//!    of any other producer stay hidden for these classes, whatever their
+//!    timestamps.
 //! 2. A PIN target must name an order in the public scope.
 //! 3. A row whose payload names a source order is admitted only while that
-//!    order is in the public scope. This applies to every class, trusted rows
-//!    included. A best-price row carries no source order, so for that class the
-//!    attestation and activation of rule 1 decide alone.
+//!    order is in the public scope. This applies to every class except
+//!    went-quiet, trusted rows included. A best-price row that names an order
+//!    follows that order's public scope; a row that names none is decided by
+//!    rule 1 alone.
 //!
 //! Other classes keep rules 2 and 3 only, for every producer. The relation
 //! never reads the producer switch: a paused producer leaves its stored rows
@@ -54,10 +58,14 @@ pub(super) use source_order_sql;
 /// absent after a target was deleted). `$visible` is the bind placeholder of
 /// the public order scope (`uuid[]`); `$activation` is the bind placeholder of
 /// [`EventAdmission::activation`] (`timestamptz`, NULL when none is recorded).
+///
+/// Use it only as a `WHERE` conjunct: for a PIN target with no order, or a
+/// guarded class with a NULL operand, it yields NULL rather than false, which a
+/// `WHERE` clause treats as false but a negation or a selected column would not.
 macro_rules! event_visible_sql {
     ($visible:literal, $activation:literal) => {
         concat!(
-            "((e.event_type::text<>'SLICE_BEST_PRICE_MOVED' ",
+            "((e.event_type::text NOT IN ('SLICE_BEST_PRICE_MOVED','SLICE_WENT_QUIET') ",
             "OR (e.producer='rust-market-v1' ",
             "AND e.source_event_id IS NOT NULL ",
             "AND e.scope_attested_at IS NOT NULL ",
@@ -71,7 +79,7 @@ macro_rules! event_visible_sql {
             "OR t.order_id=ANY(",
             $visible,
             "::uuid[])) ",
-            "AND (",
+            "AND (e.event_type::text='SLICE_WENT_QUIET' OR ",
             $crate::crud::watchlists::admission::source_order_expr!(),
             " IS NULL OR ",
             $crate::crud::watchlists::admission::source_order_expr!(),
@@ -87,8 +95,8 @@ pub(super) use event_visible_sql;
 /// trusted producer was activated in this environment, or none.
 ///
 /// It is built only from the watchlist settings, which take the value from
-/// release metadata. `None` binds SQL NULL, so trusted best-price rows stay
-/// hidden; no clock reading or fixed instant stands in for a missing record.
+/// release metadata. `None` binds SQL NULL, so trusted best-price and
+/// went-quiet rows stay hidden; no clock reading or fixed instant stands in for a missing record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventAdmission {
     activation: Option<DateTime<Utc>>,
