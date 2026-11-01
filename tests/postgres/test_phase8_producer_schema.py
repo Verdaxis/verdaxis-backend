@@ -124,6 +124,15 @@ def test_producer_downgrade_refuses_while_trusted_rows_exist(supplier_scratch_da
     upgrade_if_present(migrate)
     assert sql("SELECT to_regclass('watchlist_producer_state') IS NOT NULL") == "t"
     seed_target(sql)
+    # Without retained evidence, a watermark row alone does not block the downgrade.
+    sql("INSERT INTO watchlist_producer_state (singleton) VALUES (true)")
+    migrate("downgrade", PARENT)
+    assert sql("SELECT version_num FROM alembic_version") == PARENT
+    assert sql("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema='public' ORDER BY 1") == baseline
+    assert sql("SELECT to_regclass('uq_watchlist_events_producer_source_target_derived') IS NULL") == "t"
+    migrate("upgrade", REVISION)
+    # Retained evidence is checked last, because the released outbox delete guard
+    # keeps this fixture from removing an outbox row again.
     sql(insert_event(identity=",producer,source_event_id,source_stream_seq,scope_attested_at,derived_event_key",
                      values=f",'rust-market-v1','{SOURCE}',1,now(),'PIN_PRICE_CHANGED|order|ASK|0'"))
     refusal = migrate("downgrade", PARENT, success=False)
@@ -134,14 +143,8 @@ def test_producer_downgrade_refuses_while_trusted_rows_exist(supplier_scratch_da
         VALUES ('{SOURCE}','order.updated','order','schema-fixture','{{}}','[\"88888888-7777-0000-0000-000000000009\"]','{{\"version\":1}}')""")
     refusal = migrate("downgrade", PARENT, success=False)
     assert "Retained producer evidence prevents downgrade" in refusal
+    assert sql("SELECT version_num FROM alembic_version") == REVISION
     assert sql("SELECT producer_evidence->>'version' FROM market_event_outbox") == "1"
-    sql("DELETE FROM market_event_outbox")
-    sql("INSERT INTO watchlist_producer_state (singleton) VALUES (true)")
-    migrate("downgrade", PARENT)
-    assert sql("SELECT version_num FROM alembic_version") == PARENT
-    assert sql("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema='public' ORDER BY 1") == baseline
-    assert sql("SELECT to_regclass('uq_watchlist_events_producer_source_target_derived') IS NULL") == "t"
-    migrate("upgrade", REVISION)
 
 
 def test_internal_evidence_column_is_additive_and_python_writes_default_null(supplier_scratch_database):
