@@ -51,6 +51,8 @@ use super::{
     status::{AccountStatus, StatusFact, append_status_transition},
     transaction::{AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan},
 };
+// The case-reference contract is shared with the trade responsibility reassignment.
+pub use crate::case_reference::{CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference};
 use crate::{
     ApiError, AppState,
     auth::{
@@ -74,9 +76,6 @@ pub const REASON_CODES: [&str; 4] = [
     "ACCOUNT_HOLDER_REQUEST",
 ];
 
-/// The longest case reference. It matches the database check on
-/// `individual_offboardings.evidence_case_ref`.
-pub const CASE_REFERENCE_MAX_LENGTH: usize = 64;
 
 /// The largest request body. The four fields fit well inside it, so a larger
 /// body can only carry text the contract does not accept.
@@ -89,14 +88,6 @@ pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
 /// counts are reported as the bound, with `informational_counts_capped` set.
 pub const PREVIEW_COUNT_LIMIT: i64 = 100;
 
-/// The ticket systems a case reference may name.
-pub const CASE_REFERENCE_PREFIXES: [&str; 4] = ["CASE", "REQ", "SEC", "TICKET"];
-
-/// At most this many digit groups follow the prefix.
-const CASE_REFERENCE_MAX_GROUPS: usize = 3;
-
-/// At most this many digits form one group.
-const CASE_REFERENCE_MAX_GROUP_DIGITS: usize = 12;
 
 /// The audit action name of a completed offboarding.
 pub const AUDIT_ACTION: &str = "admin.user_offboarded";
@@ -132,50 +123,6 @@ impl ReasonCode {
     }
 }
 
-/// An opaque reference to a verified request, kept outside Verdaxis.
-///
-/// The grammar is `PREFIX-DIGITS`, with `PREFIX` one of
-/// [`CASE_REFERENCE_PREFIXES`] and then one to three groups of 1 to 12 digits
-/// separated by `-` or `/`, for example `CASE-2026/0042` or `SEC-2026-11-0001`.
-/// At most [`CASE_REFERENCE_MAX_LENGTH`] characters. Only digits follow the
-/// prefix, so the field cannot carry a name, an email address or a narrative.
-#[derive(Clone, PartialEq, Eq)]
-pub struct CaseReference(String);
-
-impl CaseReference {
-    pub fn parse(value: &str) -> Result<Self, ApiError> {
-        let refused =
-            || invalid("The case reference must be a ticket identifier such as CASE-2026/0042.");
-        if value.len() > CASE_REFERENCE_MAX_LENGTH {
-            return Err(refused());
-        }
-        let (prefix, identifier) = value.split_once('-').ok_or_else(refused)?;
-        if !CASE_REFERENCE_PREFIXES.contains(&prefix) {
-            return Err(refused());
-        }
-        let groups: Vec<&str> = identifier.split(['-', '/']).collect();
-        let valid_groups = groups.len() <= CASE_REFERENCE_MAX_GROUPS
-            && groups.iter().all(|group| {
-                (1..=CASE_REFERENCE_MAX_GROUP_DIGITS).contains(&group.len())
-                    && group.bytes().all(|byte| byte.is_ascii_digit())
-            });
-        if !valid_groups {
-            return Err(refused());
-        }
-        Ok(Self(value.to_owned()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// The reference is never written to a log line.
-impl std::fmt::Debug for CaseReference {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("CaseReference(REDACTED)")
-    }
-}
 
 /// The validated body of one offboarding command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -216,7 +163,10 @@ impl OffboardRequest {
         }
         Ok(Self {
             reason_code: ReasonCode::parse(text_field(&fields, "reason_code")?)?,
-            evidence_case_ref: CaseReference::parse(text_field(&fields, "evidence_case_ref")?)?,
+            evidence_case_ref: CaseReference::parse(text_field(&fields, "evidence_case_ref")?)
+                .map_err(|_| {
+                    invalid("The case reference must be a ticket identifier such as CASE-2026/0042.")
+                })?,
             urgent: fields["urgent"]
                 .as_bool()
                 .ok_or_else(|| invalid("urgent must be true or false."))?,

@@ -41,6 +41,8 @@ use super::transaction::{
     BoxFuture, LockedMarketTransaction, MarketAttemptError, MarketCommand, MarketPreview,
 };
 use super::{AuthenticatedActor, MarketErrorCode, MarketWriteError};
+// The case-reference contract is shared with the account offboarding command.
+pub use crate::case_reference::{CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference};
 
 /// The audit action of one completed reassignment.
 pub const AUDIT_ACTION: &str = "trade.responsibility_reassigned";
@@ -55,17 +57,7 @@ pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
 /// The largest obligation page, and the page size when none is given.
 pub const OBLIGATION_PAGE_LIMIT: i64 = 100;
 
-/// The longest case reference. It matches the account offboarding contract.
-pub const CASE_REFERENCE_MAX_LENGTH: usize = 64;
 
-/// The ticket systems a case reference may name.
-pub const CASE_REFERENCE_PREFIXES: [&str; 4] = ["CASE", "REQ", "SEC", "TICKET"];
-
-/// At most this many digit groups follow the prefix.
-const CASE_REFERENCE_MAX_GROUPS: usize = 3;
-
-/// At most this many digits form one group.
-const CASE_REFERENCE_MAX_GROUP_DIGITS: usize = 12;
 
 /// The trade states whose obligations a responsible person still carries.
 const REASSIGNABLE_STATUSES: [&str; 2] = ["CONFIRMED", "DELIVERED"];
@@ -108,48 +100,6 @@ impl ResponsibleSide {
     }
 }
 
-/// An opaque reference to the verified company request, kept outside Verdaxis.
-///
-/// The grammar is `PREFIX-DIGITS`, with `PREFIX` one of
-/// [`CASE_REFERENCE_PREFIXES`] and then one to three groups of 1 to 12 digits
-/// separated by `-` or `/`, for example `CASE-2026/0042`. At most
-/// [`CASE_REFERENCE_MAX_LENGTH`] characters. Only digits follow the prefix, so
-/// the field cannot carry a name, an email address or a narrative.
-#[derive(Clone, PartialEq, Eq)]
-pub struct CaseReference(String);
-
-impl CaseReference {
-    pub fn parse(value: &str) -> Result<Self, MarketWriteError> {
-        if value.len() > CASE_REFERENCE_MAX_LENGTH {
-            return Err(validation());
-        }
-        let (prefix, identifier) = value.split_once('-').ok_or_else(validation)?;
-        if !CASE_REFERENCE_PREFIXES.contains(&prefix) {
-            return Err(validation());
-        }
-        let groups: Vec<&str> = identifier.split(['-', '/']).collect();
-        let valid_groups = groups.len() <= CASE_REFERENCE_MAX_GROUPS
-            && groups.iter().all(|group| {
-                (1..=CASE_REFERENCE_MAX_GROUP_DIGITS).contains(&group.len())
-                    && group.bytes().all(|byte| byte.is_ascii_digit())
-            });
-        if !valid_groups {
-            return Err(validation());
-        }
-        Ok(Self(value.to_owned()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-/// The reference is never written to a log line.
-impl std::fmt::Debug for CaseReference {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("CaseReference(REDACTED)")
-    }
-}
 
 /// The JSON body exactly as the contract states it: four required fields and
 /// nothing else, so no free text can enter the record.
@@ -185,7 +135,8 @@ impl ReassignRequest {
         Ok(Self {
             side: raw.side,
             replacement_user_id: raw.replacement_user_id,
-            evidence_case_ref: CaseReference::parse(&raw.evidence_case_ref)?,
+            evidence_case_ref: CaseReference::parse(&raw.evidence_case_ref)
+                .map_err(|_| validation())?,
             expected_current_user_id: raw.expected_current_user_id,
         })
     }

@@ -233,3 +233,16 @@ fn serving_composition_leaves_the_routes_unmounted() {
     let phase4 = include_str!("../src/runtime/phase4.rs");
     assert!(!phase4.contains("reassignment"));
 }
+
+/// The reassignment and the account offboarding command accept exactly the
+/// same case references: both use one type.
+#[test]
+fn case_reference_is_shared_with_the_offboarding_command() {
+    let reference: verdaxis_read::business::offboarding::CaseReference =
+        CaseReference::parse("CASE-2026/0042").unwrap();
+    assert_eq!(reference.as_str(), "CASE-2026/0042");
+    assert_eq!(
+        CASE_REFERENCE_PREFIXES,
+        verdaxis_read::business::offboarding::CASE_REFERENCE_PREFIXES
+    );
+}
