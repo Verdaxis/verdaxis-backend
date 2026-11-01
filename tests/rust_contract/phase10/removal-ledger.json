@@ -3015,8 +3015,8 @@
       "id": "route.POST /api/ai/chat",
       "source": "app/routers/ai.py",
       "kind": "route",
-      "end_state": "rust",
-      "owner": "Phase 5 route owner; Task 32 removal owner",
+      "end_state": "gone",
+      "owner": "Task 32 removal; no Rust port of the AI chat",
       "task": 32,
       "source_sha256": "2094047436569e867d4ffec4e246c4946e70d21c35e09e328e98295d0aebcc40",
       "status": "planned",
@@ -3024,12 +3024,14 @@
         "test_phase10_routes_are_exactly_188",
         "no_caddy_upstream_or_route_points_at_python"
       ],
-      "deleting_task": null,
+      "deleting_task": 32,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
       "method": "POST",
       "path": "/api/ai/chat",
-      "line": 40
+      "line": 40,
+      "last_reference_change": "Task 32 removes the Python route, its AI and Gemini provider services and the GEMINI_API_KEY setting",
+      "retirement_reason": "No Rust port: the chat has no frontend caller and its provider integration is retired with the Python application."
     },
     {
       "id": "route.POST /api/alerts",
