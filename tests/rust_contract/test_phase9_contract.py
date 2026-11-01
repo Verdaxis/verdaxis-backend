@@ -220,10 +220,12 @@ def test_phase9_route_inventory_matches_source():
 
 # The production write boundary has no HTTP or child-process dependency. The
 # existing PostgreSQL transport fixture is test-only and is checked separately.
+# A hyphenated name such as the "legacy-python" producer identity is data, not
+# an interpreter call.
 TRANSPORT = re.compile(
     r"\b(?:reqwest|hyper|ureq|surf)\s*::|\b(?:std|tokio)\s*::\s*process\b|"
     r"\bCommand\s*::|\b(?:TcpStream|UnixStream|UdpSocket)\b|"
-    r"\b(?:python3?|matching_engine)\b|https?://|\binclude!"
+    r"(?<![-\w])(?:python3?|matching_engine)\b|https?://|\binclude!"
 )
 
 
