@@ -194,6 +194,7 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
   --test market_write_pg_races \
   --test market_write_pg_producer \
+  --test market_write_pg_producer_visibility \
   --test market_write_pg_residual \
   -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
 market_status=${PIPESTATUS[0]}
