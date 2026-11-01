@@ -10,9 +10,9 @@
 //! older success red. Only a newer success whose backup id and finish time match
 //! the published metadata and the archives turns the check green again.
 use super::status::{
+    Admission, AdmitAll, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status,
     build_status, exit_for, failure_status, guarded, load_monitor_status, parse_bounded_timestamp,
-    parse_strict_json, parse_utc_timestamp, publish, quarantine, report, report_refused, Admission,
-    AdmitAll, Category, CheckResult, Fault, Previous, Status, MAX_STATUS_BYTES,
+    parse_strict_json, parse_utc_timestamp, publish, quarantine, report, report_refused,
 };
 use crate::cli::Exit;
 use chrono::{DateTime, Duration as Span, NaiveDate, Utc};

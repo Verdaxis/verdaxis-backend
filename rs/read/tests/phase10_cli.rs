@@ -200,10 +200,7 @@ fn local_monitors_refuse_flags_they_do_not_take() {
         vec!["monitor", "backup-verify", "--event", "backup"],
         vec!["monitor", "backup-verify", "--telegram-disabled"],
     ] {
-        assert!(
-            parse_arguments(args(&values)).is_ok(),
-            "parses: {values:?}"
-        );
+        assert!(parse_arguments(args(&values)).is_ok(), "parses: {values:?}");
         assert_eq!(
             binary(&values).status.code(),
             Some(2),

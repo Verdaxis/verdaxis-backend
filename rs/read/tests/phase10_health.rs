@@ -7,26 +7,25 @@
 mod support;
 
 use chrono::{DateTime, TimeZone, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::cell::Cell;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use support::{contract_fixture, repository_root, TempDir};
+use support::{TempDir, contract_fixture, repository_root};
+use verdaxis_read::cli::Exit;
 use verdaxis_read::cli::monitors::health::{
-    check_directory_size, check_filesystem, check_readiness, collect, execute_checks,
-    read_identity, run, validate_readiness_payload, DiskUsage, Endpoint, HealthConfig,
-    ReadinessRefusal,
+    DiskUsage, Endpoint, HealthConfig, ReadinessRefusal, check_directory_size, check_filesystem,
+    check_readiness, collect, execute_checks, read_identity, run, validate_readiness_payload,
 };
 use verdaxis_read::cli::monitors::status::{
-    build_status, failure_status, guarded, load_monitor_status, valid_monitor_status, Admission,
-    AdmitAll, Category, CheckResult, Fault, Previous, Status,
+    Admission, AdmitAll, Category, CheckResult, Fault, Previous, Status, build_status,
+    failure_status, guarded, load_monitor_status, valid_monitor_status,
 };
-use verdaxis_read::cli::Exit;
 
 const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER_SHA: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -1101,9 +1100,11 @@ fn health_fatal_error_never_leaks_the_cause() {
     });
     assert_eq!(from_panic.checks[0].code, "fatal_error");
     assert_eq!(from_panic.checks[0].name, "backup_monitor");
-    assert!(!serde_json::to_string(&from_panic)
-        .unwrap()
-        .contains("secret-value"));
+    assert!(
+        !serde_json::to_string(&from_panic)
+            .unwrap()
+            .contains("secret-value")
+    );
     let fine = guarded("monitor", at, || Ok(failure_status("x", at, "monitor")));
     assert_eq!(fine.checks[0].code, "x");
 }

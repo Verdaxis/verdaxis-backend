@@ -6,19 +6,19 @@
 mod support;
 
 use chrono::{DateTime, Duration as Span, TimeZone, Utc};
-use flate2::write::GzEncoder;
 use flate2::Compression;
-use serde_json::{json, Value};
+use flate2::write::GzEncoder;
+use serde_json::{Value, json};
 use std::io::Write;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use support::{contract_fixture, TempDir};
-use verdaxis_read::cli::monitors::backup::{collect, run_at, verify_backups, BackupConfig};
-use verdaxis_read::cli::monitors::status::{
-    failure_status, Admission, AdmitAll, Category, CheckResult, Status,
-};
+use support::{TempDir, contract_fixture};
 use verdaxis_read::cli::Exit;
+use verdaxis_read::cli::monitors::backup::{BackupConfig, collect, run_at, verify_backups};
+use verdaxis_read::cli::monitors::status::{
+    Admission, AdmitAll, Category, CheckResult, Status, failure_status,
+};
 
 const BACKUP_ID: &str = "20260720-030000";
 const PREFIXES: [&str; 3] = ["verdaxis-prod", "verdaxis-staging", "umami"];
@@ -763,9 +763,11 @@ fn backup_artifact_must_exist_be_regular_and_match_the_completion_time() {
         &artifact(scratch.path(), "umami"),
         completed() + Span::seconds(4),
     );
-    assert!(verify(scratch.path())
-        .iter()
-        .all(|r| r.category == Category::Healthy));
+    assert!(
+        verify(scratch.path())
+            .iter()
+            .all(|r| r.category == Category::Healthy)
+    );
     set_time(
         &artifact(scratch.path(), "umami"),
         completed() + Span::seconds(7),
@@ -826,9 +828,11 @@ fn backup_missing_empty_and_corrupt_gzip_artifacts_fail() {
     bytes.extend_from_slice(&gzip(&dump()));
     std::fs::write(&path, bytes).unwrap();
     set_time(&path, completed());
-    assert!(verify(scratch.path())
-        .iter()
-        .all(|r| r.category == Category::Healthy));
+    assert!(
+        verify(scratch.path())
+            .iter()
+            .all(|r| r.category == Category::Healthy)
+    );
 }
 
 #[test]
@@ -1044,9 +1048,11 @@ fn backup_status_is_private_and_key_compatible() {
         umami["last_success_at"],
         published["checks"][4]["last_success_at"]
     );
-    assert!(!failed
-        .to_string()
-        .contains(&scratch.path().to_string_lossy().into_owned()));
+    assert!(
+        !failed
+            .to_string()
+            .contains(&scratch.path().to_string_lossy().into_owned())
+    );
 }
 
 #[test]

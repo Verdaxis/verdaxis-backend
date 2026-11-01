@@ -12,8 +12,8 @@
 //! Publication passes through an [`Admission`] first. The alert handoff
 //! journal plugs in there: a monitor never publishes a status that the journal
 //! refused to admit.
-use crate::cli::state::write_atomic;
 use crate::cli::Exit;
+use crate::cli::state::write_atomic;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -259,10 +259,10 @@ pub fn valid_monitor_status(value: &Value) -> bool {
     let Some(category) = document["category"].as_str().and_then(Category::parse) else {
         return false;
     };
-    if !document["generated_at"]
+    let generated_at = document["generated_at"]
         .as_str()
-        .is_some_and(|text| parse_bounded_timestamp(text).is_some())
-    {
+        .and_then(parse_bounded_timestamp);
+    if generated_at.is_none() {
         return false;
     }
     let Some(checks) = document["checks"].as_array() else {

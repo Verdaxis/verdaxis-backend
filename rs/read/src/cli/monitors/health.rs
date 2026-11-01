@@ -9,9 +9,9 @@
 //! services it watches are down. It reads exactly the files named in its
 //! configuration and makes only loopback connections.
 use super::status::{
-    build_status, exit_for, failure_status, guarded, load_monitor_status,
-    parse_strict_json, publish, quarantine, report, report_refused, Admission, AdmitAll, Category,
-    CheckResult, Fault, Previous, Status, MAX_STATUS_BYTES,
+    Admission, AdmitAll, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status,
+    build_status, exit_for, failure_status, guarded, load_monitor_status, parse_strict_json,
+    publish, quarantine, report, report_refused,
 };
 use crate::cli::Exit;
 use chrono::{DateTime, Utc};
@@ -209,8 +209,7 @@ fn parse_head(block: &[u8], max_body_bytes: usize) -> Result<Head, HttpFault> {
         .map(|line| line.strip_suffix(b"\r").unwrap_or(line));
     let status_line = lines.next().ok_or_else(invalid)?;
     let mut parts = status_line.splitn(3, |byte| *byte == b' ');
-    let (Some(_protocol), Some(status), Some(_reason)) =
-        (parts.next(), parts.next(), parts.next())
+    let (Some(_protocol), Some(status), Some(_reason)) = (parts.next(), parts.next(), parts.next())
     else {
         return Err(invalid());
     };
