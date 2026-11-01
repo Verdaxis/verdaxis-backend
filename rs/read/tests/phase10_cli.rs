@@ -54,7 +54,6 @@ fn subcommand_dispatch_is_exact() {
         vec!["monitor", "outbox"],
         vec!["monitor", "external"],
         vec!["monitor", "external-checks"],
-        vec!["monitor", "onboarding"],
         vec!["recover", "--dry-run"],
         vec!["ops", "preflight"],
         vec!["ops", "prepare-budget"],
@@ -86,6 +85,44 @@ fn subcommand_dispatch_is_exact() {
             Some(3),
             "fail closed: {prefix:?}"
         );
+    }
+    // The onboarding monitor is production-only: another environment or a
+    // missing identity is a usage refusal before any pool; production fails
+    // closed until the deployed identity and context exist.
+    for (extra, code) in [
+        (vec![], 2),
+        (vec!["--environment", "staging", "--release-sha", sha], 2),
+        (vec!["--environment", "production", "--release-sha", sha], 3),
+    ] {
+        let mut values = vec!["monitor", "onboarding"];
+        values.extend(extra);
+        assert_eq!(binary(&values).status.code(), Some(code), "{values:?}");
+    }
+    // Flags that do not belong to a monitor kind are refused, not ignored.
+    let production = ["--environment", "production", "--release-sha", sha];
+    for flags in [
+        vec!["--dry-run", "--bootstrap"],
+        vec!["--state-file", "relative.json"],
+        vec!["--show-emails"],
+        vec!["--event", "health"],
+        vec!["--remind", "all"],
+    ] {
+        let mut values = vec!["monitor", "onboarding"];
+        values.extend(production);
+        values.extend(flags);
+        assert_eq!(binary(&values).status.code(), Some(2), "{values:?}");
+    }
+    for kind in ["health", "backup-verify", "outbox"] {
+        for flag in [
+            vec!["--dry-run"],
+            vec!["--bootstrap"],
+            vec!["--show-emails"],
+            vec!["--state-file", "/tmp/state.json"],
+        ] {
+            let mut values = vec!["monitor", kind];
+            values.extend(flag);
+            assert_eq!(binary(&values).status.code(), Some(2), "{values:?}");
+        }
     }
     for values in [
         vec!["monitor", "health"],

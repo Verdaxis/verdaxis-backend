@@ -199,6 +199,25 @@ pub struct MonitorArgs {
     pub remind: Option<String>,
     #[arg(long)]
     pub telegram_disabled: bool,
+    /// `monitor onboarding`: the alert state file.
+    #[arg(long, value_parser = absolute_path)]
+    pub state_file: Option<PathBuf>,
+    /// `monitor onboarding`: print the alerts that would be sent.
+    #[arg(long, conflicts_with = "bootstrap")]
+    pub dry_run: bool,
+    /// `monitor onboarding`: record the present stages without alerting.
+    #[arg(long)]
+    pub bootstrap: bool,
+    /// `monitor onboarding --dry-run`: print recipient addresses in full.
+    #[arg(long)]
+    pub show_emails: bool,
+}
+
+impl MonitorArgs {
+    /// Flags that only `monitor onboarding` understands.
+    fn uses_onboarding_flags(&self) -> bool {
+        self.state_file.is_some() || self.dry_run || self.bootstrap || self.show_emails
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
@@ -417,6 +436,27 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             jobs::reminders::command(&args).await
         }
         Command::Job(job) if job.kind == JobKind::KycNotices => jobs::kyc::run(&job).await,
+        Command::Monitor(args) if args.kind == MonitorKind::Onboarding => {
+            jobs::onboarding::run_command(jobs::onboarding::Invocation {
+                environment: args.environment,
+                release_sha: args.release_sha,
+                state_file: args
+                    .state_file
+                    .unwrap_or_else(|| PathBuf::from(jobs::onboarding::DEFAULT_STATE_FILE)),
+                dry_run: args.dry_run,
+                bootstrap: args.bootstrap,
+                show_emails: args.show_emails,
+                telegram_disabled: args.telegram_disabled,
+                // `--event` and `--remind` belong to `monitor alert`.
+                other_monitor_flags: args.event.is_some() || args.remind.is_some(),
+            })
+            .await
+        }
+        Command::Monitor(args) if args.uses_onboarding_flags() => {
+            // A flag another monitor does not read is refused, never ignored.
+            report("monitor", "usage_refused");
+            Exit::Usage
+        }
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.
