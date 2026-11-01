@@ -71,6 +71,85 @@ def test_producer_identity_check_refuses_a_half_attested_row(supplier_scratch_da
         sql(insert_event(identity=",producer", values=",'other'"))
 
 
+PRODUCER_DEFINITIONS = {
+    "index:uq_watchlist_events_producer_source_target_derived": (
+        "CREATE UNIQUE INDEX uq_watchlist_events_producer_source_target_derived "
+        "ON public.watchlist_events USING btree "
+        "(producer, source_event_id, watchlist_target_id, derived_event_key) "
+        "WHERE (source_event_id IS NOT NULL)"
+    ),
+    "check:ck_watchlist_events_producer_identity": (
+        "CHECK (((((producer)::text = 'legacy-python'::text) AND (source_event_id IS NULL) "
+        "AND (source_stream_seq IS NULL) AND (scope_attested_at IS NULL) "
+        "AND (derived_event_key IS NULL)) OR (((producer)::text = 'rust-market-v1'::text) "
+        "AND (source_event_id IS NOT NULL) AND (source_stream_seq IS NOT NULL) "
+        "AND (scope_attested_at IS NOT NULL) AND (derived_event_key IS NOT NULL) "
+        "AND (char_length((derived_event_key)::text) > 0))))"
+    ),
+    "check:watchlist_events_producer_check": (
+        "CHECK (((producer)::text = ANY ((ARRAY['legacy-python'::character varying, "
+        "'rust-market-v1'::character varying])::text[])))"
+    ),
+    "check:watchlist_producer_state_singleton_check": "CHECK (singleton)",
+    "check:watchlist_producer_state_consumed_through_seq_check": "CHECK ((consumed_through_seq >= 0))",
+    "primary key:watchlist_producer_state_pkey": "PRIMARY KEY (singleton)",
+    "default:watchlist_events.producer": "'legacy-python'::character varying",
+    "default:watchlist_producer_state.consumed_through_seq": "'0'::bigint",
+    "default:watchlist_producer_state.updated_at": "now()",
+}
+
+
+def producer_definitions(sql):
+    """Every producer index, CHECK, key and default exactly as the catalog prints it."""
+    rows = sql("""
+        SELECT 'index:' || indexname || E'\t' || indexdef FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'uq_watchlist_events_producer_source_target_derived'
+        UNION ALL
+        SELECT CASE contype WHEN 'c' THEN 'check:' WHEN 'p' THEN 'primary key:' END
+               || conname || E'\t' || pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE conname IN ('ck_watchlist_events_producer_identity', 'watchlist_events_producer_check',
+                          'watchlist_producer_state_singleton_check',
+                          'watchlist_producer_state_consumed_through_seq_check',
+                          'watchlist_producer_state_pkey')
+        UNION ALL
+        SELECT 'default:' || class.relname || '.' || attribute.attname || E'\t' || pg_get_expr(default_.adbin, default_.adrelid)
+        FROM pg_attrdef AS default_
+        JOIN pg_class AS class ON class.oid = default_.adrelid
+        JOIN pg_attribute AS attribute ON attribute.attrelid = default_.adrelid AND attribute.attnum = default_.adnum
+        WHERE (class.relname, attribute.attname) IN
+            (('watchlist_events', 'producer'), ('watchlist_producer_state', 'consumed_through_seq'),
+             ('watchlist_producer_state', 'updated_at'))
+        ORDER BY 1""")
+    return dict(line.split("\t", 1) for line in rows.splitlines())
+
+
+def test_producer_catalog_definitions_are_exact(supplier_scratch_database):
+    sql, migrate = supplier_scratch_database
+    migrate("upgrade", PARENT)
+    migrate("upgrade", REVISION)
+    assert producer_definitions(sql) == PRODUCER_DEFINITIONS
+
+    # The unique index is partial and keyed on the target: the same source event and
+    # derived key may be recorded for a second target, and legacy rows carry no key.
+    seed_target(sql)
+    second_target = "88888888-7777-0000-0000-00000000000a"
+    sql(f"""INSERT INTO watchlist_targets (id,watchlist_id,target_type,market_product_code,
+            delivery_point_id,availability_window_code)
+        VALUES ('{second_target}','{WATCHLIST}','SLICE','BIO_METHANOL',
+            '73835e92-820e-584b-8280-bb61c63aa28e','MONTHLY')""")
+    trusted = insert_event(
+        identity=",producer,source_event_id,source_stream_seq,scope_attested_at,derived_event_key",
+        values=f",'rust-market-v1','{SOURCE}',1,now(),'PIN_PRICE_CHANGED|order|ASK|0'",
+    )
+    sql(trusted)
+    sql(trusted.replace(EVENT, "88888888-7777-0000-0000-00000000000b").replace(f"'{TARGET}'", f"'{second_target}'"))
+    with pytest.raises(AssertionError, match="uq_watchlist_events_producer_source_target_derived"):
+        sql(trusted.replace(EVENT, "88888888-7777-0000-0000-00000000000c")
+            .replace(f"'{TARGET}'", f"'{second_target}'"))
+    assert sql("SELECT count(*) FROM watchlist_events WHERE source_event_id IS NOT NULL") == "2"
+
+
 def test_legacy_rows_backfill_to_legacy_python(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
     migrate("upgrade", PARENT)
@@ -124,6 +203,15 @@ def test_producer_downgrade_refuses_while_trusted_rows_exist(supplier_scratch_da
     upgrade_if_present(migrate)
     assert sql("SELECT to_regclass('watchlist_producer_state') IS NOT NULL") == "t"
     seed_target(sql)
+    # Without retained evidence, a watermark row alone does not block the downgrade.
+    sql("INSERT INTO watchlist_producer_state (singleton) VALUES (true)")
+    migrate("downgrade", PARENT)
+    assert sql("SELECT version_num FROM alembic_version") == PARENT
+    assert sql("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema='public' ORDER BY 1") == baseline
+    assert sql("SELECT to_regclass('uq_watchlist_events_producer_source_target_derived') IS NULL") == "t"
+    migrate("upgrade", REVISION)
+    # Retained evidence is checked last, because the released outbox delete guard
+    # keeps this fixture from removing an outbox row again.
     sql(insert_event(identity=",producer,source_event_id,source_stream_seq,scope_attested_at,derived_event_key",
                      values=f",'rust-market-v1','{SOURCE}',1,now(),'PIN_PRICE_CHANGED|order|ASK|0'"))
     refusal = migrate("downgrade", PARENT, success=False)
@@ -134,14 +222,8 @@ def test_producer_downgrade_refuses_while_trusted_rows_exist(supplier_scratch_da
         VALUES ('{SOURCE}','order.updated','order','schema-fixture','{{}}','[\"88888888-7777-0000-0000-000000000009\"]','{{\"version\":1}}')""")
     refusal = migrate("downgrade", PARENT, success=False)
     assert "Retained producer evidence prevents downgrade" in refusal
+    assert sql("SELECT version_num FROM alembic_version") == REVISION
     assert sql("SELECT producer_evidence->>'version' FROM market_event_outbox") == "1"
-    sql("DELETE FROM market_event_outbox")
-    sql("INSERT INTO watchlist_producer_state (singleton) VALUES (true)")
-    migrate("downgrade", PARENT)
-    assert sql("SELECT version_num FROM alembic_version") == PARENT
-    assert sql("SELECT table_name || '.' || column_name FROM information_schema.columns WHERE table_schema='public' ORDER BY 1") == baseline
-    assert sql("SELECT to_regclass('uq_watchlist_events_producer_source_target_derived') IS NULL") == "t"
-    migrate("upgrade", REVISION)
 
 
 def test_internal_evidence_column_is_additive_and_python_writes_default_null(supplier_scratch_database):
