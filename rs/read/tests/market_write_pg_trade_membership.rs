@@ -541,21 +541,33 @@ async fn lifecycle_collision_recovery_revalidates_membership_and_request() {
     }
 }
 
+/// Moves the fixture trade into the state the action starts from.
+async fn prepare_for(f: &mut Fixture, action: &str) {
+    if matches!(action, "confirm" | "decline") {
+        sqlx::query("SELECT membership_fixture_pending($1)")
+            .bind(f.trade)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+    } else if action == "pay" {
+        ok(f.deliver(SELLER, None).await, "DELIVERED").await;
+    }
+}
+fn body_for(action: &str) -> Value {
+    if action == "deliver" {
+        delivery()
+    } else {
+        Value::Null
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn moved_actor_authority_precedes_linked_resource_consistency() {
     for action in ["confirm", "decline", "deliver", "pay"] {
         for inconsistent in ["slice", "inventory"] {
             let mut f = Fixture::new().await;
-            if matches!(action, "confirm" | "decline") {
-                sqlx::query("SELECT membership_fixture_pending($1)")
-                    .bind(f.trade)
-                    .execute(&mut f.admin)
-                    .await
-                    .unwrap();
-            } else if action == "pay" {
-                ok(f.deliver(SELLER, None).await, "DELIVERED").await;
-            }
+            prepare_for(&mut f, action).await;
             sqlx::query("SELECT membership_fixture_inconsistent($1,$2)")
                 .bind(f.trade)
                 .bind(inconsistent)
@@ -565,18 +577,7 @@ async fn moved_actor_authority_precedes_linked_resource_consistency() {
             f.change(SELLER, "moved").await;
             let before = f.snapshot().await;
             for key in [None, Some("consistency")] {
-                let (status, body) = f
-                    .call(
-                        action,
-                        SELLER,
-                        key,
-                        if action == "deliver" {
-                            delivery()
-                        } else {
-                            Value::Null
-                        },
-                    )
-                    .await;
+                let (status, body) = f.call(action, SELLER, key, body_for(action)).await;
                 assert_eq!(
                     status,
                     StatusCode::FORBIDDEN,
@@ -585,6 +586,29 @@ async fn moved_actor_authority_precedes_linked_resource_consistency() {
                 assert_eq!(body["detail"]["code"], "TRADE_PARTY_FORBIDDEN");
                 assert_eq!(f.snapshot().await, before);
             }
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn authorized_recorded_user_meets_the_inventory_consistency_refusal() {
+    // Only confirm and decline lock and read the linked inventory; settlement
+    // actions check the market slice and never touch stock.
+    for action in ["confirm", "decline"] {
+        let mut f = Fixture::new().await;
+        prepare_for(&mut f, action).await;
+        sqlx::query("SELECT membership_fixture_inconsistent($1,'inventory')")
+            .bind(f.trade)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+        for key in [None, Some("consistency")] {
+            let (status, body) = f.call(action, SELLER, key, body_for(action)).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{action}: {body}");
+            assert_eq!(body["detail"]["code"], "INVENTORY_INCONSISTENT");
+            assert_eq!(f.snapshot().await, before, "{action}");
         }
     }
 }

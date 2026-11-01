@@ -637,6 +637,53 @@ async fn lifecycle_receipts_keep_their_historical_projection() {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn moved_member_is_refused_before_freeze_and_receipt_replay() {
+    for (state, action, body) in [
+        ("PENDING_CONFIRMATION", "confirm", Value::Null),
+        ("PENDING_CONFIRMATION", "decline", Value::Null),
+        ("CONFIRMED", "deliver", delivery()),
+        ("DELIVERED", "pay", Value::Null),
+    ] {
+        // No stored result: an active freeze must not turn the refusal into a freeze answer.
+        for key in [None, Some("moved-frozen")] {
+            let mut f = Fixture::new(state).await;
+            f.freeze().await;
+            sqlx::query("SELECT trades_fixture_change($1,'moved')")
+                .bind(id(SELLER))
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+            let before = f.snapshot().await;
+            let denied = f.action(action, SELLER, key, body.clone()).await;
+            assert_refusal(&denied, StatusCode::FORBIDDEN, "TRADE_PARTY_FORBIDDEN");
+            assert!(denied.1.get("freeze").is_none(), "{action}: {}", denied.1);
+            assert_eq!(f.snapshot().await, before, "{action}");
+        }
+        // A stored result exists: the freeze and the stored body stay hidden from the moved user.
+        let mut f = Fixture::new(state).await;
+        let (s, stored) = f
+            .action(action, SELLER, Some("moved-stored"), body.clone())
+            .await;
+        assert_eq!(s, StatusCode::OK, "{action}: {stored}");
+        sqlx::query("INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id) VALUES($1,$2,'ACTIVE','OTHER','moved member review',$3)").bind(Uuid::new_v4()).bind(f.trade).bind(id(ADMIN)).execute(&mut f.admin).await.unwrap();
+        sqlx::query("SELECT trades_fixture_change($1,'moved')")
+            .bind(id(SELLER))
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+        let denied = f
+            .action(action, SELLER, Some("moved-stored"), body.clone())
+            .await;
+        assert_refusal(&denied, StatusCode::FORBIDDEN, "TRADE_PARTY_FORBIDDEN");
+        assert!(denied.1.get("freeze").is_none(), "{action}: {}", denied.1);
+        assert_ne!(denied.1, stored);
+        assert_eq!(f.snapshot().await, before, "{action}");
+    }
+}
+
 async fn named_pool(url: &str, name: &'static str) -> PgPool {
     PgPoolOptions::new()
         .max_connections(2)

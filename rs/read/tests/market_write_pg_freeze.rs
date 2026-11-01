@@ -30,6 +30,7 @@ struct Fixture {
     router: Router,
     trade: Uuid,
     admin_url: String,
+    runtime_url: String,
 }
 impl Fixture {
     async fn new(state: &str) -> Self {
@@ -102,12 +103,26 @@ impl Fixture {
             router,
             trade,
             admin_url: a,
+            runtime_url: r,
         };
         f.state(state).await;
         f
     }
     async fn state(&mut self, state: &str) {
         sqlx::query("UPDATE trades SET status=$2,confirmed_at=CASE WHEN $2 IN ('CONFIRMED','DELIVERED','PAID') THEN now() END,delivered_at=CASE WHEN $2 IN ('DELIVERED','PAID') THEN now() END,paid_at=CASE WHEN $2='PAID' THEN now() END,final_quantity_mt=CASE WHEN $2 IN ('DELIVERED','PAID') THEN quantity_mt END,final_price_per_mt=CASE WHEN $2 IN ('DELIVERED','PAID') THEN price_per_mt_usd END,final_total_usd=CASE WHEN $2 IN ('DELIVERED','PAID') THEN quantity_mt*price_per_mt_usd END WHERE id=$1").bind(self.trade).bind(state).execute(&mut self.admin).await.unwrap();
+    }
+    async fn provenance(&mut self, buyer: &str, seller: &str) {
+        sqlx::raw_sql(include_str!("fixtures/phase9_freeze_provenance.sql"))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+        sqlx::query("SELECT freeze_fixture_set_provenance($1,$2,$3)")
+            .bind(self.trade)
+            .bind(buyer)
+            .bind(seller)
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
     }
     async fn call(&self, action: &str, actor: u128, body: Value) -> (StatusCode, Value) {
         send(
@@ -325,6 +340,37 @@ async fn freeze_refuses_a_terminal_trade() {
             .await
             .unwrap();
         assert_eq!(stored, state);
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn freeze_refuses_a_trade_with_two_demonstration_parties() {
+    for state in ["PENDING_CONFIRMATION", "CONFIRMED", "DELIVERED", "PAID"] {
+        let mut f = Fixture::new(state).await;
+        f.provenance("DEMO", "DEMO").await;
+        let before = f.snapshot().await;
+        let counts = f.counts().await;
+        let (s, b) = f.freeze(ADMIN, "OTHER").await;
+        assert_eq!(s, StatusCode::CONFLICT, "{state}: {b}");
+        assert_eq!(code(&b), "TRADE_DEMO_NOT_FREEZABLE");
+        assert_eq!(f.counts().await, counts, "{state}: no freeze or audit row");
+        assert_eq!(f.snapshot().await, before, "{state}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn freeze_accepts_a_trade_with_one_real_party() {
+    for (buyer, seller) in [("DEMO", "REAL"), ("REAL", "DEMO")] {
+        let mut f = Fixture::new("CONFIRMED").await;
+        f.provenance(buyer, seller).await;
+        let (s, b) = f.freeze(ADMIN, "OTHER").await;
+        assert_eq!(s, StatusCode::CREATED, "{buyer}/{seller}: {b}");
+        assert_eq!(b["status"], "ACTIVE");
+        assert_eq!(f.counts().await, (1, 1, 1), "{buyer}/{seller}");
+        let (s, b) = f.call("unfreeze", ADMIN, json!({"note":"complete"})).await;
+        assert_eq!(s, StatusCode::OK, "{buyer}/{seller}: {b}");
     }
 }
 
@@ -884,7 +930,7 @@ impl ObservedRow {
         match self {
             Self::User => "SELECT id FROM users WHERE id=$1 FOR UPDATE",
             Self::Trade => {
-                "SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id FROM trades WHERE id=$1 FOR UPDATE"
+                "SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id,buyer_provenance::text AS buyer_provenance,seller_provenance::text AS seller_provenance FROM trades WHERE id=$1 FOR UPDATE"
             }
         }
     }
@@ -896,8 +942,7 @@ impl ObservedRow {
     }
 }
 
-async fn route_pool(f: &Fixture, name: &'static str) -> PgPool {
-    let url = f._database.runtime_url.clone();
+async fn route_pool(url: &str, name: &'static str) -> PgPool {
     PgPoolOptions::new()
         .max_connections(1)
         .after_connect(move |conn, _| {
@@ -909,7 +954,7 @@ async fn route_pool(f: &Fixture, name: &'static str) -> PgPool {
                 Ok(())
             })
         })
-        .connect(&url)
+        .connect(url)
         .await
         .unwrap()
 }
@@ -961,8 +1006,8 @@ async fn overlap_routes(
     second_reason: &'static str,
     observed: ObservedRow,
 ) -> ((StatusCode, Value), (StatusCode, Value)) {
-    let first_pool = route_pool(f, "freeze-route-first").await;
-    let second_pool = route_pool(f, "freeze-route-second").await;
+    let first_pool = route_pool(&f.runtime_url, "freeze-route-first").await;
+    let second_pool = route_pool(&f.runtime_url, "freeze-route-second").await;
     let first_router = contract_router(first_pool.clone(), KEY);
     let second_router = contract_router(second_pool.clone(), KEY);
     f.sql(include_str!("fixtures/phase9_freeze.sql")).await;

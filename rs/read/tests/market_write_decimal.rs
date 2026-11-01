@@ -547,6 +547,7 @@ fn sqlstate_mapping_table_is_total() {
         "TRADE_ALREADY_FROZEN",
         "TRADE_NOT_FROZEN",
         "TRADE_NOT_SETTLEABLE",
+        "TRADE_DEMO_NOT_FREEZABLE",
         "FREEZE_HISTORY_IMMUTABLE",
         "DELIVERY_QUANTITY_INVALID",
         "DELIVERY_PRICE_DEVIATION",
