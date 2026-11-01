@@ -243,3 +243,47 @@ fn dispatch_never_panics_on_bad_utf8_arguments() {
         .unwrap();
     assert!(output.status.success());
 }
+
+#[test]
+fn local_monitors_refuse_flags_they_do_not_take() {
+    // The refusal happens before the monitor reads or writes anything.
+    for values in [
+        vec!["monitor", "health", "--event", "health"],
+        vec!["monitor", "health", "--remind", "all"],
+        vec!["monitor", "health", "--telegram-disabled"],
+        vec!["monitor", "backup-verify", "--event", "backup"],
+        vec!["monitor", "backup-verify", "--telegram-disabled"],
+        vec![
+            "monitor",
+            "health",
+            "--environment",
+            "staging",
+            "--release-sha",
+            "0123456789abcdef0123456789abcdef01234567",
+        ],
+        vec![
+            "monitor",
+            "backup-verify",
+            "--environment",
+            "production",
+            "--release-sha",
+            "0123456789abcdef0123456789abcdef01234567",
+        ],
+    ] {
+        assert!(parse_arguments(args(&values)).is_ok(), "parses: {values:?}");
+        assert_eq!(
+            binary(&values).status.code(),
+            Some(2),
+            "usage refusal: {values:?}"
+        );
+    }
+}
+
+#[test]
+fn local_monitors_run_on_the_calling_thread() {
+    // A blocking-pool thread can wait forever when a unit limits its tasks, so
+    // the dispatch must not move a local monitor onto the blocking pool.
+    let source = include_str!("../src/cli/mod.rs");
+    assert!(!source.contains("spawn_blocking"));
+    assert!(source.contains("fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit"));
+}

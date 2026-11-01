@@ -452,6 +452,12 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             })
             .await
         }
+        Command::Monitor(args) if args.kind == MonitorKind::Health => {
+            run_local_monitor(&args, monitors::health::run_default)
+        }
+        Command::Monitor(args) if args.kind == MonitorKind::BackupVerify => {
+            run_local_monitor(&args, monitors::backup::run_default)
+        }
         Command::Monitor(args) if args.uses_onboarding_flags() => {
             // A flag another monitor does not read is refused, never ignored.
             report("monitor", "usage_refused");
@@ -498,6 +504,33 @@ impl Command {
             Self::Canary(_) => "canary",
         }
     }
+}
+
+/// Whether `args` is exactly the bare command `monitor <kind>`: every other
+/// field holds the value the parser gives when the flag is absent. A flag added
+/// to `MonitorArgs` later is therefore refused by default.
+fn is_bare_monitor(args: &MonitorArgs) -> bool {
+    let Some(name) = args.kind.to_possible_value() else {
+        return false;
+    };
+    let bare = parse(vec![
+        OsString::from("monitor"),
+        OsString::from(name.get_name()),
+    ]);
+    matches!(bare, Ok(Command::Monitor(bare)) if bare == *args)
+}
+
+/// Run a local monitor that takes no flags.
+///
+/// The monitor reads local files only and opens no pool. It runs on the calling
+/// thread: a oneshot has no other task, and a blocking-pool thread could wait
+/// forever under a unit's `TasksMax`.
+fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
+    if !is_bare_monitor(args) {
+        report("monitor", "usage_refused");
+        return Exit::Usage;
+    }
+    std::panic::catch_unwind(run).unwrap_or(Exit::Dependency)
 }
 
 fn report(command: &str, outcome: &str) {
