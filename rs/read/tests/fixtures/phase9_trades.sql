@@ -4,7 +4,6 @@ CREATE OR REPLACE FUNCTION trades_fixture_seed(product uuid, point uuid) RETURNS
 DECLARE buyer uuid := '00000000-0000-0000-0000-000000001000'; seller uuid := '00000000-0000-0000-0000-000000002000';
 BEGIN
 
-
  INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES
  (buyer,'Trade buyer','SHIPOWNER','APPROVED','REAL'),(seller,'Trade seller','FUEL_SUPPLIER','APPROVED','REAL'),
  ('00000000-0000-0000-0000-000000003000','Other buyer','SHIPOWNER','APPROVED','REAL');

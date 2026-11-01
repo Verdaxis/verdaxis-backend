@@ -32,7 +32,7 @@ fn router(pool: PgPool) -> Router {
         .merge(orders::contract_router(pool, KEY))
 }
 struct Fixture {
-    _database: market_database::MarketDatabase,
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -42,7 +42,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new(state: &str) -> Self {
-        let database = market_database::MarketDatabase::new("RUST_FREEZE_ENFORCEMENT").await;
+        let database = std::sync::Arc::new(
+            market_database::MarketDatabase::new("RUST_FREEZE_ENFORCEMENT").await,
+        );
         let a = database.admin_url.clone();
         let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
@@ -596,6 +598,34 @@ async fn lifecycle_receipts_keep_their_historical_projection() {
             assert_ne!(denied.1, stored);
             assert_eq!(f.snapshot().await, before);
             f.clear().await;
+            let before = f.snapshot().await;
+            assert_eq!(
+                f.action(action, SELLER, Some("historical"), body.clone())
+                    .await,
+                (StatusCode::OK, stored.clone())
+            );
+            assert_eq!(f.snapshot().await, before);
+            for change in ["moved", "detached"] {
+                sqlx::query("SELECT trades_fixture_change($1,$2)")
+                    .bind(id(SELLER))
+                    .bind(change)
+                    .execute(&mut f.admin)
+                    .await
+                    .unwrap();
+                let before = f.snapshot().await;
+                let denied = f
+                    .action(action, SELLER, Some("historical"), body.clone())
+                    .await;
+                assert_eq!(denied.0, StatusCode::FORBIDDEN, "{change}: {}", denied.1);
+                assert!(denied.1.get("freeze").is_none());
+                assert_ne!(denied.1, stored);
+                assert_eq!(f.snapshot().await, before);
+            }
+            sqlx::query("UPDATE organizations SET verification_status='REJECTED' WHERE id=$1")
+                .bind(id(0x2000))
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
             let before = f.snapshot().await;
             assert_eq!(
                 f.action(action, SELLER, Some("historical"), body.clone())

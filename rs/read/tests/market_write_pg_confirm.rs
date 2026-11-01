@@ -303,7 +303,7 @@ async fn elapsed_decline_releases_the_full_restored_balance() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn cleanup_uses_the_recorded_party_and_legacy_membership_only_when_null() {
-    for change in ["rejected", "detached", "moved", "kyc", "email", "password"] {
+    for change in ["rejected", "kyc", "email", "password"] {
         let mut f = Fixture::new("BUYER", false).await;
         f.change(SELLER, change).await;
         let (s, b) = f.call("decline", SELLER, None).await;
@@ -402,7 +402,7 @@ async fn confirm_and_decline_are_receipted() {
             &[("idempotency-key", "same-key")],
         )
         .await;
-        assert_eq!(s, StatusCode::CONFLICT);
+        assert_eq!(s, StatusCode::NOT_FOUND);
         assert_eq!(f.snapshot().await, after);
     }
 }
@@ -623,7 +623,7 @@ async fn decline_clock_is_captured_after_the_order_lock_wait() {
     assert_eq!(amount(&f.stock().await.1), amount("0"));
 }
 
-async fn preserving_rejection(
+async fn reject_organization(
     f: &Fixture,
 ) -> Result<verdaxis_read::business::organizations::OrganizationDecision, verdaxis_read::ApiError> {
     use std::sync::Arc;
@@ -639,7 +639,7 @@ async fn preserving_rejection(
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn confirmation_and_preserving_organization_rejection_keep_the_pending_commitment() {
+async fn organization_rejection_cancels_pending_but_retains_confirmed_commitments() {
     for confirm_first in [false, true] {
         let mut f = Fixture::new("BUYER", false).await;
         if confirm_first {
@@ -664,7 +664,7 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
                 router,
                 trade,
             };
-            preserving_rejection(&fixture).await
+            reject_organization(&fixture).await
         });
         wait_for_lock(&mut f.admin).await;
         holder.commit().await.unwrap();
@@ -683,8 +683,8 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
                 .fetch_one(&mut f.admin)
                 .await
                 .unwrap();
-            assert_eq!(state, "PENDING_CONFIRMATION");
-            assert_eq!(amount(&f.stock().await.1), amount("3"));
+            assert_eq!(state, "CANCELLED");
+            assert_eq!(amount(&f.stock().await.1), amount("0"));
             let before = f.snapshot().await;
             assert_eq!(
                 f.call("confirm", SELLER, None).await.0,
@@ -692,7 +692,8 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
             );
             assert_eq!(f.snapshot().await, before);
             let (s, b) = f.call("decline", SELLER, None).await;
-            assert_eq!(s, StatusCode::OK, "{b}");
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+            assert_eq!(f.snapshot().await, before);
             assert_eq!(f.order().await.0, "CANCELLED");
             assert_eq!(amount(&f.stock().await.1), amount("0"));
             assert_eq!(amount(&f.stock().await.0), amount("10"));
@@ -851,7 +852,7 @@ async fn scalar_trades_without_an_order_and_keyed_cleanup_context_follow_their_o
     let before = f.snapshot().await;
     assert_eq!(
         f.call("decline", SELLER, Some("context")).await.0,
-        StatusCode::CONFLICT
+        StatusCode::FORBIDDEN
     );
     assert_eq!(f.snapshot().await, before);
     f.change(SELLER, "detached").await;
@@ -997,9 +998,7 @@ async fn independent_inventory_changes_survive_confirmation_and_terminal_decline
         let router = f.router.clone();
         let path = format!("/api/trades/{}/{action}", f.trade);
         let command = tokio::spawn(async move { send(&router, &path, Some(SELLER), &[]).await });
-        let mut observer = PgConnection::connect(&f._database.admin_url.clone())
-            .await
-            .unwrap();
+        let mut observer = PgConnection::connect(&f._database.admin_url).await.unwrap();
         wait_for_lock(&mut observer).await;
         holder.commit().await.unwrap();
         let (s, b) = command.await.unwrap();
@@ -1079,7 +1078,7 @@ async fn confirmation_has_no_order_mirror_effect_and_keys_are_actor_operation_sc
     );
     assert_eq!(
         f.call("confirm", BUYER, Some("scope")).await.0,
-        StatusCode::BAD_REQUEST
+        StatusCode::FORBIDDEN
     );
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM market_command_results")
         .fetch_one(&mut f.admin)

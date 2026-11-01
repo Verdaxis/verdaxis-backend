@@ -180,8 +180,34 @@ pub async fn require_execution(
     Ok(())
 }
 
+/// Ordinary recorded actors retain cleanup through organization rejection only.
+pub(crate) async fn require_recorded_membership(
+    conn: &mut PgConnection,
+    locked: &Locked,
+    actor: &AuthenticatedActor,
+    organization_id: Uuid,
+) -> Result<(), MarketWriteError> {
+    require_locked(locked, LockClass::User, actor.user_id())?;
+    require_locked(locked, LockClass::Organization, organization_id)?;
+    match actor.account.current_organization_id {
+        Some(current) if current == organization_id => Ok(()),
+        Some(_) => Err(denied()),
+        None => {
+            // Rejection detaches members. Execution admission forbids new orders
+            // and trades for a rejected organization, so its recorded trades
+            // predate rejection; no separate chronology proof is required.
+            let rejected: bool = sqlx::query_scalar(
+                "SELECT verification_status::text='REJECTED' FROM organizations WHERE id=$1",
+            )
+            .bind(organization_id)
+            .fetch_one(conn)
+            .await?;
+            if rejected { Ok(()) } else { Err(denied()) }
+        }
+    }
+}
+
 /// The side is an action restriction, not a caller-selected organization.
-/// Concrete ownership survives movement; assisted membership never inherits it.
 pub async fn cleanup_context_for_trade(
     conn: &mut PgConnection,
     locked: &Locked,
@@ -263,6 +289,7 @@ pub async fn cleanup_context_for_trade(
         if user_id != Some(actor.user_id()) {
             return Err(denied());
         }
+        require_recorded_membership(conn, locked, &actor, organization_id).await?;
         SettlementProof::RecordedUser {
             side,
             user_id: actor.user_id(),
@@ -300,7 +327,7 @@ pub async fn require_cleanup(
         "SELECT buyer_id,seller_id,buyer_user_id,seller_user_id FROM trades WHERE id=$1",
     )
     .bind(trade_id)
-    .fetch_one(conn)
+    .fetch_one(&mut *conn)
     .await?;
     let (org, user) = match side {
         TradeSide::Buyer => (
@@ -314,6 +341,11 @@ pub async fn require_cleanup(
     };
     if org != proof.organization_id() || proof.recorded_user_id().is_some_and(|id| Some(id) != user)
     {
+        return Err(denied());
+    }
+    if proof.recorded_user_id().is_some() {
+        require_recorded_membership(conn, locked, ctx.actor(), org).await?;
+    } else if ctx.actor().account.current_organization_id != Some(org) {
         return Err(denied());
     }
     Ok(())

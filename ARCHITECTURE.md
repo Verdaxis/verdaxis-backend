@@ -462,7 +462,7 @@ organization-first owner. The trade freezes normalized typed terms, resting pric
 and the seller fee, while only order remainder changes; inventory stays reserved
 until confirmation. Exact initiating-user/key replay returns the current trade
 projection before fresh execution admission. Trade reads use cleanup authentication,
-a distinct authorized relation and a per-row recorded viewer, with stable descending
+a distinct current-membership relation and a per-row authorized viewer, with stable descending
 created-time/UUID pages. Support-context reads reuse the locked context expiry
 transition and cannot grant settlement authority. `analytics/sender.rs` schedules
 bounded, failure-isolated Umami conversion delivery after a known commit; replay
@@ -483,7 +483,8 @@ These component routes remain unmounted until lifecycle enforcement is integrate
 Delivery and payment use a separate settlement preview that retains the complete
 recorded-party and linked-order lock set even on receipt replay and recovery.
 Their sealed context derives its organization from the authorized trade side;
-concrete participation survives membership changes, while assisted customers
+ordinary recorded actors require current membership, except organization-less
+actors whose recorded organization is rejected. Assisted customers
 must remain current members. Final amounts use exact Decimal arithmetic and the
 frozen fee basis. State, private notifications, audit, participant event and the
 optional receipt commit together, without order, inventory or public-market

@@ -910,11 +910,11 @@ mod replay_tests {
     }
 
     #[tokio::test]
-    async fn ordered_replay_preserves_recorded_participation() {
+    async fn ordered_replay_requires_recorded_membership() {
         let evidence = transaction::ordered_receipt_case("participation").await;
         assert_eq!(
             evidence["replayed_states"],
-            serde_json::json!(["rejected", "detached", "moved"])
+            serde_json::json!(["rejected", "rejected_organization"])
         );
         assert_eq!(evidence["effects"], 1);
         assert_eq!(evidence["fresh_execution_calls"], 1);
