@@ -16,12 +16,72 @@ use super::{
 };
 use crate::{ApiError, ApiErrorKind, Config, MarketPolicy, business::transaction::AttemptError};
 
+/// The most pending trades, and separately the most open orders, one
+/// invalidation changes. A larger scope is refused whole, never truncated.
+const MAX_INVALIDATION_ROWS: usize = 100;
+
 pub struct InvalidateOrganization {
     pub organization_id: Uuid,
     pub actor_id: Uuid,
     pub now: DateTime<Utc>,
     pub policy: Arc<MarketPolicy>,
     pub config: Arc<Config>,
+}
+
+/// One person's market scope: the open orders they own and the pending trades
+/// that record them as buyer or seller. Their organization's other rows stay.
+pub struct InvalidateUser {
+    pub subject_id: Uuid,
+    pub actor_id: Uuid,
+    pub now: DateTime<Utc>,
+    pub policy: Arc<MarketPolicy>,
+    pub config: Arc<Config>,
+}
+
+/// The rows one invalidation covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Scope {
+    /// Every row of one organization: company rejection.
+    Organization(Uuid),
+    /// The rows of one person: individual offboarding.
+    User(Uuid),
+}
+
+impl Scope {
+    /// The audit reason for every row this scope changes.
+    pub(super) fn reason(self) -> &'static str {
+        match self {
+            Self::Organization(_) => "organization_rejected",
+            Self::User(_) => "account_offboarded",
+        }
+    }
+
+    /// The internal audit reference. It never reaches a market event payload
+    /// of the user scope, so counterparties do not learn who left.
+    pub(super) fn reference(self) -> String {
+        match self {
+            Self::Organization(id) => format!("organization:{id}"),
+            Self::User(id) => format!("user:{id}"),
+        }
+    }
+
+    /// An open order in this scope is withdrawn; any other changed order is
+    /// only restored.
+    pub(super) fn owns(self, order: &Order) -> bool {
+        match self {
+            Self::Organization(id) => order.organization_id == id,
+            Self::User(id) => order.owner_user_id == Some(id),
+        }
+    }
+}
+
+/// The inputs both public entry points share.
+pub(super) struct Invalidation<'a> {
+    pub scope: Scope,
+    pub actor_id: Uuid,
+    pub now: DateTime<Utc>,
+    pub policy: &'a MarketPolicy,
+    pub config: &'a Config,
 }
 
 #[derive(Debug)]
@@ -78,6 +138,7 @@ struct Commitment {
 pub(super) struct Order {
     pub id: Uuid,
     pub organization_id: Uuid,
+    pub owner_user_id: Option<Uuid>,
     pub side: String,
     pub product_id: Uuid,
     pub delivery_point_id: Option<Uuid>,
@@ -105,15 +166,33 @@ struct Preview {
     orders: Vec<Order>,
 }
 
-async fn preview(
-    conn: &mut PgConnection,
-    organization: Uuid,
-) -> Result<Preview, InvalidationError> {
-    let commitments = sqlx::query_as::<_,Commitment>("SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE (buyer_id=$1 OR seller_id=$1) AND status='PENDING_CONFIRMATION' ORDER BY id LIMIT 101")
-        .bind(organization).fetch_all(&mut *conn).await?;
-    let mut orders = sqlx::query_as::<_,Order>("SELECT id,organization_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at FROM orderbook_orders WHERE organization_id=$1 AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY id LIMIT 101")
-        .bind(organization).fetch_all(&mut *conn).await?;
-    if commitments.len() > 100 || orders.len() > 100 {
+const ORDER_COLUMNS: &str = "id,organization_id,owner_user_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at";
+
+async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, InvalidationError> {
+    // One row past the bound proves overflow without reading the whole scope.
+    let (trades_in_scope, orders_in_scope, subject) = match scope {
+        Scope::Organization(id) => ("(buyer_id=$1 OR seller_id=$1)", "organization_id=$1", id),
+        Scope::User(id) => (
+            "(buyer_user_id=$1 OR seller_user_id=$1)",
+            "owner_user_id=$1",
+            id,
+        ),
+    };
+    let commitments = sqlx::query_as::<_, Commitment>(sqlx::AssertSqlSafe(format!(
+        "SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE {trades_in_scope} AND status='PENDING_CONFIRMATION' ORDER BY id LIMIT {}",
+        MAX_INVALIDATION_ROWS + 1
+    )))
+    .bind(subject)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut orders = sqlx::query_as::<_, Order>(sqlx::AssertSqlSafe(format!(
+        "SELECT {ORDER_COLUMNS} FROM orderbook_orders WHERE {orders_in_scope} AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY id LIMIT {}",
+        MAX_INVALIDATION_ROWS + 1
+    )))
+    .bind(subject)
+    .fetch_all(&mut *conn)
+    .await?;
+    if commitments.len() > MAX_INVALIDATION_ROWS || orders.len() > MAX_INVALIDATION_ROWS {
         return Err(refusal(
             "MARKET_INVALIDATION_LIMIT",
             "Market invalidation exceeds the transaction bound.",
@@ -125,8 +204,12 @@ async fn preview(
         .flatten()
         .collect();
     if !linked_ids.is_empty() {
-        let linked = sqlx::query_as::<_,Order>("SELECT id,organization_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at FROM orderbook_orders WHERE id=ANY($1) ORDER BY id")
-            .bind(linked_ids.iter().copied().collect::<Vec<_>>()).fetch_all(&mut *conn).await?;
+        let linked = sqlx::query_as::<_, Order>(sqlx::AssertSqlSafe(format!(
+            "SELECT {ORDER_COLUMNS} FROM orderbook_orders WHERE id=ANY($1) ORDER BY id"
+        )))
+        .bind(linked_ids.iter().copied().collect::<Vec<_>>())
+        .fetch_all(&mut *conn)
+        .await?;
         if linked.len() != linked_ids.len() {
             drift(conn).await?;
         }
@@ -155,7 +238,61 @@ pub async fn invalidate_organization(
     conn: &mut PgConnection,
     command: &InvalidateOrganization,
 ) -> Result<InvalidationResult, InvalidationError> {
-    let before = preview(conn, command.organization_id).await?;
+    invalidate(
+        conn,
+        &Invalidation {
+            scope: Scope::Organization(command.organization_id),
+            actor_id: command.actor_id,
+            now: command.now,
+            policy: &command.policy,
+            config: &command.config,
+        },
+    )
+    .await
+}
+
+/// Withdraw the subject's open order remainders and cancel the pending trades
+/// that record the subject, releasing their reservations once.
+///
+/// The caller holds the canonical organization and user prefix, the subject's
+/// row included; the subject row lock taken here is then already held. Market
+/// locks follow it in the shared order. A row that appears after discovery, or
+/// a scope over the bound, refuses the whole transaction. This subcommand
+/// never completes or retries a transaction.
+pub async fn invalidate_user(
+    conn: &mut PgConnection,
+    command: &InvalidateUser,
+) -> Result<InvalidationResult, InvalidationError> {
+    // The subject's own market commands take this row first, so holding it
+    // keeps the scope from gaining the subject's new orders.
+    let subject: Option<Uuid> = sqlx::query_scalar("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+        .bind(command.subject_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    if subject.is_none() {
+        return Err(refusal(
+            "USER_NOT_FOUND",
+            "The market scope names an unknown user.",
+        ));
+    }
+    invalidate(
+        conn,
+        &Invalidation {
+            scope: Scope::User(command.subject_id),
+            actor_id: command.actor_id,
+            now: command.now,
+            policy: &command.policy,
+            config: &command.config,
+        },
+    )
+    .await
+}
+
+async fn invalidate(
+    conn: &mut PgConnection,
+    command: &Invalidation<'_>,
+) -> Result<InvalidationResult, InvalidationError> {
+    let before = preview(conn, command.scope).await?;
     let mut slices: Vec<_> = before
         .orders
         .iter()
@@ -212,7 +349,7 @@ pub async fn invalidate_organization(
             ));
         }
     }
-    normalize_keys(&command.policy, &keys)?;
+    normalize_keys(command.policy, &keys)?;
     let lock_keys = ordered_slice_lock_keys(&slices).map_err(|_| {
         refusal(
             "MARKET_SLICE_INVALID",
@@ -232,7 +369,7 @@ pub async fn invalidate_organization(
             .execute(&mut *conn)
             .await?;
     }
-    if preview(conn, command.organization_id).await? != before {
+    if preview(conn, command.scope).await? != before {
         drift(conn).await?;
     }
     let trade_ids: Vec<_> = before.commitments.iter().map(|t| t.id).collect();
@@ -251,11 +388,14 @@ pub async fn invalidate_organization(
     .bind(&order_ids)
     .fetch_all(&mut *conn)
     .await?;
-    if locked != order_ids || preview(conn, command.organization_id).await? != before {
+    if locked != order_ids || preview(conn, command.scope).await? != before {
         drift(conn).await?;
     }
     let mut restored = BTreeMap::<Uuid, Decimal>::new();
-    let mut participants = BTreeSet::from([command.organization_id]);
+    let mut participants = BTreeSet::new();
+    if let Scope::Organization(id) = command.scope {
+        participants.insert(id);
+    }
     for trade in &before.commitments {
         participants.extend([trade.buyer_id, trade.seller_id]);
         for order in [trade.bid_order_id, trade.ask_order_id]
@@ -287,7 +427,7 @@ pub async fn invalidate_organization(
                 )
             })?;
         let terminal = matches!(order.status.as_str(), "CANCELLED" | "EXPIRED");
-        let owned = order.organization_id == command.organization_id;
+        let owned = command.scope.owns(order);
         let released = if terminal {
             restored
         } else if owned {
@@ -345,14 +485,14 @@ pub async fn invalidate_organization(
     }
     rebuild_live_slice_benchmarks_for_keys(
         conn,
-        &command.policy,
-        &command.config,
+        command.policy,
+        command.config,
         &keys,
         command.now,
     )
     .await?;
     events::restoration_effects(conn, command, &changes, &trade_ids).await?;
-    let outbox_id = events::organization_effects(
+    let outbox_ids = events::scope_effects(
         conn,
         command,
         &order_ids,
@@ -364,6 +504,6 @@ pub async fn invalidate_organization(
         withdrawn_orders: withdrawn,
         cancelled_trade_ids: trade_ids,
         released_uncommitted_quantity: total,
-        outbox_ids: vec![outbox_id],
+        outbox_ids,
     })
 }
