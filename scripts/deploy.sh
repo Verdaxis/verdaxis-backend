@@ -124,6 +124,12 @@ APPROVED_RELEASE_SHA="${APPROVED_RELEASE_SHA:-}"
 MIGRATION_APPROVED_SOURCE_SHA="${MIGRATION_APPROVED_SOURCE_SHA:-}"
 MIGRATION_EXPECTED_CURRENT_REVISION="${MIGRATION_EXPECTED_CURRENT_REVISION:-}"
 MIGRATION_TARGET_REVISION="${MIGRATION_TARGET_REVISION:-}"
+# Optional approval of the watchlist producer activation. Without them the
+# keys already recorded in the release metadata are carried forward unchanged.
+WATCHLIST_EVENT_PRODUCER="${WATCHLIST_EVENT_PRODUCER:-}"
+WATCHLIST_PRODUCER_ACTIVATED_AT="${WATCHLIST_PRODUCER_ACTIVATED_AT:-}"
+RELEASE_WATCHLIST_EVENT_PRODUCER=""
+RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT=""
 DEPLOY_LOCK_FD=""
 RESTART_WINDOW_LOCK_FD=""
 DEPLOY_STARTED=0
@@ -473,6 +479,90 @@ write_monitor_identity() {
     mv -- "$temporary_file" "$identity_file"
 }
 
+# True when the revision is the watchlist producer checkpoint or a later one.
+# tests/unit/test_deploy_release_metadata.py keeps this list equal to that
+# part of deploy/rust/allowed-revisions.json.
+revision_has_watchlist_producer() {
+    case "$1" in
+        p89_20261022_watchlist_producer|p89_20261022_trade_freeze) return 0 ;;
+    esac
+    return 1
+}
+
+# Print the value of KEY recorded in the current release metadata, or nothing.
+# A repeated key is refused rather than guessed.
+recorded_release_value() {
+    local key="$1" line value="" count=0
+    if [[ ! -e "$RELEASE_ENV_FILE" ]]; then
+        return 0
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "$key="* ]]; then
+            value="${line#*=}"
+            count=$((count + 1))
+        fi
+    done < "$RELEASE_ENV_FILE"
+    if (( count > 1 )); then
+        echo "The release metadata records $key more than once; refusing." >&2
+        return 1
+    fi
+    printf '%s' "$value"
+}
+
+valid_watchlist_producer() {
+    [[ "$1" == "legacy-python" || "$1" == "rust-market-v1" ]]
+}
+
+# RFC 3339 date and time with seconds and an explicit offset.
+valid_activation_instant() {
+    [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$ ]]
+}
+
+# Decide the watchlist producer keys of the release about to be published.
+# The recorded keys are carried forward byte for byte unless the operator
+# supplies a value. A recorded activation instant never changes; the producer
+# may move between its two names under the same instant. A producer needs an
+# instant and an instant needs a producer. Below the producer checkpoint the
+# schema has no producer, so both keys are dropped and supplying one refuses.
+resolve_watchlist_producer_keys() {
+    local target="$1" recorded_producer recorded_instant producer instant
+    recorded_producer="$(recorded_release_value WATCHLIST_EVENT_PRODUCER)" || return 1
+    recorded_instant="$(recorded_release_value WATCHLIST_PRODUCER_ACTIVATED_AT)" || return 1
+    if ! revision_has_watchlist_producer "$target"; then
+        if [[ -n "$WATCHLIST_EVENT_PRODUCER" || -n "$WATCHLIST_PRODUCER_ACTIVATED_AT" ]]; then
+            echo "Watchlist producer keys require the producer checkpoint or a later target; refusing." >&2
+            return 1
+        fi
+        RELEASE_WATCHLIST_EVENT_PRODUCER=""
+        RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT=""
+        return 0
+    fi
+    producer="${WATCHLIST_EVENT_PRODUCER:-$recorded_producer}"
+    instant="${WATCHLIST_PRODUCER_ACTIVATED_AT:-$recorded_instant}"
+    if [[ -n "$producer" ]] && ! valid_watchlist_producer "$producer"; then
+        echo "WATCHLIST_EVENT_PRODUCER must be legacy-python or rust-market-v1; refusing." >&2
+        return 1
+    fi
+    if [[ -n "$instant" ]] && ! valid_activation_instant "$instant"; then
+        echo "WATCHLIST_PRODUCER_ACTIVATED_AT must be an RFC 3339 time with an offset; refusing." >&2
+        return 1
+    fi
+    if [[ -n "$recorded_instant" && "$instant" != "$recorded_instant" ]]; then
+        echo "The recorded watchlist producer activation instant never changes; refusing." >&2
+        return 1
+    fi
+    if [[ -n "$producer" && -z "$instant" ]]; then
+        echo "WATCHLIST_EVENT_PRODUCER requires WATCHLIST_PRODUCER_ACTIVATED_AT; refusing." >&2
+        return 1
+    fi
+    if [[ -z "$producer" && -n "$instant" ]]; then
+        echo "WATCHLIST_PRODUCER_ACTIVATED_AT requires WATCHLIST_EVENT_PRODUCER; refusing." >&2
+        return 1
+    fi
+    RELEASE_WATCHLIST_EVENT_PRODUCER="$producer"
+    RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT="$instant"
+}
+
 write_release_artifact() {
     local release_sha="$1"
     local migration_revision="$2"
@@ -483,6 +573,11 @@ write_release_artifact() {
     printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\nMIGRATION_REVISION=%s\n' \
         "$DEPLOY_ENVIRONMENT" "$release_sha" "$migration_revision" \
         > "$temporary_file"
+    if [[ -n "$RELEASE_WATCHLIST_EVENT_PRODUCER" ]]; then
+        printf 'WATCHLIST_EVENT_PRODUCER=%s\nWATCHLIST_PRODUCER_ACTIVATED_AT=%s\n' \
+            "$RELEASE_WATCHLIST_EVENT_PRODUCER" "$RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT" \
+            >> "$temporary_file"
+    fi
     chmod 0600 "$temporary_file"
     mv -- "$temporary_file" "$RELEASE_ENV_FILE"
     # Both identities publish under durable blocked state, before candidate code
@@ -757,6 +852,11 @@ if [[ "$DRY_RUN" == "1" ]]; then
     echo "  MIGRATION_APPROVED_SOURCE_SHA=$REMOTE_SHA"
     echo "  MIGRATION_EXPECTED_CURRENT_REVISION=<exact-live-revision>"
     echo "  MIGRATION_TARGET_REVISION=<allowlisted-checkpoint>"
+    echo "Watchlist producer keys (carried forward unless supplied):"
+    for producer_key in WATCHLIST_EVENT_PRODUCER WATCHLIST_PRODUCER_ACTIVATED_AT; do
+        recorded_value="$(recorded_release_value "$producer_key")" || exit 1
+        echo "  $producer_key recorded=${recorded_value:-<absent>} supplied=${!producer_key:-<absent>}"
+    done
     if [[ "$RUST_POLICY_PRESENT" == "1" ]]; then
         echo "Rust staging policy rust_enabled=$RUST_ENABLED; a Rust-enabled deploy additionally requires RUST_ARTIFACT_ARCHIVE, RUST_PROVENANCE_RECORD and RUST_PROVENANCE_SIGNATURE."
         echo "Artifact runtime compatibility remains untested: no Cargo, binary, or candidate Python was executed."
@@ -787,6 +887,9 @@ if [[ ! "$MIGRATION_EXPECTED_CURRENT_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127
     || "${MIGRATION_EXPECTED_CURRENT_REVISION,,}" =~ ^(base|head|heads)$ \
     || "${MIGRATION_TARGET_REVISION,,}" =~ ^(base|head|heads)$ ]]; then
     echo "Exact literal migration current and target revisions are required." >&2
+    exit 1
+fi
+if ! resolve_watchlist_producer_keys "$MIGRATION_TARGET_REVISION"; then
     exit 1
 fi
 
