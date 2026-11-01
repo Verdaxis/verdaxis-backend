@@ -288,6 +288,29 @@ pub fn deployed_arguments(
     Ok((bind, budget))
 }
 
+/// The operator flag of the one-shot watchlist producer bootstrap.
+pub const BOOTSTRAP_PRODUCER_FLAG: &str = "--bootstrap-watchlist-producer";
+
+/// The arguments of the one-shot bootstrap: the flag, then the absolute path
+/// of the prepared budget artifact. It binds no socket, so no `--bind`.
+pub fn bootstrap_arguments(arguments: &[String]) -> Result<std::path::PathBuf, String> {
+    match arguments {
+        [flag, budget_flag, path]
+            if flag == BOOTSTRAP_PRODUCER_FLAG && budget_flag == "--budget-file" =>
+        {
+            let path = std::path::PathBuf::from(path);
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Err("--budget-file must be an absolute path".into())
+            }
+        }
+        _ => Err(format!(
+            "usage: {BOOTSTRAP_PRODUCER_FLAG} --budget-file <path>"
+        )),
+    }
+}
+
 pub(crate) struct DatabaseTarget {
     pub host: String,
     pub port: u16,

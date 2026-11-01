@@ -267,6 +267,43 @@ pub async fn run_producer(
     }
 }
 
+/// The one-shot operator bootstrap behind
+/// `verdaxis-read --bootstrap-watchlist-producer --budget-file <path>`.
+///
+/// It refuses before the producer checkpoint, opens the deployed application
+/// pool (the same attestation as a serving start), runs
+/// [`bootstrap_watermark`] once and closes the pool. A refusal is one fixed
+/// reason text; no variant carries row data.
+pub async fn bootstrap_command(config: &crate::Config) -> Result<BootstrapOutcome, &'static str> {
+    if !schema_has_producer(&config.migration_revision) {
+        return Err(ActivationRefusal::SchemaTooOld.reason());
+    }
+    let pools = crate::runtime::db::connect(config)
+        .await
+        .map_err(|_| "database_unavailable")?;
+    let outcome = match pools.read.acquire().await {
+        Ok(mut connection) => bootstrap_watermark(&mut connection)
+            .await
+            .map_err(ProducerError::reason),
+        Err(_) => Err("database_unavailable"),
+    };
+    pools.read.close().await;
+    pools.health.close().await;
+    outcome
+}
+
+impl BootstrapOutcome {
+    /// The one line the operator command prints.
+    pub fn report(&self) -> String {
+        match self {
+            Self::Created { watermark } => format!("outcome=created watermark={watermark}"),
+            Self::AlreadyPresent { watermark } => {
+                format!("outcome=already_present watermark={watermark}")
+            }
+        }
+    }
+}
+
 /// The running consumer of the serving process.
 pub struct ProducerTask {
     stop: watch::Sender<bool>,
