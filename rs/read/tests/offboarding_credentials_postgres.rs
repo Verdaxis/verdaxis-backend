@@ -47,9 +47,10 @@ const ORIGIN: &str = "https://app.verdaxis.exchange";
 const PASSWORD: &str = "SyntheticPassword123";
 /// Every pool waits at most this long for a row lock, as a request would.
 const LOCK_TIMEOUT: &str = "500ms";
-/// How long a schedule keeps a lock after the other side is seen waiting. It
-/// stays well under [`LOCK_TIMEOUT`], so the waiter never times out.
-const HOLD: Duration = Duration::from_millis(100);
+/// How long a schedule keeps a lock after the other side is seen waiting. Any
+/// positive wait separates the database clock after the lock from the clock
+/// before it; a short hold keeps the whole wait well under [`LOCK_TIMEOUT`].
+const HOLD: Duration = Duration::from_millis(20);
 /// bcrypt's minimum cost keeps fixture password checks short while a row
 /// lock is held; verification accepts any cost.
 const FIXTURE_HASH_COST: u32 = 4;
@@ -531,7 +532,10 @@ async fn cut_off_after_wait(pool: PgPool, user: Uuid) -> (DateTime<Utc>, Credent
     let mut transaction = pool.begin().await.unwrap();
     let requested = Instant::now();
     lock_user_row(&mut transaction, user).await;
-    println!("the cutoff transaction waited {:?} for the user row", requested.elapsed());
+    println!(
+        "the cutoff transaction waited {:?} for the user row",
+        requested.elapsed()
+    );
     let acquired = database_now(&mut transaction).await;
     let revocation = revoke_account_credentials(&mut transaction, user)
         .await
