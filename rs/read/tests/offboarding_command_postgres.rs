@@ -1144,7 +1144,7 @@ async fn audit_contains_only_opaque_case_reference() {
             "operation_id",
             "organization_id",
             "reason_code",
-            "refresh_sessions_revoked",
+            "refresh_families_revoked",
             "reset_tokens_removed",
             "staff_capabilities_revoked",
             "status",
@@ -1166,7 +1166,7 @@ async fn audit_contains_only_opaque_case_reference() {
         changes["organization_id"],
         json!({"from": seed.organization, "to": null})
     );
-    assert_eq!(changes["refresh_sessions_revoked"], 2);
+    assert_eq!(changes["refresh_families_revoked"], 2);
     assert_eq!(changes["reset_tokens_removed"], 1);
     assert_eq!(changes["join_requests_closed"], 1);
     assert_eq!(changes["support_contexts_closed"], 1);

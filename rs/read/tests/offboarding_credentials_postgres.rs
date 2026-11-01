@@ -943,7 +943,7 @@ async fn all_refresh_families_and_credentials_are_invalidated() {
 
     let revocation = cut_off(&db.cutoff, subject.id).await;
     assert_eq!(
-        revocation.refresh_sessions_revoked, 3,
+        revocation.refresh_families_revoked, 3,
         "both device families and the family from before device binding"
     );
     assert_eq!(revocation.reset_tokens_removed, 1);

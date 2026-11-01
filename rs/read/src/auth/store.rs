@@ -323,6 +323,21 @@ pub async fn upsert_reset_token(
     Ok(())
 }
 
+/// Delete every reset token of a user whose row the caller has locked, and
+/// return how many rows were removed. Used when the user's credentials end.
+pub async fn delete_user_reset_tokens(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    Ok(
+        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await?
+            .rows_affected(),
+    )
+}
+
 /// Remove a bounded batch of expired reset tokens in a separate transaction.
 /// Accepting a pool prevents cleanup from retaining token-row locks inside a
 /// caller's user/session transaction. Cleanup never acquires user-row locks.

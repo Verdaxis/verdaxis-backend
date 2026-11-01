@@ -52,7 +52,7 @@ pub struct CredentialRevocation {
     /// The stored password cutoff: the cutoff, or a later stored value.
     pub password_changed_at: DateTime<Utc>,
     /// Refresh-session rows that were live and are now revoked.
-    pub refresh_sessions_revoked: u64,
+    pub refresh_families_revoked: u64,
     /// Reset-token rows removed.
     pub reset_tokens_removed: u64,
 }
@@ -133,17 +133,13 @@ pub async fn revoke_account_credentials(
         .bind(unusable_hash.as_str())
         .fetch_one(&mut *connection)
         .await?;
-    let refresh_sessions_revoked = store::revoke_user_families(connection, user_id).await?;
-    let reset_tokens_removed = sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
-        .bind(user_id)
-        .execute(&mut *connection)
-        .await?
-        .rows_affected();
+    let refresh_families_revoked = store::revoke_user_families(connection, user_id).await?;
+    let reset_tokens_removed = store::delete_user_reset_tokens(connection, user_id).await?;
     Ok(CredentialRevocation {
         cutoff,
         authentication_revoked_at,
         password_changed_at,
-        refresh_sessions_revoked,
+        refresh_families_revoked,
         reset_tokens_removed,
     })
 }

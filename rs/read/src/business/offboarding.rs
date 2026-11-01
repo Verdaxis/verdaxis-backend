@@ -432,7 +432,7 @@ struct Operation {
 struct AccountChanges {
     kyc_review_invalidated: bool,
     kyc_state_unrecognized: bool,
-    refresh_sessions_revoked: u64,
+    refresh_families_revoked: u64,
     reset_tokens_removed: u64,
     join_requests_closed: usize,
     support_contexts_closed: usize,
@@ -641,7 +641,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         Ok(AccountChanges {
             kyc_review_invalidated,
             kyc_state_unrecognized,
-            refresh_sessions_revoked: credentials.refresh_sessions_revoked,
+            refresh_families_revoked: credentials.refresh_families_revoked,
             reset_tokens_removed: credentials.reset_tokens_removed,
             join_requests_closed,
             support_contexts_closed,
@@ -701,7 +701,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                     "urgent": self.request.urgent,
                     "kyc_review_invalidated": changes.kyc_review_invalidated,
                     "kyc_state_unrecognized": changes.kyc_state_unrecognized,
-                    "refresh_sessions_revoked": changes.refresh_sessions_revoked,
+                    "refresh_families_revoked": changes.refresh_families_revoked,
                     "reset_tokens_removed": changes.reset_tokens_removed,
                     "join_requests_closed": changes.join_requests_closed,
                     "support_contexts_closed": changes.support_contexts_closed,
