@@ -156,10 +156,10 @@ fn expiry(verified: &VerifiedToken) -> Option<DateTime<Utc>> {
     DateTime::from_timestamp(seconds, 0).filter(|instant| (1..=9999).contains(&instant.year()))
 }
 
-/// Current account rules for a principal: the account exists, neither cutoff
-/// covers the token's issuance (password cutoff first, both inclusive at
-/// microsecond precision), the account is approved and needs no password
-/// change. Every refusal is the same bounded class.
+/// Current account rules for a principal: the account exists and is not
+/// offboarded, neither cutoff covers the token's issuance (password cutoff
+/// first, both inclusive at microsecond precision), the account is approved
+/// and needs no password change. Every refusal is the same bounded class.
 pub fn admit_account(
     principal: &StreamPrincipal,
     account: &AccountState,
@@ -190,7 +190,7 @@ pub fn admit_organization(verification_status: Option<&str>) -> Result<(), Strea
 /// Reading the token's organization keeps membership and organization state
 /// separate rules; an admitted account belongs to that organization.
 const ADMISSION_STATE: &str = "SELECT u.organization_id, u.status::text AS status, \
-     u.must_change_password, u.password_changed_at, u.authentication_revoked_at, \
+     u.must_change_password, u.password_changed_at, u.authentication_revoked_at, u.offboarded_at, \
      o.verification_status::text AS organization_status \
      FROM users u LEFT JOIN organizations o ON o.id = $2 \
      WHERE u.id = $1";
@@ -208,6 +208,7 @@ struct AdmissionState {
     must_change_password: bool,
     password_changed_at: Option<DateTime<Utc>>,
     authentication_revoked_at: Option<DateTime<Utc>>,
+    offboarded_at: Option<DateTime<Utc>>,
     organization_status: Option<String>,
 }
 
@@ -244,6 +245,7 @@ pub async fn revalidate(
             authentication_revoked_at: state
                 .authentication_revoked_at
                 .map(|at| at.timestamp_micros()),
+            offboarded: state.offboarded_at.is_some(),
         },
     )?;
     admit_organization(state.organization_status.as_deref())

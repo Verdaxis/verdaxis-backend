@@ -724,7 +724,7 @@ mod postgres {
                 "CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid,role text,status text,\
                  email_verified boolean NOT NULL DEFAULT true,\
                  must_change_password boolean NOT NULL DEFAULT false,\
-                 password_changed_at timestamptz,authentication_revoked_at timestamptz,\
+                 password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz,\
                  created_at timestamptz NOT NULL DEFAULT now(),last_login timestamptz); \
                  CREATE TABLE orderbook_orders(id uuid PRIMARY KEY,organization_id uuid,\
                  created_at timestamptz NOT NULL)",

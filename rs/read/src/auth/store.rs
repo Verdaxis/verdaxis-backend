@@ -47,6 +47,9 @@ pub struct UserRow {
     pub must_change_password: bool,
     pub password_changed_at: Option<DateTime<Utc>>,
     pub authentication_revoked_at: Option<DateTime<Utc>>,
+    /// Set when the account's access has ended. Credential routes treat such
+    /// an account as unknown.
+    pub offboarded_at: Option<DateTime<Utc>>,
     pub email_verification_token_hash: Option<String>,
     pub email_verification_token_expires_at: Option<DateTime<Utc>>,
     pub referral_code: Option<String>,
@@ -65,6 +68,7 @@ impl fmt::Debug for UserRow {
             .field("must_change_password", &self.must_change_password)
             .field("password_changed_at", &self.password_changed_at)
             .field("authentication_revoked_at", &self.authentication_revoked_at)
+            .field("offboarded_at", &self.offboarded_at)
             .finish_non_exhaustive()
     }
 }
@@ -138,7 +142,7 @@ macro_rules! select_user_for_update {
         concat!(
             "SELECT id, email, password_hash, status::text AS status, role::text AS role, ",
             "organization_id, email_verified, must_change_password, password_changed_at, ",
-            "authentication_revoked_at, email_verification_token_hash, ",
+            "authentication_revoked_at, offboarded_at, email_verification_token_hash, ",
             "email_verification_token_expires_at, referral_code ",
             "FROM users WHERE ",
             $filter,

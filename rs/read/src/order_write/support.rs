@@ -334,7 +334,7 @@ pub struct SupportCommand {
 }
 
 const ACCOUNT: &str = "SELECT role::text AS role, status::text AS status, \
-     must_change_password, password_changed_at, authentication_revoked_at \
+     must_change_password, password_changed_at, authentication_revoked_at, offboarded_at \
      FROM users WHERE id = $1";
 /// Unrevoked, unexpired assignments. The catalogue lists them, and each
 /// capability check reads them.
@@ -388,6 +388,7 @@ impl SupportCommand {
             must_change_password: row.try_get("must_change_password")?,
             password_changed_at: micros("password_changed_at")?,
             authentication_revoked_at: micros("authentication_revoked_at")?,
+            offboarded: micros("offboarded_at")?.is_some(),
         };
         validate_account(&self.access, &account).map_err(account_refusal)?;
         if !self.settings.enabled {

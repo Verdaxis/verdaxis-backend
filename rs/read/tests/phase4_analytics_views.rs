@@ -1432,7 +1432,7 @@ mod postgres {
 
     fn schema_ddl() -> &'static str {
         "CREATE TABLE organizations(id uuid PRIMARY KEY,name text,provenance text NOT NULL,type text,verification_status text,created_at timestamptz);\
-         CREATE TABLE users(id uuid PRIMARY KEY,email text,password_hash text,organization_id uuid,role text,status text NOT NULL,email_verified boolean NOT NULL DEFAULT true,created_at timestamptz,must_change_password boolean NOT NULL DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz);\
+         CREATE TABLE users(id uuid PRIMARY KEY,email text,password_hash text,organization_id uuid,role text,status text NOT NULL,email_verified boolean NOT NULL DEFAULT true,created_at timestamptz,must_change_password boolean NOT NULL DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz);\
          CREATE TABLE products(id uuid PRIMARY KEY,name text,fuel_type text,fuel_grade text,is_active boolean NOT NULL DEFAULT true);\
          CREATE TABLE delivery_points(id uuid PRIMARY KEY,name text,region text,is_active boolean NOT NULL DEFAULT true);\
          CREATE TABLE orderbook_orders(id uuid PRIMARY KEY,organization_id uuid NOT NULL,side text NOT NULL,provenance text NOT NULL DEFAULT 'UNKNOWN',product_id uuid NOT NULL,delivery_point_id uuid,availability_window text NOT NULL DEFAULT 'SPOT',remaining_quantity_mt numeric NOT NULL,price_per_mt_usd numeric NOT NULL,status text NOT NULL DEFAULT 'OPEN',expires_at timestamptz,created_at timestamptz NOT NULL);\

@@ -700,7 +700,7 @@ impl Fixture {
              verification_status text NOT NULL DEFAULT 'PENDING',provenance text NOT NULL DEFAULT 'UNKNOWN');\
              CREATE TABLE users(id uuid PRIMARY KEY,email text NOT NULL,first_name text,last_name text,role text,status text NOT NULL DEFAULT 'PENDING',\
              organization_id uuid,email_verified boolean NOT NULL DEFAULT false,email_verification_token_expires_at timestamptz,last_login timestamptz,\
-             password_changed_at timestamptz,authentication_revoked_at timestamptz,must_change_password boolean NOT NULL DEFAULT false,\
+             password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz,must_change_password boolean NOT NULL DEFAULT false,\
              created_at timestamptz NOT NULL DEFAULT now());\
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY,user_id uuid NOT NULL,organization_id uuid NOT NULL,status text NOT NULL DEFAULT 'PENDING',\
              reviewed_by uuid,reviewed_at timestamptz,review_note text,created_at timestamptz NOT NULL DEFAULT now());\

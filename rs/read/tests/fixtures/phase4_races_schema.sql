@@ -36,6 +36,7 @@ CREATE TABLE users(
     must_change_password boolean NOT NULL DEFAULT false,
     password_changed_at timestamptz,
     authentication_revoked_at timestamptz,
+    offboarded_at timestamptz,
     email_verification_token_hash text,
     email_verification_token_expires_at timestamptz,
     referral_code text UNIQUE,

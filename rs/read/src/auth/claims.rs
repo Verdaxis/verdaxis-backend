@@ -87,7 +87,16 @@ pub fn read_subject(claims: &Value) -> Result<Uuid, AuthError> {
 /// The cutoff refusal for an issuance time, password cutoff first, inclusive
 /// at microsecond precision. A missing or unreadable issuance time is cut off
 /// only when a cutoff exists.
+///
+/// An offboarded account is refused first and for every issuance time,
+/// including a time after both cutoffs. Every token consumer calls this
+/// function, so a caller that relaxes a cutoff for a narrower path still
+/// refuses an offboarded account. The refusal is the revoked-session refusal,
+/// so the response does not show that the account was offboarded.
 pub fn cutoff_refusal(issuance: TokenIssuance, user: &AccountState) -> Option<AuthError> {
+    if user.offboarded {
+        return Some(AuthError::SessionRevoked);
+    }
     for (cutoff, error) in [
         (user.password_changed_at, AuthError::PasswordChanged),
         (user.authentication_revoked_at, AuthError::SessionRevoked),
@@ -113,6 +122,10 @@ pub struct AccountState {
     pub must_change_password: bool,
     pub password_changed_at: Option<i64>,
     pub authentication_revoked_at: Option<i64>,
+    /// `users.offboarded_at IS NOT NULL`: the account's access has ended.
+    /// Every projection reads the column; a statement that cannot read it fails
+    /// instead of treating the account as not offboarded.
+    pub offboarded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

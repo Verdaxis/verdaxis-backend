@@ -324,7 +324,7 @@ async fn provision(migrator: &sqlx::PgPool) {
              organization_id uuid, role text, status text NOT NULL DEFAULT 'APPROVED', \
              email_verified boolean NOT NULL DEFAULT true, \
              must_change_password boolean NOT NULL DEFAULT false, \
-             password_changed_at timestamptz, authentication_revoked_at timestamptz)",
+             password_changed_at timestamptz, authentication_revoked_at timestamptz, offboarded_at timestamptz)",
         "CREATE TABLE IF NOT EXISTS feedback_entries (\
              id uuid PRIMARY KEY, user_id uuid NOT NULL, message text NOT NULL, page text, \
              created_at timestamptz NOT NULL, \

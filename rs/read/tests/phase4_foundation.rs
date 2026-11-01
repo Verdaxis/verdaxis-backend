@@ -82,7 +82,7 @@ impl Fixture {
             "CREATE TABLE organizations(id uuid PRIMARY KEY); \
              CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text, status text, \
              email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, \
-             password_changed_at timestamptz, authentication_revoked_at timestamptz, email text, password_hash text, email_verification_token_hash text, email_verification_token_expires_at timestamptz, referral_code text, pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
+             password_changed_at timestamptz, authentication_revoked_at timestamptz, offboarded_at timestamptz, email text, password_hash text, email_verification_token_hash text, email_verification_token_expires_at timestamptz, referral_code text, pending_approval_email_transition_id uuid,pending_approval_email_payload jsonb,pending_approval_email_retry_at timestamptz); \
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY); \
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100), \
              resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45), \

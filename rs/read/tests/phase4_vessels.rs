@@ -187,7 +187,7 @@ mod postgres {
             sqlx::raw_sql("CREATE TABLE organizations(id uuid PRIMARY KEY); \
                 CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid REFERENCES organizations,role text,status text,\
                 email_verified boolean NOT NULL DEFAULT true,must_change_password boolean NOT NULL DEFAULT false,\
-                password_changed_at timestamptz,authentication_revoked_at timestamptz); \
+                password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz); \
                 CREATE TABLE vessels(id uuid PRIMARY KEY,organization_id uuid REFERENCES organizations,name text NOT NULL,\
                 imo_number text NOT NULL UNIQUE,vessel_type text,flag_state text,dwt numeric,cii_rating varchar(1),\
                 eu_ets_status text,fueleu_status text,current_location geography(POINT,4326),\
