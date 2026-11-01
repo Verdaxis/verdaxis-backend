@@ -254,11 +254,16 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             let holder = finished(holder).await;
             let (contender, retries) = retry_waiting_command(finished(contender).await, || {
                 if join_first {
-                    spawn_write(&world.pool, world.actor, review_organization(&world, organization, false))
+                    spawn_write(
+                        &world.pool,
+                        world.actor,
+                        review_organization(&world, organization, false),
+                    )
                 } else {
                     spawn_write(&world.pool, world.actor, review_join(join, true))
                 }
-            }).await;
+            })
+            .await;
             retried_iterations += usize::from(retries > 0);
             total_retries += retries;
 
@@ -340,7 +345,10 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             }
         }
     }
-    println!("join_approval_and_org_rejection_do_not_deadlock retried_iterations={retried_iterations} total_retries={total_retries} total_iterations={}", 2 * JOIN_REVIEW_REPETITIONS);
+    println!(
+        "join_approval_and_org_rejection_do_not_deadlock retried_iterations={retried_iterations} total_retries={total_retries} total_iterations={}",
+        2 * JOIN_REVIEW_REPETITIONS
+    );
     world.finish().await;
 }
 
@@ -910,9 +918,17 @@ async fn invitation_rotation_vs_acceptance_is_serialized() {
     wait_blocked(&mut world.watcher, acceptance.backend, 1).await;
     acceptance.consume().await;
     let (rotation, retries) = retry_waiting_command(finished(rotation).await, || {
-        spawn_write(&world.pool, world.actor, create("accept-first@customer.example"))
-    }).await;
-    println!("invitation_rotation_vs_acceptance_is_serialized retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
+        spawn_write(
+            &world.pool,
+            world.actor,
+            create("accept-first@customer.example"),
+        )
+    })
+    .await;
+    println!(
+        "invitation_rotation_vs_acceptance_is_serialized retried_iterations={} total_retries={retries} total_iterations=1",
+        usize::from(retries > 0)
+    );
     assert_eq!(
         refusal(&rotation),
         (409, "EMAIL_ALREADY_REGISTERED".into()),
@@ -2004,13 +2020,22 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
         let cleared_low = python_writers::clear_reset_hash_of(&mut maintenance, low).await;
         match cleared_low {
             Ok(_) => {
-                sqlx::query("COMMIT").execute(&mut maintenance).await.unwrap();
+                sqlx::query("COMMIT")
+                    .execute(&mut maintenance)
+                    .await
+                    .unwrap();
                 (true, None)
             }
             Err(error) => {
-                let code = error.as_database_error().and_then(|error| error.code())
-                    .expect("maintenance refusal has a SQLSTATE").into_owned();
-                sqlx::query("ROLLBACK").execute(&mut maintenance).await.unwrap();
+                let code = error
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .expect("maintenance refusal has a SQLSTATE")
+                    .into_owned();
+                sqlx::query("ROLLBACK")
+                    .execute(&mut maintenance)
+                    .await
+                    .unwrap();
                 (false, Some(code))
             }
         }
@@ -2019,15 +2044,26 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
     let (committed, maintenance_code) = python.await.unwrap();
     let rejection_busy = matches!(&rejection, Err(error) if error.detail["code"] == "MARKET_BUSY");
     let resolution = if let Some(code) = maintenance_code.as_deref() {
-        assert!(rejection.is_ok(), "only the maintenance transaction may lose this resolution");
-        assert!(matches!(code, "40P01" | "55P03"), "unexpected maintenance SQLSTATE: {code}");
+        assert!(
+            rejection.is_ok(),
+            "only the maintenance transaction may lose this resolution"
+        );
+        assert!(
+            matches!(code, "40P01" | "55P03"),
+            "unexpected maintenance SQLSTATE: {code}"
+        );
         code
     } else if rejection_busy {
-        assert!(committed, "only the rejection may lose the lock-deadline resolution");
+        assert!(
+            committed,
+            "only the rejection may lose the lock-deadline resolution"
+        );
         // The ordered owner maps SQLSTATE 55P03 to MARKET_BUSY.
         "55P03"
     } else {
-        rejection.as_ref().expect("the rejection commits or returns MARKET_BUSY");
+        rejection
+            .as_ref()
+            .expect("the rejection commits or returns MARKET_BUSY");
         assert!(committed);
         // Both commands completed, so the ordered owner's internal retry must
         // have recovered the sole victim. The counter proves the detected cycle.
@@ -2037,9 +2073,17 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
         wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
     }
     let (rejection, retries) = retry_waiting_command(rejection, || {
-        spawn_write(&world.pool, world.actor, review_organization(&world, organization, false))
-    }).await;
-    println!("auth_maintenance_vs_ordered_write_lock_order resolution={resolution} retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
+        spawn_write(
+            &world.pool,
+            world.actor,
+            review_organization(&world, organization, false),
+        )
+    })
+    .await;
+    println!(
+        "auth_maintenance_vs_ordered_write_lock_order resolution={resolution} retried_iterations={} total_retries={retries} total_iterations=1",
+        usize::from(retries > 0)
+    );
     rejection.expect("the rejection commits within its bounded retry");
     let cleared: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM users WHERE id = ANY($1) AND password_reset_token_hash IS NULL",

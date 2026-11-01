@@ -234,6 +234,7 @@ async fn organization_rejection_retains_confirmed_and_delivered_settlement() {
             Arc::new(tokio::sync::Semaphore::new(8)),
             access,
             verdaxis_read::business::organizations::ReviewOrganization {
+                audit: Default::default(),
                 organization_id: id(0x2000),
                 approve: false,
                 reason: Some("Fixture review".into()),
