@@ -125,7 +125,11 @@ fn slice_targets<'a>(
         .filter(move |target| target.kind == TargetKind::Slice && &target.slice == slice)
 }
 
-fn order_events(source: &SourceEvidence, transition: &OrderTransition, out: &mut Vec<DerivedEvent>) {
+fn order_events(
+    source: &SourceEvidence,
+    transition: &OrderTransition,
+    out: &mut Vec<DerivedEvent>,
+) {
     if !admitted(transition) {
         return;
     }

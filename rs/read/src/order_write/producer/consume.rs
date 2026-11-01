@@ -182,7 +182,8 @@ pub async fn consume_batch(
         sources: processed,
         inserted,
         watermark: covered,
-        drained: processed == fetched && i64::try_from(fetched).unwrap_or(i64::MAX) < MAX_SOURCES_PER_BATCH,
+        drained: processed == fetched
+            && i64::try_from(fetched).unwrap_or(i64::MAX) < MAX_SOURCES_PER_BATCH,
     })
 }
 
@@ -232,15 +233,20 @@ async fn insert_events(
             && match captured.kind {
                 // A PIN's market codes follow its order's display; its order does not move.
                 TargetKind::Pin => {
-                    kind == "PIN" && row.try_get::<Option<Uuid>, _>("order_id")? == captured.order_id
+                    kind == "PIN"
+                        && row.try_get::<Option<Uuid>, _>("order_id")? == captured.order_id
                 }
                 TargetKind::Slice => {
                     kind == "SLICE"
-                        && row.try_get::<Option<String>, _>("market_product_code")?.as_deref()
+                        && row
+                            .try_get::<Option<String>, _>("market_product_code")?
+                            .as_deref()
                             == Some(captured.slice.market_product.as_str())
                         && row.try_get::<Option<Uuid>, _>("delivery_point_id")?
                             == Some(captured.slice.delivery_point_id)
-                        && row.try_get::<Option<String>, _>("availability_window_code")?.as_deref()
+                        && row
+                            .try_get::<Option<String>, _>("availability_window_code")?
+                            .as_deref()
                             == Some(captured.slice.availability_window.as_str())
                 }
             };
@@ -287,7 +293,9 @@ async fn insert_events(
 /// trusted source exists. Legacy history below the barrier is never derived.
 /// An existing watermark is returned unchanged; a retained trusted source, or
 /// a retention fence that is not `blocked`, refuses with no write.
-pub async fn bootstrap_watermark(conn: &mut PgConnection) -> Result<BootstrapOutcome, ProducerError> {
+pub async fn bootstrap_watermark(
+    conn: &mut PgConnection,
+) -> Result<BootstrapOutcome, ProducerError> {
     let mut tx = conn
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
         .await?;

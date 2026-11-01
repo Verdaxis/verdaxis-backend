@@ -49,8 +49,8 @@ pub enum ActivationRefusal {
     ProducerMissing,
     LegacyProducer,
     UnknownProducer,
-    InstantMissing,
-    InstantInvalid,
+    ActivatedAtMissing,
+    ActivatedAtInvalid,
     ReleaseInvalid,
     SchemaTooOld,
 }
@@ -61,8 +61,8 @@ impl ActivationRefusal {
             Self::ProducerMissing => "producer_not_selected",
             Self::LegacyProducer => "legacy_producer_selected",
             Self::UnknownProducer => "producer_unknown",
-            Self::InstantMissing => "activation_instant_missing",
-            Self::InstantInvalid => "activation_instant_invalid",
+            Self::ActivatedAtMissing => "activation_instant_missing",
+            Self::ActivatedAtInvalid => "activation_instant_invalid",
             Self::ReleaseInvalid => "release_identity_invalid",
             Self::SchemaTooOld => "producer_schema_absent",
         }
@@ -93,9 +93,9 @@ impl ProducerActivation {
         let recorded = activated_at
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or(ActivationRefusal::InstantMissing)?;
+            .ok_or(ActivationRefusal::ActivatedAtMissing)?;
         let activated_at = DateTime::parse_from_rfc3339(recorded)
-            .map_err(|_| ActivationRefusal::InstantInvalid)?
+            .map_err(|_| ActivationRefusal::ActivatedAtInvalid)?
             .with_timezone(&Utc);
         if release_sha.len() != 40
             || !release_sha
@@ -211,10 +211,7 @@ pub async fn run_producer(
         let drained = match result {
             Ok(outcome) => {
                 if reported.take().is_some() {
-                    tracing::info!(
-                        watermark = outcome.watermark,
-                        "watchlist producer resumed"
-                    );
+                    tracing::info!(watermark = outcome.watermark, "watchlist producer resumed");
                 }
                 outcome.drained
             }
@@ -297,9 +294,8 @@ pub mod contract {
     };
     pub use super::derive::{DerivedEvent, EventClass, derive, number, price_move_is_material};
     pub use super::evidence::{
-        CapturedTarget, EvidenceError, MAX_EVIDENCE_BYTES, MAX_ORDERS, OrderEvidence,
-        OrderStatus, OrderTransition, Side, SideAggregate, SliceIdentity, SourceEvidence,
-        TargetKind, decode,
+        CapturedTarget, EvidenceError, MAX_EVIDENCE_BYTES, MAX_ORDERS, OrderEvidence, OrderStatus,
+        OrderTransition, Side, SideAggregate, SliceIdentity, SourceEvidence, TargetKind, decode,
     };
     pub use super::{
         ActivationRefusal, LEGACY_PRODUCER, ProducerActivation, ProducerError, RUST_PRODUCER,
