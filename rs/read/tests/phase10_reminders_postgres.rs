@@ -757,8 +757,9 @@ async fn expiry_scan_and_claim_yield_one_send() {
 async fn expiry_mail_lease_is_exclusive() {
     let mut db = Database::open().await;
     let party = db.party().await;
-    db.owned_order(&party, at(Duration::hours(6))).await;
+    let order = db.owned_order(&party, at(Duration::hours(6))).await;
     assert_eq!(db.scan(reference(), 1000).await.created, 1);
+    let notice = db.notices_for(order).await.remove(0);
 
     let gate = Arc::new(Gate::default());
     let held = Arc::new(FakeSender::gated(gate.clone()));
@@ -770,8 +771,24 @@ async fn expiry_mail_lease_is_exclusive() {
             expiry::deliver(&pool, &*held, &move || now, expiry::MAX_BATCH).await
         })
     };
-    // The claim has committed and the provider call is in flight.
+    // The claim has committed and the provider call is in flight: no row
+    // lock of the claim is held across it.
     gate.entered.notified().await;
+    assert!(
+        db.probe("SELECT reminder_fixture_user_update_lock_free($1)", party.user)
+            .await,
+        "no user row lock during the provider call"
+    );
+    assert!(
+        db.probe("SELECT reminder_fixture_order_lock_free($1)", order)
+            .await,
+        "no order row lock during the provider call"
+    );
+    assert!(
+        db.probe("SELECT reminder_fixture_notice_lock_free($1)", notice.id)
+            .await,
+        "no reminder row lock during the provider call"
+    );
     let other = FakeSender::default();
     for now in [
         reference(),
@@ -1351,4 +1368,84 @@ async fn python_and_rust_deliver_each_others_reminders() {
         1
     );
     assert_eq!(db.notices_for(leased).await[0].status(), "sent");
+}
+
+#[tokio::test]
+#[ignore = "needs the migrated reminder database: rs/read/tests/run_phase10_reminders.sh"]
+async fn expiry_claim_takes_the_user_row_then_the_order_row() {
+    let mut db = Database::open().await;
+    let party = db.party().await;
+    let order = db.owned_order(&party, at(Duration::hours(6))).await;
+    assert_eq!(db.scan(reference(), 1000).await.created, 1);
+    let notice = db.notices_for(order).await.remove(0);
+
+    // Another writer holds the order row; the claim waits on it while it
+    // already holds the recipient's user row and the reminder row.
+    let mut holder = connect_as("RUST_REMINDERS_OWNER_DATABASE_URL", ORDER_FIRST_APP).await;
+    let mut transaction = holder.begin().await.unwrap();
+    sqlx::query("SELECT reminder_fixture_lock_order($1)")
+        .bind(order)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let pool = db.pool.clone();
+    let sender = Arc::new(FakeSender::default());
+    let claiming = {
+        let sender = sender.clone();
+        tokio::spawn(async move {
+            let now = reference();
+            expiry::deliver(&pool, &*sender, &move || now, expiry::MAX_BATCH).await
+        })
+    };
+    db.wait_blocked(JOB_APP, ORDER_FIRST_APP).await;
+    assert!(
+        !db.probe("SELECT reminder_fixture_user_update_lock_free($1)", party.user)
+            .await,
+        "the user row is locked before the order row"
+    );
+    assert!(
+        !db.probe("SELECT reminder_fixture_notice_lock_free($1)", notice.id)
+            .await,
+        "the reminder row is claimed"
+    );
+    transaction.rollback().await.unwrap();
+    assert_eq!(claiming.await.unwrap().unwrap().sent, 1);
+    assert_eq!(sender.calls().len(), 1);
+}
+
+/// The notification routes lock the actor's user row, then update that
+/// user's notification rows. A claim never waits on a user row while it
+/// holds a reminder row: it skips the reminder and a later run sends it.
+#[tokio::test]
+#[ignore = "needs the migrated reminder database: rs/read/tests/run_phase10_reminders.sh"]
+async fn expiry_claim_locks_the_user_row_before_the_reminder_row() {
+    let mut db = Database::open().await;
+    let party = db.party().await;
+    let order = db.owned_order(&party, at(Duration::hours(6))).await;
+    assert_eq!(db.scan(reference(), 1000).await.created, 1);
+
+    let mut route = connect_as("RUST_REMINDERS_OWNER_DATABASE_URL", CANCEL_APP).await;
+    let mut transaction = route.begin().await.unwrap();
+    sqlx::query("SELECT reminder_fixture_lock_user($1)")
+        .bind(party.user)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let sender = FakeSender::default();
+    let skipped = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        expiry::deliver(&db.pool, &sender, &reference, expiry::MAX_BATCH),
+    )
+    .await
+    .expect("the claim never waits on a locked user row");
+    assert_eq!(skipped, Ok(Counts::default()));
+    assert!(sender.calls().is_empty());
+    sqlx::query("SELECT reminder_fixture_mark_read($1)")
+        .bind(party.user)
+        .execute(&mut *transaction)
+        .await
+        .expect("the route updates the reminder row without a lock cycle");
+    transaction.commit().await.unwrap();
+    assert_eq!(db.deliver(&sender, reference()).await.sent, 1);
+    assert_eq!(db.notices_for(order).await[0].status(), "sent");
 }

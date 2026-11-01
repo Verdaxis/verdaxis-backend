@@ -137,3 +137,18 @@ BEGIN
 EXCEPTION WHEN lock_not_available THEN
     RETURN false;
 END $$;
+
+CREATE OR REPLACE FUNCTION reminder_fixture_notice_lock_free(notice uuid)
+RETURNS boolean LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM 1 FROM notifications WHERE id = notice FOR UPDATE NOWAIT;
+    RETURN true;
+EXCEPTION WHEN lock_not_available THEN
+    RETURN false;
+END $$;
+
+-- The notification read route's write after its user row lock.
+CREATE OR REPLACE FUNCTION reminder_fixture_mark_read(recipient uuid)
+RETURNS void LANGUAGE sql AS $$
+    UPDATE notifications SET is_read = true WHERE recipient_id = recipient;
+$$;
