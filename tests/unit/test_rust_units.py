@@ -199,26 +199,29 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
     assert f"--bind {policy['bind']}" in unit
 
 
-def _assert_runtime_directives(unit: str, backend: str) -> None:
-    assert _directives(unit) - _directives(backend) <= {"SetCredential"}
+def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
+    # Production Rust has explicit CPU limits in addition to the backend sandbox.
+    rust_budget_directives = {"CPUQuota", "CPUWeight"} if suffix == "" else set()
+    assert _directives(unit) - _directives(backend) <= rust_budget_directives
     credentials = [line for line in unit.splitlines() if line.startswith(
         ("LoadCredential=", "SetCredential=", "ImportCredential=", "LoadCredentialEncrypted=", "SetCredentialEncrypted=")
     )]
     assert credentials == [
-        "SetCredential=kyc-document-keys:",
-        "LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys-staging.json",
+        f"LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys{suffix}.json",
     ]
+    assert "# Key source must be regular root:root 0400; use an empty placeholder without a key ring." in unit
 
 
-def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses():
-    unit = _text(UNIT)
-    backend = _text(BACKEND_STAGING_UNIT)
-    _assert_runtime_directives(unit, backend)
+@pytest.mark.parametrize("suffix", ["", "-staging"])
+def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(suffix):
+    unit = _text(f"deploy/systemd/verdaxis-rust{suffix}.service")
+    backend = _text(f"deploy/systemd/verdaxis-backend{suffix}.service")
+    _assert_runtime_directives(unit, backend, suffix)
     for section in ("[Unit]", "[Service]", "[Install]"):
         assert section in unit
     for extra in ("NewRuntimeDirective=true", "SetCredential=another-key:", "ImportCredential=*"):
         with pytest.raises(AssertionError):
-            _assert_runtime_directives(unit + "\n" + extra + "\n", backend)
+            _assert_runtime_directives(unit + "\n" + extra + "\n", backend, suffix)
 
 
 def test_rust_unit_runs_the_start_guard_and_the_revision_check():
@@ -466,7 +469,7 @@ def _assert_staging_credential_boundary(unit: str) -> None:
     assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
     assert "MIGRATOR_DATABASE_URL" not in unit
     assert "/etc/verdaxis/kyc-document-keys.json" not in unit
-    _assert_runtime_directives(unit, _text(BACKEND_STAGING_UNIT))
+    _assert_runtime_directives(unit, _text(BACKEND_STAGING_UNIT), "-staging")
 
 
 def test_rust_unit_names_no_production_path_or_migrator_credential():
