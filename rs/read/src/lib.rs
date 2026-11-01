@@ -282,8 +282,8 @@ pub struct Phase2Options {
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
     /// The watchlist event producer selected in the same release metadata
-    /// file: `rust-market-v1` activates the trusted producer, `legacy-python`
-    /// pauses it. Absent until a release records one.
+    /// file: [`order_write::producer::RUST_PRODUCER`] activates the trusted
+    /// producer, `legacy-python` pauses it. Absent until a release records one.
     pub watchlist_event_producer: Option<String>,
     /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
     /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
