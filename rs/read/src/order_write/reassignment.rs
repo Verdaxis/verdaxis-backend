@@ -509,12 +509,15 @@ impl<'a> ReassignmentPort<'a> {
         if !self.locked.contains(LockClass::User, current) {
             return Err(refusal(MarketErrorCode::MarketSliceChanged));
         }
-        let organization: Option<Uuid> =
-            sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
-                .bind(current)
-                .fetch_one(&mut *self.conn)
-                .await?;
-        if organization == Some(facts.organization) {
+        // An offboarded person has departed whatever the membership shows;
+        // the database also keeps every marked account detached.
+        let (organization, offboarded): (Option<Uuid>, bool) = sqlx::query_as(
+            "SELECT organization_id,offboarded_at IS NOT NULL FROM users WHERE id=$1",
+        )
+        .bind(current)
+        .fetch_one(&mut *self.conn)
+        .await?;
+        if !offboarded && organization == Some(facts.organization) {
             return Err(refusal(MarketErrorCode::ReassignmentCurrentStillMember));
         }
         Ok(())
@@ -535,7 +538,7 @@ impl<'a> ReassignmentPort<'a> {
         {
             return Err(ineligible());
         }
-        let row = sqlx::query("SELECT organization_id,role::text AS role,status::text AS status,email_verified,must_change_password FROM users WHERE id=$1")
+        let row = sqlx::query("SELECT organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,offboarded_at IS NOT NULL AS offboarded FROM users WHERE id=$1")
             .bind(replacement)
             .fetch_optional(&mut *self.conn)
             .await?
@@ -546,7 +549,8 @@ impl<'a> ReassignmentPort<'a> {
             && role == side.required_role()
             && row.try_get::<String, _>("status")? == "APPROVED"
             && row.try_get::<bool, _>("email_verified")?
-            && !row.try_get::<bool, _>("must_change_password")?;
+            && !row.try_get::<bool, _>("must_change_password")?
+            && !row.try_get::<bool, _>("offboarded")?;
         if !eligible {
             return Err(ineligible());
         }

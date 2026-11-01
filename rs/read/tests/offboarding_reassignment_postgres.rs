@@ -1545,6 +1545,59 @@ async fn reassignment_requires_a_departed_current_person() {
     );
 }
 
+/// Mark `users` as offboarded although they stay approved and attached. The
+/// database forbids that state, so only the marker check can decide these
+/// cases; the constraints come back `NOT VALID`, so later writes are still
+/// checked, and are validated again once the markers are cleared.
+const MARK_DESPITE_CONSTRAINTS: &str = "ALTER TABLE users \
+     DROP CONSTRAINT ck_users_offboarded_requires_rejected, \
+     DROP CONSTRAINT ck_users_offboarded_requires_detached; \
+     UPDATE users SET offboarded_at=now() WHERE id IN \
+     ('00000000-0000-0000-0000-000000002001','00000000-0000-0000-0000-000000002002'); \
+     ALTER TABLE users \
+     ADD CONSTRAINT ck_users_offboarded_requires_rejected \
+     CHECK (offboarded_at IS NULL OR status = 'REJECTED') NOT VALID, \
+     ADD CONSTRAINT ck_users_offboarded_requires_detached \
+     CHECK (offboarded_at IS NULL OR organization_id IS NULL) NOT VALID";
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn offboarding_marker_decides_departure_and_eligibility() {
+    let mut f = Fixture::new().await;
+    let attached = f.trade;
+    let second = f.clone_trade("CONFIRMED").await;
+    let valid = reassign_body("SELLER", REPLACEMENT, SELLER);
+    f.sql(MARK_DESPITE_CONSTRAINTS).await;
+
+    // A marked replacement is never eligible, even while approved and
+    // attached.
+    let before = f.snapshot().await;
+    let (status, body) = f.reassign(ADMIN, second, valid.clone()).await;
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::CONFLICT, "REASSIGNMENT_REPLACEMENT_INELIGIBLE")
+    );
+    assert_eq!(f.snapshot().await, before);
+
+    // A marked current person has departed, even while the membership row
+    // still names the recorded organization.
+    f.sql("UPDATE users SET offboarded_at=NULL WHERE id='00000000-0000-0000-0000-000000002002'")
+        .await;
+    let (status, body) = f.reassign(ADMIN, attached, valid).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        f.side_person(attached, "seller_user_id").await,
+        Some(id(REPLACEMENT))
+    );
+
+    f.sql(
+        "UPDATE users SET offboarded_at=NULL WHERE id='00000000-0000-0000-0000-000000002001'; \
+         ALTER TABLE users VALIDATE CONSTRAINT ck_users_offboarded_requires_rejected; \
+         ALTER TABLE users VALIDATE CONSTRAINT ck_users_offboarded_requires_detached",
+    )
+    .await;
+}
+
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn replacement_role_follows_the_side() {
