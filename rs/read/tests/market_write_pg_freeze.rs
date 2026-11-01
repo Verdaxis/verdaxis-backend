@@ -954,7 +954,7 @@ async fn route_pool(url: &str, name: &'static str) -> PgPool {
                 Ok(())
             })
         })
-        .connect(&url)
+        .connect(url)
         .await
         .unwrap()
 }
