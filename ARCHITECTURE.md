@@ -561,17 +561,22 @@ Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.j
 
 Task 15 adds `rs/read/src/crud/watchlists/events.rs` for W07 and W08. The feed
 pages by `(created_at DESC, id DESC)` with a cursor of RFC 3339 UTC plus the
-event id, and applies the PD4-G guard in SQL before `LIMIT`: best-price events
-and events whose payload names an order outside the full public order scope are
-hidden, and a PIN target must name a public order. Acknowledgement commits
-`is_read` only when the row is still unread and refuses a guarded event before
-any write. The feed, the read state and the container counts read a payload's
-source order through one SQL expression, and a response names only that order.
-Python remains the event producer; the trusted Rust producer is a design
-proposal in `docs/rust-phase2-task15-producer-design.md`. The serving router
-takes the producer activation (PD5) only from the release metadata key
-`WATCHLIST_PRODUCER_ACTIVATED_AT`; no Phase 2 release records one, and
-`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default there.
+event id. One SQL admission relation, `rs/read/src/crud/watchlists/admission.rs`,
+filters the feed before `LIMIT`, the acknowledgement read and its update, and the
+container counts before aggregation, so the three surfaces give one answer per
+row. A `SLICE_BEST_PRICE_MOVED` or `SLICE_WENT_QUIET` row is admitted only when
+the trusted producer (`producer = 'rust-market-v1'`) wrote it and attested its
+scope at or after the activation instant the release records in
+`WATCHLIST_PRODUCER_ACTIVATED_AT`; other producers' rows of these classes stay
+hidden, and with no recorded activation none is admitted. A PIN target must name
+a public order, and a row whose payload names an order is admitted only while
+that order is public, except a went-quiet row, which names the order that just
+ended. Acknowledgement commits `is_read` only for an admitted, unread row and
+answers 404 for any other row before a write. The relation never reads the
+producer switch, so a paused producer leaves its rows readable.
+`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default
+activation. Rule details and the kept differences from Python are in
+`docs/rust-phase2-watchlists.md`.
 
 ## Rust Phase 2 referral routes
 

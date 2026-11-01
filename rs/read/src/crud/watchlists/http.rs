@@ -98,11 +98,10 @@ impl WatchlistSettings {
         self
     }
 
-    /// Events created before this instant come from the untrusted producer.
-    /// With no recorded activation every stored event does, so the bound is
-    /// the latest instant. PD4-G hides best-price rows by type either way.
-    pub(super) fn best_price_cutoff(&self) -> DateTime<Utc> {
-        self.producer_activation.unwrap_or(DateTime::<Utc>::MAX_UTC)
+    /// The one admission input of every watchlist read: the recorded
+    /// activation as it is, with no instant in place of a missing record.
+    pub(super) fn admission(&self) -> super::EventAdmission {
+        super::EventAdmission::new(self.producer_activation)
     }
 
     pub(super) fn controls_for(&self, headers: &HeaderMap) -> WriteControls {
@@ -221,7 +220,7 @@ async fn detail(
     let now = Utc::now();
     let policy = state.app.policy.clone();
     let config = state.app.config.clone();
-    let cutoff = state.settings.best_price_cutoff();
+    let admission = state.settings.admission();
     let result = run(
         &state,
         &headers,
@@ -242,7 +241,7 @@ async fn detail(
                 .await
                 .map_err(|_| ApiError::database())?;
                 visible
-                    .detail(transaction.connection(), actor, id, cutoff)
+                    .detail(transaction.connection(), actor, id, admission)
                     .await
                     .map_err(|_| ApiError::database())?
                     .ok_or_else(|| not_found("Watchlist not found"))

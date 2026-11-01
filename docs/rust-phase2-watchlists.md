@@ -39,9 +39,10 @@ owner, provenance or KYC predicate exists in the watchlist code.
 | PD2 | PINs and events that name a non-public order are shown and counted | Excluded before the unread count and the latest-event time |
 | PD3 | `active_order_count` counts any open, qualified order | Counts only orders in the public scope |
 
-User-visible effect: watchlist feeds show no best-price change events until the
-producer is replaced (see "New task after Task 20" in the plan record). The
-PD5 cutoff stays reserved for a later trusted producer and is never a default.
+User-visible effect in Phase 2: watchlist feeds showed no best-price change
+events. Phase 8 replaces the best-price row of this table with the
+trusted-producer admission rule (section "Phase 8: trusted-producer admission");
+the other two rows are unchanged.
 
 Vectors: `tests/rust_contract/phase2/watchlist-approved-differences.json`
 (`scenario_actions` names the action that pins each rule) and
@@ -199,3 +200,46 @@ wrapper) (not committed). `task13-check-1.log` records an earlier run whose
 single targets scenario kept the PD1 pairs inside the twin comparison; it failed
 because those pairs leave the twins apart, which is why they now run in their
 own scenario.
+
+## Phase 8: trusted-producer admission
+
+`rs/read/src/crud/watchlists/admission.rs` holds the one SQL admission relation.
+The feed (before `LIMIT`), the acknowledgement (its read and its update) and the
+container counts (before aggregation) each embed it, so a row is never shown by
+one surface and refused by another. It reads only stored columns, the payload's
+source order and the public order scope captured on the same transaction.
+
+1. A `SLICE_BEST_PRICE_MOVED` or `SLICE_WENT_QUIET` row is admitted only when the
+   trusted producer wrote it (`producer = 'rust-market-v1'` with a source
+   identity) and attested its scope at or after the activation instant that the
+   release records in `WATCHLIST_PRODUCER_ACTIVATED_AT`. With no recorded
+   activation none is admitted. Rows of any other producer stay hidden for these
+   classes, whatever their timestamps, including the rows that the Phase 4
+   organization invalidation writes.
+2. A PIN target must name an order in the public scope.
+3. A row whose payload names an order is admitted only while that order is in
+   the public scope, trusted rows included. A best-price row that names an order
+   follows that order's public scope; a best-price row that names none is decided
+   by rule 1 alone. A went-quiet row is exempt from this rule: it names the order
+   that just ended, which is never public again, and the trusted producer names
+   only an order that was public before it ended.
+
+The relation never reads the producer switch: a paused producer leaves its
+stored rows readable. A missing activation binds SQL NULL; no clock reading or
+fixed instant stands in for it.
+
+Kept differences from Python, which applies no admission rule to these reads:
+
+| Case | Python | Rust |
+| --- | --- | --- |
+| Best-price or went-quiet row from any producer other than the trusted one | Shown and counted | Hidden and not counted; the row is kept |
+| Trusted best-price row that names an order which later fills, cancels or expires | Shown | Hidden from then on |
+| Trusted went-quiet row | Shown | Shown once the activation is recorded |
+| Any other row that names an order outside the public scope, or a PIN on such an order | Shown and counted | Hidden and not counted |
+
+Limit: the runtime role may write every column of `watchlist_events`, so the
+database cannot refuse a row that claims the trusted producer. A source test
+(`market_write_pg_producer_visibility`) checks that only the admission relation
+and the producer module name the trusted identity, and that the relation issues
+no write. The schema check `ck_watchlist_events_producer_identity` keeps every
+other producer's rows free of source and attestation columns.

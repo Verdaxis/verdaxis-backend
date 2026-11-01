@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use serde_json::json;
 use uuid::Uuid;
-use verdaxis_read::crud::watchlists::{Event, Metrics, Target, project_summary};
+use verdaxis_read::crud::watchlists::{EventAdmission, Metrics, Target, project_summary};
 
 fn target(id: u128, kind: &str) -> Target {
     serde_json::from_value(json!({"id":Uuid::from_u128(id),"target_type":kind,
@@ -27,61 +27,6 @@ fn totals_are_computed_before_slice_truncation() {
     assert!(summary.has_more_slices);
 }
 
-#[test]
-fn hidden_pins_and_old_best_price_events_do_not_change_counts_or_latest_time() {
-    let cutoff = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
-    let targets = vec![target(1, "SLICE"), target(2, "PIN"), target(3, "PIN")];
-    let events = vec![
-        Event {
-            target_id: Uuid::from_u128(1),
-            event_type: "SLICE_BEST_PRICE_MOVED".into(),
-            order_id: None,
-            is_read: false,
-            created_at: cutoff - chrono::Duration::microseconds(1),
-        },
-        Event {
-            target_id: Uuid::from_u128(2),
-            event_type: "PIN_PRICE_CHANGED".into(),
-            order_id: Some(Uuid::from_u128(1002)),
-            is_read: false,
-            created_at: cutoff,
-        },
-        Event {
-            target_id: Uuid::from_u128(3),
-            event_type: "PIN_PRICE_CHANGED".into(),
-            order_id: Some(Uuid::from_u128(1003)),
-            is_read: false,
-            created_at: cutoff + chrono::Duration::seconds(1),
-        },
-    ];
-    let mut events = events;
-    events.push(Event {
-        target_id: Uuid::from_u128(1),
-        event_type: "SLICE_BEST_PRICE_MOVED".into(),
-        order_id: Some(Uuid::from_u128(1002)),
-        is_read: false,
-        created_at: cutoff + chrono::Duration::days(1),
-    });
-    let visible = std::collections::HashSet::from([Uuid::from_u128(1002)]);
-    let metrics = Metrics::from_visible_events(&targets, &events, &visible, cutoff);
-    let targets = targets
-        .into_iter()
-        .filter(|t| t.target_type == "SLICE" || t.order_id.is_some_and(|id| visible.contains(&id)))
-        .collect();
-    let summary = project_summary(
-        Uuid::nil(),
-        "Market Radar".into(),
-        "RADAR_DEFAULT".into(),
-        cutoff,
-        targets,
-        &metrics,
-    );
-    assert_eq!(summary.unread_event_count, 1);
-    assert_eq!(summary.latest_event_at, Some(cutoff));
-    assert_eq!(summary.slices[0].pins.len(), 1);
-    assert_eq!(summary.slices[0].pins[0].id, Uuid::from_u128(2));
-}
-
 #[tokio::test]
 async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
     use verdaxis_read::crud::watchlists::load_detail;
@@ -100,15 +45,15 @@ async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
             .fetch_one(&mut connection)
             .await
             .unwrap();
-    let cutoff = Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
+    let admission = EventAdmission::new(Some(Utc.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap()));
     let visible = std::collections::HashSet::new();
     assert!(
-        load_detail(&mut connection, Uuid::nil(), id, &visible, &[], cutoff)
+        load_detail(&mut connection, Uuid::nil(), id, &visible, &[], admission)
             .await
             .unwrap()
             .is_none()
     );
-    let summary = load_detail(&mut connection, owner, id, &visible, &[], cutoff)
+    let summary = load_detail(&mut connection, owner, id, &visible, &[], admission)
         .await
         .unwrap()
         .unwrap();
@@ -133,7 +78,7 @@ async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
         .bind(point).execute(&mut connection).await.unwrap();
     sqlx::query("INSERT INTO watchlist_targets(id,watchlist_id,target_type,market_product_code,delivery_point_id,availability_window_code,created_at) SELECT gen_random_uuid(),$1,'SLICE','TEST_PRODUCT',$2,'2026-'||lpad(n::text,2,'0'),'2026-10-19T00:00:00Z'::timestamptz FROM generate_series(1,10) n")
         .bind(id).bind(point).execute(&mut connection).await.unwrap();
-    let populated = load_detail(&mut connection, owner, id, &visible, &[], cutoff)
+    let populated = load_detail(&mut connection, owner, id, &visible, &[], admission)
         .await
         .unwrap()
         .unwrap();
