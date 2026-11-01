@@ -115,10 +115,18 @@ impl Database {
         let owner_url = required("OFFBOARDING_TEST_OWNER_URL");
         let session_tag = format!("{tag}-session");
         let cutoff_tag = format!("{tag}-cutoff");
+        let owner = tagged_pool(&owner_url, &format!("{tag}-owner"), 4).await;
+        let session = tagged_pool(&runtime_url, &session_tag, 4).await;
+        let cutoff = tagged_pool(&runtime_url, &cutoff_tag, 2).await;
+        // Open every connection before any race, so no lock wait includes the
+        // time to open a connection.
+        for (pool, connections) in [(&owner, 4), (&session, 4), (&cutoff, 2)] {
+            warm(pool, connections).await;
+        }
         Self {
-            owner: tagged_pool(&owner_url, &format!("{tag}-owner"), 4).await,
-            session: tagged_pool(&runtime_url, &session_tag, 4).await,
-            cutoff: tagged_pool(&runtime_url, &cutoff_tag, 2).await,
+            owner,
+            session,
+            cutoff,
             cutoff_tag,
             session_tag,
             runtime_url,
@@ -177,6 +185,13 @@ impl Database {
             .execute(&self.owner)
             .await
             .unwrap();
+    }
+}
+
+async fn warm(pool: &PgPool, connections: usize) {
+    let mut open = Vec::with_capacity(connections);
+    for _ in 0..connections {
+        open.push(pool.acquire().await.unwrap());
     }
 }
 
@@ -514,7 +529,9 @@ fn error_code(issued: &Issued) -> &str {
 /// lock, read the database clock once it is granted, then cut off.
 async fn cut_off_after_wait(pool: PgPool, user: Uuid) -> (DateTime<Utc>, CredentialRevocation) {
     let mut transaction = pool.begin().await.unwrap();
+    let requested = Instant::now();
     lock_user_row(&mut transaction, user).await;
+    println!("the cutoff transaction waited {:?} for the user row", requested.elapsed());
     let acquired = database_now(&mut transaction).await;
     let revocation = revoke_account_credentials(&mut transaction, user)
         .await
@@ -549,7 +566,7 @@ fn assert_cutoff_after_lock(
     assert_eq!(revocation.password_changed_at, revocation.cutoff);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires a migrated disposable PostgreSQL database and Python"]
 async fn cutoff_is_taken_after_user_lock() {
     let db = Database::connect().await;
