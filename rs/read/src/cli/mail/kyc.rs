@@ -224,6 +224,20 @@ impl KycNotice {
         }
     }
 
+    /// The one place a notice reaches the provider. The key is stable per
+    /// grace row, which is one per user and organization, so the provider can
+    /// deduplicate a replay on its side while the claim row stops ours. When
+    /// the shared transport gains a keyed send, only this function changes.
+    async fn deliver(&self, recipient: &str, payload: &Value, key: &str) -> Delivery {
+        let delivery = if self.mail.send_with_idempotency(payload, Some(key)).await {
+            Delivery::Sent
+        } else {
+            Delivery::Refused
+        };
+        MailLog::new(recipient, delivery).record();
+        delivery
+    }
+
     /// Claim and send up to `limit` notices (at most [`PAGE_SIZE`]).
     ///
     /// One connection serves the whole page: it is attested against the named
@@ -251,16 +265,10 @@ impl KycNotice {
                 &notice.email,
                 notice.expires_at,
             );
-            let accepted = self
-                .mail
-                .send_with_idempotency(&payload, Some(&idempotency_key(grace_id)))
+            let delivery = self
+                .deliver(&notice.email, &payload, &idempotency_key(grace_id))
                 .await;
-            let delivery = if accepted {
-                Delivery::Sent
-            } else {
-                Delivery::Refused
-            };
-            MailLog::new(&notice.email, delivery).record();
+            let accepted = delivery == Delivery::Sent;
             // An accepted send whose record fails is still claimed and never
             // repeated; count it for review like an unaccepted one.
             if accepted && record_sent(&mut conn, grace_id).await.is_ok() {
