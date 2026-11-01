@@ -350,6 +350,69 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
     assert!(validate_config(&base).is_err());
 }
 
+/// The reviewed release allowlist, in migration order.
+const RELEASE_REVISIONS: [&str; 9] = [
+    "kycg_20261014_staging",
+    "p0_20261016_union",
+    "prc_20261018_cache",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
+    "p5_20261020_read_indexes",
+    "p89_20261022_watchlist_producer",
+    "p89_20261022_trade_freeze",
+];
+
+/// The reviewed checkpoints a production runtime admits.
+const PRODUCTION_REVISIONS: [&str; 7] = [
+    "p0_20261016_union",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
+    "p5_20261020_read_indexes",
+    "p89_20261022_watchlist_producer",
+    "p89_20261022_trade_freeze",
+];
+
+#[test]
+fn release_pins_admit_exactly_the_reviewed_checkpoints() {
+    assert_eq!(
+        verdaxis_read::runtime::artifact::ALLOWED_REVISIONS,
+        RELEASE_REVISIONS.as_slice()
+    );
+    let mut staged = staging();
+    let mut production = staging();
+    production.environment = "production".into();
+    production.database_url =
+        "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
+    production.bind = "127.0.0.1:8010".parse().unwrap();
+    production.prepared_budget = Some(budget_document(compiled_sha()));
+    for revision in RELEASE_REVISIONS {
+        staged.migration_revision = revision.into();
+        assert!(validate_config(&staged).is_ok(), "{revision}");
+        production.migration_revision = revision.into();
+        assert_eq!(
+            validate_config(&production).is_ok(),
+            PRODUCTION_REVISIONS.contains(&revision),
+            "{revision}"
+        );
+    }
+    for revision in [
+        "",
+        "*",
+        "head",
+        "heads",
+        "base",
+        "unlisted_revision",
+        "p89_20261022_trade_freeze_next",
+    ] {
+        staged.migration_revision = revision.into();
+        assert!(validate_config(&staged).is_err(), "{revision}");
+        production.migration_revision = revision.into();
+        assert!(validate_config(&production).is_err(), "{revision}");
+    }
+}
+
 #[test]
 fn staging_configuration_fails_closed() {
     let base = staging();
