@@ -5,10 +5,11 @@
 //! module delivers those frozen payloads in three separate steps, so no order
 //! or user row lock is ever held across the provider call:
 //!
-//! 1. claim: one transaction selects one due reminder (`FOR UPDATE SKIP
-//!    LOCKED`), rechecks ownership, address, preference and expiry under the
-//!    recipient's user row lock and then the order row lock, and either
-//!    discards the reminder or writes a 15-minute lease (`_email_retry_at`);
+//! 1. claim: one transaction locks one due reminder with its recipient's user
+//!    row (user first, `SKIP LOCKED`), then the write boundary locks the order
+//!    row and rechecks ownership, address, preference and expiry
+//!    (`order_write::lock_reminder_delivery`); the claim then either discards
+//!    the reminder or writes a 15-minute lease (`_email_retry_at`);
 //! 2. send: the provider call, with the notification UUID as the idempotency
 //!    key, outside every transaction;
 //! 3. finish: one transaction marks an accepted reminder `sent`.
@@ -24,8 +25,9 @@
 //! compared and rewritten by PostgreSQL only (its float parsing and printing
 //! are exact), never parsed and printed again here.
 use super::{Delivery, MailLog};
-use crate::cli::Exit;
+use crate::cli::{Exit, retry_bounded};
 use crate::crud::referrals::invite::MailClient;
+use crate::order_write::{ReminderWindow, lock_reminder_delivery};
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{Map, Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -273,39 +275,19 @@ where
     Ok(counts)
 }
 
-const DUE_REMINDER: &str = "SELECT id, data ->> 'order_id' AS order_id, \
-     json_typeof(data -> '_email_payload') = 'object' AS has_payload, \
-     (data -> '_email_payload')::text AS payload, \
-     COALESCE(CAST(data ->> '_email_deadline' AS float8) <= $2, true) AS past_deadline \
-     FROM notifications \
-     WHERE (data ->> 'event') = $1 \
-       AND (data ->> '_email_status') = 'pending' \
-       AND CAST(data ->> '_email_retry_at' AS float8) <= $2 \
-     ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED";
-
-/// The recipient's user row first: the same order as the market cancel path,
-/// which locks the actor's user row before the order row.
-const LOCK_RECIPIENT: &str = "SELECT u.id FROM notifications n \
-     JOIN users u ON u.id = n.recipient_id WHERE n.id = $1 FOR UPDATE OF u";
-
-/// The ownership, address, preference and expiry recheck, then the order row.
-/// The expiry comparison reads the stored number in PostgreSQL, as Python's
-/// `extract("epoch", expires_at) == data["expiry_epoch"]` does.
-const RECHECK: &str = "SELECT u.email FROM notifications n \
-     JOIN users u ON u.id = n.recipient_id \
-     JOIN organizations g ON g.id = u.organization_id \
-     JOIN orderbook_orders o ON o.organization_id = g.id \
-     LEFT JOIN user_preferences p ON p.user_id = u.id AND p.namespace = 'notifications' \
-     WHERE n.id = $1 AND o.id = $2 \
-       AND u.email_verified IS true \
-       AND COALESCE(CAST(p.value ->> 'email_trade_updates' AS boolean), true) IS true \
-       AND EXTRACT(epoch FROM o.expires_at) = CAST(n.data ->> 'expiry_epoch' AS float8) \
-       AND o.provenance = 'REAL' AND g.provenance = 'REAL' AND u.status = 'APPROVED' \
-       AND (o.owner_user_id = u.id OR o.owner_user_id IS NULL) \
-       AND o.status IN ('OPEN', 'PARTIALLY_FILLED') \
-       AND o.remaining_quantity_mt > 0 \
-       AND o.expires_at > $3 AND o.expires_at <= $4 \
-     FOR UPDATE OF o";
+/// One due reminder with its recipient's user row. The user row is locked
+/// before the reminder row, the order the notification routes use (actor user
+/// row, then that user's notification rows); with `SKIP LOCKED` neither lock
+/// waits, so a busy user or reminder is left for a later run.
+const DUE_REMINDER: &str = "SELECT n.id AS id, n.data ->> 'order_id' AS order_id, \
+     json_typeof(n.data -> '_email_payload') = 'object' AS has_payload, \
+     (n.data -> '_email_payload')::text AS payload, \
+     COALESCE(CAST(n.data ->> '_email_deadline' AS float8) <= $2, true) AS past_deadline \
+     FROM notifications n JOIN users u ON u.id = n.recipient_id \
+     WHERE (n.data ->> 'event') = $1 \
+       AND (n.data ->> '_email_status') = 'pending' \
+       AND CAST(n.data ->> '_email_retry_at' AS float8) <= $2 \
+     ORDER BY n.created_at, n.id LIMIT 1 FOR UPDATE OF u, n SKIP LOCKED";
 
 const WRITE_LEASE: &str = "UPDATE notifications SET data = CAST(CAST(data AS jsonb) \
      || jsonb_build_object('_email_retry_at', CAST($2 AS float8)) AS json) WHERE id = $1";
@@ -328,39 +310,70 @@ async fn finish(
     transaction: &mut Transaction<'static, Postgres>,
     id: Uuid,
     status: &str,
-) -> Result<(), Exit> {
+) -> Result<(), sqlx::Error> {
     sqlx::query(FINISH)
         .bind(id)
         .bind(status)
         .execute(&mut **transaction)
-        .await
-        .map_err(|_| Exit::Dependency)?;
+        .await?;
     Ok(())
 }
 
-/// Claim one due reminder (Python `deliver_expiry_reminder_emails` loop body,
-/// `app/services/order_expiry_reminders.py:168-226`).
+/// Database errors a reminder transaction may meet from a concurrent writer:
+/// deadlock, serialization failure and lock timeout.
+const RETRYABLE_SQLSTATES: [&str; 3] = ["40P01", "40001", "55P03"];
+
+/// Split a database error into retryable (outer `Err`) and final (`Ok(Exit)`),
+/// the shape [`retry_bounded`] retries on.
+pub(crate) fn classify(error: sqlx::Error) -> Result<Exit, sqlx::Error> {
+    let code = error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .map(|code| code.into_owned());
+    match code {
+        Some(code) if RETRYABLE_SQLSTATES.contains(&code.as_str()) => Err(error),
+        _ => Ok(Exit::Dependency),
+    }
+}
+
+/// Claim one due reminder, retrying a deadlock, serialization failure or
+/// lock timeout with the shared bounded policy.
+async fn claim(pool: &PgPool, reference: DateTime<Utc>) -> Result<Claim, Exit> {
+    retry_bounded(|| async {
+        match claim_once(pool, reference).await {
+            Ok(claim) => Ok(Ok(claim)),
+            Err(error) => classify(error).map(Err),
+        }
+    })
+    .await
+    .map_err(|_| Exit::Dependency)?
+}
+
+/// One claim transaction (Python `deliver_expiry_reminder_emails` loop body,
+/// `app/services/order_expiry_reminders.py:168-226`): the recipient's user
+/// row and the reminder row, then the order row through the write boundary.
 ///
 /// A reminder whose stored order id or delivery fields are malformed is
 /// discarded, where Python would stop the whole run on it every time.
-async fn claim(pool: &PgPool, reference: DateTime<Utc>) -> Result<Claim, Exit> {
-    let now = epoch_seconds(reference);
-    let mut transaction = begin(pool).await?;
+async fn claim_once(pool: &PgPool, reference: DateTime<Utc>) -> Result<Claim, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::raw_sql(TRANSACTION_BOUNDS)
+        .execute(&mut *transaction)
+        .await?;
     let Some(row) = sqlx::query(DUE_REMINDER)
         .bind(EVENT)
-        .bind(now)
+        .bind(epoch_seconds(reference))
         .fetch_optional(&mut *transaction)
-        .await
-        .map_err(|_| Exit::Dependency)?
+        .await?
     else {
-        transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        transaction.commit().await?;
         return Ok(Claim::Nothing);
     };
-    let id: Uuid = row.try_get("id").map_err(|_| Exit::Dependency)?;
-    let has_payload: Option<bool> = row.try_get("has_payload").map_err(|_| Exit::Dependency)?;
-    let past_deadline: bool = row.try_get("past_deadline").map_err(|_| Exit::Dependency)?;
-    let order_id: Option<String> = row.try_get("order_id").map_err(|_| Exit::Dependency)?;
-    let payload: Option<String> = row.try_get("payload").map_err(|_| Exit::Dependency)?;
+    let id: Uuid = row.try_get("id")?;
+    let has_payload: Option<bool> = row.try_get("has_payload")?;
+    let past_deadline: bool = row.try_get("past_deadline")?;
+    let order_id: Option<String> = row.try_get("order_id")?;
+    let payload: Option<String> = row.try_get("payload")?;
     let payload = payload.and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let order_id = order_id.and_then(|text| Uuid::parse_str(&text).ok());
 
@@ -368,27 +381,19 @@ async fn claim(pool: &PgPool, reference: DateTime<Utc>) -> Result<Claim, Exit> {
         (order_id, payload, has_payload, past_deadline)
     else {
         finish(&mut transaction, id, "discarded").await?;
-        transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        transaction.commit().await?;
         return Ok(Claim::Discarded);
     };
 
-    sqlx::query(LOCK_RECIPIENT)
-        .bind(id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| Exit::Dependency)?;
-    let email: Option<String> = sqlx::query_scalar(RECHECK)
-        .bind(id)
-        .bind(order_id)
-        .bind(reference)
-        .bind(reference + LEAD_TIME)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(|_| Exit::Dependency)?;
+    let window = ReminderWindow {
+        reference,
+        horizon: reference + LEAD_TIME,
+    };
+    let email = lock_reminder_delivery(&mut transaction, id, order_id, window).await?;
     let addressed = |email: &str| payload.get("to") == Some(&json!([email]));
     if !email.as_deref().is_some_and(addressed) {
         finish(&mut transaction, id, "discarded").await?;
-        transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        transaction.commit().await?;
         return Ok(Claim::Discarded);
     }
     // The lease survives a crash: a retry keeps the same payload and key.
@@ -396,9 +401,8 @@ async fn claim(pool: &PgPool, reference: DateTime<Utc>) -> Result<Claim, Exit> {
         .bind(id)
         .bind(epoch_seconds(reference + LEASE))
         .execute(&mut *transaction)
-        .await
-        .map_err(|_| Exit::Dependency)?;
-    transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        .await?;
+    transaction.commit().await?;
     Ok(Claim::Claimed { id, payload })
 }
 
@@ -414,7 +418,9 @@ async fn finish_sent(pool: &PgPool, id: Uuid) -> Result<(), Exit> {
             .await
             .map_err(|_| Exit::Dependency)?;
     if present.is_some() {
-        finish(&mut transaction, id, "sent").await?;
+        finish(&mut transaction, id, "sent")
+            .await
+            .map_err(|_| Exit::Dependency)?;
     }
     transaction.commit().await.map_err(|_| Exit::Dependency)
 }

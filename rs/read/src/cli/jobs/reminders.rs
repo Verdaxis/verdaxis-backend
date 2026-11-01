@@ -13,11 +13,12 @@
 //! - the scan order `expires_at, id, user id` and its row bound.
 //!
 //! Lock order differs from Python on purpose: each order is handled in its own
-//! short transaction that takes the recipients' user rows (`FOR KEY SHARE`)
-//! before the order row (`FOR UPDATE`). The market cancel path locks the
-//! actor's user row before the order row, so this order cannot form the
-//! cycle in which a scan holds the order while its notification insert waits
-//! for the user row that a waiting cancel holds.
+//! short transaction in which the write boundary (`order_write::reminders`)
+//! takes the scan key, the recipients' user rows (`FOR KEY SHARE`) and then
+//! the order row (`FOR UPDATE`), as the market operation graph does. This
+//! order cannot form the cycle in which a scan holds the order while its
+//! notification insert waits for the user row that a waiting cancel holds.
+//! This module writes only the reminder rows.
 //!
 //! The job runs in production only. Every other environment is refused before
 //! a pool is opened.
@@ -25,26 +26,25 @@ use super::super::context::{self, Purpose, RunContext};
 use super::super::gate::require_apply;
 use super::super::mail::expiry::{
     self, Counts, EVENT, ExpiryMailConfig, ExpirySender, LEAD_TIME, MAX_BATCH, ProviderSender,
-    RETRY_WINDOW, TRANSACTION_BOUNDS, epoch_seconds, render_payload,
+    RETRY_WINDOW, TRANSACTION_BOUNDS, classify, epoch_seconds, render_payload,
 };
 use super::super::{Environment, Exit, JobArgs, JobKind, retry_bounded};
+use crate::order_write::{
+    REMINDER_SCAN_KEY, ReminderCandidate, ReminderWindow, lock_reminder_recipients,
+    reminder_candidates,
+};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Value, json};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
 
 /// Python `REMINDER_LOCK_ID`; unchanged so Python and Rust scans exclude each other.
-pub const REMINDER_LOCK_ID: i64 = 8_246_192_048;
+pub const REMINDER_LOCK_ID: i64 = REMINDER_SCAN_KEY;
 /// Default scan bound in recipient rows (Python `batch_size`).
 pub const DEFAULT_SCAN_LIMIT: u32 = 1000;
 /// Largest scan bound a caller may ask for.
 pub const MAX_SCAN_LIMIT: u32 = 10_000;
-
-/// Database errors a scan transaction may meet from a concurrent writer:
-/// deadlock, serialization failure and lock timeout. Each is retried with the
-/// shared bounded policy; anything else stops the run.
-const RETRYABLE_SQLSTATES: [&str; 3] = ["40P01", "40001", "55P03"];
 
 /// Test seams inside one order's scan transaction. Production uses `()`.
 pub trait ScanObserver: Sync {
@@ -75,87 +75,9 @@ pub struct RunCounts {
     pub mail: Counts,
 }
 
-/// The eligibility rule (Python `_eligible_order_clauses`); `$1` is the
-/// reference instant and `$2` the reference plus 48 hours.
-macro_rules! eligible {
-    () => {
-        "o.provenance = 'REAL' AND g.provenance = 'REAL' AND u.status = 'APPROVED' \
-         AND (o.owner_user_id = u.id OR o.owner_user_id IS NULL) \
-         AND o.status IN ('OPEN', 'PARTIALLY_FILLED') \
-         AND o.remaining_quantity_mt > 0 \
-         AND o.expires_at > $1 AND o.expires_at <= $2"
-    };
-}
-
-/// No reminder exists yet for this recipient, order and expiry instant. The
-/// same comparison as Python: the stored number read as `float8` against the
-/// expiry epoch.
-macro_rules! not_reminded {
-    () => {
-        "NOT EXISTS (SELECT 1 FROM notifications n WHERE n.recipient_id = u.id \
-         AND (n.data ->> 'event') = 'order_expiring' \
-         AND (n.data ->> 'order_key') = replace(CAST(o.id AS varchar), '-', '') \
-         AND CAST(n.data ->> 'expiry_epoch' AS float8) = EXTRACT(epoch FROM o.expires_at))"
-    };
-}
-
-/// Candidate rows without locks, in Python's order and bound.
-const CANDIDATES: &str = concat!(
-    "SELECT o.id AS order_id, u.id AS user_id FROM orderbook_orders o \
-     JOIN organizations g ON g.id = o.organization_id \
-     JOIN users u ON u.organization_id = o.organization_id WHERE ",
-    eligible!(),
-    " AND ",
-    not_reminded!(),
-    " ORDER BY o.expires_at, o.id, u.id LIMIT $3"
-);
-
-const TRY_SCAN_LOCK: &str = "SELECT pg_try_advisory_xact_lock($1)";
-
-/// The recipients' user rows, in id order, before the order row. `KEY SHARE`
-/// is the lock the notification foreign key takes anyway; taking it first is
-/// what removes the cycle, and it still allows ordinary user updates.
-const LOCK_RECIPIENTS: &str = "SELECT id FROM users WHERE id = ANY($1) ORDER BY id FOR KEY SHARE";
-
-/// The rows of one order, rechecked under its row lock. Only recipients whose
-/// user rows this transaction already holds are written.
-const LOCKED_ROWS: &str = concat!(
-    "SELECT o.id AS order_id, o.side AS side, o.expires_at AS expires_at, \
-     u.id AS user_id, u.email AS email, u.email_verified AS email_verified, \
-     COALESCE(CAST(p.value ->> 'email_trade_updates' AS boolean), true) AS email_enabled, \
-     COALESCE(CAST(p.value ->> 'inapp_trade_updates' AS boolean), true) AS inapp_enabled \
-     FROM orderbook_orders o \
-     JOIN organizations g ON g.id = o.organization_id \
-     JOIN users u ON u.organization_id = o.organization_id \
-     LEFT JOIN user_preferences p ON p.user_id = u.id AND p.namespace = 'notifications' \
-     WHERE o.id = $3 AND u.id = ANY($4) AND ",
-    eligible!(),
-    " AND ",
-    not_reminded!(),
-    " ORDER BY u.id FOR UPDATE OF o"
-);
-
 const INSERT_REMINDER: &str = "INSERT INTO notifications \
      (id, recipient_id, type, title, message, data, is_read, created_at) \
      VALUES ($1, $2, 'ORDER_UPDATE', 'Order expires within 48 hours', $3, CAST($4 AS json), false, $5)";
-
-/// One eligible order with the recipients found for it.
-struct Candidate {
-    order_id: Uuid,
-    users: Vec<Uuid>,
-}
-
-/// One locked row to remind.
-struct Recipient {
-    order_id: Uuid,
-    side: String,
-    expires_at: DateTime<Utc>,
-    user_id: Uuid,
-    email: String,
-    email_verified: bool,
-    email_enabled: bool,
-    inapp_enabled: bool,
-}
 
 /// The reminder text (Python `remind_expiring_orders`, lines 105-113).
 pub fn reminder_message(side: &str, order_id: Uuid, expiry: DateTime<Utc>) -> String {
@@ -207,21 +129,6 @@ pub fn reminder_data(
     })
 }
 
-fn sqlstate(error: &sqlx::Error) -> Option<String> {
-    error
-        .as_database_error()
-        .and_then(|database| database.code())
-        .map(|code| code.into_owned())
-}
-
-/// Split a database error into retryable (outer `Err`) and final (`Ok(Err)`).
-fn classify(error: sqlx::Error) -> Result<Exit, sqlx::Error> {
-    match sqlstate(&error) {
-        Some(code) if RETRYABLE_SQLSTATES.contains(&code.as_str()) => Err(error),
-        _ => Ok(Exit::Dependency),
-    }
-}
-
 /// Create the due reminders, at most `limit` recipient rows.
 pub async fn scan<O: ScanObserver>(
     pool: &PgPool,
@@ -233,31 +140,20 @@ pub async fn scan<O: ScanObserver>(
     if !(1..=MAX_SCAN_LIMIT).contains(&limit) {
         return Err(Exit::Usage);
     }
-    let horizon = reference + LEAD_TIME;
-    let rows = sqlx::query(CANDIDATES)
-        .bind(reference)
-        .bind(horizon)
-        .bind(i64::from(limit))
-        .fetch_all(pool)
-        .await
-        .map_err(|_| Exit::Dependency)?;
-    let mut candidates: Vec<Candidate> = Vec::new();
-    for row in rows {
-        let order_id: Uuid = row.try_get("order_id").map_err(|_| Exit::Dependency)?;
-        let user_id: Uuid = row.try_get("user_id").map_err(|_| Exit::Dependency)?;
-        match candidates.last_mut() {
-            Some(last) if last.order_id == order_id => last.users.push(user_id),
-            _ => candidates.push(Candidate {
-                order_id,
-                users: vec![user_id],
-            }),
-        }
-    }
-
+    let window = ReminderWindow {
+        reference,
+        horizon: reference + LEAD_TIME,
+    };
+    let candidates = {
+        let mut connection = pool.acquire().await.map_err(|_| Exit::Dependency)?;
+        reminder_candidates(&mut connection, window, i64::from(limit))
+            .await
+            .map_err(|_| Exit::Dependency)?
+    };
     let mut counts = ScanCounts::default();
     for candidate in &candidates {
         let outcome = retry_bounded(|| async {
-            match remind_order(pool, config, reference, candidate, observer).await {
+            match remind_order(pool, config, window, candidate, observer).await {
                 Ok(outcome) => Ok(Ok(outcome)),
                 Err(error) => classify(error).map(Err),
             }
@@ -280,71 +176,44 @@ enum OrderOutcome {
     Created(u64),
 }
 
-/// One order's transaction: scan key, user rows, order row, reminders.
+/// One order's transaction: the write boundary takes the scan key, the user
+/// rows and then the order row; this module writes the reminders.
 async fn remind_order<O: ScanObserver>(
     pool: &PgPool,
     config: &ExpiryMailConfig,
-    reference: DateTime<Utc>,
-    candidate: &Candidate,
+    window: ReminderWindow,
+    candidate: &ReminderCandidate,
     observer: &O,
 ) -> Result<OrderOutcome, sqlx::Error> {
     let mut transaction: Transaction<'_, Postgres> = pool.begin().await?;
     sqlx::raw_sql(TRANSACTION_BOUNDS)
         .execute(&mut *transaction)
         .await?;
-    let acquired: bool = sqlx::query_scalar(TRY_SCAN_LOCK)
-        .bind(REMINDER_LOCK_ID)
-        .fetch_one(&mut *transaction)
-        .await?;
-    if !acquired {
+    let Some(locked) = lock_reminder_recipients(&mut transaction, candidate).await? else {
         transaction.rollback().await?;
         return Ok(OrderOutcome::LockBusy);
-    }
-    let mut users = candidate.users.clone();
-    users.sort();
-    users.dedup();
-    sqlx::query(LOCK_RECIPIENTS)
-        .bind(&users)
-        .execute(&mut *transaction)
-        .await?;
-    observer.users_locked(candidate.order_id).await;
-    let rows = sqlx::query(LOCKED_ROWS)
-        .bind(reference)
-        .bind(reference + LEAD_TIME)
-        .bind(candidate.order_id)
-        .bind(&users)
-        .fetch_all(&mut *transaction)
-        .await?;
+    };
+    observer.users_locked(locked.order_id()).await;
+    let rows = locked.lock_order(&mut transaction, window).await?;
     observer.order_locked(candidate.order_id).await;
     let mut created = 0;
     for row in rows {
-        let recipient = Recipient {
-            order_id: row.try_get("order_id")?,
-            side: row.try_get("side")?,
-            expires_at: row.try_get("expires_at")?,
-            user_id: row.try_get("user_id")?,
-            email: row.try_get("email")?,
-            email_verified: row.try_get("email_verified")?,
-            email_enabled: row.try_get("email_enabled")?,
-            inapp_enabled: row.try_get("inapp_enabled")?,
-        };
-        let message = reminder_message(&recipient.side, recipient.order_id, recipient.expires_at);
+        let message = reminder_message(&row.side, row.order_id, row.expires_at);
         let data = reminder_data(
             config,
-            recipient.order_id,
-            recipient.expires_at,
-            (recipient.email_verified && recipient.email_enabled)
-                .then_some(recipient.email.as_str()),
-            recipient.inapp_enabled,
+            row.order_id,
+            row.expires_at,
+            (row.email_verified && row.email_enabled).then_some(row.email.as_str()),
+            row.inapp_enabled,
             &message,
-            reference,
+            window.reference,
         );
         sqlx::query(INSERT_REMINDER)
             .bind(Uuid::new_v4())
-            .bind(recipient.user_id)
+            .bind(row.user_id)
             .bind(&message)
             .bind(data.to_string())
-            .bind(reference)
+            .bind(window.reference)
             .execute(&mut *transaction)
             .await?;
         created += 1;
