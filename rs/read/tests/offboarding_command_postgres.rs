@@ -32,6 +32,7 @@ use verdaxis_read::{
     AppState, Config,
     auth::{
         VerificationSettings, VerifiedAccess,
+        offboarding::CUTOFF_SKEW_MARGIN_SECONDS,
         token_bytes::{generate_token, token_digest},
         verify_access,
     },
@@ -404,7 +405,6 @@ impl Harness {
         OffboardAccount {
             subject_id: subject,
             request: OffboardRequest::parse(&serde_json::to_vec(&body(expected)).unwrap()).unwrap(),
-            now: Utc::now(),
             audit: AuditContext::default(),
             market: Arc::new(RecordingHook),
             events: NoEvents,
@@ -608,10 +608,22 @@ async fn commit_applies_every_account_change() {
     .unwrap();
     assert_eq!(user.get::<String, _>("status"), "REJECTED");
     assert_eq!(user.get::<Option<Uuid>, _>("organization_id"), None);
+    // The marker is the database clock after the locks: not before the
+    // request, and before the credential cutoff, which is read later and adds
+    // the skew margin.
+    let marked: DateTime<Utc> = user
+        .get::<Option<DateTime<Utc>>, _>("offboarded_at")
+        .unwrap();
+    assert!(marked > before, "the marker follows the request");
+    let password_cutoff: DateTime<Utc> = user
+        .get::<Option<DateTime<Utc>>, _>("password_changed_at")
+        .unwrap();
     assert!(
-        user.get::<Option<DateTime<Utc>>, _>("offboarded_at")
-            .is_some()
+        marked <= password_cutoff - TimeDelta::seconds(CUTOFF_SKEW_MARGIN_SECONDS),
+        "the marker precedes the cutoff's clock reading"
     );
+    let answered: DateTime<Utc> = response["offboarded_at"].as_str().unwrap().parse().unwrap();
+    assert_eq!(answered, marked, "the response reports the stored marker");
     assert_eq!(user.get::<String, _>("kyc"), "PENDING");
     assert_eq!(user.get::<Option<Uuid>, _>("kyc_organization_id"), None);
     assert_ne!(user.get::<String, _>("password_hash"), old_hash);
@@ -677,7 +689,7 @@ async fn commit_applies_every_account_change() {
 
     let record = sqlx::query(
         "SELECT subject_user_id, former_organization_id, actor_user_id, reason_code, \
-         evidence_case_ref, urgent FROM individual_offboardings WHERE operation_id = $1",
+         evidence_case_ref, urgent, occurred_at FROM individual_offboardings WHERE operation_id = $1",
     )
     .bind(operation)
     .fetch_one(&harness.owner)
@@ -692,6 +704,18 @@ async fn commit_applies_every_account_change() {
     assert_eq!(record.get::<String, _>("reason_code"), "EMPLOYMENT_ENDED");
     assert_eq!(record.get::<String, _>("evidence_case_ref"), CASE_REFERENCE);
     assert!(record.get::<bool, _>("urgent"));
+    assert_eq!(record.get::<DateTime<Utc>, _>("occurred_at"), marked);
+    let (audit_at, transition_at): (DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+        "SELECT (SELECT timestamp FROM audit_logs WHERE resource_id = $1::text \
+                 AND action = 'admin.user_offboarded'),\
+                (SELECT effective_at FROM user_status_transitions WHERE user_id = $1 \
+                 AND to_status = 'REJECTED')",
+    )
+    .bind(seed.subject)
+    .fetch_one(&harness.owner)
+    .await
+    .unwrap();
+    assert_eq!((audit_at, transition_at), (marked, marked));
 
     // The admission outbox event names the former organization only.
     let events = sqlx::query(
@@ -1114,6 +1138,7 @@ async fn audit_contains_only_opaque_case_reference() {
             "evidence_case_ref",
             "join_requests_closed",
             "kyc_review_invalidated",
+            "kyc_state_unrecognized",
             "market_events",
             "operation_id",
             "organization_id",
@@ -1284,9 +1309,10 @@ async fn session_lock_winner_is_cut_off() {
         .await
         .unwrap()
         .expect("the command commits after the sign-in");
-    let (revoked, cutoff): (bool, DateTime<Utc>) = sqlx::query_as(
+    let (revoked, cutoff, marked): (bool, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
         "SELECT (SELECT revoked FROM refresh_sessions WHERE family_id = $2),\
-                (SELECT authentication_revoked_at FROM users WHERE id = $1)",
+                (SELECT authentication_revoked_at FROM users WHERE id = $1),\
+                (SELECT offboarded_at FROM users WHERE id = $1)",
     )
     .bind(seed.subject)
     .bind(family)
@@ -1297,6 +1323,10 @@ async fn session_lock_winner_is_cut_off() {
     assert!(
         cutoff > issued + TimeDelta::seconds(1),
         "the cutoff must follow a token issued during the wait"
+    );
+    assert!(
+        marked > issued,
+        "the recorded offboarding time follows the sign-in that won the lock"
     );
 }
 
@@ -1351,6 +1381,7 @@ async fn preview_reports_advisory_counts() {
     assert_eq!(preview["pending_trades"], 2);
     assert_eq!(preview["confirmed_trades"], 3);
     assert_eq!(preview["delivered_trades"], 1);
+    assert_eq!(preview["informational_counts_capped"], false);
     let mut keys: Vec<&str> = preview
         .as_object()
         .unwrap()
@@ -1364,6 +1395,7 @@ async fn preview_reports_advisory_counts() {
             "confirmed_trades",
             "delivered_trades",
             "email",
+            "informational_counts_capped",
             "offboarded_at",
             "open_owned_orders",
             "organization_id",
@@ -1384,8 +1416,31 @@ async fn preview_reports_advisory_counts() {
 #[ignore = "requires the migrated disposable PostgreSQL harness"]
 async fn preview_refuses_overflow() {
     let harness = Harness::open().await;
-    let seed = harness.seed(true).await;
     let counterparty = harness.organization("FUEL_BUYER").await;
+
+    // Confirmed and delivered trades are informational: above the bound the
+    // count is capped and flagged, and the preview still answers.
+    let seed = harness.seed(true).await;
+    for status in ["CONFIRMED", "DELIVERED"] {
+        for _ in 0..101 {
+            trade(
+                &harness,
+                counterparty,
+                seed.organization,
+                seed.subject,
+                status,
+            )
+            .await;
+        }
+    }
+    let (status, preview) = harness.preview(Some(seed.admin), seed.subject).await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert_eq!(preview["confirmed_trades"], 100);
+    assert_eq!(preview["delivered_trades"], 100);
+    assert_eq!(preview["informational_counts_capped"], true);
+
+    // Pending trades are cancelled by the command: 100 answer, 101 refuse.
+    let seed = harness.seed(true).await;
     for _ in 0..100 {
         trade(
             &harness,
@@ -1399,6 +1454,7 @@ async fn preview_refuses_overflow() {
     let (status, preview) = harness.preview(Some(seed.admin), seed.subject).await;
     assert_eq!(status, StatusCode::OK, "{preview}");
     assert_eq!(preview["pending_trades"], 100);
+    assert_eq!(preview["informational_counts_capped"], false);
     trade(
         &harness,
         counterparty,
@@ -1410,6 +1466,29 @@ async fn preview_refuses_overflow() {
     let (status, response) = harness.preview(Some(seed.admin), seed.subject).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(code(&response), "OFFBOARD_PREVIEW_LIMIT");
+
+    // Open order remainders are withdrawn by the command: 101 refuse.
+    let seed = harness.seed(true).await;
+    for _ in 0..101 {
+        order(&harness, seed.organization, seed.subject, "OPEN").await;
+    }
+    let (status, response) = harness.preview(Some(seed.admin), seed.subject).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(code(&response), "OFFBOARD_PREVIEW_LIMIT");
+}
+
+/// One ten-tonne ask owned by the subject.
+async fn order(harness: &Harness, organization: Uuid, owner: Uuid, status: &str) {
+    sqlx::query(include_str!("fixtures/offboarding_command_order.sql"))
+        .bind(Uuid::new_v4())
+        .bind(organization)
+        .bind(owner)
+        .bind(PRODUCT)
+        .bind(DELIVERY_POINT)
+        .bind(status)
+        .execute(&harness.owner)
+        .await
+        .unwrap();
 }
 
 /// One trade where the subject is the recorded seller.
@@ -1425,6 +1504,45 @@ async fn trade(harness: &Harness, buyer: Uuid, seller: Uuid, seller_user: Uuid, 
         .execute(&harness.owner)
         .await
         .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
+async fn unrecognized_kyc_state_does_not_block_offboarding() {
+    let harness = Harness::open().await;
+    let seed = harness.seed(true).await;
+    sqlx::query("UPDATE users SET kyc_status = 'GARBLED' WHERE id = $1")
+        .bind(seed.subject)
+        .execute(&harness.owner)
+        .await
+        .unwrap();
+    let (status, response) = harness
+        .offboard(Some(seed.admin), seed.subject, Some(seed.organization))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    let row = sqlx::query(
+        "SELECT status::text AS status, offboarded_at IS NOT NULL AS marked, \
+         organization_id, kyc_status::text AS kyc FROM users WHERE id = $1",
+    )
+    .bind(seed.subject)
+    .fetch_one(&harness.owner)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "REJECTED");
+    assert!(row.get::<bool, _>("marked"));
+    assert_eq!(row.get::<Option<Uuid>, _>("organization_id"), None);
+    // The unrecognized value is kept for an operator, and the audit says so.
+    assert_eq!(row.get::<String, _>("kyc"), "GARBLED");
+    let changes: Value = sqlx::query_scalar(
+        "SELECT changes::jsonb FROM audit_logs WHERE resource_id = $1::text \
+         AND action = 'admin.user_offboarded'",
+    )
+    .bind(seed.subject)
+    .fetch_one(&harness.owner)
+    .await
+    .unwrap();
+    assert_eq!(changes["kyc_state_unrecognized"], true);
+    assert_eq!(changes["kyc_review_invalidated"], false);
 }
 
 #[tokio::test]

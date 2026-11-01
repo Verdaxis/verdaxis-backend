@@ -9,8 +9,9 @@ use axum::http::StatusCode;
 use serde_json::{Value, json};
 use uuid::Uuid;
 use verdaxis_read::business::offboarding::{
-    AUDIT_ACTION, CASE_REFERENCE_MAX_LENGTH, CaseReference, OFFBOARD_ROUTE, OffboardRequest,
-    PREVIEW_COUNT_LIMIT, PREVIEW_ROUTE, REASON_CODES, REQUEST_BODY_LIMIT_BYTES, ReasonCode,
+    AUDIT_ACTION, CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
+    OFFBOARD_ROUTE, OffboardRequest, PREVIEW_COUNT_LIMIT, PREVIEW_ROUTE, REASON_CODES,
+    REQUEST_BODY_LIMIT_BYTES, ReasonCode,
 };
 
 fn body(value: Value) -> Vec<u8> {
@@ -100,21 +101,41 @@ fn request_validation_rejects_invalid_reasons_and_fields() {
 
 #[test]
 fn request_validation_rejects_sensitive_or_oversized_case_references() {
-    let longest = "A".repeat(CASE_REFERENCE_MAX_LENGTH);
-    assert!(CaseReference::parse(&longest).is_ok());
-    for reference in ["ZD:12345", "HR#77", "case_1.2", "a"] {
+    // An allowlisted ticket prefix, then digit groups only: no name, email or
+    // narrative fits the grammar.
+    for prefix in CASE_REFERENCE_PREFIXES {
+        let reference = format!("{prefix}-2026/0042");
+        assert!(CaseReference::parse(&reference).is_ok(), "{reference}");
+    }
+    for reference in [
+        "CASE-1",
+        "REQ-123456789012",
+        "SEC-2026-11-0001",
+        "TICKET-7/3",
+    ] {
         assert!(CaseReference::parse(reference).is_ok(), "{reference}");
     }
-    let too_long = "A".repeat(CASE_REFERENCE_MAX_LENGTH + 1);
+    let too_long = format!("CASE-{}", "1".repeat(CASE_REFERENCE_MAX_LENGTH));
     for reference in [
         "",
         too_long.as_str(),
         "person@example.com",
         "dismissed for misconduct",
+        "jane.doe",
+        "JANE-DOE",
+        "DOE-123",
+        "CASE-DOE",
+        "CASE-12a",
+        "case-12",
+        "CASE-",
+        "CASE--12",
+        "CASE-12/",
+        "CASE-1-2-3-4",
+        "HR#77",
+        "ZD:12345",
+        "CASE-Müller",
+        "CASE-12\n",
         "-leading",
-        "Müller",
-        "line\nbreak",
-        "tab\there",
     ] {
         let mut value = valid();
         value["evidence_case_ref"] = json!(reference);
@@ -157,10 +178,13 @@ fn contract_fits_the_history_table_checks() {
     }
     const { assert!(CASE_REFERENCE_MAX_LENGTH <= 64) };
     for character in (0u8..=127).map(char::from) {
-        let candidate = format!("A{character}");
+        let candidate = format!("CASE-1{character}2");
         if CaseReference::parse(&candidate).is_ok() {
             assert!(('!'..='~').contains(&character), "{character:?}");
         }
+    }
+    for prefix in CASE_REFERENCE_PREFIXES {
+        assert!(prefix.bytes().all(|byte| byte.is_ascii_uppercase()));
     }
     assert_eq!(AUDIT_ACTION, "admin.user_offboarded");
     assert_eq!(PREVIEW_COUNT_LIMIT, 100);

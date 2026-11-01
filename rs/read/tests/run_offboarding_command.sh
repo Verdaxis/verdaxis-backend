@@ -87,6 +87,7 @@ for case in commit_applies_every_account_change expected_null_allows_detached_ta
   failure_rolls_back_every_account_change audit_contains_only_opaque_case_reference \
   offboarding_lock_winner_blocks_reattachment session_lock_winner_is_cut_off \
   preview_reports_advisory_counts preview_refuses_overflow \
+  unrecognized_kyc_state_does_not_block_offboarding \
   production_composition_does_not_route_offboarding; do
   grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done
