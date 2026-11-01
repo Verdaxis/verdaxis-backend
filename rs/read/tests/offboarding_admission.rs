@@ -370,14 +370,23 @@ fn string_literals(source: &str) -> Vec<String> {
 /// The files whose SQL reads the account cutoffs to admit a token. Each such
 /// statement must read the marker in the same literal; a new file here needs
 /// review before it joins this list.
-const ACCOUNT_PROJECTIONS: [&str; 6] = [
+const ACCOUNT_PROJECTIONS: [&str; 8] = [
     "auth/store.rs",
     "auth/transaction.rs",
     "business/membership.rs",
     "business/transaction.rs",
     "kyc/review.rs",
+    "order_write/admission.rs",
+    "order_write/support.rs",
     "streams/auth.rs",
 ];
+
+/// A statement that writes the cutoffs rather than reading them to admit a
+/// token. A locking read (`SELECT ... FOR UPDATE`) is still a projection.
+fn writes_cutoffs(literal: &str) -> bool {
+    let statement = literal.trim_start();
+    statement.starts_with("UPDATE") || statement.starts_with("SET ") || statement.contains(" SET ")
+}
 
 #[test]
 fn every_account_projection_reads_the_marker() {
@@ -387,8 +396,7 @@ fn every_account_projection_reads_the_marker() {
             // A bare column name is a row accessor, not a statement.
             let reads_cutoff = literal.contains("authentication_revoked_at")
                 && literal != "authentication_revoked_at"
-                && !literal.contains("UPDATE")
-                && !literal.contains("SET ");
+                && !writes_cutoffs(&literal);
             if reads_cutoff {
                 assert!(
                     literal.contains("offboarded_at"),
@@ -403,8 +411,45 @@ fn every_account_projection_reads_the_marker() {
     assert_eq!(projecting, ACCOUNT_PROJECTIONS);
 }
 
+#[test]
+fn projection_scan_includes_locking_reads() {
+    // The user lock of every authenticated write reads the cutoffs with
+    // `FOR UPDATE`; the scan must check it, not skip it as a write.
+    assert!(!writes_cutoffs(
+        "SELECT status, authentication_revoked_at, offboarded_at FROM users WHERE id = $1 FOR UPDATE"
+    ));
+    assert!(writes_cutoffs(
+        "UPDATE users SET authentication_revoked_at = $2 WHERE id = $1"
+    ));
+    assert!(writes_cutoffs(
+        " SET authentication_revoked_at = GREATEST(authentication_revoked_at, $2)"
+    ));
+    let locking = string_literals(&source("auth/transaction.rs"))
+        .into_iter()
+        .filter(|literal| {
+            literal.contains("authentication_revoked_at") && literal.contains("FOR UPDATE")
+        })
+        .collect::<Vec<_>>();
+    assert!(!locking.is_empty(), "the locking account read is present");
+    for literal in locking {
+        assert!(literal.contains("offboarded_at"), "{literal}");
+    }
+}
+
+#[test]
+fn every_account_state_takes_the_marker_from_the_row() {
+    // The required field forces every projection to set it; this keeps the
+    // value from being a constant instead of the column.
+    for (path, contents) in sources() {
+        assert!(
+            !contents.contains("offboarded: false"),
+            "{path}: an account state sets the marker to a constant"
+        );
+    }
+}
+
 /// The calls that admit a token through a marker-aware rule.
-const ADMISSIONS: [&str; 11] = [
+const ADMISSIONS: [&str; 15] = [
     "run_authenticated(",
     "run_organization_write(",
     "run_ordered_write(",
@@ -416,17 +461,47 @@ const ADMISSIONS: [&str; 11] = [
     "revalidate(",
     "revalidate_from_pool(",
     "::admit(",
+    "authenticate_shared(",
+    "authenticate_preview(",
+    "require_administrator(",
+    "run_market_command(",
 ];
 
 /// A token consumer that hands the verified token to another module, and the
 /// modules that admit it there.
-const DELEGATES: [(&str, &[&str]); 3] = [
+const DELEGATES: [(&str, &[&str]); 12] = [
     (
         "runtime/phase4.rs",
         &["business/organizations.rs", "business/joins.rs"],
     ),
     ("crud/notification_authority.rs", &["crud/notifications.rs"]),
     ("streams/http.rs", &["streams/replay.rs"]),
+    // The market-write routes verify the token and pass it to the order-write
+    // owner, which admits it under the user lock before any receipt replay.
+    ("routes/market_write/amend.rs", &["order_write/amend.rs"]),
+    (
+        "routes/market_write/commission.rs",
+        &["order_write/commission.rs"],
+    ),
+    ("routes/market_write/freeze.rs", &["order_write/freeze.rs"]),
+    (
+        "routes/market_write/inventory.rs",
+        &["order_write/inventory.rs"],
+    ),
+    (
+        "routes/market_write/order_create.rs",
+        &["order_write/order_create.rs"],
+    ),
+    ("routes/market_write/orders.rs", &["order_write/orders.rs"]),
+    (
+        "routes/market_write/support.rs",
+        &["order_write/support.rs"],
+    ),
+    (
+        "routes/market_write/trade_lifecycle.rs",
+        &["order_write/trade_lifecycle.rs"],
+    ),
+    ("routes/market_write/trades.rs", &["order_write/trades.rs"]),
 ];
 
 /// Files that call a verifier without admitting a request: the verifier's own

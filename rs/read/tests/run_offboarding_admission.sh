@@ -90,6 +90,6 @@ if (( cargo_status != 0 )); then exit "$cargo_status"; fi
 # A green run that executed no case is a false pass; every named case must have run.
 for case in marked_login_refresh_and_issuance_denied marked_account_denied_before_receipt_replay \
   marked_user_not_in_review_queue marked_account_approval_refused marked_token_shapes_fail_closed \
-  offboarding_commit_wins_over_waiting_mutation; do
+  offboarding_commit_wins_over_waiting_mutation marker_refuses_where_every_other_rule_admits; do
   grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

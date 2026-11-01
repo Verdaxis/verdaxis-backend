@@ -245,7 +245,9 @@ async fn issue_attempt(
     store::lock_device(&mut transaction, device_hash).await?;
     // An offboarded account is refused exactly as an unknown address: its
     // stored hash is not consulted, so neither the response nor its timing
-    // shows that the account exists.
+    // shows that the account was offboarded. (The row lock taken here can
+    // serialize parallel attempts on one existing address, which shows only
+    // that the address exists, as registration already does.)
     let user = store::lock_user_by_email(&mut transaction, email)
         .await?
         .filter(|user| user.offboarded_at.is_none());

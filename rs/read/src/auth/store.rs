@@ -6,9 +6,12 @@
 //! refresh-session or reset-token rows. Statements read and write the same
 //! columns Python does, so a row written by either stack is valid for both.
 //!
-//! Rust never reads or writes `users.password_reset_token_hash` or
-//! `users.password_reset_expires`: they belong to Python's invitation flow.
-//! Reset tokens live only in `password_reset_tokens`.
+//! This module never reads or writes `users.password_reset_token_hash` or
+//! `users.password_reset_expires`, the secret of Python's admin invitation
+//! flow. In Rust only invitation acceptance (`super::invitation_accept`)
+//! reads and clears them, and the offboarding credential cutoff
+//! (`super::offboarding`) clears them. Reset tokens live only in
+//! `password_reset_tokens`.
 //!
 //! Token values never reach this module; callers pass SHA-256 hex digests, and
 //! a lookup is a digest equality in PostgreSQL.

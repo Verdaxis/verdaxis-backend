@@ -938,3 +938,191 @@ async fn offboarding_commit_wins_over_waiting_mutation() {
     ));
     assert!(!ran.load(Ordering::SeqCst));
 }
+
+const MARKER_CONSTRAINTS: [(&str, &str); 2] = [
+    (
+        "ck_users_offboarded_requires_rejected",
+        "offboarded_at IS NULL OR status = 'REJECTED'",
+    ),
+    (
+        "ck_users_offboarded_requires_detached",
+        "offboarded_at IS NULL OR organization_id IS NULL",
+    ),
+];
+
+/// A marked account that is otherwise approved and attached. The database
+/// constraints forbid this state, so every other rule would admit it and only
+/// the marker check can refuse it. The constraints are re-added `NOT VALID` so
+/// later writes are still checked; [`restore_marker_constraints`] validates
+/// them again. A `NOT VALID` constraint still checks every new row version,
+/// so an outstanding invitation secret is written with the row.
+async fn marked_but_admissible(
+    world: &World,
+    organization: Uuid,
+    email_verified: bool,
+    invitation: Option<&str>,
+) -> Account {
+    let id = Uuid::new_v4();
+    let email = format!("{id}@offboarding.example");
+    let mut transaction = world.owner.begin().await.unwrap();
+    for (name, _) in MARKER_CONSTRAINTS {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "ALTER TABLE users DROP CONSTRAINT {name}"
+        )))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,\
+         must_change_password,password_reset_token_hash,password_reset_expires,offboarded_at) \
+         VALUES($1,$2,$3,'BUYER','APPROVED',$4,$5,$6 IS NOT NULL,$6,\
+         CASE WHEN $6 IS NOT NULL THEN now() + interval '1 hour' END,now())",
+    )
+    .bind(id)
+    .bind(&email)
+    .bind(password::hash(PASSWORD).await.unwrap())
+    .bind(organization)
+    .bind(email_verified)
+    .bind(invitation.map(token_digest))
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    for (name, check) in MARKER_CONSTRAINTS {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "ALTER TABLE users ADD CONSTRAINT {name} CHECK ({check}) NOT VALID"
+        )))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    }
+    transaction.commit().await.unwrap();
+    Account { id, email }
+}
+
+/// Clear the marker on the forbidden rows and validate the constraints again.
+async fn restore_marker_constraints(world: &World, accounts: &[&Account]) {
+    for account in accounts {
+        sqlx::query("UPDATE users SET offboarded_at = NULL WHERE id = $1")
+            .bind(account.id)
+            .execute(&world.owner)
+            .await
+            .unwrap();
+    }
+    for (name, _) in MARKER_CONSTRAINTS {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "ALTER TABLE users VALIDATE CONSTRAINT {name}"
+        )))
+        .execute(&world.owner)
+        .await
+        .unwrap();
+    }
+}
+
+/// A refresh whose route pauses after the user row filter. Returns the
+/// response and whether the route reached the pause.
+async fn refresh_past_user_filter(world: &World, session: &Session) -> ((u16, Value), bool) {
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let mut state = auth::refresh::RefreshState::new(
+        world.app.clone(),
+        ENVIRONMENT,
+        SECRET,
+        None,
+        ISSUER,
+        AUDIENCE,
+        SharedLimits::default(),
+    );
+    state.hooks.user_locked = Some(barrier.clone());
+    let request = Request::post("/api/auth/refresh")
+        .header("origin", ORIGIN)
+        .header(
+            "cookie",
+            format!(
+                "refresh_token={}; device_session={}",
+                session.token, session.device
+            ),
+        )
+        .body(Body::empty())
+        .unwrap();
+    let mut response = tokio::spawn(call(auth::refresh::router(state), request));
+    tokio::select! {
+        result = &mut response => (result.unwrap(), false),
+        _ = barrier.wait() => {
+            barrier.wait().await;
+            (response.await.unwrap(), true)
+        }
+    }
+}
+
+/// Each marker check below runs on an account that every other rule would
+/// admit, next to an unmarked twin that is admitted, so removing the check
+/// makes the case fail.
+#[tokio::test]
+#[ignore = "requires the migrated disposable PostgreSQL harness"]
+async fn marker_refuses_where_every_other_rule_admits() {
+    let world = World::open().await;
+    let organization = world.organization().await;
+
+    // Invitation acceptance: an outstanding admin invitation of an approved,
+    // unverified, forced-change member.
+    let invitations = [generate_token(), generate_token()];
+    let invited = marked_but_admissible(&world, organization, false, Some(&invitations[0])).await;
+    let invited_twin = world
+        .account("BUYER", "APPROVED", Some(organization), false, false)
+        .await;
+    sqlx::query(
+        "UPDATE users SET password_reset_token_hash=$2,\
+         password_reset_expires=now() + interval '1 hour',must_change_password=true \
+         WHERE id=$1",
+    )
+    .bind(invited_twin.id)
+    .bind(token_digest(&invitations[1]))
+    .execute(&world.owner)
+    .await
+    .unwrap();
+    let (status, body) = accept_invitation(&world, &invitations[0]).await;
+    assert_eq!((status, code(&body)), (400, "INVITATION_INVALID"));
+    assert_eq!(
+        world
+            .user_row(invited.id)
+            .await
+            .get::<Option<String>, _>("password_reset_token_hash"),
+        Some(token_digest(&invitations[0])),
+        "the refused invitation is not spent"
+    );
+    let (status, body) = accept_invitation(&world, &invitations[1]).await;
+    assert_eq!(status, 200, "the unmarked twin accepts: {body}");
+
+    // Stream revalidation: the principal's organization still matches, so
+    // only the marker refuses.
+    let streaming = marked_but_admissible(&world, organization, true, None).await;
+    let streaming_twin = world
+        .account("BUYER", "APPROVED", Some(organization), true, false)
+        .await;
+    let mut connection = world.app.acquire().await.unwrap();
+    for (account, admitted) in [(&streaming, false), (&streaming_twin, true)] {
+        let token = issuer().stream(account.id, organization, "test", Utc::now());
+        let principal = verify_stream(&token, &verification(), "test", Utc::now()).unwrap();
+        assert_eq!(
+            revalidate(&mut connection, &principal).await.is_ok(),
+            admitted,
+            "{}",
+            account.email
+        );
+    }
+    drop(connection);
+
+    // Refresh: the marked account is refused at the user row filter, before
+    // the session row is read; the twin passes the filter and rotates.
+    let marked_session = session(&world, streaming.id).await;
+    let ((status, body), reached) = refresh_past_user_filter(&world, &marked_session).await;
+    assert_eq!((status, code(&body)), (401, "REFRESH_SESSION_REVOKED"));
+    assert!(!reached, "refused before the session row is read");
+    assert_eq!(live_sessions(&world, marked_session.family).await, 1);
+    let twin_session = session(&world, streaming_twin.id).await;
+    let ((status, body), reached) = refresh_past_user_filter(&world, &twin_session).await;
+    assert_eq!(status, 200, "the unmarked twin refreshes: {body}");
+    assert!(reached);
+
+    restore_marker_constraints(&world, &[&invited, &streaming]).await;
+}
