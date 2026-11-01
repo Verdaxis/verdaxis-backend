@@ -168,6 +168,11 @@ fn refusal_codes_are_stable() {
             StatusCode::CONFLICT,
         ),
         (
+            MarketErrorCode::ReassignmentCurrentStillMember,
+            "REASSIGNMENT_CURRENT_STILL_MEMBER",
+            StatusCode::CONFLICT,
+        ),
+        (
             MarketErrorCode::ReassignmentReplacementIneligible,
             "REASSIGNMENT_REPLACEMENT_INELIGIBLE",
             StatusCode::CONFLICT,

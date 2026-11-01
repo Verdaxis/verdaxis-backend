@@ -50,6 +50,7 @@ const SELLER_ORG: u128 = 0x2000;
 const OTHER_ORG: u128 = 0x3000;
 const BUYER: u128 = 0x1001;
 const MEMBER: u128 = 0x1002;
+const SUPPLIER_IN_BUYER_ORG: u128 = 0x1003;
 const SELLER: u128 = 0x2001;
 const REPLACEMENT: u128 = 0x2002;
 const BUYER_ROLE_IN_SELLER_ORG: u128 = 0x2003;
@@ -702,6 +703,23 @@ async fn list_only_confirmed_or_delivered_for_subject_is_admin_only() {
     );
     // Reading the list writes nothing.
     assert_eq!(f.snapshot().await, before);
+    // A rejected non-administrator is refused on both routes.
+    f.change(STRANGER, "rejected").await;
+    let (status, body) = f.list(STRANGER, &id(SELLER).to_string(), "").await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    f.change(SELLER, "detached").await;
+    let (status, body) = f
+        .reassign(
+            STRANGER,
+            confirmed,
+            reassign_body("SELLER", REPLACEMENT, SELLER),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        f.side_person(confirmed, "seller_user_id").await,
+        Some(id(SELLER))
+    );
 }
 
 #[tokio::test]
@@ -712,6 +730,8 @@ async fn reassign_requires_same_recorded_org_and_role() {
     let buyer_trade = f.clone_trade("CONFIRMED").await;
     let pending = f.clone_trade("PENDING_CONFIRMATION").await;
     let paid = f.clone_trade("PAID").await;
+    // The seller has left the recorded organization.
+    f.change(SELLER, "detached").await;
     let before = f.snapshot().await;
     let valid = reassign_body("SELLER", REPLACEMENT, SELLER);
 
@@ -778,7 +798,7 @@ async fn reassign_requires_same_recorded_org_and_role() {
     );
 
     // Only a current, approved, verified member of the recorded organization
-    // with the current person's role.
+    // with the role the side requires.
     for replacement in [
         BUYER_ROLE_IN_SELLER_ORG,
         PENDING,
@@ -855,6 +875,7 @@ async fn reassign_requires_same_recorded_org_and_role() {
     );
     assert_eq!(f.side_person(trade, "buyer_user_id").await, Some(id(BUYER)));
 
+    f.change(BUYER, "detached").await;
     let (status, body) = f
         .reassign(
             SECOND_ADMIN,
@@ -1089,6 +1110,8 @@ fn old_terms(snapshot: &Value, trade: Uuid) -> Value {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn frozen_trade_refuses_reassignment() {
     let mut f = Fixture::new().await;
+    // The seller has left the recorded organization.
+    f.change(SELLER, "detached").await;
     let static_trade = f.trade;
     let freeze_first = f.clone_trade("CONFIRMED").await;
     let reassign_first = f.clone_trade("DELIVERED").await;
@@ -1177,6 +1200,8 @@ async fn frozen_trade_refuses_reassignment() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn stale_or_moved_replacement_refused() {
     let mut f = Fixture::new().await;
+    // The seller has left the recorded organization.
+    f.change(SELLER, "detached").await;
     let stale = f.trade;
     let concurrent = f.clone_trade("CONFIRMED").await;
     let moved_first = f.clone_trade("CONFIRMED").await;
@@ -1291,14 +1316,16 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
     let mut f = Fixture::new().await;
     f.assisted().await;
     let assisted = f.trade;
-    let python_trade: Uuid = sqlx::query_scalar("SELECT settlement_fixture_clone()")
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    let rewritten: Uuid = sqlx::query_scalar("SELECT settlement_fixture_clone()")
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
+    let mut clones = Vec::new();
+    for _ in 0..4 {
+        let clone: Uuid = sqlx::query_scalar("SELECT settlement_fixture_clone()")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        clones.push(clone);
+    }
+    let (python_buyer_trade, python_customer_trade, rust_customer_trade, rewritten) =
+        (clones[0], clones[1], clones[2], clones[3]);
     // The support side's recorded person is the order owner and creator.
     assert_eq!(
         f.side_person(assisted, "seller_user_id").await,
@@ -1308,12 +1335,13 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
     // The list flags the support side for manual resolution, not the ordinary side.
     let (status, body) = f.list(SECOND_ADMIN, &id(ADMIN).to_string(), "").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["total"], 3);
+    assert_eq!(body["total"], 5);
     for item in body["items"].as_array().unwrap() {
         assert_eq!(item["side"], "SELLER");
         assert_eq!(item["manual_resolution_required"], true);
     }
     let (_, body) = f.list(SECOND_ADMIN, &id(BUYER).to_string(), "").await;
+    assert_eq!(body["total"], 5);
     for item in body["items"].as_array().unwrap() {
         assert_eq!(item["manual_resolution_required"], false);
     }
@@ -1338,24 +1366,10 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
     }
     assert_eq!(f.snapshot().await, before);
 
-    // The ordinary side of the same trade can still change its person, and
-    // the intact support side still settles through its customer member in
-    // both stacks.
-    let (status, body) = f
-        .reassign(
-            SECOND_ADMIN,
-            assisted,
-            reassign_body("BUYER", MEMBER, BUYER),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let (status, body) = f.deliver(assisted, SELLER, Some("assisted")).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["status"], "DELIVERED");
-
     // What the refusal prevents: with only the support side's person
     // rewritten, the owner and creator check refuses settlement on both
-    // sides, in both stacks.
+    // sides, in both stacks, while the intact support side still settles
+    // through its customer member.
     f.force_side(rewritten, "SELLER", REPLACEMENT).await;
     let rewritten_before = f.trade_row(rewritten).await;
     for actor in [SELLER, REPLACEMENT, BUYER] {
@@ -1366,6 +1380,11 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
             "Rust deliver by {actor:#x}: {body}"
         );
     }
+    let (status, body) = f
+        .deliver(rust_customer_trade, SELLER, Some("assisted"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "DELIVERED");
     let results = python_settle(
         &f.database.runtime_url,
         &[
@@ -1389,7 +1408,7 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
             },
             PythonCall {
                 name: "intact-customer",
-                trade: python_trade,
+                trade: python_customer_trade,
                 action: "deliver",
                 actor: SELLER,
             },
@@ -1406,6 +1425,208 @@ async fn assisted_support_side_reassignment_requires_manual_resolution() {
     assert_eq!(python_status(&results, "intact-customer"), 200, "{results}");
     assert_eq!(results["intact-customer"]["body"]["status"], "DELIVERED");
     assert_eq!(f.trade_row(rewritten).await, rewritten_before);
+
+    // The ordinary side of an assisted trade changes its departed person, and
+    // the new person acts in both stacks; the departed person cannot.
+    f.change(BUYER, "detached").await;
+    for trade in [assisted, python_buyer_trade] {
+        let (status, body) = f
+            .reassign(SECOND_ADMIN, trade, reassign_body("BUYER", MEMBER, BUYER))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            f.side_person(trade, "seller_user_id").await,
+            Some(id(ADMIN))
+        );
+    }
+    let (status, _) = f.deliver(assisted, BUYER, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) = f.deliver(assisted, MEMBER, Some("new-buyer")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "DELIVERED");
+    let results = python_settle(
+        &f.database.runtime_url,
+        &[
+            PythonCall {
+                name: "departed-buyer",
+                trade: python_buyer_trade,
+                action: "deliver",
+                actor: BUYER,
+            },
+            PythonCall {
+                name: "new-buyer",
+                trade: python_buyer_trade,
+                action: "deliver",
+                actor: MEMBER,
+            },
+        ],
+    )
+    .await;
+    // Python refuses a detached person before the party check (409, no
+    // market organization) or at it (403); either way nothing changes.
+    assert!(
+        matches!(python_status(&results, "departed-buyer"), 403 | 409),
+        "{results}"
+    );
+    assert_eq!(python_status(&results, "new-buyer"), 200, "{results}");
+    assert_eq!(results["new-buyer"]["body"]["status"], "DELIVERED");
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn reassignment_requires_a_departed_current_person() {
+    let mut f = Fixture::new().await;
+    let attached = f.trade;
+    let detached = f.clone_trade("CONFIRMED").await;
+    let moved = f.clone_trade("DELIVERED").await;
+    let rejoined = f.clone_trade("CONFIRMED").await;
+    let valid = reassign_body("SELLER", REPLACEMENT, SELLER);
+
+    // An approved member, and a rejected member who is still attached, are
+    // current members: no handover while they belong to the organization.
+    for state in [None, Some("rejected")] {
+        if let Some(state) = state {
+            f.change(SELLER, state).await;
+        }
+        let before = f.snapshot().await;
+        let (status, body) = f.reassign(ADMIN, attached, valid.clone()).await;
+        assert_eq!(
+            (status, code(&body)),
+            (StatusCode::CONFLICT, "REASSIGNMENT_CURRENT_STILL_MEMBER"),
+            "{state:?}"
+        );
+        assert_eq!(f.snapshot().await, before);
+    }
+
+    // A detached person has left.
+    f.change(SELLER, "detached").await;
+    let (status, body) = f.reassign(ADMIN, detached, valid.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        f.side_person(detached, "seller_user_id").await,
+        Some(id(REPLACEMENT))
+    );
+    // A person who moved to another organization has left.
+    f.change(BUYER, "moved").await;
+    let (status, body) = f
+        .reassign(ADMIN, moved, reassign_body("BUYER", MEMBER, BUYER))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        f.side_person(moved, "buyer_user_id").await,
+        Some(id(MEMBER))
+    );
+
+    // A departed person who rejoins while the reassignment waits is a member
+    // again when the reassignment reads it. The rejoin's foreign key holds
+    // the organization row, so the reassignment waits there first.
+    let mut rejoin = PgConnection::connect(&f.database.admin_url).await.unwrap();
+    sqlx::query("BEGIN").execute(&mut rejoin).await.unwrap();
+    sqlx::query("UPDATE users SET organization_id=$1 WHERE id=$2")
+        .bind(id(SELLER_ORG))
+        .bind(id(SELLER))
+        .execute(&mut rejoin)
+        .await
+        .unwrap();
+    let router = f.reassign_a.clone();
+    let body = valid.clone();
+    let waiting = tokio::spawn(async move { reassign_with(&router, ADMIN, rejoined, body).await });
+    f.wait_for("reassign-a", "FROM organizations WHERE id=$1 FOR UPDATE")
+        .await;
+    sqlx::query("COMMIT").execute(&mut rejoin).await.unwrap();
+    let (status, body) = waiting.await.unwrap();
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::CONFLICT, "REASSIGNMENT_CURRENT_STILL_MEMBER")
+    );
+    assert_eq!(
+        f.side_person(rejoined, "seller_user_id").await,
+        Some(id(SELLER))
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn replacement_role_follows_the_side() {
+    let mut f = Fixture::new().await;
+    let seller_trade = f.trade;
+    let python_seller_trade = f.clone_trade("CONFIRMED").await;
+    let buyer_trade = f.clone_trade("CONFIRMED").await;
+    let python_buyer_trade = f.clone_trade("CONFIRMED").await;
+    // The seller left and became a buyer elsewhere; the buyer left and
+    // became a supplier elsewhere.
+    f.sql("UPDATE users SET organization_id='00000000-0000-0000-0000-000000003000',role='BUYER' WHERE id='00000000-0000-0000-0000-000000002001'").await;
+    f.sql("UPDATE users SET organization_id='00000000-0000-0000-0000-000000003000',role='SUPPLIER' WHERE id='00000000-0000-0000-0000-000000001001'").await;
+
+    // The side decides the role, never the departed person's present role:
+    // the seller side needs a supplier, the buyer side a buyer.
+    let before = f.snapshot().await;
+    for (trade, side, replacement, current) in [
+        (seller_trade, "SELLER", BUYER_ROLE_IN_SELLER_ORG, SELLER),
+        (buyer_trade, "BUYER", SUPPLIER_IN_BUYER_ORG, BUYER),
+    ] {
+        let (status, body) = f
+            .reassign(ADMIN, trade, reassign_body(side, replacement, current))
+            .await;
+        assert_eq!(
+            (status, code(&body)),
+            (StatusCode::CONFLICT, "REASSIGNMENT_REPLACEMENT_INELIGIBLE"),
+            "{side}"
+        );
+    }
+    assert_eq!(f.snapshot().await, before);
+    for trade in [seller_trade, python_seller_trade] {
+        let (status, body) = f
+            .reassign(ADMIN, trade, reassign_body("SELLER", REPLACEMENT, SELLER))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    for trade in [buyer_trade, python_buyer_trade] {
+        let (status, body) = f
+            .reassign(ADMIN, trade, reassign_body("BUYER", MEMBER, BUYER))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    // Rust: the new supplier delivers and pays; the new buyer delivers.
+    let (status, body) = f.deliver(seller_trade, REPLACEMENT, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = f.pay(seller_trade, REPLACEMENT).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "PAID");
+    let (status, body) = f.deliver(buyer_trade, MEMBER, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "DELIVERED");
+    // Python: the same people act on the second pair of trades.
+    let results = python_settle(
+        &f.database.runtime_url,
+        &[
+            PythonCall {
+                name: "supplier-deliver",
+                trade: python_seller_trade,
+                action: "deliver",
+                actor: REPLACEMENT,
+            },
+            PythonCall {
+                name: "supplier-pay",
+                trade: python_seller_trade,
+                action: "pay",
+                actor: REPLACEMENT,
+            },
+            PythonCall {
+                name: "buyer-deliver",
+                trade: python_buyer_trade,
+                action: "deliver",
+                actor: MEMBER,
+            },
+        ],
+    )
+    .await;
+    for name in ["supplier-deliver", "supplier-pay", "buyer-deliver"] {
+        assert_eq!(python_status(&results, name), 200, "{name}: {results}");
+    }
+    assert_eq!(results["supplier-pay"]["body"]["status"], "PAID");
+    assert_eq!(results["buyer-deliver"]["body"]["status"], "DELIVERED");
 }
 
 #[tokio::test]

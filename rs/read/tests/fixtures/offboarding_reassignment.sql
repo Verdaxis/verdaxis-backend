@@ -4,7 +4,7 @@
 
 -- People around the seller organization 2000 of the trade fixture.
 CREATE OR REPLACE FUNCTION reassignment_fixture_people() RETURNS void LANGUAGE plpgsql AS $$
-DECLARE seller uuid := '00000000-0000-0000-0000-000000002000'; other uuid := '00000000-0000-0000-0000-000000003000'; BEGIN
+DECLARE seller uuid := '00000000-0000-0000-0000-000000002000'; other uuid := '00000000-0000-0000-0000-000000003000'; buyer uuid := '00000000-0000-0000-0000-000000001000'; BEGIN
  -- The Python model loads only its current organization types.
  UPDATE organizations SET type='SHIPPING_LINE' WHERE type='SHIPOWNER';
  INSERT INTO users(id,email,password_hash,role,status,organization_id,email_verified,must_change_password,kyc_status,kyc_organization_id) VALUES
@@ -13,6 +13,7 @@ DECLARE seller uuid := '00000000-0000-0000-0000-000000002000'; other uuid := '00
  ('00000000-0000-0000-0000-000000002004','seller-pending@example.test','unused','SUPPLIER','PENDING',seller,true,false,'APPROVED',seller),
  ('00000000-0000-0000-0000-000000002005','seller-reset@example.test','unused','SUPPLIER','APPROVED',seller,true,true,'APPROVED',seller),
  ('00000000-0000-0000-0000-000000002006','seller-unverified@example.test','unused','SUPPLIER','APPROVED',seller,false,false,'APPROVED',seller),
+ ('00000000-0000-0000-0000-000000001003','buyer-org-supplier@example.test','unused','SUPPLIER','APPROVED',buyer,true,false,'APPROVED',buyer),
  ('00000000-0000-0000-0000-000000003002','other-supplier@example.test','unused','SUPPLIER','APPROVED',other,true,false,'APPROVED',other),
  ('00000000-0000-0000-0000-000000004002','second-admin@example.test','unused','ADMIN','APPROVED',NULL,true,false,'REJECTED',NULL);
 END $$;
