@@ -2132,8 +2132,8 @@ async fn forbidden_slice_then_user_order_is_detected_as_a_lock_cycle() {
 const CHAIN_RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
 const ASSIGN_SQL: &str = include_str!("../sql/streams_assign.sql");
 const BUYER_ORG: u128 = 0x1000;
-const OBSERVER_ORG: u128 = 0x3000;
-const OBSERVER: u128 = 0x3001;
+const OBSERVER_ORG: u128 = 0x5000;
+const OBSERVER: u128 = 0x5001;
 const STREAM_KEY: &str = "synthetic-chain-stream-key-at-least-32-chars";
 const STREAM_PARTY: &str = "chain-tests";
 /// How long a frame or delivery that is already on its way may take.
@@ -2902,7 +2902,11 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
 async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() {
     let mut f = Fixture::new().await;
     f.chain().await;
+    // The watermark exists before the first trusted source; the publication
+    // is numbered before the streams start and before any target exists.
+    f.bootstrap().await;
     let listing = f.listing().await;
+    assert!(f.sequence().await >= 1);
     let (pin, pin_list) = f.watch("PIN", Some(listing), "SPOT").await;
     let (slice, slice_list) = f.watch("SLICE", None, "SPOT").await;
     let hidden = [
@@ -2913,7 +2917,6 @@ async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() 
         slice,
         slice_list,
     ];
-    f.bootstrap().await;
     let start = f.high_water().await;
     let (state, runtime) = f.stream_app().await;
     let router = stream_routes().with_state(StreamsState {
