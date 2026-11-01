@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
-use verdaxis_read::cli::jobs::kyc::run_with;
+use verdaxis_read::cli::jobs::kyc::{deploy_state_path, run_with};
 use verdaxis_read::cli::mail::kyc::{ClaimedNotice, idempotency_key, render_payload};
 use verdaxis_read::cli::{Environment, Exit, IdentityArgs, JobArgs, JobKind};
 use verdaxis_read::crud::referrals::invite::MailClient;
@@ -41,6 +41,7 @@ fn vars() -> HashMap<String, String> {
         ("FRONTEND_URL", "https://app.example.test/"),
         ("EMAIL_FROM", "Verdaxis <noreply@example.test>"),
         ("RESEND_API_KEY", "test-only-key"),
+        ("KYC_EXECUTION_GATE_ENABLED", "true"),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -106,13 +107,11 @@ async fn kyc_gate_disabled_exits_before_pool() {
             "no pool is opened while the gate is off ({token:?})"
         );
     }
-    // Controls: the same run with the gate absent (default on) or on reaches the
-    // pool opener, so the refusals above are the gate and nothing else.
-    for gate in [None, Some("true"), Some("1")] {
+    // Controls: the same run with the gate on reaches the pool opener, so the
+    // refusals above are the gate and nothing else.
+    for token in ["true", "1"] {
         let mut enabled = vars();
-        if let Some(token) = gate {
-            enabled.insert("KYC_EXECUTION_GATE_ENABLED".into(), token.into());
-        }
+        enabled.insert("KYC_EXECUTION_GATE_ENABLED".into(), token.into());
         let (exit, opened) = run_recording_pool_use(
             &job,
             &enabled,
@@ -121,7 +120,7 @@ async fn kyc_gate_disabled_exits_before_pool() {
         )
         .await;
         assert_eq!(exit, Exit::Precondition);
-        assert!(opened, "gate {gate:?} reaches the pool opener");
+        assert!(opened, "gate {token:?} reaches the pool opener");
     }
     // A malformed switch is not read as on or off.
     let mut malformed = vars();
@@ -135,6 +134,72 @@ async fn kyc_gate_disabled_exits_before_pool() {
     .await;
     assert_eq!(exit, Exit::Precondition);
     assert!(!opened);
+}
+
+#[tokio::test]
+async fn kyc_gate_missing_from_the_environment_is_refused_before_the_pool() {
+    let scratch = TempDir::new();
+    let job = args(Environment::Staging, SHA, true);
+    // The switch must come from the job environment. Absent is not "on": the
+    // job would then disagree with a service that has the gate off.
+    let mut missing = vars();
+    missing.remove("KYC_EXECUTION_GATE_ENABLED");
+    let (exit, opened) = run_recording_pool_use(
+        &job,
+        &missing,
+        &scratch.state_path(),
+        Some(MailClient::disabled()),
+    )
+    .await;
+    assert_eq!((exit, opened), (Exit::Precondition, false), "absent");
+    let mut blank = vars();
+    blank.insert("KYC_EXECUTION_GATE_ENABLED".into(), String::new());
+    let (exit, opened) = run_recording_pool_use(
+        &job,
+        &blank,
+        &scratch.state_path(),
+        Some(MailClient::disabled()),
+    )
+    .await;
+    assert_eq!((exit, opened), (Exit::Precondition, false), "blank");
+}
+
+#[tokio::test]
+async fn kyc_deploy_state_path_must_be_absolute() {
+    let job = args(Environment::Staging, SHA, true);
+    // A relative path would check a different place from each directory.
+    for relative in [".runtime-deploy/staging.state", "staging.state"] {
+        let (exit, opened) = run_recording_pool_use(
+            &job,
+            &vars(),
+            std::path::Path::new(relative),
+            Some(MailClient::disabled()),
+        )
+        .await;
+        assert_eq!((exit, opened), (Exit::Precondition, false), "{relative}");
+    }
+
+    let mut with_directory = vars();
+    assert_eq!(
+        deploy_state_path(&with_directory, Environment::Staging),
+        Err(Exit::Precondition),
+        "unset directory"
+    );
+    with_directory.insert("DEPLOY_STATE_DIR".into(), "relative/state".into());
+    assert_eq!(
+        deploy_state_path(&with_directory, Environment::Staging),
+        Err(Exit::Precondition),
+        "relative directory"
+    );
+    with_directory.insert("DEPLOY_STATE_DIR".into(), "/srv/deploy-state".into());
+    assert_eq!(
+        deploy_state_path(&with_directory, Environment::Staging),
+        Ok(PathBuf::from("/srv/deploy-state/staging.state"))
+    );
+    assert_eq!(
+        deploy_state_path(&with_directory, Environment::Production),
+        Ok(PathBuf::from("/srv/deploy-state/production.state"))
+    );
 }
 
 #[tokio::test]
@@ -360,7 +425,7 @@ mod postgres {
     use std::time::Duration;
     use verdaxis_read::cli::context::RunContext;
     use verdaxis_read::cli::mail::kyc::{
-        KycCounts, KycNotice, MAX_PER_INVOCATION, PAGE_SIZE, claim, eligible_page,
+        KycCounts, KycNotice, MAX_PER_INVOCATION, PAGE_SIZE, PageError, claim, eligible_page,
     };
 
     const SENDER: &str = "Verdaxis <noreply@example.test>";
@@ -381,6 +446,7 @@ mod postgres {
         calls: Arc<Mutex<Vec<Call>>>,
         status: Arc<AtomicU16>,
         hang: Arc<AtomicBool>,
+        release: Arc<tokio::sync::Notify>,
     }
 
     async fn handle(
@@ -396,7 +462,8 @@ mod postgres {
             to: body["to"][0].as_str().unwrap_or_default().to_owned(),
         });
         if stub.hang.load(Ordering::SeqCst) {
-            std::future::pending::<()>().await;
+            // Held until the test releases it; a test that never does is a hang.
+            stub.release.notified().await;
         }
         StatusCode::from_u16(stub.status.load(Ordering::SeqCst)).unwrap()
     }
@@ -413,6 +480,7 @@ mod postgres {
                 calls: Arc::default(),
                 status: Arc::new(AtomicU16::new(200)),
                 hang: Arc::default(),
+                release: Arc::default(),
             };
             let app = Router::new()
                 .route("/emails", post(handle))
@@ -1273,7 +1341,7 @@ mod postgres {
             .notice(&provider)
             .send_page(&undeployed, PAGE_SIZE)
             .await;
-        assert_eq!(result.unwrap_err(), Exit::Precondition);
+        assert_eq!(result.unwrap_err().exit, Exit::Precondition);
 
         // The staging role under the production identity.
         let wrong_environment = context_with(
@@ -1284,7 +1352,7 @@ mod postgres {
             .notice(&provider)
             .send_page(&wrong_environment, PAGE_SIZE)
             .await;
-        assert_eq!(result.unwrap_err(), Exit::Precondition);
+        assert_eq!(result.unwrap_err().exit, Exit::Precondition);
 
         // The right role with the wrong expected database name.
         let context = fixture.context().await;
@@ -1298,7 +1366,8 @@ mod postgres {
             wrong_database
                 .send_page(&context, PAGE_SIZE)
                 .await
-                .unwrap_err(),
+                .unwrap_err()
+                .exit,
             Exit::Precondition
         );
 
@@ -1306,6 +1375,123 @@ mod postgres {
         assert!(provider.calls().is_empty(), "no mail was sent");
         // Control: the deployed role on the named database sends.
         assert_eq!(send(&fixture, &provider).await, counts(1, 0, 0));
+        fixture.finish().await;
+    }
+
+    // ------------------------------------------------------------------
+    // A later database error never hides an unaccepted send.
+    // ------------------------------------------------------------------
+
+    async fn wait_for_a_provider_call(provider: &Provider) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while provider.calls().is_empty() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the provider call starts");
+    }
+
+    /// Hold the first provider call, refuse every later claim, then let the
+    /// first call finish with an unaccepted answer.
+    async fn refuse_claims_while_the_first_send_is_held(
+        fixture: &mut Fixture,
+        provider: &Provider,
+    ) {
+        wait_for_a_provider_call(provider).await;
+        sqlx::raw_sql("REVOKE INSERT ON kyc_grace_notices FROM verdaxis_app_staging")
+            .execute(&mut fixture.admin)
+            .await
+            .unwrap();
+        provider.stub.hang.store(false, Ordering::SeqCst);
+        provider.stub.release.notify_one();
+    }
+
+    #[tokio::test]
+    async fn kyc_page_error_after_an_unaccepted_send_keeps_the_uncertain_count() {
+        let provider = Provider::start().await;
+        let mut fixture = Fixture::new().await;
+        fixture.eligible("first@example.test").await;
+        fixture.eligible("second@example.test").await;
+        provider.answer(503);
+        provider.stub.hang.store(true, Ordering::SeqCst);
+
+        let context = fixture.context().await;
+        let notice = fixture.notice(&provider);
+        let run = tokio::spawn(async move { notice.send_page(&context, PAGE_SIZE).await });
+        refuse_claims_while_the_first_send_is_held(&mut fixture, &provider).await;
+
+        let error = run.await.unwrap().expect_err("the second claim is refused");
+        assert_eq!(
+            error,
+            PageError {
+                exit: Exit::Dependency,
+                counts: counts(0, 1, 0)
+            },
+            "the page reports the claimed, unaccepted notice with the error"
+        );
+        assert_eq!(provider.calls().len(), 1);
+        let claimed = fixture.notices().await;
+        assert_eq!(claimed.len(), 1);
+        assert!(!claimed[0].1, "the unaccepted notice has no sent time");
+        fixture.finish().await;
+    }
+
+    #[tokio::test]
+    async fn kyc_later_database_error_after_an_unaccepted_send_exits_five() {
+        let provider = Provider::start().await;
+        let mut fixture = Fixture::new().await;
+        fixture.eligible("first@example.test").await;
+        fixture.eligible("second@example.test").await;
+        provider.answer(503);
+        provider.stub.hang.store(true, Ordering::SeqCst);
+
+        let job = args(Environment::Staging, SHA, true);
+        let scratch = TempDir::new();
+        let vars = with_database(&fixture);
+        let pool = fixture.pool_for(&fixture.staging_url, 2).await;
+        let client = provider.client();
+        let run = tokio::spawn(async move {
+            run_with(&job, &vars, &scratch.state_path(), Some(client), {
+                move |environment, _| async move { Ok(context_with(pool, environment)) }
+            })
+            .await
+        });
+        refuse_claims_while_the_first_send_is_held(&mut fixture, &provider).await;
+
+        assert_eq!(
+            run.await.unwrap(),
+            Exit::Ambiguous,
+            "an unaccepted claimed send needs review, whatever came after it"
+        );
+        assert_eq!(provider.calls().len(), 1);
+        fixture.finish().await;
+    }
+
+    #[tokio::test]
+    async fn kyc_database_error_without_an_unaccepted_send_exits_four() {
+        let provider = Provider::start().await;
+        let mut fixture = Fixture::new().await;
+        fixture.eligible("first@example.test").await;
+        sqlx::raw_sql("REVOKE INSERT ON kyc_grace_notices FROM verdaxis_app_staging")
+            .execute(&mut fixture.admin)
+            .await
+            .unwrap();
+
+        let job = args(Environment::Staging, SHA, true);
+        let scratch = TempDir::new();
+        let pool = fixture.pool_for(&fixture.staging_url, 2).await;
+        let exit = run_with(
+            &job,
+            &with_database(&fixture),
+            &scratch.state_path(),
+            Some(provider.client()),
+            move |environment, _| async move { Ok(context_with(pool, environment)) },
+        )
+        .await;
+        assert_eq!(exit, Exit::Dependency, "nothing was claimed or sent");
+        assert!(provider.calls().is_empty());
+        assert!(fixture.notices().await.is_empty());
         fixture.finish().await;
     }
 }

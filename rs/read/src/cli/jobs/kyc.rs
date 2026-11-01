@@ -15,7 +15,7 @@
 //! its claim stays and is never retried automatically.
 use crate::cli::context::{self, Purpose, RunContext};
 use crate::cli::gate::{require_apply, require_job_preflight};
-use crate::cli::mail::kyc::{KycCounts, KycNotice, MAX_PER_INVOCATION, PAGE_SIZE};
+use crate::cli::mail::kyc::{KycCounts, KycNotice, MAX_PER_INVOCATION, PAGE_SIZE, PageError};
 use crate::cli::{Environment, Exit, JobArgs, JobKind};
 use crate::crud::referrals::invite::MailClient;
 use sqlx::postgres::PgConnectOptions;
@@ -158,7 +158,7 @@ async fn execute(notice: &KycNotice, ctx: &RunContext) -> Exit {
         let limit = remaining.min(u64::from(PAGE_SIZE)) as u32;
         let page = match notice.send_page(ctx, limit).await {
             Ok(page) => page,
-            Err(exit) => {
+            Err(PageError { exit, .. }) => {
                 report("failed", total);
                 return exit;
             }
@@ -224,12 +224,15 @@ where
 }
 
 /// The deploy state path of the environment: `<state dir>/<environment>.state`.
-fn deploy_state_path(vars: &HashMap<String, String>, environment: Environment) -> PathBuf {
+pub fn deploy_state_path(
+    vars: &HashMap<String, String>,
+    environment: Environment,
+) -> Result<PathBuf, Exit> {
     let directory = vars
         .get("DEPLOY_STATE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".runtime-deploy"));
-    directory.join(format!("{}.state", environment.as_str()))
+    Ok(directory.join(format!("{}.state", environment.as_str())))
 }
 
 /// Entry point for `job kyc-notices`.
@@ -239,7 +242,10 @@ pub async fn run(args: &JobArgs) -> Exit {
         .with_writer(std::io::stderr)
         .try_init();
     let vars: HashMap<String, String> = std::env::vars().collect();
-    let state = deploy_state_path(&vars, args.identity.environment);
+    let Ok(state) = deploy_state_path(&vars, args.identity.environment) else {
+        report("refused", KycCounts::default());
+        return Exit::Precondition;
+    };
     run_with(
         args,
         &vars,

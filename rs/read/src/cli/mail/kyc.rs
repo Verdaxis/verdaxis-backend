@@ -96,6 +96,22 @@ impl KycCounts {
     }
 }
 
+/// A page that stopped on an error, with what it had done before the error.
+///
+/// `counts.failed > 0` means a claimed notice has an unknown or refused
+/// provider result, whatever the error was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageError {
+    pub exit: Exit,
+    pub counts: KycCounts,
+}
+
+impl PageError {
+    fn new(exit: Exit, counts: KycCounts) -> Self {
+        Self { exit, counts }
+    }
+}
+
 /// A claim this process now owns, with the recipient read in the same statement.
 pub struct ClaimedNotice {
     pub grace_id: Uuid,
@@ -243,18 +259,24 @@ impl KycNotice {
     /// One connection serves the whole page: it is attested against the named
     /// database and the deployed role before the first claim, and no
     /// transaction or row lock is open while the provider is called.
-    pub async fn send_page(&self, ctx: &RunContext, limit: u32) -> Result<KycCounts, Exit> {
+    pub async fn send_page(&self, ctx: &RunContext, limit: u32) -> Result<KycCounts, PageError> {
         let limit = limit.clamp(1, PAGE_SIZE);
-        let mut conn = ctx.pool.acquire().await.map_err(|_| Exit::Dependency)?;
-        require_target(&mut conn, ctx.environment, &self.database).await?;
+        let mut counts = KycCounts::default();
+        let mut conn = ctx
+            .pool
+            .acquire()
+            .await
+            .map_err(|_| PageError::new(Exit::Dependency, counts))?;
+        require_target(&mut conn, ctx.environment, &self.database)
+            .await
+            .map_err(|exit| PageError::new(exit, counts))?;
         let page = eligible_page(&mut conn, limit)
             .await
-            .map_err(|_| Exit::Dependency)?;
-        let mut counts = KycCounts::default();
+            .map_err(|_| PageError::new(Exit::Dependency, counts))?;
         for grace_id in page {
             let Some(notice) = claim(&mut conn, grace_id)
                 .await
-                .map_err(|_| Exit::Dependency)?
+                .map_err(|_| PageError::new(Exit::Dependency, KycCounts::default()))?
             else {
                 counts.skipped += 1;
                 continue;
