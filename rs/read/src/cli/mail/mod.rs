@@ -1,8 +1,10 @@
 //! Shared mail transport for Phase 10 jobs.
 //!
 //! The provider client is the accepted Phase 2 [`MailClient`]; this module adds
-//! only the logging rule. A delivery record names the recipient by a short
-//! digest, never by the address, and the provider payload is never logged.
+//! the logging rule and the keyed send. A delivery record names the recipient
+//! by a short digest, never by the address, and the provider payload is never
+//! logged. A job that may retry a notice sends it with
+//! [`MailTransport::send_keyed`].
 pub mod approval;
 pub mod expiry;
 pub mod kyc;
@@ -92,7 +94,34 @@ impl MailTransport {
     /// A disabled client (no provider key) refuses without a network call; the
     /// caller decides whether that is a deferred or a failed outcome.
     pub async fn send(&self, recipient: &str, payload: &Value) -> Delivery {
-        let delivery = if self.client.send(payload).await {
+        let accepted = self.client.send(payload).await;
+        Self::log_delivery(recipient, accepted)
+    }
+
+    /// Send one notice under its provider idempotency key and log the delivery.
+    ///
+    /// The provider keeps the key and answers a repeat of it without sending a
+    /// second message, so a retry after a lost reply cannot send the notice
+    /// twice. The key must name exactly one notice (for example
+    /// `kyc-grace-<grace id>`). A blank key is refused without a network call,
+    /// because a retry without a key could send twice. The caller's database
+    /// claim stays the first check; the key covers only the provider side.
+    pub async fn send_keyed(
+        &self,
+        recipient: &str,
+        payload: &Value,
+        idempotency_key: &str,
+    ) -> Delivery {
+        let accepted = !idempotency_key.trim().is_empty()
+            && self
+                .client
+                .send_with_idempotency(payload, Some(idempotency_key))
+                .await;
+        Self::log_delivery(recipient, accepted)
+    }
+
+    fn log_delivery(recipient: &str, accepted: bool) -> Delivery {
+        let delivery = if accepted {
             Delivery::Sent
         } else {
             Delivery::Refused

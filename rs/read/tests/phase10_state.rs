@@ -546,3 +546,157 @@ fn deploy_state_gate_refuses_empty_and_relative_paths() {
     require_deploy_state_absent(&directory.path().join("absent.state"))
         .expect("an absolute path that does not exist passes");
 }
+
+/// Read one HTTP request from a loopback client: the lowercase head and the
+/// JSON body. The mail client always sends a `content-length` body.
+async fn read_provider_request(stream: &mut tokio::net::TcpStream) -> (String, serde_json::Value) {
+    use tokio::io::AsyncReadExt;
+    let mut received = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let read = stream.read(&mut chunk).await.expect("read the request");
+        assert!(read > 0, "the client closed the request early");
+        received.extend_from_slice(&chunk[..read]);
+        let Some(head_end) = received.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let head = String::from_utf8(received[..head_end].to_vec())
+            .expect("an ASCII request head")
+            .to_ascii_lowercase();
+        let body_length: usize = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .map(|value| value.trim().parse().expect("a numeric content length"))
+            .unwrap_or(0);
+        let body_start = head_end + 4;
+        if received.len() >= body_start + body_length {
+            let body = serde_json::from_slice(&received[body_start..body_start + body_length])
+                .expect("a JSON body");
+            return (head, body);
+        }
+    }
+}
+
+/// Run `body` on a single-threaded runtime and return its result and the
+/// JSON log lines it wrote.
+fn with_captured_log<T>(body: impl std::future::Future<Output = T>) -> (T, String) {
+    let sink = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(sink.clone())
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build a single-threaded runtime");
+    let result = tracing::subscriber::with_default(subscriber, || runtime.block_on(body));
+    let logged =
+        String::from_utf8(sink.0.lock().expect("log buffer").clone()).expect("utf-8 log output");
+    (result, logged)
+}
+
+#[test]
+fn mail_transport_sends_a_notice_and_its_retry_under_one_idempotency_key() {
+    use tokio::io::AsyncWriteExt;
+    let address = "Notice.Recipient@Example.invalid";
+    let key = "kyc-grace-00000000-0000-4000-8000-000000000001";
+    let payload = serde_json::json!({"to": [address], "subject": "notice"});
+    let expected_payload = payload.clone();
+
+    let ((deliveries, requests), logged) = with_captured_log(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a loopback provider stub");
+        let endpoint = format!(
+            "http://127.0.0.1:{}/emails",
+            listener.local_addr().expect("stub address").port()
+        );
+        // The stub answers two requests: the first send and its retry.
+        let provider = tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.expect("accept a request");
+                requests.push(read_provider_request(&mut stream).await);
+                stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+                    )
+                    .await
+                    .expect("answer the request");
+            }
+            requests
+        });
+        let transport = MailTransport::new(
+            MailClient::loopback(endpoint, "synthetic-provider-key".into())
+                .expect("a loopback mail client"),
+        );
+        let first = transport.send_keyed(address, &payload, key).await;
+        let retry = transport.send_keyed(address, &payload, key).await;
+        let requests = provider.await.expect("the provider stub finishes");
+        ([first, retry], requests)
+    });
+
+    assert_eq!(deliveries, [Delivery::Sent, Delivery::Sent]);
+    assert_eq!(requests.len(), 2);
+    for (head, body) in &requests {
+        assert!(
+            head.contains(&format!("\r\nidempotency-key: {key}\r\n"))
+                || head.ends_with(&format!("\r\nidempotency-key: {key}")),
+            "every attempt carries the notice key, so the provider sends once: {head}"
+        );
+        assert_eq!(body, &expected_payload, "the payload is sent unchanged");
+    }
+    assert!(
+        !logged.contains(address) && !logged.contains("Example.invalid"),
+        "the recipient address must never be logged: {logged}"
+    );
+    assert_eq!(
+        logged.matches(&recipient_digest(address)).count(),
+        2,
+        "one digest-only delivery record per attempt: {logged}"
+    );
+}
+
+#[test]
+fn mail_transport_refuses_a_blank_idempotency_key_without_a_request() {
+    let address = "notice.recipient@example.invalid";
+    let payload = serde_json::json!({"to": [address], "subject": "notice"});
+
+    let ((deliveries, connected, disabled), logged) = with_captured_log(async move {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a loopback provider stub");
+        let endpoint = format!(
+            "http://127.0.0.1:{}/emails",
+            listener.local_addr().expect("stub address").port()
+        );
+        let transport = MailTransport::new(
+            MailClient::loopback(endpoint, "synthetic-provider-key".into())
+                .expect("a loopback mail client"),
+        );
+        let mut deliveries = Vec::new();
+        for blank in ["", "   "] {
+            deliveries.push(transport.send_keyed(address, &payload, blank).await);
+        }
+        // Any request would already be waiting in the listen queue.
+        let connected = tokio::time::timeout(Duration::from_millis(200), listener.accept())
+            .await
+            .is_ok();
+        // Without a provider key the keyed send refuses as the plain send does.
+        let disabled = MailTransport::new(MailClient::disabled())
+            .send_keyed(address, &payload, "kyc-grace-1")
+            .await;
+        (deliveries, connected, disabled)
+    });
+
+    assert_eq!(deliveries, [Delivery::Refused, Delivery::Refused]);
+    assert!(!connected, "a blank key must not reach the provider");
+    assert_eq!(disabled, Delivery::Refused);
+    assert_eq!(
+        logged.matches("\"refused\"").count(),
+        3,
+        "each refusal writes one delivery record: {logged}"
+    );
+    assert!(!logged.contains(address), "no address in the log: {logged}");
+}
