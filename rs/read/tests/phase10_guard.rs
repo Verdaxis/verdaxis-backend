@@ -172,6 +172,31 @@ done
 exec "$real" "$@"
 "#;
 
+/// Fails the entry probe (the stat call that does not follow links) with an
+/// error other than "no such file" for the paths that match `PATH_GLOB`. The
+/// descriptor and identity calls pass through.
+fn stat_error_shim(path_glob: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+real=${{REAL_STAT:?}}
+for argument in "$@"; do
+    case $argument in
+        -L*) exec "$real" "$@" ;;
+    esac
+done
+for argument in "$@"; do
+    case $argument in
+        {path_glob})
+            printf "stat: cannot statx '%s': Input/output error\n" "$argument" >&2
+            exit 1
+            ;;
+    esac
+done
+exec "$real" "$@"
+"#
+    )
+}
+
 fn make_fifo(path: &Path) {
     let status = Command::new("mkfifo")
         .arg(path)
@@ -531,6 +556,34 @@ fn deploy_guard_rejects_dangling_state_and_wrong_sha() {
         "deployment state does not authorize a restart",
     );
 
+    // A NUL byte is never dropped before the compare.
+    fs::write(
+        &state,
+        format!(
+            "DEPLOYMENT_STATE=restart-authorized\0\nENVIRONMENT={environment}\nRELEASE_SHA={SHA_A}\n"
+        ),
+    )
+    .expect("inner NUL state");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "state with an inner NUL byte",
+        "deployment state was not read in full",
+    );
+    fixture.write_state(environment, SHA_A);
+    let mut text = fs::read(&state).expect("read state");
+    text.push(0);
+    fs::write(&state, text).expect("trailing NUL state");
+    assert_denied(
+        &run_for(&fixture, environment, SHA_A),
+        "state with a trailing NUL byte",
+        "deployment state was not read in full",
+    );
+    fixture.write_state(environment, SHA_A);
+    assert_allowed(
+        &run_for(&fixture, environment, SHA_A),
+        "state without a NUL byte",
+    );
+
     fs::write(&state, "x".repeat(257)).expect("oversize state");
     set_mode(&state, 0o644);
     assert_denied(
@@ -730,8 +783,37 @@ fn deploy_guard_denies_flock_and_descriptor_identity_errors() {
         "main lock check failed",
     );
 
+    // A stat failure other than "no such file" leaves the state unknown.
+    let state_error = fixture.root.join("stat-error-state-shim");
+    write_shim(&state_error, "stat", &stat_error_shim("*.state"));
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&state_error), &arguments),
+        "state stat error",
+        "deployment state could not be inspected",
+    );
+    let directory_error = fixture.root.join("stat-error-directory-shim");
+    write_shim(
+        &directory_error,
+        "stat",
+        &stat_error_shim("*/.runtime-deploy"),
+    );
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&directory_error), &arguments),
+        "deploy directory stat error",
+        "deploy state could not be inspected",
+    );
+
     // Without the shims the same fixture still authorizes the restart.
     assert_allowed(&run_guard(&fixture, &arguments), "unshimmed restart");
+
+    // The directory probe also guards the path that would read as absent.
+    fs::remove_file(fixture.state(environment)).expect("remove state");
+    fs::remove_dir_all(fixture.deploy_dir()).expect("remove deploy directory");
+    assert_denied(
+        &run_guard_with_path(&fixture, Some(&directory_error), &arguments),
+        "deploy directory stat error without state",
+        "deploy state could not be inspected",
+    );
 }
 
 #[test]

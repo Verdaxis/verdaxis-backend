@@ -179,6 +179,32 @@ SHIM
 done
 printf '#!/usr/bin/env bash\nexit 1\n' >"$work/flock-shim/flock"
 chmod 0755 "$work/flock-shim/flock"
+# A stat that cannot read an entry for a reason other than "no such file". Only
+# the call that does not follow links (the entry probe) fails; the descriptor
+# and identity calls pass through.
+for entry in "stat-error-state-shim *.state" "stat-error-directory-shim */.runtime-deploy"; do
+    read -r shim_name shim_glob <<< "$entry"
+    mkdir -p -- "$work/$shim_name"
+    cat >"$work/$shim_name/stat" <<SHIM
+#!/usr/bin/env bash
+real=\${REAL_STAT:?}
+for argument in "\$@"; do
+    case \$argument in
+        -L*) exec "\$real" "\$@" ;;
+    esac
+done
+for argument in "\$@"; do
+    case \$argument in
+        $shim_glob)
+            printf "stat: cannot statx '%s': Input/output error\n" "\$argument" >&2
+            exit 1
+            ;;
+    esac
+done
+exec "\$real" "\$@"
+SHIM
+    chmod 0755 "$work/$shim_name/stat"
+done
 export REAL_STAT=$real_stat
 
 # An absent state file is the normal start path.
@@ -275,6 +301,46 @@ expect_denied 'restart lock only' 'restart authorization is not held' \
 # A flock error that is not contention must deny, not authorize.
 expect_denied_with_shim 'flock error denies' 'main lock check failed' \
     "$work/flock-shim" "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+
+# A stat failure other than "no such file" leaves the state unknown, which
+# denies; only a path that is really absent is a normal start.
+fixture=$(new_fixture stat-error)
+state_dir=$fixture/.runtime-deploy
+write_state "$fixture" staging "$sha_a"
+hold_lock "$state_dir/staging.lock"
+hold_lock "$state_dir/staging.restart.lock"
+expect_allowed 'state before the stat errors' "$fixture" \
+    --environment staging --expected-release-sha "$sha_a"
+expect_denied_with_shim 'state stat error' \
+    'deployment state could not be inspected' "$work/stat-error-state-shim" \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+expect_denied_with_shim 'deploy directory stat error' \
+    'deploy state could not be inspected' "$work/stat-error-directory-shim" \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+rm -rf -- "$state_dir"
+expect_denied_with_shim 'deploy directory stat error without state' \
+    'deploy state could not be inspected' "$work/stat-error-directory-shim" \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+
+# A NUL byte is never dropped before the compare: the same text with one inside
+# it, or after it, does not authorize a restart.
+fixture=$(new_fixture nul)
+state_dir=$fixture/.runtime-deploy
+state=$state_dir/staging.state
+write_state "$fixture" staging "$sha_a"
+hold_lock "$state_dir/staging.lock"
+hold_lock "$state_dir/staging.restart.lock"
+printf 'DEPLOYMENT_STATE=restart-authorized\0\nENVIRONMENT=staging\nRELEASE_SHA=%s\n' \
+    "$sha_a" >"$state"
+expect_denied 'state with an inner NUL byte' 'deployment state was not read in full' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+write_state "$fixture" staging "$sha_a"
+printf '\0' >>"$state"
+expect_denied 'state with a trailing NUL byte' 'deployment state was not read in full' \
+    "$fixture" --environment staging --expected-release-sha "$sha_a"
+write_state "$fixture" staging "$sha_a"
+expect_allowed 'state without a NUL byte' "$fixture" \
     --environment staging --expected-release-sha "$sha_a"
 
 # Exact state, wrong release and unsafe state paths.
