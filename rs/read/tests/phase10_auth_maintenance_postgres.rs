@@ -1457,3 +1457,114 @@ async fn approval_mail_logs_a_timed_out_provider_call() {
     assert!(retry_at.unwrap() >= started + Duration::hours(1));
     f.finish().await;
 }
+
+/// The production sender calls the provider under the transition key, and the
+/// job's shared keyed-send rule bounds that call and logs it after it ends:
+/// a provider that never answers is cut off at the caller's deadline and
+/// leaves one refused record. No database is needed.
+#[tokio::test]
+async fn approval_mail_production_sender_is_keyed_and_bounded() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use verdaxis_read::cli::mail::approval::{ApprovalMail, idempotency_key};
+    use verdaxis_read::cli::mail::{Delivery, deliver_keyed};
+    use verdaxis_read::crud::referrals::invite::MailClient;
+
+    let sink = Captured::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(sink.clone())
+        .with_max_level(tracing::Level::INFO)
+        .finish();
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let address = "approved.recipient@example.invalid";
+    let payload = FrozenApprovalPayload {
+        from: "Verdaxis <noreply@example.invalid>".into(),
+        to: [address.into()],
+        subject: "Your account is approved".into(),
+        html: "<p>Synthetic approval</p>".into(),
+        reply_to: None,
+    };
+    let transition = Uuid::new_v4();
+    let key = idempotency_key(transition);
+
+    // 1. An answering provider receives the payload under the transition key.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!(
+        "http://127.0.0.1:{}/emails",
+        listener.local_addr().unwrap().port()
+    );
+    let provider = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut received = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let head_end = loop {
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0, "the client closed the request early");
+            received.extend_from_slice(&chunk[..read]);
+            if let Some(end) = received.windows(4).position(|w| w == b"\r\n\r\n") {
+                break end;
+            }
+        };
+        let head = String::from_utf8(received[..head_end].to_vec())
+            .unwrap()
+            .to_ascii_lowercase();
+        let length: usize = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .map(|value| value.trim().parse().unwrap())
+            .unwrap();
+        while received.len() < head_end + 4 + length {
+            let read = stream.read(&mut chunk).await.unwrap();
+            assert!(read > 0, "the client closed the body early");
+            received.extend_from_slice(&chunk[..read]);
+        }
+        let body: Value =
+            serde_json::from_slice(&received[head_end + 4..head_end + 4 + length]).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}")
+            .await
+            .unwrap();
+        (head, body)
+    });
+    let mail =
+        ApprovalMail::new(MailClient::loopback(endpoint, "synthetic-provider-key".into()).unwrap());
+    let delivery = deliver_keyed(
+        address,
+        &key,
+        std::time::Duration::from_secs(5),
+        mail.send(payload.clone(), key.clone()),
+    )
+    .await;
+    assert_eq!(delivery, Delivery::Sent);
+    let (head, body) = provider.await.unwrap();
+    assert!(
+        head.contains(&format!("idempotency-key: account-approval/{transition}")),
+        "the transition key is the provider key: {head}"
+    );
+    assert_eq!(body, serde_json::to_value(&payload).unwrap());
+
+    // 2. A provider that never answers is cut off at the caller's deadline.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!(
+        "http://127.0.0.1:{}/emails",
+        silent.local_addr().unwrap().port()
+    );
+    let mail =
+        ApprovalMail::new(MailClient::loopback(endpoint, "synthetic-provider-key".into()).unwrap());
+    let started = std::time::Instant::now();
+    let delivery = deliver_keyed(
+        address,
+        &key,
+        std::time::Duration::from_millis(300),
+        mail.send(payload.clone(), key.clone()),
+    )
+    .await;
+    assert_eq!(delivery, Delivery::Refused);
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    drop(silent);
+
+    let records = sink.deliveries_for(address);
+    assert_eq!(records.len(), 2, "one record per call: {records:?}");
+    assert_eq!(records[0]["fields"]["delivery"], "sent");
+    assert_eq!(records[1]["fields"]["delivery"], "refused");
+}

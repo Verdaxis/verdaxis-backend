@@ -700,3 +700,92 @@ fn mail_transport_refuses_a_blank_idempotency_key_without_a_request() {
     );
     assert!(!logged.contains(address), "no address in the log: {logged}");
 }
+
+#[test]
+fn keyed_send_logs_a_call_its_deadline_cuts_off() {
+    let address = "late.recipient@example.invalid";
+    let payload = serde_json::json!({"to": [address], "subject": "notice"});
+
+    let ((delivery, elapsed), logged) = with_captured_log(async move {
+        // The stub never accepts or answers: the operating system completes
+        // the connection and the client then waits for a reply.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a loopback provider stub");
+        let endpoint = format!(
+            "http://127.0.0.1:{}/emails",
+            listener.local_addr().expect("stub address").port()
+        );
+        let transport = MailTransport::new(
+            MailClient::loopback(endpoint, "synthetic-provider-key".into())
+                .expect("a loopback mail client"),
+        );
+        let started = std::time::Instant::now();
+        let delivery = transport
+            .send_keyed_within(
+                address,
+                &payload,
+                "account-approval/00000000-0000-4000-8000-000000000002",
+                Duration::from_millis(300),
+            )
+            .await;
+        drop(listener);
+        (delivery, started.elapsed())
+    });
+
+    assert_eq!(
+        delivery,
+        Delivery::Refused,
+        "a cut-off call is not accepted"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "the caller's deadline, not the client's 10 s timeout, ends the call: {elapsed:?}"
+    );
+    assert_eq!(
+        logged.matches(&recipient_digest(address)).count(),
+        1,
+        "the cut-off call still leaves one record: {logged}"
+    );
+    assert_eq!(logged.matches("\"refused\"").count(), 1, "{logged}");
+    assert!(!logged.contains(address), "no address in the log: {logged}");
+}
+
+#[test]
+fn deliver_keyed_bounds_an_injected_call_and_logs_it_once() {
+    let address = "injected.recipient@example.invalid";
+    let ((answered, silent, blank), logged) = with_captured_log(async move {
+        let answered = verdaxis_read::cli::mail::deliver_keyed(
+            address,
+            "account-approval/1",
+            Duration::from_secs(1),
+            async { true },
+        )
+        .await;
+        let silent = verdaxis_read::cli::mail::deliver_keyed(
+            address,
+            "account-approval/2",
+            Duration::from_millis(100),
+            std::future::pending::<bool>(),
+        )
+        .await;
+        // A blank key never starts the call.
+        let blank =
+            verdaxis_read::cli::mail::deliver_keyed(address, " ", Duration::from_secs(1), async {
+                panic!("a call with a blank key must not start")
+            })
+            .await;
+        (answered, silent, blank)
+    });
+
+    assert_eq!(answered, Delivery::Sent);
+    assert_eq!(silent, Delivery::Refused);
+    assert_eq!(blank, Delivery::Refused);
+    assert_eq!(
+        logged.matches(&recipient_digest(address)).count(),
+        3,
+        "one record per call, written after it ends or is cut off: {logged}"
+    );
+    assert_eq!(logged.matches("\"sent\"").count(), 1, "{logged}");
+    assert_eq!(logged.matches("\"refused\"").count(), 2, "{logged}");
+}

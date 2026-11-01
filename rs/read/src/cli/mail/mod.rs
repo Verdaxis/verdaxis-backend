@@ -12,8 +12,14 @@ pub mod kyc;
 use crate::crud::referrals::invite::MailClient;
 use serde_json::Value;
 use sha2::Digest;
+use std::future::Future;
+use std::time::Duration;
 
 const DIGEST_BYTES: usize = 16;
+
+/// The default bound for one keyed provider call: the Phase 2 client's own
+/// request timeout.
+pub const PROVIDER_CALL_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The result of one provider call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,7 +101,7 @@ impl MailTransport {
     /// caller decides whether that is a deferred or a failed outcome.
     pub async fn send(&self, recipient: &str, payload: &Value) -> Delivery {
         let accepted = self.client.send(payload).await;
-        Self::log_delivery(recipient, accepted)
+        log_delivery(recipient, accepted)
     }
 
     /// Send one notice under its provider idempotency key and log the delivery.
@@ -112,21 +118,56 @@ impl MailTransport {
         payload: &Value,
         idempotency_key: &str,
     ) -> Delivery {
-        let accepted = !idempotency_key.trim().is_empty()
-            && self
-                .client
-                .send_with_idempotency(payload, Some(idempotency_key))
-                .await;
-        Self::log_delivery(recipient, accepted)
+        self.send_keyed_within(recipient, payload, idempotency_key, PROVIDER_CALL_DEADLINE)
+            .await
     }
 
-    fn log_delivery(recipient: &str, accepted: bool) -> Delivery {
-        let delivery = if accepted {
-            Delivery::Sent
-        } else {
-            Delivery::Refused
-        };
-        MailLog::new(recipient, delivery).record();
-        delivery
+    /// [`Self::send_keyed`] with the caller's own deadline for the call.
+    ///
+    /// A call the deadline cuts off counts as refused, and its delivery record
+    /// is written after the cut, so every call leaves exactly one record.
+    pub async fn send_keyed_within(
+        &self,
+        recipient: &str,
+        payload: &Value,
+        idempotency_key: &str,
+        deadline: Duration,
+    ) -> Delivery {
+        let call = self
+            .client
+            .send_with_idempotency(payload, Some(idempotency_key));
+        deliver_keyed(recipient, idempotency_key, deadline, call).await
     }
+}
+
+/// Run one keyed provider call under `deadline`, then write its one delivery
+/// record: after the call answers, or after the deadline cuts it off (counted as
+/// refused). A blank key is refused before the call starts, because a retry
+/// without a key could send twice.
+///
+/// [`MailTransport::send_keyed_within`] uses this with the provider client;
+/// a job that injects its provider call for tests passes that call here, so
+/// both follow the same key, deadline and logging rule.
+pub async fn deliver_keyed<F>(
+    recipient: &str,
+    idempotency_key: &str,
+    deadline: Duration,
+    call: F,
+) -> Delivery
+where
+    F: Future<Output = bool>,
+{
+    let accepted = !idempotency_key.trim().is_empty()
+        && tokio::time::timeout(deadline, call).await.unwrap_or(false);
+    log_delivery(recipient, accepted)
+}
+
+fn log_delivery(recipient: &str, accepted: bool) -> Delivery {
+    let delivery = if accepted {
+        Delivery::Sent
+    } else {
+        Delivery::Refused
+    };
+    MailLog::new(recipient, delivery).record();
+    delivery
 }

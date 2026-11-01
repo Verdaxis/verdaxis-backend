@@ -2,7 +2,7 @@
 //!
 //! The transition-scoped state machine is the Phase 4 one in
 //! [`crate::business::approval_mail`]; this module only drives due rows.
-use super::{Delivery, MailLog};
+use super::{Delivery, PROVIDER_CALL_DEADLINE, deliver_keyed};
 use crate::business::approval_mail::{
     ApprovalMailBatchSize, ApprovalMailClaim, FrozenApprovalPayload, MailError,
     claim_approval_mail, due_approval_mail, finalize_approval_mail,
@@ -12,7 +12,6 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use std::future::Future;
-use std::time::Duration as StdDuration;
 use uuid::Uuid;
 
 /// What one due row came to.
@@ -49,10 +48,6 @@ impl ApprovalCounts {
 pub fn idempotency_key(transition_id: Uuid) -> String {
     format!("account-approval/{transition_id}")
 }
-
-/// Bounds one provider call, including an injected test sender. The Phase 2
-/// client has the same 10-second request timeout.
-const PROVIDER_DEADLINE: StdDuration = StdDuration::from_secs(10);
 
 /// Deliver one due transition (`app/services/account_approval_email.py:41-103`).
 ///
@@ -93,21 +88,15 @@ where
         return Ok(ApprovalOutcome::Discarded);
     };
 
-    // A call the deadline cuts off counts as refused: the transition is
-    // deferred and, like every other call, leaves one delivery record.
-    let accepted = tokio::time::timeout(
-        PROVIDER_DEADLINE,
-        send(claim.marker.payload.clone(), idempotency_key(transition_id)),
-    )
-    .await
-    .unwrap_or(false);
+    // The shared keyed-send rule bounds the call (including an injected test
+    // sender) at 10 seconds. A call the deadline cuts off counts as refused:
+    // the transition is deferred and, like every other call, leaves one
+    // delivery record, written after the call ends or is cut off.
+    let key = idempotency_key(transition_id);
     let [recipient] = &claim.marker.payload.to;
-    let delivery = if accepted {
-        Delivery::Sent
-    } else {
-        Delivery::Refused
-    };
-    MailLog::new(recipient, delivery).record();
+    let call = send(claim.marker.payload.clone(), key.clone());
+    let delivery = deliver_keyed(recipient, &key, PROVIDER_CALL_DEADLINE, call).await;
+    let accepted = delivery == Delivery::Sent;
 
     let mut tx = pool.begin_with("BEGIN READ WRITE").await?;
     if !lock_claim(&mut tx, &claim).await? {
@@ -200,8 +189,9 @@ impl ApprovalMail {
         Self { client }
     }
 
-    /// One provider call. [`deliver_due`] writes its delivery record, so a
-    /// call cut off by the deadline is logged too.
+    /// One provider call under the transition key. [`deliver_due`] runs it
+    /// through [`deliver_keyed`], which bounds it and writes its delivery
+    /// record, so a call cut off by the deadline is logged too.
     pub async fn send(&self, payload: FrozenApprovalPayload, key: String) -> bool {
         match serde_json::to_value(&payload) {
             Ok(body) => self.client.send_with_idempotency(&body, Some(&key)).await,
