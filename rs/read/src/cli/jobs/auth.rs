@@ -13,6 +13,7 @@
 //! read under the lock. The job therefore never waits on a row another request
 //! holds, never clears a renewed token, and cannot join a lock cycle with the
 //! writers that lock users in id order.
+use crate::auth::store::sweep_expired_reset_tokens;
 use crate::business::approval_mail::{ApprovalMailBatchSize, FrozenApprovalPayload};
 use crate::cli::context::{self, Purpose};
 use crate::cli::gate::require_apply;
@@ -198,10 +199,11 @@ pub async fn clean_expired_auth_state(
     })
 }
 
-/// Commit the cleanup, then work the approval-mail queue.
+/// Commit the cleanup, sweep expired reset tokens, then work the
+/// approval-mail queue.
 ///
-/// The cleanup transaction is idempotent, so it runs under the bounded job
-/// retry. Mail delivery is never retried here: a claimed row keeps its lease.
+/// The cleanup and sweep transactions are idempotent, so they run under the
+/// bounded job retry. Mail delivery is never retried here: a claimed row keeps its lease.
 pub async fn run<C, S, F>(
     pool: &PgPool,
     batch: CleanupBatchSize,
@@ -217,12 +219,17 @@ where
     let cleanup = retry_bounded(|| clean_expired_auth_state(pool, clock(), batch))
         .await
         .map_err(|_| Exit::Dependency)?;
+    // Rust-owned reset tokens (no Python counterpart). The store function
+    // runs its own bounded `SKIP LOCKED` transaction after the cleanup commit.
+    let reset_tokens_deleted = retry_bounded(|| sweep_expired_reset_tokens(pool, clock()))
+        .await
+        .map_err(|_| Exit::Dependency)?;
     let approval = retry_due(pool, email_batch, clock, send)
         .await
         .map_err(|_| Exit::Dependency)?;
     Ok(AuthMaintenanceReport {
         cleanup,
-        reset_tokens_deleted: 0,
+        reset_tokens_deleted,
         approval,
     })
 }

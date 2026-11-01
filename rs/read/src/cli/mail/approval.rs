@@ -58,7 +58,8 @@ const PROVIDER_DEADLINE: StdDuration = StdDuration::from_secs(10);
 ///
 /// 1. Lock the user row only while the transition is still due, then claim it
 ///    (five-minute lease) or discard it, and commit.
-/// 2. Call the provider with no transaction open and no row lock held.
+/// 2. Call the provider with no transaction open and no row lock held, then
+///    write one delivery record by recipient digest.
 /// 3. Lock the row again; finalize only if this exact claim is still there.
 ///    A rejection, re-approval or expired-lease retry during the call leaves
 ///    the newer state alone.
@@ -76,14 +77,15 @@ where
 {
     let claim = {
         let mut tx = pool.begin_with("BEGIN READ WRITE").await?;
-        let now = clock();
-        if !lock_due_transition(&mut tx, user_id, transition_id, now).await? {
+        if !lock_due_transition(&mut tx, user_id, transition_id, clock()).await? {
             tx.rollback().await?;
             return Ok(ApprovalOutcome::Skipped);
         }
         // The row is locked and due, so the Phase 4 claim either claims it or
-        // clears an ineligible account's transition.
-        let claim = claim_approval_mail(&mut tx, user_id, transition_id, now).await?;
+        // clears an ineligible account's transition. Read the clock again
+        // after the lock wait: the five-minute lease starts now (Python `:73`),
+        // and a later time is still at or after the due time.
+        let claim = claim_approval_mail(&mut tx, user_id, transition_id, clock()).await?;
         tx.commit().await?;
         claim
     };
@@ -91,12 +93,21 @@ where
         return Ok(ApprovalOutcome::Discarded);
     };
 
+    // A call the deadline cuts off counts as refused: the transition is
+    // deferred and, like every other call, leaves one delivery record.
     let accepted = tokio::time::timeout(
         PROVIDER_DEADLINE,
         send(claim.marker.payload.clone(), idempotency_key(transition_id)),
     )
     .await
     .unwrap_or(false);
+    let [recipient] = &claim.marker.payload.to;
+    let delivery = if accepted {
+        Delivery::Sent
+    } else {
+        Delivery::Refused
+    };
+    MailLog::new(recipient, delivery).record();
 
     let mut tx = pool.begin_with("BEGIN READ WRITE").await?;
     if !lock_claim(&mut tx, &claim).await? {
@@ -189,19 +200,12 @@ impl ApprovalMail {
         Self { client }
     }
 
-    /// One provider call. The log names the recipient by digest only.
+    /// One provider call. [`deliver_due`] writes its delivery record, so a
+    /// call cut off by the deadline is logged too.
     pub async fn send(&self, payload: FrozenApprovalPayload, key: String) -> bool {
-        let [recipient] = &payload.to;
-        let accepted = match serde_json::to_value(&payload) {
+        match serde_json::to_value(&payload) {
             Ok(body) => self.client.send_with_idempotency(&body, Some(&key)).await,
             Err(_) => false,
-        };
-        let delivery = if accepted {
-            Delivery::Sent
-        } else {
-            Delivery::Refused
-        };
-        MailLog::new(recipient, delivery).record();
-        accepted
+        }
     }
 }
