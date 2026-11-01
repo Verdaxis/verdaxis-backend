@@ -141,13 +141,20 @@ impl Fixture {
 #[derive(Default)]
 struct Recorder {
     messages: Mutex<Vec<String>>,
-    delay: Option<std::time::Duration>,
+    /// Hold each delivery until this many runs have reported the lock busy.
+    wait_for_busy: usize,
+    busy: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl AlertSender for Recorder {
     async fn send(&self, message: &str) -> Result<(), SendError> {
-        if let Some(delay) = self.delay {
-            tokio::time::sleep(delay).await;
+        // Observe the overlap instead of sleeping through it: the lock holder
+        // stays inside its delivery until the other runs found the lock busy.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while self.busy.load(std::sync::atomic::Ordering::SeqCst) < self.wait_for_busy
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         self.messages.lock().unwrap().push(message.to_owned());
         Ok(())
@@ -171,6 +178,7 @@ impl StateDirectory {
         Options {
             state_file: self.0.join("state.json"),
             mode,
+            show_emails: false,
         }
     }
 }
@@ -514,13 +522,14 @@ async fn onboarding_postgres_three_runs_send_once() {
         .await;
     let state = Arc::new(StateDirectory::new());
     let sender = Arc::new(Recorder {
-        delay: Some(std::time::Duration::from_millis(600)),
+        wait_for_busy: 2,
         ..Recorder::default()
     });
     let barrier = Arc::new(tokio::sync::Barrier::new(3));
     let mut runs = Vec::new();
     for _ in 0..3 {
-        // Each run has its own pool, so the three database sessions are independent.
+        // The runs share one pool and take their own database sessions; the
+        // lock, not the pool, is what keeps them exclusive.
         let pool = fixture.pool.clone();
         let (state, sender, barrier) = (
             Arc::clone(&state),
@@ -529,13 +538,19 @@ async fn onboarding_postgres_three_runs_send_once() {
         );
         runs.push(tokio::spawn(async move {
             barrier.wait().await;
-            run(
+            let outcome = run(
                 &PgCandidates::new(pool),
                 &*sender,
                 &state.options(Mode::Monitor),
                 now(),
             )
-            .await
+            .await;
+            if outcome == Ok(Outcome::LockBusy) {
+                sender
+                    .busy
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            outcome
         }));
     }
     let mut outcomes = Vec::new();

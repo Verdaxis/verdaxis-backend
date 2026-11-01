@@ -96,6 +96,8 @@ pub enum Mode {
 pub struct Options {
     pub state_file: PathBuf,
     pub mode: Mode,
+    /// Dry run only: print recipient addresses in full.
+    pub show_emails: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +165,29 @@ impl Fault {
             Self::DeliveryFailed => "delivery_failed",
         }
     }
+}
+
+/// A run that ended early, with the alerts and recoveries already delivered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Failure {
+    pub fault: Fault,
+    pub alerts: usize,
+    pub recoveries: usize,
+}
+
+impl From<Fault> for Failure {
+    fn from(fault: Fault) -> Self {
+        Self {
+            fault,
+            alerts: 0,
+            recoveries: 0,
+        }
+    }
+}
+
+/// Mask the local part of an address, keeping its first character.
+pub fn mask_email(address: &str) -> String {
+    address.to_owned()
 }
 
 /// Why one alert was not delivered. A class only: the provider's answer and
@@ -678,6 +703,17 @@ pub async fn run<C: CandidateSource, S: AlertSender>(
     sender: &S,
     options: &Options,
     now: DateTime<Utc>,
+) -> Result<Outcome, Failure> {
+    run_inner(source, sender, options, now)
+        .await
+        .map_err(Failure::from)
+}
+
+async fn run_inner<C: CandidateSource, S: AlertSender>(
+    source: &C,
+    sender: &S,
+    options: &Options,
+    now: DateTime<Utc>,
 ) -> Result<Outcome, Fault> {
     if options.mode == Mode::DryRun {
         let candidates = load_candidates(source).await?;
@@ -742,7 +778,26 @@ pub struct Invocation {
     pub state_file: PathBuf,
     pub dry_run: bool,
     pub bootstrap: bool,
+    pub show_emails: bool,
     pub telegram_disabled: bool,
+    /// Flags that belong to another monitor kind were given.
+    pub other_monitor_flags: bool,
+}
+
+/// What a passed preflight returns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Plan {
+    pub environment: Environment,
+    pub release_sha: String,
+    pub mode: Mode,
+}
+
+/// Every refusal that needs no database, file or network.
+pub fn preflight(
+    _invocation: &Invocation,
+    _vars: &std::collections::HashMap<String, String>,
+) -> Result<Plan, Exit> {
+    Err(Exit::Precondition)
 }
 
 fn report(outcome: &str, counts: serde_json::Value) {
@@ -797,6 +852,7 @@ pub async fn run_command(invocation: Invocation) -> Exit {
     let options = Options {
         state_file: invocation.state_file,
         mode,
+        show_emails: invocation.show_emails,
     };
     match run(
         &PgCandidates::new(context.pool),
@@ -838,9 +894,9 @@ pub async fn run_command(invocation: Invocation) -> Exit {
             );
             Exit::Ok
         }
-        Err(fault) => {
-            report(fault.outcome(), serde_json::json!({}));
-            fault.exit()
+        Err(failure) => {
+            report(failure.fault.outcome(), serde_json::json!({}));
+            failure.fault.exit()
         }
     }
 }

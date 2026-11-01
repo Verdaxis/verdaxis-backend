@@ -4,7 +4,7 @@
 //! and the alert channel is a recording fake or a loopback server. The
 //! PostgreSQL candidate projection is in `phase10_onboarding_postgres`.
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
@@ -12,11 +12,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use verdaxis_read::business::attention::Candidate;
+use verdaxis_read::business::attention::{Candidate, classify, format_message};
 use verdaxis_read::cli::jobs::onboarding::{
-    AlertSender, CandidateSource, Fault, Invocation, Mode, Options, Outcome, SendError, State,
-    TelegramConfig, TelegramSender, bootstrap_state, python_timestamp, reconcile, recovery_message,
-    run, run_command,
+    AlertSender, CandidateSource, Failure, Fault, Invocation, Mode, Options, Outcome, SendError,
+    State, TelegramConfig, TelegramSender, bootstrap_state, mask_email, preflight,
+    python_timestamp, reconcile, recovery_message, run, run_command,
 };
 use verdaxis_read::cli::state::StateLock;
 use verdaxis_read::cli::{Environment, Exit};
@@ -175,15 +175,16 @@ fn options(directory: &TempDir, mode: Mode) -> Options {
     Options {
         state_file: directory.state(),
         mode,
+        show_emails: false,
     }
 }
 
-async fn monitor(
+async fn monitor_detailed(
     directory: &TempDir,
     candidates: Vec<Candidate>,
     sender: &Recorder,
     now: DateTime<Utc>,
-) -> Result<Outcome, Fault> {
+) -> Result<Outcome, Failure> {
     run(
         &Fixed::new(candidates),
         sender,
@@ -191,6 +192,18 @@ async fn monitor(
         now,
     )
     .await
+}
+
+/// The same run, reduced to its fault.
+async fn monitor(
+    directory: &TempDir,
+    candidates: Vec<Candidate>,
+    sender: &Recorder,
+    now: DateTime<Utc>,
+) -> Result<Outcome, Fault> {
+    monitor_detailed(directory, candidates, sender, now)
+        .await
+        .map_err(|failure| failure.fault)
 }
 
 /// Python writes this exact document: sorted keys, compact separators, one
@@ -495,7 +508,8 @@ async fn unconfigured_telegram_fails_only_when_an_alert_is_due() {
         &options(&directory, Mode::Monitor),
         at(0),
     )
-    .await;
+    .await
+    .map_err(|failure| failure.fault);
     assert_eq!(result, Err(Fault::DeliveryNotConfigured));
     assert_eq!(Fault::DeliveryNotConfigured.exit(), Exit::Precondition);
     assert!(
@@ -518,6 +532,7 @@ async fn dry_run_prints_alerts_and_touches_no_state_or_lock() {
         &Options {
             state_file: missing.join("state.json"),
             mode: Mode::DryRun,
+            show_emails: true,
         },
         at(0),
     )
@@ -839,6 +854,7 @@ async fn child_process_entry() {
         &Options {
             state_file: state,
             mode: Mode::Monitor,
+            show_emails: false,
         },
         at(0),
     )
@@ -960,7 +976,9 @@ async fn onboarding_command_fails_closed_without_a_database_context() {
         state_file: PathBuf::from("/nonexistent/verdaxis/state.json"),
         dry_run: false,
         bootstrap: false,
+        show_emails: false,
         telegram_disabled: false,
+        other_monitor_flags: false,
     };
     // The monitor is production-only; refuse before any pool or file is touched.
     for refused in [
@@ -983,11 +1001,375 @@ async fn onboarding_command_fails_closed_without_a_database_context() {
             telegram_disabled: true,
             ..base.clone()
         },
+        Invocation {
+            show_emails: true,
+            ..base.clone()
+        },
+        Invocation {
+            other_monitor_flags: true,
+            ..base.clone()
+        },
     ] {
         assert_eq!(run_command(refused).await, Exit::Usage);
     }
     // No deployed context exists until the runtime projection lands.
     assert_eq!(run_command(base).await, Exit::Precondition);
+}
+
+fn nameless() -> Candidate {
+    Candidate {
+        key: "user:3".into(),
+        email: "nameless@example.com".into(),
+        first_name: None,
+        last_name: Some("  ".into()),
+        ..candidate()
+    }
+}
+
+fn canary() -> Candidate {
+    Candidate {
+        key: "user:4".into(),
+        email: "canary+prod@prod.canary.verdaxis.exchange".into(),
+        ..candidate()
+    }
+}
+
+async fn dry_run_messages(candidates: Vec<Candidate>, show_emails: bool) -> Vec<String> {
+    let directory = TempDir::new();
+    let outcome = run(
+        &Fixed::new(candidates),
+        &Recorder::default(),
+        &Options {
+            state_file: directory.state(),
+            mode: Mode::DryRun,
+            show_emails,
+        },
+        at(0),
+    )
+    .await
+    .expect("a dry run succeeds");
+    let Outcome::DryRun { messages } = outcome else {
+        panic!("dry run reports its messages");
+    };
+    messages
+}
+
+#[test]
+fn mask_email_keeps_the_first_character_and_the_domain() {
+    assert_eq!(mask_email("person@example.com"), "p***@example.com");
+    assert_eq!(mask_email("\u{e9}lan@example.com"), "\u{e9}***@example.com");
+    assert_eq!(mask_email("a@b@example.com"), "a***@example.com");
+    assert_eq!(mask_email("no-at-sign"), "***");
+    assert_eq!(mask_email("\u{7}x@example.com"), "?***@example.com");
+}
+
+#[tokio::test]
+async fn dry_run_masks_emails_and_the_name_fallback_by_default() {
+    // The classifier still reads the real address: the canary is excluded.
+    let messages = dry_run_messages(vec![candidate(), nameless(), canary()], false).await;
+    assert_eq!(messages.len(), 2);
+    for message in &messages {
+        assert!(!message.contains("person@example.com"), "{message}");
+        assert!(!message.contains("nameless@example.com"), "{message}");
+    }
+    assert!(
+        messages[0].contains("Pat Lee \u{b7} p***@example.com"),
+        "{}",
+        messages[0]
+    );
+    // With no name the display name falls back to the address: both are masked.
+    assert!(
+        messages[1].contains("n***@example.com \u{b7} n***@example.com"),
+        "{}",
+        messages[1]
+    );
+}
+
+#[tokio::test]
+async fn dry_run_shows_the_alert_text_with_the_flag() {
+    let now = at(0);
+    let expected: Vec<String> = [candidate(), nameless()]
+        .iter()
+        .map(|candidate| format_message(candidate, &classify(candidate, now).unwrap(), now))
+        .collect();
+    assert_eq!(
+        dry_run_messages(vec![candidate(), nameless(), canary()], true).await,
+        expected
+    );
+}
+
+#[tokio::test]
+async fn telegram_alerts_keep_the_full_address() {
+    // Only the dry-run print is masked; the operator's channel is not.
+    let directory = TempDir::new();
+    let sender = Recorder::default();
+    monitor(&directory, vec![candidate()], &sender, at(0))
+        .await
+        .unwrap();
+    assert!(sender.messages()[0].contains("Pat Lee \u{b7} person@example.com"));
+}
+
+#[tokio::test]
+async fn an_empty_organization_name_shows_not_created() {
+    let unnamed = Candidate {
+        organization_name: Some(String::new()),
+        ..candidate()
+    };
+    let directory = TempDir::new();
+    let sender = Recorder::default();
+    monitor(&directory, vec![unnamed.clone()], &sender, at(0))
+        .await
+        .unwrap();
+    assert!(sender.messages()[0].contains("Organization: Not created\n"));
+    assert!(
+        recovery_message(&unnamed).contains("Organization: Not created\n"),
+        "recovery text"
+    );
+    let messages = dry_run_messages(vec![unnamed], true).await;
+    assert!(messages[0].contains("Organization: Not created\n"));
+}
+
+#[tokio::test]
+async fn failed_runs_report_the_counts_already_sent() {
+    // A failed send: the first alert went out before the second failed.
+    let directory = TempDir::new();
+    let failure = monitor_detailed(
+        &directory,
+        vec![candidate(), second_candidate()],
+        &Recorder::failing_after(1),
+        at(0),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure {
+            fault: Fault::DeliveryFailed,
+            alerts: 1,
+            recoveries: 0
+        }
+    );
+
+    // A recovery counts as its own kind.
+    let directory = TempDir::new();
+    write_private(
+        &directory.state(),
+        r#"{"candidates":{"user:1":{"stage":"first_login_overdue","updated_at":"x"}},"schema_version":1}"#,
+    );
+    let failure = monitor_detailed(
+        &directory,
+        vec![logged_in(), nameless()],
+        &Recorder::failing_after(1),
+        at(0),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure {
+            fault: Fault::DeliveryFailed,
+            alerts: 0,
+            recoveries: 1
+        }
+    );
+
+    // Another writer replaced the state after the alert.
+    let directory = TempDir::new();
+    write_private(
+        &directory.state(),
+        r#"{"candidates":{},"schema_version":1}"#,
+    );
+    let state_path = directory.state();
+    let sender = Recorder {
+        after_send: Some(Box::new(move || {
+            python_style_write(&state_path, r#"{"candidates":{},"schema_version":1}"#);
+        })),
+        ..Recorder::default()
+    };
+    let failure = monitor_detailed(&directory, vec![candidate()], &sender, at(0))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        failure,
+        Failure {
+            fault: Fault::StateChanged,
+            alerts: 1,
+            recoveries: 0
+        }
+    );
+
+    // The state could not be published.
+    let directory = TempDir::new();
+    let (state_directory, away) = (
+        directory.path().to_path_buf(),
+        directory.path().with_extension("away"),
+    );
+    let (hook_directory, hook_away) = (state_directory.clone(), away.clone());
+    let sender = Recorder {
+        after_send: Some(Box::new(move || {
+            std::fs::rename(&hook_directory, &hook_away).unwrap();
+        })),
+        ..Recorder::default()
+    };
+    let failure = monitor_detailed(&directory, vec![candidate()], &sender, at(0))
+        .await
+        .unwrap_err();
+    std::fs::rename(&away, &state_directory).unwrap();
+    assert_eq!(
+        failure,
+        Failure {
+            fault: Fault::StateWrite,
+            alerts: 1,
+            recoveries: 0
+        }
+    );
+}
+
+const FULL_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn invocation() -> Invocation {
+    Invocation {
+        environment: Some(Environment::Production),
+        release_sha: Some(FULL_SHA.into()),
+        state_file: PathBuf::from("/nonexistent/verdaxis/state.json"),
+        dry_run: false,
+        bootstrap: false,
+        show_emails: false,
+        telegram_disabled: false,
+        other_monitor_flags: false,
+    }
+}
+
+fn deployed(directory: &Path) -> HashMap<String, String> {
+    HashMap::from([
+        ("ENVIRONMENT".to_owned(), "production".to_owned()),
+        ("RELEASE_SHA".to_owned(), FULL_SHA.to_owned()),
+        (
+            "DEPLOY_STATE_DIR".to_owned(),
+            directory.to_string_lossy().into_owned(),
+        ),
+    ])
+}
+
+#[test]
+fn onboarding_preflight_checks_the_deployed_identity_and_deploy_state() {
+    let directory = TempDir::new();
+    let vars = deployed(directory.path());
+    let plan = preflight(&invocation(), &vars).expect("a deployed production release passes");
+    assert_eq!(plan.environment, Environment::Production);
+    assert_eq!(plan.release_sha, FULL_SHA);
+    assert_eq!(plan.mode, Mode::Monitor);
+    let dry = Invocation {
+        dry_run: true,
+        ..invocation()
+    };
+    assert_eq!(preflight(&dry, &vars).unwrap().mode, Mode::DryRun);
+
+    let refused = |label: &str, vars: &HashMap<String, String>| {
+        assert_eq!(
+            preflight(&invocation(), vars).map(|_| ()),
+            Err(Exit::Precondition),
+            "{label}"
+        );
+    };
+    // The flag says production; the deployed identity decides.
+    let mut staging = vars.clone();
+    staging.insert("ENVIRONMENT".into(), "staging".into());
+    refused("deployed staging with the production flag", &staging);
+    let mut other_sha = vars.clone();
+    other_sha.insert("RELEASE_SHA".into(), "f".repeat(40));
+    refused("another release", &other_sha);
+    for name in ["ENVIRONMENT", "RELEASE_SHA", "DEPLOY_STATE_DIR"] {
+        let mut missing = vars.clone();
+        missing.remove(name);
+        refused(&format!("{name} unset"), &missing);
+    }
+    for path in ["", "relative/state-dir"] {
+        let mut bad = vars.clone();
+        bad.insert("DEPLOY_STATE_DIR".into(), path.into());
+        refused(&format!("deploy state dir {path:?}"), &bad);
+    }
+    // A present state file, and a dangling link, are both a live deploy.
+    let state = directory.path().join("production.state");
+    std::fs::write(&state, b"blocked").unwrap();
+    refused("deploy state present", &vars);
+    std::fs::remove_file(&state).unwrap();
+    std::os::unix::fs::symlink(directory.path().join("missing-target"), &state).unwrap();
+    refused("dangling deploy state link", &vars);
+    std::fs::remove_file(&state).unwrap();
+    preflight(&invocation(), &vars).expect("absent state passes again");
+}
+
+#[test]
+fn onboarding_preflight_refuses_misuse_as_usage() {
+    let directory = TempDir::new();
+    let vars = deployed(directory.path());
+    for (label, refused) in [
+        (
+            "staging flag",
+            Invocation {
+                environment: Some(Environment::Staging),
+                ..invocation()
+            },
+        ),
+        (
+            "no identity",
+            Invocation {
+                environment: None,
+                release_sha: None,
+                ..invocation()
+            },
+        ),
+        (
+            "dry run and bootstrap",
+            Invocation {
+                dry_run: true,
+                bootstrap: true,
+                ..invocation()
+            },
+        ),
+        (
+            "disabled channel",
+            Invocation {
+                telegram_disabled: true,
+                ..invocation()
+            },
+        ),
+        (
+            "--show-emails without --dry-run",
+            Invocation {
+                show_emails: true,
+                ..invocation()
+            },
+        ),
+        (
+            "--show-emails with --bootstrap",
+            Invocation {
+                show_emails: true,
+                bootstrap: true,
+                ..invocation()
+            },
+        ),
+        (
+            "flags of another monitor",
+            Invocation {
+                other_monitor_flags: true,
+                ..invocation()
+            },
+        ),
+    ] {
+        assert_eq!(
+            preflight(&refused, &vars).map(|_| ()),
+            Err(Exit::Usage),
+            "{label}"
+        );
+    }
+    let shown = Invocation {
+        dry_run: true,
+        show_emails: true,
+        ..invocation()
+    };
+    assert!(preflight(&shown, &vars).is_ok());
 }
 
 /// What the loopback Telegram server saw.
