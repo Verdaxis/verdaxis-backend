@@ -307,6 +307,11 @@ fn seller_fees() -> Result<FeeConfig, String> {
     .map_err(|_| "seller fee configuration is invalid".to_owned())
 }
 
+/// True when the served router mounts the market operations.
+pub fn mounts(app: &AppState) -> bool {
+    app.phase2.is_some() && app.market_write.is_some()
+}
+
 /// Every market operation, composed into one router. `None` when the Phase 2
 /// verification settings are absent, so Caddy keeps the operations on Python.
 ///

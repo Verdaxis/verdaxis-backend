@@ -59,7 +59,7 @@ pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
 pub fn router(state: AppState) -> axum::Router {
-    let routes = runtime::http::public_routes();
+    let routes = runtime::http::served_public_routes(&state);
     let streams = streams::http::routes().with_state(streams::http::StreamsState {
         state: std::sync::Arc::new(state.clone()),
     });

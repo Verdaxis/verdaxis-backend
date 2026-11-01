@@ -532,6 +532,21 @@ async fn dispatch_boundary(
 }
 
 pub fn public_routes() -> Router<crate::AppState> {
+    public_routes_with(crate::routes::orderbook_lists::routes())
+}
+
+/// The public routes a served router merges. When the market write
+/// composition mounts order entry on `POST /api/orderbook`, the read
+/// service's unauthenticated boundary on that path is left out.
+pub fn served_public_routes(state: &crate::AppState) -> Router<crate::AppState> {
+    if super::market_write::mounts(state) {
+        public_routes_with(crate::routes::orderbook_lists::read_routes())
+    } else {
+        public_routes()
+    }
+}
+
+fn public_routes_with(orderbook_lists: Router<crate::AppState>) -> Router<crate::AppState> {
     Router::new()
         .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
@@ -543,7 +558,7 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
         .merge(crate::routes::orderbook_snapshot::routes())
-        .merge(crate::routes::orderbook_lists::routes())
+        .merge(orderbook_lists)
         .merge(crate::routes::orderbook_map::routes())
         .merge(crate::routes::listings::routes())
         .merge(crate::routes::prices::routes())
@@ -591,13 +606,13 @@ pub fn usage_router(
     authority: crate::analytics::usage::UsageAuthority,
 ) -> Router {
     router_with(
-        public_routes().merge(crate::analytics::usage::routes(authority)),
+        served_public_routes(&state).merge(crate::analytics::usage::routes(authority)),
         state,
     )
 }
 
 pub fn public_router(state: crate::AppState) -> Router {
-    router_with(public_routes(), state)
+    router_with(served_public_routes(&state), state)
 }
 
 /// Phase 2 settings. Every group draws its endpoint quota from the same
@@ -707,13 +722,12 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(business) => routes.merge(business),
         None => routes,
     };
-    // The market writes mount under the same condition as Phase 4. Without
-    // them, `POST /api/orderbook` keeps its unauthenticated boundary answer.
+    // The market writes mount under the same condition as Phase 4. A caller
+    // that serves them passes `served_public_routes`, which leaves out the
+    // read service's `POST /api/orderbook` boundary.
     let routes = match super::market_write::routes(&state, limits.clone()) {
         Some(market) => routes.merge(market),
-        None => routes.merge(
-            crate::routes::orderbook_lists::order_create_boundary().with_state(state.clone()),
-        ),
+        None => routes,
     };
     let routes = routes
         .fallback(fallback)
@@ -736,7 +750,6 @@ pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
         .merge(public_routes())
-        .merge(crate::routes::orderbook_lists::order_create_boundary())
         .fallback(fallback)
         .with_state(state.clone())
         .merge(stated)
