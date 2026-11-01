@@ -105,3 +105,62 @@ RETURNS void LANGUAGE plpgsql AS $$ BEGIN
     GRANT USAGE ON SCHEMA offboarding_late_row TO PUBLIC;
     GRANT EXECUTE ON FUNCTION offboarding_late_row.pg_advisory_xact_lock(bigint) TO PUBLIC;
 END $$;
+
+-- An administrator's active freeze on one trade.
+CREATE OR REPLACE FUNCTION offboarding_market_freeze(target uuid, administrator uuid)
+RETURNS uuid LANGUAGE sql AS $$
+    INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id,frozen_at,version)
+        VALUES(gen_random_uuid(),target,'ACTIVE','COMPLIANCE_REVIEW','fixture review',administrator,'2026-10-24T00:00:00Z',1)
+        RETURNING id;
+$$;
+
+-- The member leaves the organization; their orders keep the old organization.
+CREATE OR REPLACE FUNCTION offboarding_market_detach(member uuid) RETURNS void LANGUAGE sql AS $$
+    UPDATE users SET organization_id=NULL WHERE id=member;
+$$;
+
+-- The bound's fan-out: n filled owner ASKs, each linked by a 1 t pending
+-- trade to a filled counterparty BID, plus n open 1 t owner ASKs. Every owner
+-- ASK draws on `item`, which reserves 2n t.
+CREATE OR REPLACE FUNCTION offboarding_market_fanout(owner uuid, counterparty uuid, item uuid, n integer)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE ask uuid; bid uuid;
+BEGIN
+    PERFORM offboarding_market_inventory(item,owner,0,2*n);
+    FOR i IN 1..n LOOP
+        ask := gen_random_uuid(); bid := gen_random_uuid();
+        PERFORM offboarding_market_order(ask,owner,'ASK',1,0,'FILLED',item);
+        PERFORM offboarding_market_order(bid,counterparty,'BID',1,0,'FILLED',NULL);
+        PERFORM offboarding_market_trade(gen_random_uuid(),bid,ask,counterparty,owner,1,'PENDING_CONFIRMATION');
+        PERFORM offboarding_market_order(gen_random_uuid(),owner,'ASK',1,1,'OPEN',item);
+    END LOOP;
+END $$;
+
+-- A concurrent writer's change of one order row, held until it commits.
+CREATE OR REPLACE FUNCTION offboarding_market_touch_order(target uuid) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    UPDATE orderbook_orders SET version=version+1 WHERE id=target;
+END $$;
+
+-- A pause for sessions that select this schema first: their next advisory
+-- lock waits until the gate opens (at most 4 s), then takes the real lock.
+-- The session's party rows are already locked at that point.
+CREATE OR REPLACE FUNCTION offboarding_market_install_gate() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    CREATE SCHEMA offboarding_gate;
+    CREATE TABLE offboarding_gate.state(open boolean NOT NULL);
+    INSERT INTO offboarding_gate.state VALUES(false);
+    CREATE FUNCTION offboarding_gate.pg_advisory_xact_lock(lock_key bigint) RETURNS void
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $body$
+        DECLARE deadline timestamptz := clock_timestamp() + interval '4 seconds';
+        BEGIN
+            WHILE NOT (SELECT open FROM offboarding_gate.state) AND clock_timestamp() < deadline LOOP
+                PERFORM pg_sleep(0.005);
+            END LOOP;
+            PERFORM pg_catalog.pg_advisory_xact_lock(lock_key);
+        END $body$;
+    GRANT USAGE ON SCHEMA offboarding_gate TO PUBLIC;
+    GRANT EXECUTE ON FUNCTION offboarding_gate.pg_advisory_xact_lock(bigint) TO PUBLIC;
+END $$;
+
+CREATE OR REPLACE FUNCTION offboarding_market_open_gate() RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+    UPDATE offboarding_gate.state SET open=true;
+END $$;

@@ -68,6 +68,12 @@ CREATE TABLE organization_join_requests(
     UNIQUE(user_id, organization_id)
 );
 
+CREATE TABLE trade_freezes(
+    id uuid PRIMARY KEY,
+    trade_id uuid NOT NULL,
+    status text NOT NULL
+);
+
 CREATE TABLE audit_logs(
     id uuid PRIMARY KEY,
     user_id uuid,
