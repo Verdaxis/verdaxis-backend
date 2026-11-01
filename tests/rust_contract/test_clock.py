@@ -41,3 +41,15 @@ def test_frozen_date_replaces_date_today():
     windows = clock.module("app.services.availability_windows")
     with clock.fixed_clock_patches(instant):
         assert windows.date.today() == date(2026, 10, 15)
+
+
+def test_frozen_clock_sets_the_benchmark_month():
+    # The seed-matrix premium counts whole months from the current month, so
+    # it must follow the frozen instant, not the host clock.
+    instant = datetime(2026, 10, 15, 12, 0, tzinfo=UTC)
+    benchmarks = clock.module("app.services.benchmarks")
+    with clock.fixed_clock_patches(instant):
+        assert benchmarks._window_adjustment("2026-11") == benchmarks._window_adjustment(
+            "2026-11", now=instant
+        )
+        assert str(benchmarks._window_adjustment("2026-11")) == "7.50"
