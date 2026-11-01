@@ -67,6 +67,11 @@ fn repository_root() -> PathBuf {
 
 /// The Python report against the same database, read with the reader role.
 fn python_report(variable: &str) -> (i32, String) {
+    python_module("scripts.security_preflight", variable)
+}
+
+/// One of the Python operator scripts, run as a module against the database.
+fn python_module(module: &str, variable: &str) -> (i32, String) {
     let interpreter = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
     let database_url = url(variable).replacen("postgres://", "postgresql+asyncpg://", 1);
     let output = std::process::Command::new(interpreter)
@@ -79,7 +84,7 @@ fn python_report(variable: &str) -> (i32, String) {
         .env("RELEASE_SHA", "test")
         .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
         .env("DATABASE_URL", database_url)
-        .args(["-m", "scripts.security_preflight"])
+        .args(["-m", module])
         .output()
         .expect("start the Python report");
     (
@@ -122,7 +127,10 @@ async fn inspect_users_masks_email_by_default() {
         "{}",
         text.stdout
     );
-    assert!(text.stdout.contains(" - a***@example.test (Role: BUYER)"));
+    assert!(
+        text.stdout
+            .contains(" - a***@example.test (Role: UserRole.BUYER)")
+    );
     for local_part in [
         "alice.buyer",
         "bob.supplier",
@@ -159,11 +167,15 @@ async fn inspect_users_show_emails_requires_the_explicit_flag() {
     assert!(
         shown
             .stdout
-            .contains(" - alice.buyer@example.test (Role: BUYER)")
+            .contains(" - alice.buyer@example.test (Role: UserRole.BUYER)")
     );
     // The stored value is shown unchanged, including the leading space of the
     // duplicate pair, and a user without a role prints None.
-    assert!(shown.stdout.contains(" -  dup@example.test (Role: ADMIN)"));
+    assert!(
+        shown
+            .stdout
+            .contains(" -  dup@example.test (Role: UserRole.ADMIN)")
+    );
     assert!(shown.stdout.contains(" - grace@example.test (Role: None)"));
     // The summary line never carries an address, even with the flag.
     assert!(!shown.stderr.contains("example.test"), "{}", shown.stderr);
@@ -173,6 +185,37 @@ async fn inspect_users_show_emails_requires_the_explicit_flag() {
     assert_eq!(report["emails"], "full");
     assert_eq!(report["total"], 12);
     assert_eq!(report["truncated"], false);
+}
+
+/// The ` - ` lines of the Python users tool, sorted (it prints in table order).
+fn python_user_lines(report: &str) -> Vec<String> {
+    let mut lines: Vec<String> = report
+        .lines()
+        .filter(|line| line.starts_with(" - "))
+        .map(str::to_owned)
+        .collect();
+    lines.sort();
+    lines
+}
+
+#[tokio::test]
+async fn inspect_users_matches_the_python_tool_on_the_same_database() {
+    let pool = pool("RUST_INSPECT_TEST_DATABASE_URL").await;
+    let rust = run(&pool, &arguments(InspectKind::Users, false, true)).await;
+    let (python_exit, python) =
+        python_module("scripts.check_users", "RUST_INSPECT_TEST_DATABASE_URL");
+    assert_eq!(python_exit, 0, "{python}");
+    assert_eq!(rust.exit, Exit::Ok);
+    // Same header, and the same user lines (full addresses, the Python role
+    // spelling, `None` for a missing role). Python lists in table order and
+    // Rust in a fixed order, so the lines are compared sorted.
+    assert_eq!(rust.stdout.lines().next(), python.lines().next());
+    let rust_lines = python_user_lines(&rust.stdout);
+    assert_eq!(rust_lines.len(), 12);
+    assert_eq!(rust_lines, python_user_lines(&python));
+    // A stored role that is not a role of the Python model makes Python fail
+    // on load; Rust prints the stored value after the same prefix. That
+    // difference is accepted: the column holds only model values.
 }
 
 // --- The commands only read --------------------------------------------------

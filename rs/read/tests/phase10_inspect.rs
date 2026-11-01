@@ -110,7 +110,7 @@ fn users_text_marks_a_cut_listing_and_prints_none_for_a_missing_role() {
     );
     // The lines of a user are exactly the ones the Python tool prints.
     assert!(
-        text.contains(" - a***@example.test (Role: BUYER)\n"),
+        text.contains(" - a***@example.test (Role: UserRole.BUYER)\n"),
         "{text}"
     );
     assert!(!text.contains("id="), "{text}");
@@ -127,6 +127,34 @@ fn full_addresses_cannot_carry_terminal_escapes() {
     let rows = vec![(id(3), "a\u{1b}[2Jb@example.test".to_owned(), None)];
     let text = UsersReport::new(rows, 1, true).render_text();
     assert!(!text.contains('\u{1b}'), "{text:?}");
+}
+
+#[test]
+fn a_stored_role_cannot_carry_terminal_escapes() {
+    let rows = vec![(
+        id(4),
+        "a@example.test".to_owned(),
+        Some("\u{1b}[2J".to_owned()),
+    )];
+    let text = UsersReport::new(rows, 1, false).render_text();
+    assert!(!text.contains('\u{1b}'), "{text:?}");
+    assert!(text.contains("(Role: UserRole.?[2J)"), "{text:?}");
+
+    let user = IneligibleUser {
+        id: id(5),
+        role: Some("\u{1b}[2J".to_owned()),
+        status: "APPROVED".into(),
+        email_verified: true,
+        organization_id: None,
+        kyc_status: "PENDING".into(),
+    };
+    let counts = BlockerCounts {
+        ineligible_users: 1,
+        ..BlockerCounts::default()
+    };
+    let text = BlockersReport::new(counts, vec![user]).render_text();
+    assert!(!text.contains('\u{1b}'), "{text:?}");
+    assert!(text.contains(" role=?[2J "), "{text:?}");
 }
 
 #[tokio::test]
