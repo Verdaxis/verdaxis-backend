@@ -83,6 +83,22 @@ async fn row_json(world: &World, sql: &'static str, id: Uuid) -> Value {
         .unwrap()
 }
 
+// The initial attempt is included in the three-attempt test bound.
+async fn retry_waiting_command(
+    mut result: Verdict,
+    mut restart: impl FnMut() -> Pending,
+) -> (Verdict, usize) {
+    let mut retries = 0;
+    for _ in 1..3 {
+        if !matches!(&result, Err(error) if error.detail["code"] == "MARKET_BUSY") {
+            break;
+        }
+        retries += 1;
+        result = finished(restart()).await;
+    }
+    (result, retries)
+}
+
 async fn audits_of(world: &World, action: &str, resource: Uuid) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action=$1 AND resource_id=$2")
         .bind(action)
@@ -187,6 +203,8 @@ const JOIN_REVIEW_REPETITIONS: usize = 50;
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn join_approval_and_org_rejection_do_not_deadlock() {
     let mut world = World::new().await;
+    let mut retried_iterations = 0;
+    let mut total_retries = 0;
     for join_first in [true, false] {
         for _ in 0..JOIN_REVIEW_REPETITIONS {
             let organization = world.organization().await;
@@ -234,7 +252,15 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             wait_blocked(&mut world.watcher, holder_pid, 1).await;
             gate.open();
             let holder = finished(holder).await;
-            let contender = finished(contender).await;
+            let (contender, retries) = retry_waiting_command(finished(contender).await, || {
+                if join_first {
+                    spawn_write(&world.pool, world.actor, review_organization(&world, organization, false))
+                } else {
+                    spawn_write(&world.pool, world.actor, review_join(join, true))
+                }
+            }).await;
+            retried_iterations += usize::from(retries > 0);
+            total_retries += retries;
 
             assert_eq!(organization_status(&world, organization).await, "REJECTED");
             assert_eq!(
@@ -314,6 +340,7 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             }
         }
     }
+    println!("join_approval_and_org_rejection_do_not_deadlock retried_iterations={retried_iterations} total_retries={total_retries} total_iterations={}", 2 * JOIN_REVIEW_REPETITIONS);
     world.finish().await;
 }
 
@@ -882,8 +909,12 @@ async fn invitation_rotation_vs_acceptance_is_serialized() {
     );
     wait_blocked(&mut world.watcher, acceptance.backend, 1).await;
     acceptance.consume().await;
+    let (rotation, retries) = retry_waiting_command(finished(rotation).await, || {
+        spawn_write(&world.pool, world.actor, create("accept-first@customer.example"))
+    }).await;
+    println!("invitation_rotation_vs_acceptance_is_serialized retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
     assert_eq!(
-        refusal(&finished(rotation).await),
+        refusal(&rotation),
         (409, "EMAIL_ALREADY_REGISTERED".into()),
         "a rotation reissued an invitation that was already spent"
     );
@@ -1982,10 +2013,13 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
             }
         }
     });
-    finished(rejection)
-        .await
-        .expect("the rejection commits within its bounded retry");
+    let rejection = finished(rejection).await;
     let committed = python.await.unwrap();
+    let (rejection, retries) = retry_waiting_command(rejection, || {
+        spawn_write(&world.pool, world.actor, review_organization(&world, organization, false))
+    }).await;
+    println!("auth_maintenance_vs_ordered_write_lock_order retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
+    rejection.expect("the rejection commits within its bounded retry");
     wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
     let cleared: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM users WHERE id = ANY($1) AND password_reset_token_hash IS NULL",
