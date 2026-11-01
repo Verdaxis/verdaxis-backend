@@ -10,7 +10,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use verdaxis_read::market_contract::producer::{
     ActivationRefusal, DerivedEvent, EvidenceError, MAX_EVIDENCE_BYTES, MAX_ORDERS,
-    ProducerActivation, decode, derive, number, price_move_is_material, schema_has_producer,
+    ProducerActivation, decode, derive, number, price_move_is_material, retry_delay,
+    schema_has_producer,
 };
 
 const PRODUCT: &str = "SCALAR_FUEL";
@@ -656,5 +657,73 @@ fn order_payload_carries_the_order_provenance_fields() {
         ("order_id", json!(order(1))),
     ] {
         assert_eq!(payload[field], value, "{field}");
+    }
+}
+
+#[test]
+fn old_values_from_a_non_public_state_are_not_disclosed() {
+    // A hidden order becomes public with a new price and remainder: its hidden
+    // price and remainder are never named, so no PIN class carries them.
+    assert!(amend(live("100", "10").hidden(), live("110", "8")).is_empty());
+    assert!(
+        amend(
+            live("100", "10").hidden(),
+            live("110", "8").with_status("PARTIALLY_FILLED")
+        )
+        .is_empty()
+    );
+    // The same change of a public order keeps both classes and old values.
+    let public = amend(live("100", "10"), live("110", "8"));
+    assert_eq!(public.len(), 2);
+    assert_eq!(public[0].payload["old_price_per_mt_usd"].to_string(), "100");
+    // A newly public order still reaches SLICE targets through the new-order
+    // and best-price rules, which carry no hidden old value.
+    let events = derived(&envelope(
+        vec![transition(order(1), 0, Some(live("100", "10").hidden()), live("95", "10"))],
+        vec![aggregate("ASK", (1, Some("100")), (0, None))],
+        vec![aggregate("ASK", (2, Some("95")), (0, None))],
+        vec![pin_target(pin(1), order(1)), slice()],
+    ));
+    assert_eq!(classes(&events), vec![(slice_target(), "SLICE_BEST_PRICE_MOVED")]);
+    assert_eq!(events[0].payload["old_price_per_mt_usd"].to_string(), "100");
+}
+
+#[test]
+fn retry_delay_backs_off_and_is_bounded() {
+    use std::time::Duration;
+    assert_eq!(retry_delay(0), Duration::from_secs(2));
+    assert_eq!(retry_delay(1), Duration::from_secs(2));
+    assert_eq!(retry_delay(2), Duration::from_secs(4));
+    assert_eq!(retry_delay(3), Duration::from_secs(8));
+    assert_eq!(retry_delay(4), Duration::from_secs(16));
+    assert_eq!(retry_delay(5), Duration::from_secs(30));
+    assert_eq!(retry_delay(u32::MAX), Duration::from_secs(30));
+}
+
+/// The producer reads the outbox and never writes or sequences it.
+#[test]
+fn producer_sources_never_write_or_sequence_the_outbox() {
+    let sources = [
+        include_str!("../src/order_write/producer/mod.rs"),
+        include_str!("../src/order_write/producer/consume.rs"),
+        include_str!("../src/order_write/producer/derive.rs"),
+        include_str!("../src/order_write/producer/evidence.rs"),
+    ];
+    let sequencer_key = ["7264537260226625", "7_264_537_260_226_625"];
+    let advisory = ["pg_", "advisory"].concat();
+    for text in sources {
+        let words = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        for verb in ["insert into", "update", "delete from"] {
+            assert!(
+                !words.contains(&format!("{verb} market_event_outbox")),
+                "{verb} on the outbox"
+            );
+        }
+        assert!(!words.contains("stream_seq ="), "assigns a sequence value");
+        assert!(!words.contains("nextval"), "allocates a sequence value");
+        assert!(!words.contains(&advisory), "takes an advisory lock");
+        for key in sequencer_key {
+            assert!(!text.contains(key), "names the sequencer key");
+        }
     }
 }

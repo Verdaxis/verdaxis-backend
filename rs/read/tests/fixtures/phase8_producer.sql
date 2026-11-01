@@ -87,3 +87,64 @@ CREATE OR REPLACE FUNCTION producer_fixture_untouched() RETURNS jsonb LANGUAGE s
         'receipts',(SELECT count(*) FROM market_command_results),
         'benchmarks',(SELECT jsonb_agg(to_jsonb(b) ORDER BY id) FROM live_slice_benchmarks b));
 $$;
+
+-- `n` SLICE targets on one slice, each in its own watchlist of `owner`; returns
+-- them in the writer's captured-target shape.
+CREATE OR REPLACE FUNCTION producer_fixture_many_slices(owner uuid, product_code text, point uuid, n integer)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE captured jsonb := '[]'::jsonb; target uuid; watch uuid;
+BEGIN
+    FOR i IN 1..n LOOP
+        target := gen_random_uuid();
+        watch := producer_fixture_target(target, owner, 'SLICE', NULL, product_code, point, 'SPOT');
+        captured := captured || jsonb_build_array(jsonb_build_object('target_id',target,
+            'watchlist_id',watch,'observer_id',owner,'target_type','SLICE','order_id',NULL,
+            'market_product',product_code,'delivery_point_id',point,'availability_window','SPOT'));
+    END LOOP;
+    RETURN captured;
+END $$;
+
+CREATE OR REPLACE FUNCTION producer_fixture_slow() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_sleep(30);
+    RETURN NULL;
+END $$;
+
+-- Makes every watchlist event insert outlast the consumer's statement deadline.
+CREATE OR REPLACE FUNCTION producer_fixture_slow_inserts(enabled boolean) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    DROP TRIGGER IF EXISTS producer_fixture_slow ON watchlist_events;
+    IF enabled THEN
+        CREATE TRIGGER producer_fixture_slow BEFORE INSERT ON watchlist_events
+            FOR EACH STATEMENT EXECUTE FUNCTION producer_fixture_slow();
+    END IF;
+END $$;
+
+-- While a hold row exists, every outbox row the runtime role reads waits; the
+-- test changes other committed state during that wait.
+CREATE TABLE IF NOT EXISTS producer_fixture_hold(held boolean PRIMARY KEY);
+
+CREATE OR REPLACE FUNCTION producer_fixture_gate() RETURNS boolean LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+    WHILE EXISTS (SELECT 1 FROM public.producer_fixture_hold) LOOP
+        PERFORM pg_sleep(0.01);
+    END LOOP;
+    RETURN true;
+END $$;
+
+CREATE OR REPLACE FUNCTION producer_fixture_hold_reads(enabled boolean) RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF enabled THEN
+        INSERT INTO producer_fixture_hold VALUES (true) ON CONFLICT DO NOTHING;
+        ALTER TABLE market_event_outbox ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS producer_fixture_gate ON market_event_outbox;
+        CREATE POLICY producer_fixture_gate ON market_event_outbox FOR SELECT TO rust_app
+            USING (producer_fixture_gate());
+        GRANT EXECUTE ON FUNCTION producer_fixture_gate() TO rust_app;
+    ELSE
+        DELETE FROM producer_fixture_hold;
+    END IF;
+END $$;

@@ -1,10 +1,10 @@
 #![cfg(feature = "contract-tests")]
 //! The trusted watchlist producer against a migrated disposable database.
 //!
-//! Sources come from the real economic writer (cancel, new order, completed
-//! match, decline) wherever a component port exists. Shapes that need a route
-//! this phase does not own (a price-and-quantity amendment) and refused shapes
-//! use writer-shaped version 1 envelopes inserted through the fixture.
+//! Sources come from the real economic writer (cancel, new order, amendment,
+//! expiry, completed match, decline). Shapes a well-behaved writer cannot
+//! produce (an invalid envelope, an uncommitted row with a sequence value) and
+//! bulk sizes use writer-shaped version 1 envelopes inserted through the fixture.
 #[path = "support/market_database.rs"]
 mod market_database;
 
@@ -16,11 +16,12 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
 use verdaxis_read::market_contract::effects::{
-    EffectProbe, MutationKind, run_effect_probe, run_new_order_effect_probe,
+    EffectProbe, MutationKind, run_effect_probe, run_expiry_effect_probe,
+    run_new_order_effect_probe,
 };
 use verdaxis_read::market_contract::producer::{
-    BatchOutcome, BootstrapOutcome, ProducerActivation, ProducerError, bootstrap_watermark,
-    consume_batch,
+    BatchOutcome, BootstrapOutcome, INSERT_CHUNK_ROWS, ProducerActivation, ProducerError,
+    bootstrap_watermark, consume_batch, run_producer,
 };
 
 const RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -538,91 +539,218 @@ async fn new_best_quote_keeps_new_order_and_best_price_events() {
     );
 }
 
+/// A real amendment: the BID of the matching fixture (110 x 200, no ASK)
+/// with a PIN on it and a SLICE on its slice, amended through the amendment
+/// writer's own router.
+struct AmendSource {
+    f: Fixture,
+    router: axum::Router,
+    bid: Uuid,
+    pin: Uuid,
+    slice: Uuid,
+}
+
+const AMEND_KEY: &str = "synthetic-amend-signing-key-at-least-32-characters";
+
+impl AmendSource {
+    async fn new() -> Self {
+        use verdaxis_read::routes::market_write::amend::{AmendSettings, contract_router};
+        let mut f = Fixture::bootstrapped(false).await;
+        for fixture in [
+            include_str!("fixtures/market_write_matching.sql"),
+            include_str!("fixtures/market_write_amend.sql"),
+        ] {
+            sqlx::raw_sql(fixture).execute(&mut f.admin).await.unwrap();
+        }
+        sqlx::query("SELECT amend_fixture_minimum(1)")
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let bid = Uuid::from_u128(1);
+        sqlx::query("SELECT matching_fixture_seed($1,0,200)")
+            .bind(bid)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let (code, point) = matching_slice(&mut f.admin, bid).await;
+        let buyer = Uuid::from_u128(0x1001);
+        let pin = Uuid::new_v4();
+        sqlx::query("SELECT producer_fixture_target($1,$2,'PIN',$3,$4,$5,'SPOT')")
+            .bind(pin)
+            .bind(buyer)
+            .bind(bid)
+            .bind(&code)
+            .bind(point)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let slice = Uuid::new_v4();
+        sqlx::query("SELECT producer_fixture_target($1,$2,'SLICE',NULL,$3,$4,'SPOT')")
+            .bind(slice)
+            .bind(buyer)
+            .bind(&code)
+            .bind(point)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let router = contract_router(f.pool.clone(), AMEND_KEY, AmendSettings::default());
+        Self {
+            f,
+            router,
+            bid,
+            pin,
+            slice,
+        }
+    }
+
+    /// Amend the BID to 120 x 150 as its owner and commit.
+    async fn amend(&self) {
+        use axum::{body::Body, http::Request};
+        use jsonwebtoken::{EncodingKey, Header, encode};
+        use tower::ServiceExt;
+        let now = Utc::now().timestamp();
+        let token = encode(
+            &Header::default(),
+            &json!({"sub":Uuid::from_u128(0x1001),"type":"access","iat":now,"exp":now+600,"iss":"amend-tests","aud":"amend-tests"}),
+            &EncodingKey::from_secret(AMEND_KEY.as_bytes()),
+        )
+        .unwrap();
+        let response = self
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/orderbook/{}", self.bid))
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::from(
+                        json!({"price_per_mt_usd":"120","quantity_mt":"150"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+    }
+}
+
+/// The product code and point of a matching-fixture order.
+async fn matching_slice(admin: &mut PgConnection, order: Uuid) -> (String, Uuid) {
+    let row = sqlx::query("SELECT product_id,delivery_point_id FROM orderbook_orders WHERE id=$1")
+        .bind(order)
+        .fetch_one(&mut *admin)
+        .await
+        .unwrap();
+    let product_id: Uuid = row.get("product_id");
+    let policy: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+    let code = policy["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == product_id.to_string())
+        .unwrap()["code"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    (code, row.get("delivery_point_id"))
+}
+
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn one_source_target_keeps_price_and_quantity_events() {
-    let mut f = Fixture::new().await;
-    let envelope = f.amend_envelope(("OPEN", "100", "10"), ("OPEN", "110", "8"));
-    f.row(Some(&envelope)).await;
-    f.sequence().await;
-    f.consume().await;
-    let events = f.events().await;
+    let mut a = AmendSource::new().await;
+    a.amend().await;
+    a.f.sequence().await;
+    a.f.consume().await;
+    let events = a.f.events().await;
+    let (code, point) = matching_slice(&mut a.f.admin, a.bid).await;
     assert_eq!(
         keys(&events),
         BTreeSet::from([
             (
-                f.target,
+                a.pin,
                 "PIN_PRICE_CHANGED".to_owned(),
-                format!("PIN_PRICE_CHANGED|{}|ASK|0", f.order)
+                format!("PIN_PRICE_CHANGED|{}|BID|0", a.bid)
             ),
             (
-                f.target,
+                a.pin,
                 "PIN_QUANTITY_CHANGED".to_owned(),
-                format!("PIN_QUANTITY_CHANGED|{}|ASK|0", f.order)
+                format!("PIN_QUANTITY_CHANGED|{}|BID|0", a.bid)
+            ),
+            (
+                a.slice,
+                "SLICE_BEST_PRICE_MOVED".to_owned(),
+                format!("SLICE_BEST_PRICE_MOVED|{code}:{point}:SPOT|BID|0")
             ),
         ])
     );
-    let price = events
-        .iter()
-        .find(|e| e.class == "PIN_PRICE_CHANGED")
-        .unwrap();
-    assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "100");
-    assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "110");
-    let quantity = events
-        .iter()
-        .find(|e| e.class == "PIN_QUANTITY_CHANGED")
-        .unwrap();
-    assert_eq!(
-        quantity.payload["old_remaining_quantity_mt"].to_string(),
-        "10"
-    );
-    assert_eq!(
-        quantity.payload["new_remaining_quantity_mt"].to_string(),
-        "8"
-    );
+    let class = |name: &str| events.iter().find(|e| e.class == name).unwrap();
+    let price = class("PIN_PRICE_CHANGED");
+    assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "110");
+    assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "120");
+    let quantity = class("PIN_QUANTITY_CHANGED");
+    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "200");
+    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "150");
     assert_eq!(quantity.payload["status"], "OPEN");
-    assert_eq!(quantity.attested, instant("2026-10-30T10:00:00.250Z"));
+    let moved = class("SLICE_BEST_PRICE_MOVED");
+    assert_eq!(moved.payload["old_price_per_mt_usd"].to_string(), "110");
+    assert_eq!(moved.payload["new_price_per_mt_usd"].to_string(), "120");
+    assert_eq!(moved.payload["source_kind"], "LIVE_ORDER");
+    assert_eq!(moved.payload["real_count"], 1);
+    // The amended row's change instant is the event's observed instant.
+    let changed: DateTime<Utc> =
+        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
+            .bind(a.bid)
+            .fetch_one(&mut a.f.admin)
+            .await
+            .unwrap();
+    assert_eq!(instant(price.payload["observed_at"].as_str().unwrap()), changed);
+    // A replay of the same source adds nothing.
+    a.f.fixture("SELECT producer_fixture_watermark($1)", 0).await;
+    a.f.consume().await;
+    assert_eq!(a.f.events().await, events);
 }
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn delayed_source_ignores_later_python_target_snapshot() {
-    let mut f = Fixture::new().await;
-    let envelope = f.amend_envelope(("OPEN", "100", "10"), ("OPEN", "110", "8"));
-    f.row(Some(&envelope)).await;
-    f.sequence().await;
-    // Another writer moves the display before the delayed consumption.
-    sqlx::query("SELECT producer_fixture_display($1,120,6)")
-        .bind(f.target)
-        .execute(&mut f.admin)
+    let mut a = AmendSource::new().await;
+    a.amend().await;
+    a.f.sequence().await;
+    // The writer moved the display in its own transaction.
+    assert_eq!(
+        pin_display(&mut a.f.admin, a.pin).await,
+        ("120".to_owned(), "150".to_owned())
+    );
+    // Another writer moves the display again before the delayed consumption.
+    sqlx::query("SELECT producer_fixture_display($1,130,7)")
+        .bind(a.pin)
+        .execute(&mut a.f.admin)
         .await
         .unwrap();
-    f.consume().await;
-    let events = f.events().await;
-    let price = events
-        .iter()
-        .find(|e| e.class == "PIN_PRICE_CHANGED")
-        .unwrap();
-    assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "100");
-    assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "110");
-    let quantity = events
-        .iter()
-        .find(|e| e.class == "PIN_QUANTITY_CHANGED")
-        .unwrap();
+    a.f.consume().await;
+    let events = a.f.events().await;
+    let class = |name: &str| events.iter().find(|e| e.class == name).unwrap();
+    let price = class("PIN_PRICE_CHANGED");
+    assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "110");
+    assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "120");
+    let quantity = class("PIN_QUANTITY_CHANGED");
+    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "200");
+    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "150");
     assert_eq!(
-        quantity.payload["old_remaining_quantity_mt"].to_string(),
-        "10"
+        pin_display(&mut a.f.admin, a.pin).await,
+        ("130".to_owned(), "7".to_owned())
     );
-    assert_eq!(
-        quantity.payload["new_remaining_quantity_mt"].to_string(),
-        "8"
-    );
-    let display: (String, String) = sqlx::query_as("SELECT snapshot_price_per_mt_usd::numeric::text,snapshot_remaining_quantity_mt::numeric::text FROM watchlist_targets WHERE id=$1")
-        .bind(f.target)
-        .fetch_one(&mut f.admin)
+}
+
+async fn pin_display(admin: &mut PgConnection, pin: Uuid) -> (String, String) {
+    sqlx::query_as("SELECT snapshot_price_per_mt_usd::numeric::text,snapshot_remaining_quantity_mt::numeric::text FROM watchlist_targets WHERE id=$1")
+        .bind(pin)
+        .fetch_one(admin)
         .await
-        .unwrap();
-    assert_eq!(display, ("120".to_owned(), "6".to_owned()));
+        .unwrap()
 }
 
 #[tokio::test]
@@ -1286,6 +1414,13 @@ async fn decline_restoration_source_emits_the_restored_quantity_once() {
     let mut connection = pool.acquire().await.unwrap();
     bootstrap_watermark(&mut connection).await.unwrap();
     drop(connection);
+    let before_decline: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(Uuid::from_u128(1))
+    .fetch_one(&mut admin)
+    .await
+    .unwrap();
     let seller = Uuid::from_u128(0x2001);
     let now = Utc::now().timestamp();
     let token = encode(
@@ -1334,10 +1469,180 @@ async fn decline_restoration_source_emits_the_restored_quantity_once() {
         assert_eq!(payload["old_remaining_quantity_mt"].to_string(), "7");
         assert_eq!(payload["new_remaining_quantity_mt"].to_string(), "10");
         assert_eq!(payload["status"], "OPEN");
+        // The restoration is the order's change instant, not its earlier fill.
+        let changed: DateTime<Utc> = sqlx::query_scalar(
+            "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+        )
+        .bind(Uuid::from_u128(1))
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        assert_eq!(instant(payload["observed_at"].as_str().unwrap()), changed);
+        assert!(changed > before_decline);
         // The second pass replays from the start and must add nothing.
         sqlx::query("UPDATE watchlist_producer_state SET consumed_through_seq=0")
             .execute(&mut admin)
             .await
             .unwrap();
     }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn expiry_event_carries_the_expiry_instant() {
+    let mut f = Fixture::new().await;
+    sqlx::query("SELECT effect_fixture_expiry($1)")
+        .bind(f.order)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let changed_before: DateTime<Utc> =
+        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
+            .bind(f.order)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    run_expiry_effect_probe(&f.pool, f.probe(MutationKind::OrderExpired, f.order))
+        .await
+        .unwrap();
+    // The expiry component port captures no last-live projection, so this
+    // source derives no PIN class; its evidence still carries the instant the
+    // consumer copies into every order payload.
+    let evidence = f.evidence().await;
+    let after = &evidence["orders"][0]["after"];
+    assert_eq!(after["status"], "EXPIRED");
+    let changed: DateTime<Utc> =
+        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
+            .bind(f.order)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    assert!(changed > changed_before, "the expiry records its change instant");
+    assert_eq!(instant(after["observed_at"].as_str().unwrap()), changed);
+}
+
+/// A source whose insert outlasts the statement deadline is retried: the
+/// batch rolls back as busy with the watermark unchanged, and the running
+/// consumer completes it once the inserts can finish.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn a_timed_out_source_is_retried_without_moving_the_watermark() {
+    let mut f = Fixture::new().await;
+    let slice = f.slice_target().await;
+    f.cancel().await;
+    f.sequence().await;
+    sqlx::query("SELECT producer_fixture_slow_inserts(true)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(f.consume_once().await, Err(ProducerError::Busy));
+    assert!(f.events().await.is_empty());
+    assert_eq!(f.watermark().await, Some(0));
+    // The running consumer keeps retrying with backoff; it never stops for good.
+    let (stop, receiver) = tokio::sync::watch::channel(false);
+    let producer = tokio::spawn(run_producer(
+        f.pool.clone(),
+        activation(),
+        Arc::new(tokio::sync::Notify::new()),
+        receiver,
+    ));
+    tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+    assert!(f.events().await.is_empty());
+    assert_eq!(f.watermark().await, Some(0));
+    sqlx::query("SELECT producer_fixture_slow_inserts(false)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let high_water = f.high_water().await;
+    let mut done = false;
+    for _ in 0..120 {
+        if f.watermark().await == Some(high_water) {
+            done = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    stop.send_replace(true);
+    producer.await.unwrap();
+    assert!(done, "the consumer resumed after the deadline cleared");
+    assert_eq!(keys(&f.events().await), cancel_keys(&f, f.target, slice));
+}
+
+/// One source larger than one insert statement is inserted whole, in one
+/// transaction with its watermark.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn a_source_larger_than_one_insert_statement_is_inserted_whole() {
+    let mut f = Fixture::new().await;
+    let count = i32::try_from(INSERT_CHUNK_ROWS + 25).unwrap();
+    let targets: Value = sqlx::query_scalar("SELECT producer_fixture_many_slices($1,$2,$3,$4)")
+        .bind(f.actor)
+        .bind(&f.product_code)
+        .bind(f.point)
+        .bind(count)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    let aggregate = |best: Option<&str>| {
+        json!({"market_product":f.product_code,"delivery_point_id":f.point,"availability_window":"SPOT",
+            "side":"ASK","real_count":u8::from(best.is_some()),"demo_count":0,
+            "real":{"order_count":u8::from(best.is_some()),"best_price_per_mt_usd":best,"observed_at":null},
+            "demo":{"order_count":0,"best_price_per_mt_usd":null,"observed_at":null}})
+    };
+    let envelope = json!({"version":1,"mutation_id":Uuid::new_v4(),"captured_at":"2026-10-30T10:00:00Z",
+        "orders":[],"aggregates_before":[aggregate(Some("100"))],"aggregates_after":[aggregate(Some("99"))],
+        "targets":targets});
+    f.row(Some(&envelope)).await;
+    f.sequence().await;
+    let outcome = f.consume_once().await.unwrap();
+    assert_eq!(outcome.inserted, u64::try_from(count).unwrap());
+    assert_eq!(outcome.sources, 1);
+    assert_eq!(f.events().await.len(), usize::try_from(count).unwrap());
+    let high_water = f.high_water().await;
+    assert_eq!(f.watermark().await, Some(high_water));
+}
+
+/// The fence and floor are read again after the outbox read: a retention
+/// delete that commits while the read runs stops the batch.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn coverage_is_rechecked_after_the_outbox_read() {
+    let mut f = Fixture::new().await;
+    f.slice_target().await;
+    f.cancel().await;
+    f.sequence().await;
+    let high_water = f.high_water().await;
+    sqlx::query("SELECT producer_fixture_hold_reads(true)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let url = f.database.runtime_url.clone();
+    let consumer = tokio::spawn(async move {
+        let mut connection = PgConnection::connect(&url).await.unwrap();
+        consume_batch(&mut connection, &activation()).await
+    });
+    let mut held = false;
+    for _ in 0..300 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE usename='rust_app' AND wait_event='PgSleep'",
+        )
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            held = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert!(held, "the outbox read is held");
+    f.fixture("SELECT producer_fixture_floor($1)", high_water)
+        .await;
+    sqlx::query("SELECT producer_fixture_hold_reads(false)")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(consumer.await.unwrap(), Err(ProducerError::CoverageLost));
+    assert!(f.events().await.is_empty());
+    assert_eq!(f.watermark().await, Some(0));
 }
