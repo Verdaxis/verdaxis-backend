@@ -2154,15 +2154,10 @@ async fn kyc_party(world: &World, user: Uuid) -> KycParty {
     }
 }
 
-/// Each of the four rejection routes leaves every pre-existing trade exactly as
-/// it was — participants, lifecycle state, quantity and fee and term snapshots —
-/// whatever the rejected party's current membership, and the settlement
-/// reservation stays. The authority of an existing party is its immutable
-/// participation in the trade, not its current membership. Meanwhile new
-/// execution is refused: authentication stops for a rejected account, and the
-/// execution policy and its SQL mirror refuse an unlinked or rejected party.
-/// The deliver and pay requests themselves run in Python until the market
-/// phases and are not driven here.
+/// Organization rejection cancels pending trades and releases their restored
+/// reservation along with the withdrawn remainder. Confirmed and delivered
+/// trades retain their participants, lifecycle and fee/term snapshots. Other
+/// rejection routes retain all existing trades. New execution stays refused.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed() {
@@ -2248,12 +2243,17 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 verdict.unwrap_or_else(|error| panic!("{case}: {error:?}"));
             }
 
-            // Existing trades: immutable participants, lifecycle and snapshots.
+            // Only a pending trade in the rejected organization changes status;
+            // full-row equality still protects every participant and snapshot.
             for (trade, before) in trades.iter().zip(&trades_before) {
+                let mut expected = before.clone();
+                if route == Route::Organization && before["status"] == "PENDING_CONFIRMATION" {
+                    expected["status"] = Value::String("CANCELLED".into());
+                }
                 assert_eq!(
-                    &row_json(&world, TRADE_ROW, *trade).await,
-                    before,
-                    "{case}: a trade changed"
+                    row_json(&world, TRADE_ROW, *trade).await,
+                    expected,
+                    "{case}: a trade changed outside its permitted transition"
                 );
             }
             let authorized: i64 = sqlx::query_scalar("SELECT count(*) FROM trades WHERE id = ANY($1) AND $2 IN (buyer_user_id, seller_user_id)")
@@ -2267,8 +2267,9 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 "{case}: the party's participation no longer identifies it"
             );
 
-            // The settlement reservation of existing trades is untouched; only
-            // an organization rejection withdraws the uncommitted remainder.
+            // Fixture stock is 20 available / 80 reserved: 60 remainder plus
+            // the 20 pending take. Confirmed/delivered quantities were consumed
+            // before this snapshot. Rejection restores 20, then releases 80.
             let (available, reserved) = world.stock(listing.inventory).await;
             assert_eq!(
                 available + reserved,
@@ -2283,7 +2284,7 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 );
                 assert_eq!(
                     (available, reserved),
-                    (Decimal::from(80), Decimal::from(20)),
+                    (Decimal::from(100), Decimal::ZERO),
                     "{case}"
                 );
             } else {
