@@ -1266,13 +1266,15 @@ impl<'a> StockLedger<'a> {
             .version
             .checked_add(1)
             .ok_or_else(inconsistent_stock)?;
+        // Every order change records its instant, as the model's update hook does.
         sqlx::query(
-            "UPDATE orderbook_orders SET remaining_quantity_mt=$2,status=$3,version=$4 WHERE id=$1",
+            "UPDATE orderbook_orders SET remaining_quantity_mt=$2,status=$3,version=$4,updated_at=$5 WHERE id=$1",
         )
         .bind(id)
         .bind(remaining)
         .bind(status)
         .bind(version)
+        .bind(now)
         .execute(&mut *self.conn)
         .await?;
         if let Some(item) = order.item
@@ -1342,11 +1344,13 @@ impl ExpiryBatch<'_> {
         } else {
             None
         };
-        sqlx::query("UPDATE orderbook_orders SET status='EXPIRED',version=$2 WHERE id=$1")
-            .bind(order.id)
-            .bind(version)
-            .execute(&mut *self.conn)
-            .await?;
+        sqlx::query(
+            "UPDATE orderbook_orders SET status='EXPIRED',version=$2,updated_at=now() WHERE id=$1",
+        )
+        .bind(order.id)
+        .bind(version)
+        .execute(&mut *self.conn)
+        .await?;
         if let Some((item, next)) = balance {
             sqlx::query(
                 "UPDATE inventory_items SET current_stock_mt=$2,reserved_stock_mt=$3 WHERE id=$1",

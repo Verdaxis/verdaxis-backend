@@ -31,6 +31,7 @@ pub(crate) mod order_create;
 pub(crate) mod orders;
 pub mod outbox;
 mod post_only;
+pub mod producer;
 mod reservations;
 pub mod support;
 pub mod trade_lifecycle;
@@ -101,6 +102,7 @@ pub mod test_contract {
     }
     pub use super::matching::contract as matching;
     pub use super::post_only::contract as post_only;
+    pub use super::producer::contract as producer;
     pub use super::transaction::stock_contract;
     pub mod effects {
         pub use super::super::effects::MutationKind;

@@ -169,19 +169,22 @@ fn source_rules_reject_each_forbidden_form() {
     }
 }
 
-/// No Rust source can start a watchlist event producer: no production
-/// statement adds watchlist event rows, and the serving entry point and its
-/// runtime composition do not name the watchlist event table.
+/// Only the two reviewed writers add watchlist event rows, and the serving
+/// entry point and its runtime composition do not name the watchlist event table.
 ///
-/// The one reviewed writer is the order-write boundary's own effect module
-/// (`rs/read/src/order_write/events.rs`). It records the same withdrawal and
-/// price rows the Python order service writes, inside the caller's order
-/// transaction, and it starts no producer; the boundary scanner names that
-/// file and its exact insert targets. Every other source stays refused.
+/// The order-write boundary's own effect module
+/// (`rs/read/src/order_write/events.rs`) records the same withdrawal and price
+/// rows the Python order service writes, inside the caller's order transaction.
+/// The trusted producer's consumer transaction
+/// (`rs/read/src/order_write/producer/consume.rs`) derives rows from committed
+/// outbox evidence and runs only after the release activates it. The boundary
+/// scanner names both files and their exact insert targets. Every other source
+/// stays refused.
 #[test]
-fn no_producer_startup() {
+fn watchlist_event_writers_are_the_two_reviewed_files() {
     let root = repository_root();
     let order_write_effects = root.join("rs/read/src/order_write/events.rs");
+    let trusted_consumer = root.join("rs/read/src/order_write/producer/consume.rs");
     let mut production = Vec::new();
     for directory in ["rs/read/src", "rs/contract/src"] {
         production.extend(files(&root.join(directory), "rs"));
@@ -189,8 +192,8 @@ fn no_producer_startup() {
     production.extend(files(&root.join("rs/read/sql"), "sql"));
     assert!(production.len() > 50, "the production sources are present");
     assert!(
-        order_write_effects.is_file(),
-        "the reviewed writer is present"
+        order_write_effects.is_file() && trusted_consumer.is_file(),
+        "the reviewed writers are present"
     );
 
     let mut startup = vec![
@@ -201,7 +204,7 @@ fn no_producer_startup() {
 
     let mut violations = Vec::new();
     for path in &production {
-        if path == &order_write_effects {
+        if path == &order_write_effects || path == &trusted_consumer {
             continue;
         }
         if inserts_watchlist_events(&source_text(path)) {

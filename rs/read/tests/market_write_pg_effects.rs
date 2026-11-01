@@ -138,6 +138,22 @@ async fn outbox_row_carries_mutation_identity_and_before_after() {
     assert_eq!(evidence["aggregates_before"].as_array().unwrap().len(), 2);
     assert_eq!(evidence["aggregates_after"].as_array().unwrap().len(), 2);
     assert!(evidence["captured_at"].is_string());
+    let changed: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(f.order)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    let observed = |state: &str| -> chrono::DateTime<chrono::Utc> {
+        evidence["orders"][0][state]["observed_at"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    assert_eq!(observed("after"), changed);
+    assert!(observed("before") <= changed);
     assert_eq!(
         row.get::<Value, _>("participants"),
         json!([f.organization.to_string()])
@@ -661,6 +677,18 @@ async fn aggregate_evidence_separates_real_and_demo_prices_and_quantity() {
     assert_eq!(after["real"]["quantity_mt"], "0");
     assert_eq!(after["real"]["best_price_per_mt_usd"], Value::Null);
     assert_eq!(after["demo"], ask["demo"]);
+    let instant = |value: &Value| -> chrono::DateTime<chrono::Utc> {
+        value.as_str().unwrap().parse().unwrap()
+    };
+    let demo_changed: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE provenance='DEMO'",
+    )
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    assert_eq!(instant(&ask["demo"]["observed_at"]), demo_changed);
+    assert!(ask["real"]["observed_at"].is_string());
+    assert_eq!(after["real"]["observed_at"], Value::Null);
     let live: rust_decimal::Decimal = sqlx::query_scalar(
         "SELECT benchmark_price_per_mt_usd FROM live_slice_benchmarks WHERE side='ASK'",
     )

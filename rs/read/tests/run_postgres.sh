@@ -76,11 +76,11 @@ ALTER SCHEMA public OWNER TO rust_migrator;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
 }
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test; do
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test; do
   market_image_role_setup "$database"
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
-for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT FREEZE FREEZE_ENFORCEMENT RACES; do
+for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT FREEZE FREEZE_ENFORCEMENT RACES PRODUCER; do
   database="verdaxis_$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')_test"
   export "RUST_${target}_TEMPLATE_DATABASE=$database"
 done
@@ -102,7 +102,9 @@ export RUST_PUBLISH_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@
 export RUST_PUBLISH_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_publish_test"
 export RUST_RACES_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_races_test"
 export RUST_RACES_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_races_test"
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test; do
+export RUST_PRODUCER_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_producer_test"
+export RUST_PRODUCER_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_producer_test"
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test; do
   export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
   export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
@@ -186,6 +188,7 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test market_write_pg_trade_membership \
   --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
   --test market_write_pg_races \
+  --test market_write_pg_producer \
   -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
 market_status=${PIPESTATUS[0]}
 set -e

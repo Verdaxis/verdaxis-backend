@@ -209,6 +209,8 @@ pub fn config_from_deployed_environment(
             watchlist_producer_activated_at: environment
                 .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
                 .cloned(),
+            // Written beside the activation instant in the same release file.
+            watchlist_event_producer: environment.get("WATCHLIST_EVENT_PRODUCER").cloned(),
             system_status: environment.get("SYSTEM_STATUS").cloned(),
             system_status_message: environment.get("SYSTEM_STATUS_MESSAGE").cloned(),
             // The deploy preparer projects the environment's public API host;

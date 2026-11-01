@@ -44,6 +44,13 @@ async fn serve() -> Result<(), ()> {
         verdaxis_read::streams::runtime::CapacityConfig::default(),
     )
     .await;
+    // The trusted watchlist producer runs only when the release activates it.
+    let producer = verdaxis_read::watchlist_producer::start(
+        &state,
+        streams
+            .as_ref()
+            .map(verdaxis_read::streams::runtime::StreamRuntime::producer_wake),
+    );
     // Disabled caching starts no task; an enabled cache starts the authority
     // refresh and invalidation loop before the service accepts traffic.
     state.start_trading_cache();
@@ -54,6 +61,9 @@ async fn serve() -> Result<(), ()> {
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
+        if let Some(producer) = producer {
+            producer.shutdown().await;
+        }
         if let Some(streams) = streams {
             streams.shutdown().await;
         }

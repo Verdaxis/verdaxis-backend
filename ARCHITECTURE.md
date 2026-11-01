@@ -912,7 +912,7 @@ removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md
 
 ## Trusted watchlist producer schema
 
-Revision `p89_20261022_watchlist_producer` follows `p3_20261020_auth_tokens`.
+Revision `p89_20261022_watchlist_producer` follows `p5_20261020_read_indexes`.
 It adds five producer identity columns, their all-or-none CHECK and replay
 identity index to `watchlist_events`, nullable internal JSONB evidence to
 `market_event_outbox`, and the singleton `watchlist_producer_state` watermark.
@@ -921,10 +921,43 @@ read, insert and update the watermark but cannot delete it; shared outbox
 writer/sequencer grants stay unchanged. The consumer is not activated by this
 schema change. Downgrade refuses retained trusted rows or internal evidence.
 The applying production release requires this exact reviewed checkpoint.
-`p89_20261022_watchlist_producer` follows `p3_20261020_auth_tokens`, which in turn
-follows `prc_20261018_cache`: one linear chain and one Alembic head. Under
-PD-MIG-1 the later-shipping phase reparents its own revision onto the earlier
-phase's head by changing `down_revision` only.
+The chain is linear with one Alembic head: `prc_20261018_cache`,
+`prc_20261026_changes`, `p3_20261020_auth_tokens`, `sse_20261021_replay_floor`,
+`p5_20261020_read_indexes`, `p89_20261022_watchlist_producer`,
+`p89_20261022_trade_freeze`. A later-shipping phase reparents its own revision
+onto the earlier phase's head by changing `down_revision` only.
+
+## Trusted watchlist producer consumer
+
+`rs/read/src/order_write/producer/` consumes the internal evidence that
+`order_write/effects.rs` writes to `market_event_outbox.producer_evidence` in the
+economic transaction. `evidence.rs` decodes the version 1 envelope with size and
+count limits; `derive.rs` derives every PIN and SLICE event from the immutable
+before/after states, aggregates and captured targets (never from current rows or
+target snapshots); `consume.rs` is the only file with producer SQL. One READ
+COMMITTED transaction locks the watermark singleton, requires the retention fence
+`blocked` and the replay floor at or below the watermark, reads at most 100
+sequenced rows after it, locks the captured targets `FOR KEY SHARE` in id order,
+skips deleted or changed targets, reads the fence and floor again, inserts
+events with producer `rust-market-v1` on the identity index (`ON CONFLICT DO
+NOTHING`, at most 1,000 rows per statement) and moves the watermark. A PIN class
+is never derived from a non-public earlier state. A failed batch writes nothing
+and is retried with a bounded backoff (2 s doubling to 30 s). The
+source identity is the envelope's mutation id, because one mutation appends
+several outbox rows with the same envelope; `source_stream_seq` is the first of
+them. Rows without evidence are covered with no event; an invalid trusted
+envelope stops consumption at that row. Sequence gaps are passed; a floor above
+the watermark stops it. The consumer never writes the outbox, never sequences
+and never changes a target snapshot. Organization market-access invalidation
+keeps its synchronous legacy watchlist rows in `order_write/events.rs`.
+`bootstrap_watermark` is an explicit operator step that creates the watermark at
+the sequenced high-water barrier and refuses once any trusted evidence exists.
+The serving process starts the consumer only when `.runtime-release.env` names
+`WATCHLIST_EVENT_PRODUCER=rust-market-v1` beside a valid
+`WATCHLIST_PRODUCER_ACTIVATED_AT` and the verified `RELEASE_SHA`;
+`legacy-python` pauses it with the evidence retained after the watermark. It
+reuses the stream dispatcher's wake signal plus a 2 s poll on the existing read
+pool, so it adds no database connection.
 
 ## Rust Phase 2 shared route runner
 

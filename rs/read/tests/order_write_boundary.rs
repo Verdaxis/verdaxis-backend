@@ -338,6 +338,11 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
         ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
         ("events.rs", &["WATCHLIST_EVENTS"]),
+        // The trusted producer's consumer transaction and watermark bootstrap.
+        (
+            "producer/consume.rs",
+            &["WATCHLIST_EVENTS", "WATCHLIST_PRODUCER_STATE"],
+        ),
         ("inventory.rs", &["INVENTORY_ITEMS", "ORDERBOOK_ORDERS"]),
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
         ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
@@ -1506,15 +1511,23 @@ fn watchlist_event_insert_authority_is_scoped_to_the_exact_source_file() {
     let root = repository_root();
     let boundary = root.join("rs/read/src/order_write");
     let events = boundary.join("events.rs");
+    let consumer = boundary.join("producer/consume.rs");
     assert!(boundary_insert_allowed(&root, &events, "WATCHLIST_EVENTS"));
+    assert!(boundary_insert_allowed(
+        &root,
+        &consumer,
+        "WATCHLIST_EVENTS"
+    ));
     let mut files = Vec::new();
     collect(&boundary, "rs", &mut files);
     files.extend([
         boundary.join("nested/events.rs"),
         boundary.join("unlisted.rs"),
+        boundary.join("producer/derive.rs"),
+        boundary.join("consume.rs"),
     ]);
     for path in files {
-        if path != events {
+        if path != events && path != consumer {
             assert!(!boundary_insert_allowed(&root, &path, "WATCHLIST_EVENTS"));
         }
     }
@@ -1532,6 +1545,50 @@ fn watchlist_event_insert_authority_is_scoped_to_the_exact_source_file() {
     }
     for table in WRITE_TABLES {
         assert!(boundary_insert_allowed(&root, &events, table));
+    }
+}
+
+#[test]
+fn producer_insert_authority_is_scoped_to_the_consumer_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let consumer = boundary.join("producer/consume.rs");
+    for table in ["WATCHLIST_EVENTS", "WATCHLIST_PRODUCER_STATE"] {
+        assert!(boundary_insert_allowed(&root, &consumer, table));
+    }
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("producer/mod.rs"),
+        boundary.join("producer/derive.rs"),
+        boundary.join("producer/evidence.rs"),
+        boundary.join("consume.rs"),
+        boundary.join("nested/producer/consume.rs"),
+    ]);
+    for path in files {
+        if path != consumer {
+            assert!(!boundary_insert_allowed(
+                &root,
+                &path,
+                "WATCHLIST_PRODUCER_STATE"
+            ));
+        }
+    }
+    for table in [
+        "MARKET_EVENT_REPLAY_STATE",
+        "MARKET_EVENT_RETENTION_CONTROL",
+        "WATCHLIST_TARGETS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &consumer, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &consumer, table));
     }
 }
 

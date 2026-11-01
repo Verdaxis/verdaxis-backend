@@ -281,6 +281,10 @@ pub struct Phase2Options {
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
+    /// The watchlist event producer selected in the same release metadata
+    /// file: `rust-market-v1` activates the trusted producer, `legacy-python`
+    /// pauses it. Absent until a release records one.
+    pub watchlist_event_producer: Option<String>,
     /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
     /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
     /// validated at startup by `runtime::config`; absent means operational.
@@ -347,6 +351,9 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
 }
 
 pub use order_write::matching as market_matching;
+/// The trusted watchlist producer: release activation, the serving-process
+/// consumer and the operator watermark bootstrap.
+pub use order_write::producer as watchlist_producer;
 #[cfg(feature = "contract-tests")]
 pub use order_write::test_contract as market_contract;
 pub use order_write::{MarketErrorCode, MarketWriteError};
