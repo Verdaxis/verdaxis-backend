@@ -8,11 +8,14 @@
 //! deletes, so no batch can remove a row inside the window.
 //!
 //! Work is bounded three ways: rows per statement, statements per run, and a
-//! wall-clock deadline that sits inside the unit's start timeout. A run that
-//! stops at a bound reports `batch_limit_reached` and exits 0; the rows left are
-//! older than the window and the next daily run continues from the oldest.
+//! wall-clock deadline that sits inside the unit's start timeout. Each delete
+//! also carries a lock-wait limit and a statement time limit that ends at the
+//! run deadline. A run that stops at a row or statement bound reports
+//! `batch_limit_reached` and exits 0; the rows left are older than the window
+//! and the next daily run continues from the oldest.
 //!
-//! Refusals come before the first statement, in this order: `--apply`, the
+//! Refusals come before the first statement, in this order: job kind,
+//! `--apply`, the expected release format, an absolute deploy-state path, the
 //! configured environment and release against the command's, absent deploy
 //! state, then the attested database and role on the connection that deletes.
 use crate::analytics::retention::login_retention_cutoff;
@@ -20,7 +23,7 @@ use crate::cli::context::RunContext;
 use crate::cli::gate::{require_apply, require_job_preflight, require_target};
 use crate::cli::{Exit, JobArgs, JobKind, RETRY_DELAYS};
 use chrono::{DateTime, NaiveDate, Utc};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{Connection, PgConnection, PgPool};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -98,6 +101,14 @@ pub struct Runtime<'a> {
     pub database: &'a str,
 }
 
+/// A full lowercase 40-hex commit SHA, the only release identity a job accepts.
+fn is_full_release_sha(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 fn is_retryable(error: &sqlx::Error) -> bool {
     error
         .as_database_error()
@@ -105,23 +116,55 @@ fn is_retryable(error: &sqlx::Error) -> bool {
         .is_some_and(|code| RETRYABLE_SQLSTATES.contains(&code.as_ref()))
 }
 
+/// One delete in its own transaction, with the lock wait and the statement time
+/// limited for that transaction only (`set_config(.., true)` is `SET LOCAL`), so
+/// the pooled connection keeps its own settings. A statement that is still
+/// running when the run deadline arrives is cancelled by the server.
+async fn delete_once(
+    conn: &mut PgConnection,
+    cutoff: NaiveDate,
+    batch_rows: i64,
+    lock_timeout: Duration,
+    run_ends: Instant,
+) -> Result<u64, sqlx::Error> {
+    // Zero disables a PostgreSQL timeout, so each limit is at least 1 ms.
+    let lock_ms = lock_timeout.as_millis().max(1);
+    let statement_ms = run_ends
+        .saturating_duration_since(Instant::now())
+        .as_millis()
+        .max(1);
+    let mut tx = conn.begin().await?;
+    sqlx::query(
+        "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
+    )
+    .bind(format!("{lock_ms}ms"))
+    .bind(format!("{statement_ms}ms"))
+    .execute(&mut *tx)
+    .await?;
+    let done = sqlx::query(DELETE_BATCH)
+        .bind(cutoff)
+        .bind(batch_rows)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(done.rows_affected())
+}
+
 /// One bounded delete. A serialization failure or deadlock rolls the statement
 /// back and may be repeated: the delete is idempotent. Three attempts at most,
-/// on the delays of the job retry policy. Any other error is final.
+/// on the delays of the job retry policy. Any other error is final, including
+/// a lock wait or statement time limit.
 async fn delete_batch(
     conn: &mut PgConnection,
     cutoff: NaiveDate,
     batch_rows: i64,
+    limits: PruneLimits,
+    run_ends: Instant,
 ) -> Result<u64, Exit> {
     let mut retries = 0;
     loop {
-        let result = sqlx::query(DELETE_BATCH)
-            .bind(cutoff)
-            .bind(batch_rows)
-            .execute(&mut *conn)
-            .await;
-        match result {
-            Ok(done) => return Ok(done.rows_affected()),
+        match delete_once(conn, cutoff, batch_rows, limits.lock_timeout, run_ends).await {
+            Ok(removed) => return Ok(removed),
             Err(error) if is_retryable(&error) && retries < RETRY_DELAYS.len() => {
                 tokio::time::sleep(RETRY_DELAYS[retries]).await;
                 retries += 1;
@@ -149,7 +192,8 @@ async fn prune_login_days(
                 cutoff,
             });
         }
-        let removed = delete_batch(conn, cutoff, batch_rows).await?;
+        let removed =
+            delete_batch(conn, cutoff, batch_rows, limits, started + limits.deadline).await?;
         batches += 1;
         deleted += removed;
         if removed < batch_rows as u64 {
@@ -176,6 +220,18 @@ pub async fn execute(
         return Err(Exit::Usage);
     }
     require_apply(job.apply)?;
+    // The expected pair is checked again here because a caller can build a
+    // `JobArgs` without the command-line parser; an empty expected and an empty
+    // configured release would otherwise compare equal.
+    if !is_full_release_sha(&job.identity.release_sha) {
+        return Err(Exit::Usage);
+    }
+    // An empty or relative path would be resolved against the working directory
+    // (or not at all), so a live deploy could go unseen. The shared gate refuses
+    // it too; this check keeps the job safe on its own.
+    if !runtime.deploy_state.is_absolute() {
+        return Err(Exit::Precondition);
+    }
     require_job_preflight(
         runtime.configured_environment,
         runtime.configured_release_sha,
