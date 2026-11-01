@@ -283,7 +283,84 @@ async def seed_market(command, engine, factory):
     return {}
 
 
+class RecordingBus:
+    """The dispatcher's event bus, recording every publish instead of serving SSE."""
+
+    def __init__(self) -> None:
+        self.frames: list[dict] = []
+        self.released_at: float | None = None
+
+    async def publish(self, channel, event_type, payload, seq=None):
+        loop = asyncio.get_running_loop()
+        elapsed = None if self.released_at is None else loop.time() - self.released_at
+        self.frames.append(
+            {"channel": channel, "event_type": event_type, "payload": payload, "seq": seq, "after_release_s": elapsed}
+        )
+
+
+async def dispatch(command, engine, factory):
+    """Python's unchanged dispatcher: sequencer, hub fan-out, then org replay.
+
+    After the dispatcher holds the sequencer lock and is idle, ``HELD <listener
+    pid>`` lets the Rust test commit its writes; ``RELEASE`` then starts the
+    wait for the expected private frames. Rust writers send no wake, so the
+    frames arrive through the dispatcher's own poll.
+    """
+    from app.models.market_event import MarketEventOutbox
+    from app.services.market_event_dispatch import (
+        MarketEventDispatcher,
+        fetch_events_for_org,
+    )
+
+    args = command["args"]
+    loop = asyncio.get_running_loop()
+    bus = RecordingBus()
+    dispatcher = MarketEventDispatcher(engine, bus)
+    await dispatcher.start()
+    try:
+        deadline = loop.time() + 20
+        while not dispatcher._is_leader:
+            if loop.time() > deadline:
+                raise RuntimeError("the Python dispatcher did not take the sequencer lock")
+            await asyncio.sleep(0.02)
+        emit("HELD", dispatcher._listener_conn.get_server_pid())
+        expect("RELEASE")
+        bus.released_at = loop.time()
+        expected = int(args["expect_private"])
+        deadline = loop.time() + 20
+        while sum(1 for frame in bus.frames if frame["seq"] is not None) < expected:
+            if loop.time() > deadline:
+                break
+            await asyncio.sleep(0.02)
+        # Keep the dispatcher running past its next poll, so a repeated
+        # delivery of the same row would be recorded too.
+        await asyncio.sleep(float(args["settle_seconds"]))
+    finally:
+        await dispatcher.stop()
+    replay = {}
+    async with factory() as db:
+        for org in args["orgs"]:
+            rows = await fetch_events_for_org(db, org, after_seq=int(args["after_seq"]))
+            replay[org] = [
+                {
+                    "seq": row.stream_seq,
+                    "event_type": row.event_type,
+                    "payload": row.payload,
+                    "participants": [str(value) for value in row.participant_org_ids],
+                    "public": row.public_market_invalidation,
+                    "fields": list(type(row).__slots__),
+                }
+                for row in rows
+            ]
+    return {
+        "frames": bus.frames,
+        "replay": replay,
+        "mapped_columns": sorted(MarketEventOutbox.__table__.columns.keys()),
+    }
+
+
 COMMANDS = {
+    "dispatch": dispatch,
     "reminder_scan": reminder_scan,
     "reminder_delivery": reminder_delivery,
     "demo_find_ticks": demo_find_ticks,
