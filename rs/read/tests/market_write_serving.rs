@@ -349,6 +349,44 @@ fn served_router_without_phase2_settings_mounts_no_market_operation() {
     });
 }
 
+/// The public reads on the order-entry path and its neighbours route to the
+/// same read handlers whether or not the market writes are mounted.
+#[test]
+fn public_reads_still_serve_with_the_market_routes_mounted() {
+    const READS: [(&str, &str); 4] = [
+        ("/api/orderbook", "/api/orderbook"),
+        ("/api/orderbook/bids", "/api/orderbook/bids"),
+        ("/api/orderbook/asks", "/api/orderbook/asks"),
+        ("/api/listings", "/api/listings"),
+    ];
+    let mut answers = Vec::new();
+    let log = captured(async {
+        for (round, market) in [None, Some(options(true))].into_iter().enumerate() {
+            let router = verdaxis_read::router(offline_state(market));
+            for (index, (path, _)) in READS.iter().enumerate() {
+                let request = Request::builder()
+                    .uri(*path)
+                    .header("x-request-id", request_id(round * 10 + index))
+                    .body(Body::empty())
+                    .unwrap();
+                answers.push(send(&router, request).await);
+            }
+        }
+    });
+    let (without, with) = answers.split_at(READS.len());
+    for (index, (path, template)) in READS.iter().enumerate() {
+        assert_eq!(with[index], without[index], "{path}");
+        assert_ne!(with[index].0, StatusCode::METHOD_NOT_ALLOWED, "{path}");
+        for round in [0, 1] {
+            assert_eq!(
+                logged_route(&log, &request_id(round * 10 + index)),
+                vec![(*template).to_owned()],
+                "{path}"
+            );
+        }
+    }
+}
+
 /// Python's support-scope middleware: a request that carries a support
 /// context is refused with 403 before authentication unless it is a read or
 /// one of the three classified mutations (order entry, order cancellation by
@@ -686,6 +724,27 @@ fn uuid_of(body: &Value, field: &str) -> Uuid {
         .unwrap()
 }
 
+/// The durable marker each market write must raise. Audit-only writes name
+/// `audit_actions`, so a renamed audit action fails the marker test.
+fn markers_raised_by(operation: &str) -> &'static [&'static str] {
+    match operation {
+        "freeze.freeze" => &["trade_freezes", "audit_actions"],
+        "freeze.unfreeze" | "commission.update" => &["audit_actions"],
+        "suggestion.dismiss" => &["dismissed_suggestions"],
+        "support.capability_grant" => &["capability_assignments", "audit_actions"],
+        "support.context_start" => &["support_contexts", "audit_actions"],
+        "support.context_exit" | "support.capability_revoke" => &["audit_actions"],
+        operation
+            if ["inventory.", "order.", "trade."]
+                .iter()
+                .any(|prefix| operation.starts_with(prefix)) =>
+        {
+            &["outbox_evidence"]
+        }
+        other => panic!("no marker listed for {other}"),
+    }
+}
+
 /// Every market write that succeeds through the served router raises at least
 /// one durable marker of `fixtures/market_write_markers.sql` (the marker set
 /// the switch pack counts against its baseline).
@@ -707,17 +766,12 @@ async fn every_market_write_moves_a_marker() {
     let mut step =
         |name: &'static str, before: &Value, after: &Value, result: &(StatusCode, Value)| {
             assert!(result.0.is_success(), "{name}: {result:?}");
-            let rose: Vec<&String> = after
-                .as_object()
-                .unwrap()
-                .iter()
-                .filter(|(key, value)| value.as_i64() > before[key.as_str()].as_i64())
-                .map(|(key, _)| key)
-                .collect();
-            assert!(
-                !rose.is_empty(),
-                "{name} raised no marker: {before} -> {after}"
-            );
+            for marker in markers_raised_by(name) {
+                assert!(
+                    after[*marker].as_i64() > before[*marker].as_i64(),
+                    "{name} did not raise {marker}: {before} -> {after}"
+                );
+            }
             covered.push(name);
         };
 
@@ -1238,6 +1292,90 @@ async fn rust_market_write_wakes_live_subscribers_on_commit() {
             .is_err(),
         "no second wake for the same commit"
     );
+    pool.close().await;
+}
+
+/// A Rust market write reaches a live stream subscriber (the Rust sequencer
+/// election, dispatcher and hub) without waiting for the poll.
+///
+/// The election waits up to one poll interval for a wake after each turn. The
+/// next write is sent right after the previous delivery, so without the
+/// commit-time wake its delivery would wait for that poll, one interval after
+/// the previous turn, less the time the write itself took. Each delivery must
+/// come within a quarter of an interval after the write returns.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn rust_market_writes_reach_a_live_stream_subscriber_without_waiting_for_the_poll() {
+    use verdaxis_read::streams::election::POLL_INTERVAL;
+    use verdaxis_read::streams::runtime::{CapacityConfig, start_streams};
+    let mut f = Fixture::new().await;
+    let point = rotterdam(&mut f).await;
+    let (router, pool) = f.router(options(false)).await;
+    let mut config = config(&f.runtime_url, Some(options(false)));
+    // Two services of four workers, each with pool 2, overflow 1 and one
+    // listener, plus the reserve: the Python budget of 52 connections.
+    config.python_budget = 52;
+    config.prepared_budget = Some(
+        json!({"version":1,"release_sha":config.release_sha,"environment_digest":"a".repeat(64),
+            "services":2,"workers":4,"pool":2,"overflow":1,"reserve":20,"rust_pool":config.pool_max,
+            "python_budget":52,"cache_listener":0,"stream_listener":1,"total":52+config.pool_max+1,
+            "configured_max_connections":config.configured_max_connections})
+        .to_string(),
+    );
+    let pools = verdaxis_read::connect(&config).await.unwrap();
+    let mut streams = AppState::new(config, pools, policy()).unwrap();
+    let runtime = start_streams(&mut streams, CapacityConfig::default())
+        .await
+        .expect("the stream runtime starts");
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !verdaxis_read::streams::runtime::ready(&streams) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stream runtime is not ready"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let hub = streams.streams.as_ref().unwrap().hub.clone();
+    let mut buyer = hub.subscribe_org(id(BUYER_ORG)).unwrap();
+    let mut latencies = Vec::new();
+    for round in 0..4 {
+        let price = format!("{}", 40 + round);
+        let key = format!("live-{round}");
+        let started = std::time::Instant::now();
+        let created = call(
+            &router,
+            BUYER,
+            "POST",
+            "/api/orderbook",
+            bid(&price, point),
+            Some(&key),
+        )
+        .await;
+        assert_eq!(created.0, StatusCode::CREATED, "{created:?}");
+        let committed = std::time::Instant::now();
+        println!("LIVE_WRITE_MS {}", started.elapsed().as_millis());
+        tokio::time::timeout(Duration::from_secs(5), buyer.recv())
+            .await
+            .expect("the write is delivered")
+            .expect("an open subscription");
+        latencies.push(committed.elapsed());
+    }
+    println!(
+        "LIVE_DELIVERY_MS {:?}",
+        latencies
+            .iter()
+            .map(Duration::as_millis)
+            .collect::<Vec<_>>()
+    );
+    // The first round may meet a turn already under way; the later ones each
+    // start right after a turn.
+    for latency in &latencies[1..] {
+        assert!(
+            *latency < POLL_INTERVAL / 4,
+            "a delivery waited for the poll: {latencies:?}"
+        );
+    }
+    runtime.shutdown().await;
     pool.close().await;
 }
 
