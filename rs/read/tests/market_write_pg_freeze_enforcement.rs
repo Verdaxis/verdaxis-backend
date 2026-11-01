@@ -63,7 +63,7 @@ impl Fixture {
                 .fetch_one(&mut admin)
                 .await
                 .unwrap(),
-            "p89_20261022_trade_freeze"
+            "ob_20261031_offboarding"
         );
         for sql in [
             include_str!("fixtures/phase9_trades.sql"),

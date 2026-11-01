@@ -117,7 +117,7 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
   export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
     MIGRATOR_DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
-  "$RUST_TEST_PYTHON" -m alembic upgrade p89_20261022_trade_freeze
+  "$RUST_TEST_PYTHON" -m alembic upgrade ob_20261031_offboarding
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=rust_migrator -v backup_role=rust_backup \
