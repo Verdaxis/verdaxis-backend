@@ -9,7 +9,7 @@
 //! while that user still depends on the grace. The same eligibility text runs
 //! when a page is read and again inside the claim statement, so a user who is
 //! rejected or moves organization between the two is not claimed.
-use super::{Delivery, MailLog};
+use super::{Delivery, MailTransport};
 use crate::cli::Exit;
 use crate::cli::context::RunContext;
 use crate::cli::gate::require_target;
@@ -221,10 +221,10 @@ async fn record_sent(conn: &mut PgConnection, grace_id: Uuid) -> Result<(), sqlx
     .map(|_| ())
 }
 
-/// The notice sender: the shared Phase 2 provider client plus the message
+/// The notice sender: the shared keyed mail transport plus the message
 /// settings and the database the job attests before its first claim.
 pub struct KycNotice {
-    mail: MailClient,
+    mail: MailTransport,
     sender: String,
     frontend: String,
     database: String,
@@ -233,7 +233,7 @@ pub struct KycNotice {
 impl KycNotice {
     pub fn new(mail: MailClient, sender: String, frontend: String, database: String) -> Self {
         Self {
-            mail,
+            mail: MailTransport::new(mail),
             sender,
             frontend,
             database,
@@ -242,16 +242,9 @@ impl KycNotice {
 
     /// The one place a notice reaches the provider. The key is stable per
     /// grace row, which is one per user and organization, so the provider can
-    /// deduplicate a replay on its side while the claim row stops ours. When
-    /// the shared transport gains a keyed send, only this function changes.
+    /// deduplicate a replay on its side while the claim row stops ours.
     async fn deliver(&self, recipient: &str, payload: &Value, key: &str) -> Delivery {
-        let delivery = if self.mail.send_with_idempotency(payload, Some(key)).await {
-            Delivery::Sent
-        } else {
-            Delivery::Refused
-        };
-        MailLog::new(recipient, delivery).record();
-        delivery
+        self.mail.send_keyed(recipient, payload, key).await
     }
 
     /// Claim and send up to `limit` notices (at most [`PAGE_SIZE`]).

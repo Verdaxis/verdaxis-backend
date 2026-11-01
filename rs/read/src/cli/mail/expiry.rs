@@ -24,7 +24,7 @@
 //! the same rows during the switch. Number fields in `notifications.data` are
 //! compared and rewritten by PostgreSQL only (its float parsing and printing
 //! are exact), never parsed and printed again here.
-use super::{Delivery, MailLog};
+use super::{Delivery, MailTransport};
 use crate::cli::{Exit, retry_bounded};
 use crate::crud::referrals::invite::MailClient;
 use crate::order_write::{ReminderWindow, lock_reminder_delivery};
@@ -185,14 +185,17 @@ pub trait ExpirySender: Sync {
     -> impl Future<Output = Delivery> + Send;
 }
 
-/// The production sender: the Phase 2 [`MailClient`] with the idempotency key.
+/// The production sender: the shared keyed [`MailTransport`] over the Phase 2
+/// [`MailClient`].
 pub struct ProviderSender {
-    client: MailClient,
+    transport: MailTransport,
 }
 
 impl ProviderSender {
     pub fn new(client: MailClient) -> Self {
-        Self { client }
+        Self {
+            transport: MailTransport::new(client),
+        }
     }
 
     /// The Resend key comes from `RESEND_API_KEY`, as in Python. Without a key
@@ -212,18 +215,10 @@ impl ExpirySender for ProviderSender {
         let Some(canonical) = canonical_payload(payload) else {
             return Delivery::Refused;
         };
-        let accepted = self
-            .client
-            .send_with_idempotency(&canonical, Some(idempotency_key))
-            .await;
-        let delivery = if accepted {
-            Delivery::Sent
-        } else {
-            Delivery::Refused
-        };
         let recipient = canonical["to"][0].as_str().unwrap_or_default();
-        MailLog::new(recipient, delivery).record();
-        delivery
+        self.transport
+            .send_keyed(recipient, &canonical, idempotency_key)
+            .await
     }
 }
 
