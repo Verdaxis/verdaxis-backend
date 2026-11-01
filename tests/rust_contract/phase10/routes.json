@@ -1192,6 +1192,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1201,7 +1205,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/negotiations",
-      "line": 799
+      "line": 799,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/negotiations/{negotiation_id}",
@@ -1213,6 +1227,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1222,7 +1240,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/negotiations/{negotiation_id}",
-      "line": 855
+      "line": 855,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/news",
@@ -1794,6 +1822,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1803,7 +1835,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/rfq",
-      "line": 589
+      "line": 589,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/rfq/{rfq_id}",
@@ -1815,6 +1857,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1824,7 +1870,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/rfq/{rfq_id}",
-      "line": 638
+      "line": 638,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/stream/activity",
@@ -1956,6 +2012,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1965,7 +2025,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/supplier-offers",
-      "line": 259
+      "line": 259,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/supplier-offers/my",
@@ -1977,6 +2047,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -1986,7 +2060,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/supplier-offers/my",
-      "line": 286
+      "line": 286,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/supplier-offers/{offer_id}",
@@ -1998,6 +2082,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -2007,7 +2095,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "GET",
       "path": "/api/supplier-offers/{offer_id}",
-      "line": 316
+      "line": 316,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.GET /api/trade-tape",
@@ -2957,6 +3055,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -2966,7 +3068,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/negotiations",
-      "line": 515
+      "line": 515,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/negotiations/{negotiation_id}/accept",
@@ -2978,6 +3090,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -2987,7 +3103,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/negotiations/{negotiation_id}/accept",
-      "line": 974
+      "line": 974,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/negotiations/{negotiation_id}/counter",
@@ -2999,6 +3125,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3008,7 +3138,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/negotiations/{negotiation_id}/counter",
-      "line": 872
+      "line": 872,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/negotiations/{negotiation_id}/decline",
@@ -3020,6 +3160,10 @@
       "source_sha256": "94379d9a85747d9b652f72241d8edefbb0c92e2835995527055d6363679bdf9c",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3029,7 +3173,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/negotiations/{negotiation_id}/decline",
-      "line": 997
+      "line": 997,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/orderbook",
@@ -3121,6 +3275,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3130,7 +3288,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/rfq",
-      "line": 421
+      "line": 421,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/rfq/{rfq_id}/accept/{quote_id}",
@@ -3142,6 +3310,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3151,7 +3323,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/rfq/{rfq_id}/accept/{quote_id}",
-      "line": 853
+      "line": 853,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/rfq/{rfq_id}/cancel",
@@ -3163,6 +3345,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3172,7 +3358,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/rfq/{rfq_id}/cancel",
-      "line": 877
+      "line": 877,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/rfq/{rfq_id}/quote",
@@ -3184,6 +3380,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3193,7 +3393,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/rfq/{rfq_id}/quote",
-      "line": 662
+      "line": 662,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
@@ -3205,6 +3415,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3214,7 +3428,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/rfq/{rfq_id}/quotes/{quote_id}/withdraw",
-      "line": 803
+      "line": 803,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/supplier-offers",
@@ -3226,6 +3450,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3235,7 +3463,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/supplier-offers",
-      "line": 334
+      "line": 334,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/supplier-offers/{offer_id}/withdraw",
@@ -3247,6 +3485,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3256,7 +3498,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "POST",
       "path": "/api/supplier-offers/{offer_id}/withdraw",
-      "line": 479
+      "line": 479,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.POST /api/trades/",
@@ -3668,6 +3920,10 @@
       "source_sha256": "415815eac4324c7c4088e48d333e6ba03424cfc58bfbda76ed0daa346e168a39",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3677,7 +3933,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "PUT",
       "path": "/api/rfq/{rfq_id}/quotes/{quote_id}",
-      "line": 751
+      "line": 751,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.PUT /api/supplier-offers/{offer_id}",
@@ -3689,6 +3955,10 @@
       "source_sha256": "cf3fd9253a63f98733120f1e57d17b3b2d856f3af19696704b9a35c8b04cd23f",
       "status": "planned",
       "evidence": [
+        "phase7_decision_names_exactly_one_path",
+        "phase7_exact_twenty_operations_have_accepted_ownership",
+        "phase7_path_b_exact_matchers_do_not_steal_adjacent_routes",
+        "phase7_path_b_preserves_all_tables_and_rows",
         "phase7_retirement_exact_operations_return_404",
         "phase7_retirement_preserves_table_and_row_identity"
       ],
@@ -3698,7 +3968,17 @@
       "last_reference_change": "Task 20 exact method/path Caddy retirement, then Task 32 Python reference removal",
       "method": "PUT",
       "path": "/api/supplier-offers/{offer_id}",
-      "line": 424
+      "line": 424,
+      "phase7": {
+        "decision": "B",
+        "decision_ref": "2026-10-22/122",
+        "decision_fixture": "tests/rust_contract/phase10/phase7-decision.json",
+        "routes_fixture": "tests/rust_contract/phase10/phase7-routes.json",
+        "caddy": "deploy/caddy/phase10-phase7-retire.caddy",
+        "acceptance": "deploy/tests/phase7-acceptance.sh",
+        "ownership": "accepted",
+        "live_acceptance": "blocked-separately-authorized"
+      }
     },
     {
       "id": "route.PUT /api/trades/{trade_id}/confirm",
