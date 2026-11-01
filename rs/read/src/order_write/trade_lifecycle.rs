@@ -1556,6 +1556,7 @@ impl LifecyclePort<'_> {
                 self.locked,
                 crate::auth::VerifiedAccess {
                     subject: access.subject,
+                    expires_at: access.expires_at,
                     issued_at: access.issued_at,
                     issuance_out_of_range: access.issuance_out_of_range,
                 },
