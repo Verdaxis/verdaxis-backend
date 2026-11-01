@@ -3,3 +3,5 @@ deploy/tests/artifact-contract.sh
 deploy/tests/host-inventory-contract.sh
 deploy/tests/collect-host-inventory.sh
 deploy/tests/verify-host-inventory.sh
+deploy/scripts/verify-deploy-start-guard.sh
+deploy/tests/guard-contract.sh
