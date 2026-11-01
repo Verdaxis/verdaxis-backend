@@ -1893,13 +1893,26 @@ async fn seed_writes_exact_columns_and_holds_no_slice_lock() {
             .fetch_one(&mut f.admin)
             .await
             .unwrap();
-        if observed != json!([]) {
-            waits = observed;
+        // A sample taken while the waiter's blocker is not yet visible names
+        // no blocker pid; keep only samples that name one.
+        let named: Vec<Value> = observed
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|wait| !wait["blockers"][0]["pid"].is_null())
+            .cloned()
+            .collect();
+        if !named.is_empty() {
+            waits = Value::Array(named);
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let cancel = cancel.await.unwrap();
     println!("SEED_CONTENDER status={} waits={waits}", cancel.0);
+    assert!(
+        waits.is_array(),
+        "the cancellation was seen waiting on a named blocker"
+    );
     expect_status(&cancel, StatusCode::CONFLICT);
     assert_eq!(code(&cancel), "MARKET_BUSY");
     let waited_on: Vec<&str> = waits
