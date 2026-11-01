@@ -159,16 +159,16 @@ impl UsersReport {
         }
     }
 
-    /// The text form follows `scripts/check_users.py:11-13`, with the stored
-    /// role value and the user id added.
+    /// The text form is the one of `scripts/check_users.py:11-13`: the header
+    /// and one ` - {email} (Role: {role})` line per user, with the stored role
+    /// value. A cut listing ends with one line that gives the total.
     pub fn render_text(&self) -> String {
         let mut text = format!("Found {} users:\n", self.total);
         for user in &self.users {
             text.push_str(&format!(
-                " - {} (Role: {}) id={}\n",
+                " - {} (Role: {})\n",
                 visible(&user.email),
                 user.role.as_deref().unwrap_or("None"),
-                user.id
             ));
         }
         if self.truncated {
@@ -358,12 +358,6 @@ impl BlockersReport {
         let mut line = |name: &str, value: &dyn std::fmt::Display| {
             text.push_str(&format!("{name}={value}\n"));
         };
-        if self.ineligible_users_truncated {
-            line(
-                "ineligible_users_listing_truncated",
-                &self.ineligible_users.len(),
-            );
-        }
         line(
             "legacy_orders_without_owner",
             &counts.legacy_orders_without_owner,
@@ -419,6 +413,14 @@ impl BlockersReport {
         );
         line("enforcement_preflight", &self.enforcement_preflight);
         line("legacy_owner_policy", &self.legacy_owner_policy);
+        // A cut listing ends the output with one line that gives the total.
+        if self.ineligible_users_truncated {
+            text.push_str(&format!(
+                "ineligible_users_listing_truncated=true listed={} total={}\n",
+                self.ineligible_users.len(),
+                counts.ineligible_users
+            ));
+        }
         text
     }
 }

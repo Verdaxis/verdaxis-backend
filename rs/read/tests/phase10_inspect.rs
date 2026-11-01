@@ -105,8 +105,19 @@ fn users_text_marks_a_cut_listing_and_prints_none_for_a_missing_role() {
     assert!(text.starts_with("Found 5 users:\n"), "{text}");
     assert!(text.contains("(Role: None)"), "{text}");
     assert!(
-        text.contains("listing_truncated=true listed=2 total=5"),
+        text.ends_with("listing_truncated=true listed=2 total=5\n"),
         "{text}"
+    );
+    // The lines of a user are exactly the ones the Python tool prints.
+    assert!(
+        text.contains(" - a***@example.test (Role: BUYER)\n"),
+        "{text}"
+    );
+    assert!(!text.contains("id="), "{text}");
+    assert!(
+        !UsersReport::new(two_users(), 2, false)
+            .render_text()
+            .contains("truncated")
     );
     assert!(!UsersReport::new(two_users(), 2, false).truncated);
 }
@@ -394,10 +405,17 @@ fn a_cut_ineligible_listing_is_flagged_and_the_count_stays_exact() {
     let report = BlockersReport::new(counts, vec![]);
     assert!(report.ineligible_users_truncated);
     assert_eq!(report.counts.ineligible_users, 500);
+    let text = report.render_text();
     assert!(
-        report
+        text.ends_with("ineligible_users_listing_truncated=true listed=0 total=500\n"),
+        "{text}"
+    );
+    // The line is last, after every Python line, and absent when nothing is cut.
+    assert!(text.contains("legacy_owner_policy="));
+    assert!(
+        !BlockersReport::new(BlockerCounts::default(), vec![])
             .render_text()
-            .contains("ineligible_users_listing_truncated=0\n")
+            .contains("truncated")
     );
 }
 
