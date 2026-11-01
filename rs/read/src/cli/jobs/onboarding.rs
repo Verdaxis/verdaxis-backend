@@ -37,12 +37,13 @@
 
 use crate::business::attention::{Candidate, classify, format_message};
 use crate::cli::context::{self, Purpose};
+use crate::cli::gate::require_job_preflight;
 use crate::cli::state::{StateLock, read_bounded, write_atomic};
 use crate::cli::{Environment, Exit, MonitorKind, retry_bounded};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs::DirBuilder;
 use std::future::Future;
@@ -185,9 +186,48 @@ impl From<Fault> for Failure {
     }
 }
 
-/// Mask the local part of an address, keeping its first character.
+/// Mask the local part of an address, keeping its first character and the
+/// domain: `person@example.com` becomes `p***@example.com`. The domain is
+/// everything after the last `@`, so a quoted local part that contains `@`
+/// still hides its tail. A control or whitespace character is shown as `?`, so
+/// a stored value cannot move the operator's cursor. No `@` hides everything.
 pub fn mask_email(address: &str) -> String {
-    address.to_owned()
+    let Some((local, domain)) = address.rsplit_once('@') else {
+        return "***".to_owned();
+    };
+    let visible = |character: char| {
+        if character.is_control() || character.is_whitespace() {
+            '?'
+        } else {
+            character
+        }
+    };
+    let first = local.chars().next().map(visible).unwrap_or_default();
+    let domain: String = domain.chars().map(visible).collect();
+    format!("{first}***@{domain}")
+}
+
+/// A run that stopped partway: the alerts and recoveries already delivered
+/// stay delivered, and the cause says why the rest did not go out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Interrupted {
+    pub error: SendError,
+    pub alerts: usize,
+    pub recoveries: usize,
+}
+
+/// The candidate as an alert shows it: an empty organization name reads as
+/// absent ("Not created"), and the dry run can hide the address. The classifier
+/// never sees this copy, so the canary rule still reads the real address.
+fn presentable(candidate: &Candidate, mask_address: bool) -> Candidate {
+    let mut shown = candidate.clone();
+    if shown.organization_name.as_deref() == Some("") {
+        shown.organization_name = None;
+    }
+    if mask_address {
+        shown.email = mask_email(&shown.email);
+    }
+    shown
 }
 
 /// Why one alert was not delivered. A class only: the provider's answer and
@@ -542,6 +582,7 @@ pub fn recovery_message(candidate: &Candidate) -> String {
         candidate
             .organization_name
             .as_deref()
+            .filter(|name| !name.is_empty())
             .unwrap_or("Not created"),
     )
 }
@@ -574,7 +615,7 @@ pub async fn reconcile<S: AlertSender>(
     previous: &State,
     now: DateTime<Utc>,
     sender: &S,
-) -> Result<(State, usize, usize), SendError> {
+) -> Result<(State, usize, usize), Interrupted> {
     let mut current = previous.clone();
     let (mut alerts, mut recoveries) = (0, 0);
     for candidate in candidates {
@@ -582,7 +623,12 @@ pub async fn reconcile<S: AlertSender>(
         let Some(attention) = classify(candidate, now) else {
             if let Some(prior) = prior {
                 if prior.get("silent").map(String::as_str) != Some("true") {
-                    sender.send(&recovery_message(candidate)).await?;
+                    let message = recovery_message(candidate);
+                    sender.send(&message).await.map_err(|error| Interrupted {
+                        error,
+                        alerts,
+                        recoveries,
+                    })?;
                     recoveries += 1;
                 }
                 current.remove(&candidate.key);
@@ -597,9 +643,12 @@ pub async fn reconcile<S: AlertSender>(
         {
             continue;
         }
-        sender
-            .send(&format_message(candidate, &attention, now))
-            .await?;
+        let message = format_message(&presentable(candidate, false), &attention, now);
+        sender.send(&message).await.map_err(|error| Interrupted {
+            error,
+            alerts,
+            recoveries,
+        })?;
         alerts += 1;
         current.insert(
             candidate.key.clone(),
@@ -697,31 +746,22 @@ async fn load_candidates<C: CandidateSource>(source: &C) -> Result<Vec<Candidate
     })
 }
 
-/// One run. `now` is explicit so a run is deterministic.
+/// One run. `now` is explicit so a run is deterministic. A run that stops
+/// after some alerts went out reports how many in the [`Failure`].
 pub async fn run<C: CandidateSource, S: AlertSender>(
     source: &C,
     sender: &S,
     options: &Options,
     now: DateTime<Utc>,
 ) -> Result<Outcome, Failure> {
-    run_inner(source, sender, options, now)
-        .await
-        .map_err(Failure::from)
-}
-
-async fn run_inner<C: CandidateSource, S: AlertSender>(
-    source: &C,
-    sender: &S,
-    options: &Options,
-    now: DateTime<Utc>,
-) -> Result<Outcome, Fault> {
     if options.mode == Mode::DryRun {
         let candidates = load_candidates(source).await?;
         let messages = candidates
             .iter()
             .filter_map(|candidate| {
                 let attention = classify(candidate, now)?;
-                Some(format_message(candidate, &attention, now))
+                let shown = presentable(candidate, !options.show_emails);
+                Some(format_message(&shown, &attention, now))
             })
             .collect();
         return Ok(Outcome::DryRun { messages });
@@ -753,16 +793,26 @@ async fn run_inner<C: CandidateSource, S: AlertSender>(
     let previous = load_state(&options.state_file)?;
     let (current, alerts, recoveries) = reconcile(&candidates, &previous, now, sender)
         .await
-        .map_err(|error| match error {
-            SendError::NotConfigured => Fault::DeliveryNotConfigured,
-            SendError::Failed => Fault::DeliveryFailed,
+        .map_err(|interrupted| Failure {
+            fault: match interrupted.error {
+                SendError::NotConfigured => Fault::DeliveryNotConfigured,
+                SendError::Failed => Fault::DeliveryFailed,
+            },
+            alerts: interrupted.alerts,
+            recoveries: interrupted.recoveries,
         })?;
+    // From here every alert of this run is delivered; any later fault says so.
+    let delivered = |fault| Failure {
+        fault,
+        alerts,
+        recoveries,
+    };
     // A writer that ignores the lock (unfenced Python) may have replaced the
     // file while alerts were going out. Do not overwrite its state.
-    if identity_of(&options.state_file)? != observed {
-        return Err(Fault::StateChanged);
+    if identity_of(&options.state_file).map_err(delivered)? != observed {
+        return Err(delivered(Fault::StateChanged));
     }
-    write_state(&options.state_file, current)?;
+    write_state(&options.state_file, current).map_err(delivered)?;
     Ok(Outcome::Checked {
         candidates: candidates.len(),
         alerts,
@@ -792,12 +842,73 @@ pub struct Plan {
     pub mode: Mode,
 }
 
-/// Every refusal that needs no database, file or network.
-pub fn preflight(
-    _invocation: &Invocation,
-    _vars: &std::collections::HashMap<String, String>,
-) -> Result<Plan, Exit> {
-    Err(Exit::Precondition)
+/// The deploy state path of the environment: `<state dir>/<environment>.state`.
+/// The directory must be set and absolute, so the check looks at the same place
+/// from every working directory.
+pub fn deploy_state_path(
+    vars: &HashMap<String, String>,
+    environment: Environment,
+) -> Result<PathBuf, Exit> {
+    let directory = PathBuf::from(vars.get("DEPLOY_STATE_DIR").ok_or(Exit::Precondition)?);
+    if !directory.is_absolute() {
+        return Err(Exit::Precondition);
+    }
+    Ok(directory.join(format!("{}.state", environment.as_str())))
+}
+
+fn is_full_sha(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Every refusal that needs no database, file or network, in this order:
+/// misuse (usage), then the deployed identity and deploy state (precondition).
+///
+/// The monitor is production-only, and "production" is what the deployed
+/// release says it is (`ENVIRONMENT`, `RELEASE_SHA`), not what a flag claims. A
+/// disabled channel is refused because it would record stages as alerted when
+/// nothing was delivered. A flag that belongs to another monitor kind, or
+/// `--show-emails` outside `--dry-run`, is refused instead of ignored.
+pub fn preflight(invocation: &Invocation, vars: &HashMap<String, String>) -> Result<Plan, Exit> {
+    let (Some(environment), Some(release_sha)) =
+        (invocation.environment, invocation.release_sha.clone())
+    else {
+        return Err(Exit::Usage);
+    };
+    if environment != Environment::Production
+        || (invocation.dry_run && invocation.bootstrap)
+        || (invocation.show_emails && !invocation.dry_run)
+        || invocation.telegram_disabled
+        || invocation.other_monitor_flags
+    {
+        return Err(Exit::Usage);
+    }
+    if !is_full_sha(&release_sha) {
+        return Err(Exit::Precondition);
+    }
+    let deploy_state = deploy_state_path(vars, environment)?;
+    let value = |key: &str| vars.get(key).map_or("", String::as_str);
+    require_job_preflight(
+        value("ENVIRONMENT"),
+        value("RELEASE_SHA"),
+        environment,
+        &release_sha,
+        &deploy_state,
+    )?;
+    let mode = if invocation.dry_run {
+        Mode::DryRun
+    } else if invocation.bootstrap {
+        Mode::Bootstrap
+    } else {
+        Mode::Monitor
+    };
+    Ok(Plan {
+        environment,
+        release_sha,
+        mode,
+    })
 }
 
 fn report(outcome: &str, counts: serde_json::Value) {
@@ -807,35 +918,35 @@ fn report(outcome: &str, counts: serde_json::Value) {
     );
 }
 
-/// Run the command: refuse a misuse before any file or pool, open the
-/// purpose-bound context, run once and report one JSON line on stderr. The dry
-/// run also prints its alert text on stdout, as Python does.
+/// Run the command with the process environment.
 pub async fn run_command(invocation: Invocation) -> Exit {
-    let (Some(environment), Some(release_sha)) = (invocation.environment, invocation.release_sha)
-    else {
-        report("usage_refused", serde_json::json!({}));
-        return Exit::Usage;
-    };
-    // The monitor is production-only. A disabled channel is refused too: it
-    // would record stages as alerted when nothing was delivered.
-    if environment != Environment::Production
-        || (invocation.dry_run && invocation.bootstrap)
-        || invocation.telegram_disabled
-    {
-        report("usage_refused", serde_json::json!({}));
-        return Exit::Usage;
-    }
-    let mode = if invocation.dry_run {
-        Mode::DryRun
-    } else if invocation.bootstrap {
-        Mode::Bootstrap
-    } else {
-        Mode::Monitor
+    let variables: HashMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    run_command_with(invocation, &variables).await
+}
+
+/// Run the command: preflight before any file or pool, open the
+/// purpose-bound context, run once and report one JSON line on stderr. The dry
+/// run also prints its alert text on stdout, as Python does, with recipient
+/// addresses masked unless `--show-emails` was given.
+pub async fn run_command_with(invocation: Invocation, vars: &HashMap<String, String>) -> Exit {
+    let plan = match preflight(&invocation, vars) {
+        Ok(plan) => plan,
+        Err(exit) => {
+            let outcome = if exit == Exit::Usage {
+                "usage_refused"
+            } else {
+                "precondition_refused"
+            };
+            report(outcome, serde_json::json!({}));
+            return exit;
+        }
     };
     let context = match context::open(
         Purpose::Monitor(MonitorKind::Onboarding),
-        environment,
-        &release_sha,
+        plan.environment,
+        &plan.release_sha,
     )
     .await
     {
@@ -845,13 +956,14 @@ pub async fn run_command(invocation: Invocation) -> Exit {
             return exit;
         }
     };
-    let variables: BTreeMap<String, String> = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+    let variables: BTreeMap<String, String> = vars
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
     let sender = TelegramSender::new(TelegramConfig::from_environment(&variables));
     let options = Options {
         state_file: invocation.state_file,
-        mode,
+        mode: plan.mode,
         show_emails: invocation.show_emails,
     };
     match run(
@@ -895,7 +1007,15 @@ pub async fn run_command(invocation: Invocation) -> Exit {
             Exit::Ok
         }
         Err(failure) => {
-            report(failure.fault.outcome(), serde_json::json!({}));
+            // The counts say how many alerts already went out, so an operator
+            // does not repeat them by hand.
+            report(
+                failure.fault.outcome(),
+                serde_json::json!({
+                    "alerts": failure.alerts,
+                    "recoveries": failure.recoveries,
+                }),
+            );
             failure.fault.exit()
         }
     }
