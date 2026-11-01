@@ -13,6 +13,7 @@ use axum::{
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
 use verdaxis_read::cli::Exit;
@@ -1152,17 +1153,259 @@ fn configuration_reads_the_three_settings_and_refuses_a_foreign_webz_url() {
     );
 }
 
-#[tokio::test]
-async fn the_command_refuses_without_apply_before_any_other_work() {
-    let args = JobArgs {
+fn job_args(environment: Environment, release_sha: &str, apply: bool) -> JobArgs {
+    JobArgs {
         kind: JobKind::News,
         identity: IdentityArgs {
-            environment: Environment::Staging,
-            release_sha: SHA.into(),
+            environment,
+            release_sha: release_sha.into(),
         },
-        apply: false,
-    };
-    assert_eq!(run(&args).await, Exit::Usage);
+        apply,
+    }
+}
+
+/// One private scratch directory, removed with its contents.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Self {
+        let path =
+            std::env::temp_dir().join(format!("verdaxis-news-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir(&path).expect("create a scratch directory");
+        Self(path)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn job_vars(directory: &std::path::Path) -> HashMap<String, String> {
+    environment(&[
+        ("ENVIRONMENT", "staging"),
+        ("RELEASE_SHA", SHA),
+        ("DEPLOY_STATE_DIR", directory.to_str().unwrap()),
+    ])
+}
+
+/// Run the command with an opener that records whether the job got as far as
+/// opening a database context. The opener refuses, so no database is needed.
+async fn run_recording(
+    args: &JobArgs,
+    vars: &HashMap<String, String>,
+    state: &std::path::Path,
+) -> (Exit, bool) {
+    let opened = std::sync::atomic::AtomicBool::new(false);
+    let exit = run_with(args, vars, state, |_, _| {
+        opened.store(true, std::sync::atomic::Ordering::SeqCst);
+        async { Err(Exit::Precondition) }
+    })
+    .await;
+    (exit, opened.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn the_job_refuses_wrong_identity_and_deploy_state_before_any_work() {
+    let scratch = Scratch::new();
+    let state = scratch.0.join("staging.state");
+    let args = job_args(Environment::Staging, SHA, true);
+
+    // Absent state, matching identity, `--apply`: the job reaches its opener.
+    assert_eq!(
+        run_recording(&args, &job_vars(&scratch.0), &state).await,
+        (Exit::Precondition, true),
+        "the opener is the refusal here"
+    );
+
+    // A present state file refuses, and so does a dangling link.
+    std::fs::write(&state, b"blocked").unwrap();
+    assert_eq!(
+        run_recording(&args, &job_vars(&scratch.0), &state).await,
+        (Exit::Precondition, false)
+    );
+    std::fs::remove_file(&state).unwrap();
+    std::os::unix::fs::symlink(scratch.0.join("missing-target"), &state).unwrap();
+    assert!(!state.exists(), "the link dangles");
+    assert_eq!(
+        run_recording(&args, &job_vars(&scratch.0), &state).await,
+        (Exit::Precondition, false)
+    );
+    std::fs::remove_file(&state).unwrap();
+
+    // The deployed environment and release must equal the command's.
+    let mut other_environment = job_vars(&scratch.0);
+    other_environment.insert("ENVIRONMENT".into(), "production".into());
+    let mut other_release = job_vars(&scratch.0);
+    other_release.insert("RELEASE_SHA".into(), "f".repeat(40));
+    let mut no_environment = job_vars(&scratch.0);
+    no_environment.remove("ENVIRONMENT");
+    let mut no_release = job_vars(&scratch.0);
+    no_release.remove("RELEASE_SHA");
+    for vars in [other_environment, other_release, no_environment, no_release] {
+        assert_eq!(
+            run_recording(&args, &vars, &state).await,
+            (Exit::Precondition, false)
+        );
+    }
+    // A release that is not a full lowercase SHA never matches.
+    for release in ["0123456789abcdef", &SHA.to_uppercase(), ""] {
+        assert_eq!(
+            run_recording(
+                &job_args(Environment::Staging, release, true),
+                &job_vars(&scratch.0),
+                &state
+            )
+            .await,
+            (Exit::Precondition, false),
+            "{release:?}"
+        );
+    }
+    // A relative state path is refused: it would name a different place from
+    // every working directory.
+    assert_eq!(
+        run_recording(
+            &args,
+            &job_vars(&scratch.0),
+            std::path::Path::new("staging.state")
+        )
+        .await,
+        (Exit::Precondition, false)
+    );
+
+    // Identity is checked before `--apply`: a wrong identity is exit 3 even
+    // without the flag; with the right identity the missing flag is exit 2.
+    let without_apply = job_args(Environment::Staging, SHA, false);
+    let mut wrong = job_vars(&scratch.0);
+    wrong.insert("ENVIRONMENT".into(), "production".into());
+    assert_eq!(
+        run_recording(&without_apply, &wrong, &state).await,
+        (Exit::Precondition, false)
+    );
+    assert_eq!(
+        run_recording(&without_apply, &job_vars(&scratch.0), &state).await,
+        (Exit::Usage, false)
+    );
+}
+
+#[test]
+fn the_deploy_state_directory_must_be_set_and_absolute() {
+    let state =
+        |pairs: &[(&str, &str)]| deploy_state_path(&environment(pairs), Environment::Staging);
+    assert_eq!(
+        state(&[("DEPLOY_STATE_DIR", "/run/deploy")]),
+        Ok(std::path::PathBuf::from("/run/deploy/staging.state"))
+    );
+    assert_eq!(state(&[]), Err(Exit::Precondition));
+    assert_eq!(
+        state(&[("DEPLOY_STATE_DIR", "relative/dir")]),
+        Err(Exit::Precondition)
+    );
+    assert_eq!(
+        deploy_state_path(
+            &environment(&[("DEPLOY_STATE_DIR", "/run/deploy")]),
+            Environment::Production
+        ),
+        Ok(std::path::PathBuf::from("/run/deploy/production.state"))
+    );
+}
+
+#[test]
+fn a_variable_that_is_not_unicode_is_left_out_without_a_panic() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    let variables = vec![
+        (OsString::from("ENVIRONMENT"), OsString::from("staging")),
+        (
+            OsString::from("BAD_VALUE"),
+            OsString::from_vec(vec![0x66, 0xff, 0x6f]),
+        ),
+        (
+            OsString::from_vec(vec![0x4b, 0xfe]),
+            OsString::from("value"),
+        ),
+        (OsString::from("WEBZ_API_TOKEN"), OsString::from("token")),
+    ];
+    let vars = environment_from_os(variables.into_iter());
+    assert_eq!(vars.len(), 2);
+    assert_eq!(vars["ENVIRONMENT"], "staging");
+    assert_eq!(vars["WEBZ_API_TOKEN"], "token");
+}
+
+// ---------------------------------------------------------------------------
+// Publication dates outside the supported range
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_publication_time_outside_years_1_to_9999_becomes_the_run_time() {
+    let year = |year: i32| Utc.with_ymd_and_hms(year, 6, 15, 0, 0, 0).single().unwrap();
+    for inside in [1, 1970, 2026, 9999] {
+        assert_eq!(bounded_published(Some(year(inside)), now()), year(inside));
+    }
+    for outside in [-5000, -1, 0, 10_000, 100_000] {
+        assert_eq!(
+            bounded_published(Some(year(outside)), now()),
+            now(),
+            "{outside}"
+        );
+    }
+    assert_eq!(bounded_published(None, now()), now());
+    // A time in year 1 whose offset conversion would leave the range.
+    let edge = DateTime::parse_from_rfc3339("0001-01-01T00:30:00+05:00")
+        .unwrap()
+        .with_timezone(&Utc);
+    assert_eq!(bounded_published(Some(edge), now()), now());
+}
+
+#[test]
+fn a_far_past_or_far_future_webz_date_is_the_run_time() {
+    for text in [
+        "-5000-01-01T00:00:00+0000",
+        "-0001-06-15T12:00:00.000+0000",
+        "+10000-01-01T00:00:00+0000",
+        "0000-01-01T00:00:00Z",
+        "0001-01-01T00:30:00+05:00",
+        "99999-01-01T00:00:00+0000",
+    ] {
+        assert_eq!(
+            parse_webz_published(Some(&json!(text)), now()),
+            now(),
+            "{text}"
+        );
+    }
+    // The same rule through a whole post: the row keeps a storable date.
+    let item = validated_webz_post(
+        &json!({
+            "title": "Dated long ago",
+            "url": "https://news.example.org/old",
+            "published": "-5000-01-01T00:00:00+0000"
+        }),
+        now(),
+    )
+    .unwrap();
+    assert_eq!(item.published_at, now());
+}
+
+#[test]
+fn an_rss_date_outside_the_supported_range_is_the_run_time() {
+    let spec = feed("Pub", "https://publisher.test/rss", "publisher.test");
+    for date in [
+        "01 Jan -5000 00:00:00 +0000",
+        "Fri, 30 Oct 10000 08:00:00 GMT",
+        "Fri, 30 Oct 0000 08:00:00 GMT",
+    ] {
+        let body = format!(
+            "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><title>f</title>\
+             <link>https://publisher.test</link><description>d</description>\
+             <item><title>Old</title><link>https://publisher.test/o</link>\
+             <pubDate>{date}</pubDate></item></channel></rss>"
+        );
+        let items = parse_feed(body.as_bytes(), &spec, now()).unwrap();
+        assert_eq!(items.len(), 1, "{date}");
+        let year = chrono::Datelike::year(&items[0].published_at);
+        assert!((1..=9999).contains(&year), "{date}: year {year}");
+    }
 }
 
 #[test]

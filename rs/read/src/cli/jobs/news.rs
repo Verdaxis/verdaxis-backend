@@ -23,7 +23,7 @@
 //!   WHATWG host parser a browser uses, so odd spellings such as `0x7f.1` are
 //!   refused rather than treated as host names.
 
-use super::super::context::{self, Purpose};
+use super::super::context::{self, Purpose, RunContext};
 use super::super::gate::{require_apply, require_target};
 use super::super::{Environment, Exit, JobArgs, JobKind};
 use chrono::{DateTime, TimeZone, Utc};
@@ -35,6 +35,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use url::{Host, Url};
 use uuid::Uuid;
@@ -454,7 +455,7 @@ fn validated_feed_entry(
         url,
         source: feed.name.clone(),
         source_url: feed.url.clone(),
-        published_at: entry.published.or(entry.updated).unwrap_or(now),
+        published_at: bounded_published(entry.published.or(entry.updated), now),
         summary: None,
     })
 }
@@ -462,6 +463,12 @@ fn validated_feed_entry(
 // ---------------------------------------------------------------------------
 // Webz.io
 // ---------------------------------------------------------------------------
+
+/// A publication time the database and Python's `datetime` can hold (years 1
+/// to 9999), else the run time.
+pub fn bounded_published(published: Option<DateTime<Utc>>, now: DateTime<Utc>) -> DateTime<Utc> {
+    published.unwrap_or(now)
+}
 
 /// Read a Webz `published` value: epoch seconds or milliseconds, or an ISO
 /// timestamp with an offset. Anything else is "now".
@@ -482,11 +489,13 @@ pub fn parse_webz_published(raw: Option<&Value>, now: DateTime<Utc>) -> DateTime
             }
             let whole = seconds.floor();
             let microseconds = ((seconds - whole) * 1_000_000.0).round() as u32;
-            Utc.timestamp_opt(whole as i64, microseconds.min(999_999) * 1000)
-                .single()
-                .unwrap_or(now)
+            bounded_published(
+                Utc.timestamp_opt(whole as i64, microseconds.min(999_999) * 1000)
+                    .single(),
+                now,
+            )
         }
-        Some(Value::String(text)) => parse_iso_with_offset(text.trim()).unwrap_or(now),
+        Some(Value::String(text)) => bounded_published(parse_iso_with_offset(text.trim()), now),
         _ => now,
     }
 }
@@ -1357,10 +1366,38 @@ async fn insert_rows(connection: &mut PgConnection, rows: &[NewsRow]) -> Result<
 // The command
 // ---------------------------------------------------------------------------
 
-/// `verdaxis-read job news`. The owner of `cli/mod.rs` routes
-/// `JobKind::News` here.
-pub async fn run(args: &JobArgs) -> Exit {
-    let (exit, outcome, counts) = match execute(args).await {
+/// Every refusal that needs no database or network: `--apply` and the settings.
+pub fn preflight(
+    args: &JobArgs,
+    vars: &HashMap<String, String>,
+    _deploy_state: &Path,
+) -> Result<NewsConfig, Exit> {
+    require_apply(args.apply)?;
+    NewsConfig::from_environment(vars)
+}
+
+/// The deploy state path of the environment: `<state dir>/<environment>.state`.
+pub fn deploy_state_path(
+    vars: &HashMap<String, String>,
+    environment: Environment,
+) -> Result<PathBuf, Exit> {
+    let directory = PathBuf::from(vars.get("DEPLOY_STATE_DIR").ok_or(Exit::Precondition)?);
+    Ok(directory.join(format!("{}.state", environment.as_str())))
+}
+
+/// `verdaxis-read job news` with its environment, deploy-state path and pool
+/// opener supplied by the caller.
+pub async fn run_with<O, Fut>(
+    args: &JobArgs,
+    vars: &HashMap<String, String>,
+    deploy_state: &Path,
+    open: O,
+) -> Exit
+where
+    O: FnOnce(Environment, String) -> Fut,
+    Fut: Future<Output = Result<RunContext, Exit>>,
+{
+    let (exit, outcome, counts) = match execute(args, vars, deploy_state, open).await {
         Ok(Refresh::LockBusy) => (Exit::Ok, "lock_busy", serde_json::json!({"inserted": 0})),
         Ok(Refresh::Completed {
             fetched,
@@ -1380,16 +1417,46 @@ pub async fn run(args: &JobArgs) -> Exit {
     exit
 }
 
-async fn execute(args: &JobArgs) -> Result<Refresh, Exit> {
-    require_apply(args.apply)?;
-    let environment: HashMap<String, String> = std::env::vars().collect();
-    let config = NewsConfig::from_environment(&environment)?;
-    let context = context::open(
-        Purpose::Job(JobKind::News),
-        args.identity.environment,
-        &args.identity.release_sha,
-    )
-    .await?;
+/// The process environment as text. A variable that is not valid Unicode is
+/// left out instead of aborting the process.
+pub fn environment_from_os(
+    variables: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) -> HashMap<String, String> {
+    variables
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect()
+}
+
+/// Entry point for `job news`. The owner of `cli/mod.rs` routes
+/// `JobKind::News` here.
+pub async fn run(args: &JobArgs) -> Exit {
+    let vars = environment_from_os(std::env::vars_os());
+    let Ok(state) = deploy_state_path(&vars, args.identity.environment) else {
+        return Exit::Precondition;
+    };
+    run_with(args, &vars, &state, |environment, release_sha| async move {
+        context::open(Purpose::Job(JobKind::News), environment, &release_sha).await
+    })
+    .await
+}
+
+async fn execute<O, Fut>(
+    args: &JobArgs,
+    vars: &HashMap<String, String>,
+    deploy_state: &Path,
+    open: O,
+) -> Result<Refresh, Exit>
+where
+    O: FnOnce(Environment, String) -> Fut,
+    Fut: Future<Output = Result<RunContext, Exit>>,
+{
+    let config = preflight(args, vars, deploy_state)?;
+    let context = open(args.identity.environment, args.identity.release_sha.clone()).await?;
     let database = context
         .pool
         .connect_options()
