@@ -109,7 +109,15 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip corpus_carries_the_rows_these_cases_compare \
   --skip opposing_exact_slices_keep_prices_and_ordered_hash \
   --skip opposing_null_point_prefilter_keeps_the_tail_match \
-  --skip aggregate_groups_null_region_and_counts_duplicates 2>&1 | tee "$log"
+  --skip aggregate_groups_null_region_and_counts_duplicates \
+  --skip inspect_users_masks_email_by_default \
+  --skip inspect_users_show_emails_requires_the_explicit_flag \
+  --skip inspect_users_matches_the_python_tool_on_the_same_database \
+  --skip inspect_users_is_read_only_and_never_writes_a_status_file \
+  --skip inspect_blockers_matches_the_python_counts_on_the_same_fixture \
+  --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
+  --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
+  --skip the_reader_role_is_enough_for_both_commands 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then

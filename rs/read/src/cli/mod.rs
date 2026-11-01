@@ -457,6 +457,24 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             report("monitor", "usage_refused");
             Exit::Usage
         }
+        Command::Ops(OpsArgs {
+            action: OpsAction::Inspect(args),
+        }) => {
+            // Read-only: no `--apply`, but the same identity-checked context.
+            match context::open(
+                context::Purpose::Operator,
+                args.identity.environment,
+                &args.identity.release_sha,
+            )
+            .await
+            {
+                Ok(run_context) => ops::inspect::run(&run_context, &args).await,
+                Err(exit) => {
+                    report("ops", "not_available");
+                    exit
+                }
+            }
+        }
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.
