@@ -921,7 +921,11 @@ async fn cleanup_and_approval_claim_do_not_double_send() {
     .unwrap();
     release_a.notify_one();
     let counts_a = job_a.await.unwrap().unwrap();
-    assert_eq!(report_b.cleanup.password_reset_hashes_cleared, 1);
+    // B clears this user's expired digest during A's provider call, and the
+    // first user's digest that the claim made the first job skip.
+    assert_eq!(report_b.cleanup.password_reset_hashes_cleared, 2);
+    assert_eq!(f.tokens(second).await.0, None);
+    assert_eq!(f.tokens(first).await.0, None);
     assert_eq!(
         report_b.approval.attempted, 0,
         "the claimed transition is not due"
