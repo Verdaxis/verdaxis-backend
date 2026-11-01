@@ -169,8 +169,10 @@ market_error_codes! {
         "Only a confirmed or delivered trade can change its responsible person";
     ReassignmentStale => "REASSIGNMENT_STALE", StatusCode::CONFLICT,
         "The responsible person changed; reload and retry";
+    ReassignmentCurrentStillMember => "REASSIGNMENT_CURRENT_STILL_MEMBER", StatusCode::CONFLICT,
+        "The responsible person is still a member of the recorded organization";
     ReassignmentReplacementIneligible => "REASSIGNMENT_REPLACEMENT_INELIGIBLE", StatusCode::CONFLICT,
-        "The replacement must be a current member of the recorded organization with the same role";
+        "The replacement must be a current member of the recorded organization with the role the trade side requires";
     ReassignmentManualResolutionRequired => "REASSIGNMENT_MANUAL_RESOLUTION_REQUIRED", StatusCode::CONFLICT,
         "This assisted trade side needs a separately reviewed support resolution";
     UserNotFound => "USER_NOT_FOUND", StatusCode::NOT_FOUND, "The user was not found";

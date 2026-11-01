@@ -1,19 +1,27 @@
 //! Administrator obligation list and responsible-person reassignment.
 //!
 //! When a person leaves a company, the company's confirmed and delivered
-//! trades stay in force. At a verified company request an administrator can
-//! name a current member of the same recorded organization, with the same
-//! role, as the person responsible for one trade side. Only that side's
+//! trades stay in force. At a verified company request (the opaque case
+//! reference is the record of that authority) an administrator can name a
+//! current member of the same recorded organization, with the role the trade
+//! side requires (BUYER for the buyer side, SUPPLIER for the seller side), as
+//! the person responsible for one trade side. Only that side's
 //! `buyer_user_id` or `seller_user_id` changes: quantities, prices, fees,
 //! status, order authorship, receipts and earlier history stay as they are.
 //!
+//! Only a departed person is replaced: the current person must no longer be
+//! a member of the side's recorded organization (detached or moved). A
+//! rejected person who is still attached keeps the organization's settlement
+//! rights and is still a member.
+//!
 //! Locks follow the declared graph: the recorded organization, then the
 //! sorted users (administrator, current and replacement person), then the
-//! trade. Under the trade lock the command revalidates the side, the trade
-//! status, an active freeze and the replacement's membership. A side whose
-//! linked order was entered by market support is refused: both settlement
-//! paths require that side's person to equal the order owner and creator, so
-//! it needs a separately reviewed support resolution.
+//! trade. Under the locks the command revalidates the side, the trade status,
+//! an active freeze, the current person's membership and the replacement's
+//! membership. A side whose linked order was entered by market support is
+//! refused: both settlement paths require that side's person to equal the
+//! order owner and creator, so it needs a separately reviewed support
+//! resolution.
 //!
 //! The command's audit record holds the old and new person, the administrator,
 //! the opaque case reference and the time. Its market event goes to the
@@ -62,9 +70,6 @@ const CASE_REFERENCE_MAX_GROUP_DIGITS: usize = 12;
 /// The trade states whose obligations a responsible person still carries.
 const REASSIGNABLE_STATUSES: [&str; 2] = ["CONFIRMED", "DELIVERED"];
 
-/// The roles that can hold a trade side.
-const PARTY_ROLES: [&str; 2] = ["BUYER", "SUPPLIER"];
-
 fn validation() -> MarketWriteError {
     MarketWriteError::new(MarketErrorCode::ValidationFailed)
 }
@@ -90,6 +95,15 @@ impl ResponsibleSide {
         match self {
             Self::Buyer => "BUYER",
             Self::Seller => "SELLER",
+        }
+    }
+
+    /// The account role both settlement paths require on this side: the
+    /// seller side must be a supplier, because only a supplier can pay.
+    pub fn required_role(self) -> &'static str {
+        match self {
+            Self::Buyer => "BUYER",
+            Self::Seller => "SUPPLIER",
         }
     }
 }
@@ -534,26 +548,42 @@ impl<'a> ReassignmentPort<'a> {
         Ok(())
     }
 
-    /// The replacement is a current, approved member of the recorded
-    /// organization with the current person's trading role, and is not the
-    /// person on the other side.
-    async fn require_eligible_replacement(
+    /// Only a departed person is replaced. The person's row is locked, so a
+    /// person who rejoins waits for this transaction or is seen here.
+    async fn require_departed(
         &mut self,
         facts: &SideFacts,
         current: Uuid,
+    ) -> Result<(), MarketWriteError> {
+        if !self.locked.contains(LockClass::User, current) {
+            return Err(refusal(MarketErrorCode::MarketSliceChanged));
+        }
+        let organization: Option<Uuid> =
+            sqlx::query_scalar("SELECT organization_id FROM users WHERE id=$1")
+                .bind(current)
+                .fetch_one(&mut *self.conn)
+                .await?;
+        if organization == Some(facts.organization) {
+            return Err(refusal(MarketErrorCode::ReassignmentCurrentStillMember));
+        }
+        Ok(())
+    }
+
+    /// The replacement is a current, approved member of the recorded
+    /// organization with the role the side requires, and is not the person on
+    /// the other side.
+    async fn require_eligible_replacement(
+        &mut self,
+        facts: &SideFacts,
+        side: ResponsibleSide,
         replacement: Uuid,
     ) -> Result<(), MarketWriteError> {
         let ineligible = || refusal(MarketErrorCode::ReassignmentReplacementIneligible);
         if !self.locked.contains(LockClass::User, replacement)
-            || !self.locked.contains(LockClass::User, current)
             || facts.counterparty == Some(replacement)
         {
             return Err(ineligible());
         }
-        let current_role: String = sqlx::query_scalar("SELECT role::text FROM users WHERE id=$1")
-            .bind(current)
-            .fetch_one(&mut *self.conn)
-            .await?;
         let row = sqlx::query("SELECT organization_id,role::text AS role,status::text AS status,email_verified,must_change_password FROM users WHERE id=$1")
             .bind(replacement)
             .fetch_optional(&mut *self.conn)
@@ -562,8 +592,7 @@ impl<'a> ReassignmentPort<'a> {
         let role: String = row.try_get("role")?;
         let eligible = row.try_get::<Option<Uuid>, _>("organization_id")?
             == Some(facts.organization)
-            && PARTY_ROLES.contains(&role.as_str())
-            && role == current_role
+            && role == side.required_role()
             && row.try_get::<String, _>("status")? == "APPROVED"
             && row.try_get::<bool, _>("email_verified")?
             && !row.try_get::<bool, _>("must_change_password")?;
@@ -591,8 +620,9 @@ impl<'a> ReassignmentPort<'a> {
         // with freeze administration through commit.
         super::freeze::ensure_settleable(self.conn, self.locked, trade).await?;
         self.require_ordinary_side(facts.linked_order).await?;
+        self.require_departed(&facts, current).await?;
         let replacement = request.replacement_user_id;
-        self.require_eligible_replacement(&facts, current, replacement)
+        self.require_eligible_replacement(&facts, request.side, replacement)
             .await?;
 
         let update = match request.side {
