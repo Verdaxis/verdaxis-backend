@@ -19,6 +19,10 @@
 # the descriptor checks and the read happen inside one subshell, so a failed
 # open returns a status instead of ending the guard, and every check runs on
 # the descriptor that was actually opened.
+#
+# A path is absent only when stat says "no such file". Any other stat failure
+# leaves the state unknown and denies. A state that holds a NUL byte denies,
+# because the shell would drop that byte before the comparison.
 set -euo pipefail
 export LC_ALL=C
 umask 077
@@ -83,6 +87,20 @@ stat_size() {
     fi
 }
 
+# Looks at a path without following a final symlink. Returns 0 when an entry
+# exists, 1 only when the system says nothing is there, and 2 for every other
+# outcome, so a stat failure of any other kind is never read as "absent".
+probe_entry() {
+    local message
+    if [[ $stat_style == gnu ]]; then
+        message=$(stat -c %F -- "$1" 2>&1) && return 0
+    else
+        message=$(stat -f %HT -- "$1" 2>&1) && return 0
+    fi
+    [[ $message == *': No such file or directory' ]] && return 1
+    return 2
+}
+
 # Identity and size of an open descriptor. Linux exposes it through
 # /proc/self/fd; elsewhere perl's fstat reads the descriptor itself, because
 # /dev/fd would report the descriptor device instead of the file.
@@ -135,9 +153,13 @@ root_mode=$(stat_mode "$runtime_root") || deny 'untrusted runtime root'
 (( (8#$root_mode & 8#500) == 8#500 )) || deny 'untrusted runtime root'
 
 deploy_directory=$runtime_root/.runtime-deploy
-if [[ ! -e $deploy_directory && ! -L $deploy_directory ]]; then
-    exit 0
-fi
+deploy_probe=0
+probe_entry "$deploy_directory" || deploy_probe=$?
+case $deploy_probe in
+    0) ;;
+    1) exit 0 ;;
+    *) deny 'deploy state could not be inspected' ;;
+esac
 if [[ ! -d $deploy_directory || -L $deploy_directory ]]; then
     deny 'deploy state is not a private directory'
 fi
@@ -156,9 +178,13 @@ read_state() (
     # A FIFO or any other non-regular entry is refused before the open, so the
     # open cannot block on it. Only a path with nothing there at all reaches
     # the open, whose failure the caller may read as a normal start.
-    if [[ -e $path || -L $path ]]; then
-        [[ -f $path && ! -L $path ]] || exit 10
-    fi
+    local probe=0
+    probe_entry "$path" || probe=$?
+    case $probe in
+        0) [[ -f $path && ! -L $path ]] || exit 10 ;;
+        1) ;;
+        *) exit 15 ;;
+    esac
     exec 7<"$path" || exit 14
     if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
         exit 10
@@ -175,6 +201,9 @@ read_state() (
     # is not deploy state any more.
     (( size <= 256 )) || exit 13
     text=$(dd bs=257 count=1 2>/dev/null <&7; printf x)
+    # Command substitution drops NUL bytes, so a text shorter than the file's
+    # size (plus the sentinel) was not read as it is stored.
+    (( ${#text} == size + 1 )) || exit 16
     current=$(stat_identity "$path") || exit 11
     [[ $current == "$opened" ]] || exit 11
     printf '%s' "$text"
@@ -233,12 +262,18 @@ case $state_status in
     0) ;;
     14)
         # Only a path that does not exist at all is a normal start. A dangling
-        # symlink or a directory is an unexpected input.
-        if [[ -e $state_file || -L $state_file ]]; then
-            deny 'deployment state is not a regular file'
-        fi
-        exit 0
+        # symlink or a directory is an unexpected input, and so is any stat
+        # error other than "no such file".
+        entry_probe=0
+        probe_entry "$state_file" || entry_probe=$?
+        case $entry_probe in
+            0) deny 'deployment state is not a regular file' ;;
+            1) exit 0 ;;
+            *) deny 'deployment state could not be inspected' ;;
+        esac
         ;;
+    15) deny 'deployment state could not be inspected' ;;
+    16) deny 'deployment state was not read in full' ;;
     10) deny 'deployment state is not a regular file' ;;
     11) deny 'deployment state changed during validation' ;;
     12) deny 'deployment state is not owner-controlled' ;;
