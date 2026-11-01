@@ -7,7 +7,9 @@
 //! migrated database. Lock waits are observed in `pg_stat_activity`; every
 //! observed wait is released at once, and the time until the waiter stops
 //! waiting is measured at the database. A wait-graph sampler fails a schedule
-//! on any lock cycle it does not specify.
+//! on any lock cycle it does not specify. The last section covers the trusted
+//! watchlist producer and the stream transport beside these writers (see
+//! "producer chain and stream transport").
 #[path = "support/market_database.rs"]
 mod market_database;
 
@@ -3000,6 +3002,14 @@ async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() 
             found, wanted,
             "live frames are the stored participant payloads"
         );
+        println!(
+            "CHAIN_PARTY organization={} events={:?}",
+            id(organization),
+            found
+                .iter()
+                .map(|(seq, event, _)| (*seq, event.clone()))
+                .collect::<Vec<_>>()
+        );
         live_frames.push(found);
         frame_texts.extend(texts);
     }
@@ -3065,10 +3075,60 @@ async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() 
         })
         .collect();
     println!("CHAIN_OBSERVER_EVENTS {classes:?}");
-    assert!(classes.contains(&(pin, "PIN_WITHDRAWN".to_owned())));
-    for event in &events {
-        assert!(mutations.contains(event["source"].as_str().unwrap()));
-        let target: Uuid = event["target"].as_str().unwrap().parse().unwrap();
-        assert!(target == pin || target == slice);
+    let cancellation = rows
+        .iter()
+        .find(|row| row["event_type"] == "order_cancelled")
+        .expect("the cancellation row")["mutation"]
+        .as_str()
+        .unwrap();
+    let take = mutations
+        .iter()
+        .find(|mutation| **mutation != cancellation)
+        .unwrap();
+    let derived: BTreeSet<(Uuid, String, String)> = events
+        .iter()
+        .map(|event| {
+            (
+                event["target"].as_str().unwrap().parse().unwrap(),
+                event["class"].as_str().unwrap().to_owned(),
+                event["source"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    let expected: BTreeSet<(Uuid, String, String)> = [
+        (pin, "PIN_PARTIALLY_FILLED", *take),
+        (pin, "PIN_WITHDRAWN", cancellation),
+        (slice, "SLICE_BEST_PRICE_MOVED", cancellation),
+        (slice, "SLICE_WENT_QUIET", cancellation),
+    ]
+    .into_iter()
+    .map(|(target, class, source)| (target, class.to_owned(), source.to_owned()))
+    .collect();
+    assert_eq!(
+        derived, expected,
+        "the observer's events from the captured set"
+    );
+}
+
+/// The frame check itself refuses an evidence key, a subscription key and a
+/// watcher identity, and accepts the plain participant payload.
+#[test]
+fn internal_identity_check_refuses_evidence_and_watcher_identities() {
+    let watcher = Uuid::new_v4();
+    let plain = json!({"id":Uuid::new_v4(),"side":"ASK","schema_version":1});
+    assert_no_internal_identity(&plain.to_string(), Some(&plain), &[watcher]);
+    for leaked in [
+        json!({"id":1,"producer_evidence":{"version":1}}),
+        json!({"id":1,"nested":[{"watchlist_id":watcher}]}),
+        json!({"id":1,"label":watcher.to_string()}),
+    ] {
+        let refused = std::panic::catch_unwind(|| {
+            assert_no_internal_identity(&leaked.to_string(), Some(&leaked), &[watcher])
+        });
+        assert!(refused.is_err(), "not refused: {leaked}");
     }
+    assert_eq!(
+        delivered(&json!({"id":1,"_public_market_invalidation":true})),
+        json!({"id":1,"schema_version":1})
+    );
 }
