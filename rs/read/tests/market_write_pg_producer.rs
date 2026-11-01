@@ -691,8 +691,14 @@ async fn one_source_target_keeps_price_and_quantity_events() {
     assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "110");
     assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "120");
     let quantity = class("PIN_QUANTITY_CHANGED");
-    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "200");
-    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "150");
+    assert_eq!(
+        quantity.payload["old_remaining_quantity_mt"].to_string(),
+        "200"
+    );
+    assert_eq!(
+        quantity.payload["new_remaining_quantity_mt"].to_string(),
+        "150"
+    );
     assert_eq!(quantity.payload["status"], "OPEN");
     let moved = class("SLICE_BEST_PRICE_MOVED");
     assert_eq!(moved.payload["old_price_per_mt_usd"].to_string(), "110");
@@ -700,15 +706,20 @@ async fn one_source_target_keeps_price_and_quantity_events() {
     assert_eq!(moved.payload["source_kind"], "LIVE_ORDER");
     assert_eq!(moved.payload["real_count"], 1);
     // The amended row's change instant is the event's observed instant.
-    let changed: DateTime<Utc> =
-        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
-            .bind(a.bid)
-            .fetch_one(&mut a.f.admin)
-            .await
-            .unwrap();
-    assert_eq!(instant(price.payload["observed_at"].as_str().unwrap()), changed);
+    let changed: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(a.bid)
+    .fetch_one(&mut a.f.admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        instant(price.payload["observed_at"].as_str().unwrap()),
+        changed
+    );
     // A replay of the same source adds nothing.
-    a.f.fixture("SELECT producer_fixture_watermark($1)", 0).await;
+    a.f.fixture("SELECT producer_fixture_watermark($1)", 0)
+        .await;
     a.f.consume().await;
     assert_eq!(a.f.events().await, events);
 }
@@ -737,8 +748,14 @@ async fn delayed_source_ignores_later_python_target_snapshot() {
     assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "110");
     assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "120");
     let quantity = class("PIN_QUANTITY_CHANGED");
-    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "200");
-    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "150");
+    assert_eq!(
+        quantity.payload["old_remaining_quantity_mt"].to_string(),
+        "200"
+    );
+    assert_eq!(
+        quantity.payload["new_remaining_quantity_mt"].to_string(),
+        "150"
+    );
     assert_eq!(
         pin_display(&mut a.f.admin, a.pin).await,
         ("130".to_owned(), "7".to_owned())
@@ -1496,12 +1513,13 @@ async fn expiry_event_carries_the_expiry_instant() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    let changed_before: DateTime<Utc> =
-        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
-            .bind(f.order)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
+    let changed_before: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(f.order)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
     run_expiry_effect_probe(&f.pool, f.probe(MutationKind::OrderExpired, f.order))
         .await
         .unwrap();
@@ -1511,13 +1529,17 @@ async fn expiry_event_carries_the_expiry_instant() {
     let evidence = f.evidence().await;
     let after = &evidence["orders"][0]["after"];
     assert_eq!(after["status"], "EXPIRED");
-    let changed: DateTime<Utc> =
-        sqlx::query_scalar("SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1")
-            .bind(f.order)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
-    assert!(changed > changed_before, "the expiry records its change instant");
+    let changed: DateTime<Utc> = sqlx::query_scalar(
+        "SELECT COALESCE(updated_at,created_at) FROM orderbook_orders WHERE id=$1",
+    )
+    .bind(f.order)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap();
+    assert!(
+        changed > changed_before,
+        "the expiry records its change instant"
+    );
     assert_eq!(instant(after["observed_at"].as_str().unwrap()), changed);
 }
 

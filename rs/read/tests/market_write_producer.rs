@@ -679,12 +679,20 @@ fn old_values_from_a_non_public_state_are_not_disclosed() {
     // A newly public order still reaches SLICE targets through the new-order
     // and best-price rules, which carry no hidden old value.
     let events = derived(&envelope(
-        vec![transition(order(1), 0, Some(live("100", "10").hidden()), live("95", "10"))],
+        vec![transition(
+            order(1),
+            0,
+            Some(live("100", "10").hidden()),
+            live("95", "10"),
+        )],
         vec![aggregate("ASK", (1, Some("100")), (0, None))],
         vec![aggregate("ASK", (2, Some("95")), (0, None))],
         vec![pin_target(pin(1), order(1)), slice()],
     ));
-    assert_eq!(classes(&events), vec![(slice_target(), "SLICE_BEST_PRICE_MOVED")]);
+    assert_eq!(
+        classes(&events),
+        vec![(slice_target(), "SLICE_BEST_PRICE_MOVED")]
+    );
     assert_eq!(events[0].payload["old_price_per_mt_usd"].to_string(), "100");
 }
 
@@ -712,7 +720,11 @@ fn producer_sources_never_write_or_sequence_the_outbox() {
     let sequencer_key = ["7264537260226625", "7_264_537_260_226_625"];
     let advisory = ["pg_", "advisory"].concat();
     for text in sources {
-        let words = text.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+        let words = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
         for verb in ["insert into", "update", "delete from"] {
             assert!(
                 !words.contains(&format!("{verb} market_event_outbox")),
