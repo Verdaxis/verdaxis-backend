@@ -699,6 +699,7 @@
         "404 trade absent",
         "409 TRADE_NOT_SETTLEABLE",
         "409 TRADE_ALREADY_FROZEN",
+        "409 TRADE_DEMO_NOT_FREEZABLE",
         "422 reason/note"
       ],
       "source": null,
@@ -709,7 +710,8 @@
         "empty_values": "Preserve schema defaults, nulls, empty strings and empty collections; never infer missing economics as zero.",
         "state": "PENDING_CONFIRMATION/CONFIRMED/DELIVERED may freeze; PAID/DECLINED/CANCELLED refuse.",
         "repeat": "Identical actor/reason returns existing 200; different reason 409; one active row via exact named index.",
-        "invariant": "Freeze changes no stock/order remainder/trade state; audit once; lifecycle serializes on trade row."
+        "invariant": "Freeze changes no stock/order remainder/trade state; audit once; lifecycle serializes on trade row.",
+        "demo_trade": "A trade whose buyer and seller provenance are both DEMO is refused with 409 TRADE_DEMO_NOT_FREEZABLE in every state, after the active-row check and before the settleable check: no freeze row, no audit row and no trade, order or stock change. A trade with one REAL side stays freezable."
       },
       "effect_owners": [
         5,
