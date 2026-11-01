@@ -9,8 +9,9 @@
 //!    those join requests, each in ascending id ([`crate::auth::lock`]), and
 //!    revalidates the actor; a changed discovery runs the whole attempt again;
 //! 3. under those locks the command checks the target, sets `REJECTED` and the
-//!    `offboarded_at` marker, detaches the member and invalidates the current
-//!    organization-bound KYC review, cuts off every credential
+//!    `offboarded_at` marker from the database clock, detaches the member and
+//!    invalidates the current organization-bound KYC review (an unrecognized
+//!    review state is kept and recorded instead), cuts off every credential
 //!    ([`crate::auth::offboarding`]), closes pending join requests and the
 //!    market-support grants bound to the person, runs the injected market hook,
 //!    and appends the offboarding record, the audit record and the admission
@@ -80,10 +81,21 @@ pub const CASE_REFERENCE_MAX_LENGTH: usize = 64;
 /// body can only carry text the contract does not accept.
 pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
 
-/// The largest count the preview reports for each kind of row. It equals the
-/// bound of one market invalidation transaction, so a larger count is refused
-/// instead of reported as a number the command could not complete.
+/// The bound of one market invalidation transaction. The preview refuses when
+/// the rows the command withdraws or cancels (open order remainders, pending
+/// trades) exceed it, because the command would refuse too. Confirmed and
+/// delivered trades only inform the administrator: above the bound their
+/// counts are reported as the bound, with `informational_counts_capped` set.
 pub const PREVIEW_COUNT_LIMIT: i64 = 100;
+
+/// The ticket systems a case reference may name.
+pub const CASE_REFERENCE_PREFIXES: [&str; 4] = ["CASE", "REQ", "SEC", "TICKET"];
+
+/// At most this many digit groups follow the prefix.
+const CASE_REFERENCE_MAX_GROUPS: usize = 3;
+
+/// At most this many digits form one group.
+const CASE_REFERENCE_MAX_GROUP_DIGITS: usize = 12;
 
 /// The audit action name of a completed offboarding.
 pub const AUDIT_ACTION: &str = "admin.user_offboarded";
@@ -121,26 +133,33 @@ impl ReasonCode {
 
 /// An opaque reference to a verified request, kept outside Verdaxis.
 ///
-/// 1 to [`CASE_REFERENCE_MAX_LENGTH`] ASCII characters: a letter or digit, then
-/// letters, digits and `.`, `_`, `:`, `/`, `#` or `-`. Spaces, `@` and every
-/// other character are refused, so the field cannot carry an email address,
-/// a name or a narrative.
+/// The grammar is `PREFIX-DIGITS`, with `PREFIX` one of
+/// [`CASE_REFERENCE_PREFIXES`] and then one to three groups of 1 to 12 digits
+/// separated by `-` or `/`, for example `CASE-2026/0042` or `SEC-2026-11-0001`.
+/// At most [`CASE_REFERENCE_MAX_LENGTH`] characters. Only digits follow the
+/// prefix, so the field cannot carry a name, an email address or a narrative.
 #[derive(Clone, PartialEq, Eq)]
 pub struct CaseReference(String);
 
 impl CaseReference {
     pub fn parse(value: &str) -> Result<Self, ApiError> {
-        let mut characters = value.chars();
-        let valid_first = characters
-            .next()
-            .is_some_and(|first| first.is_ascii_alphanumeric());
-        let valid_rest = characters.all(|other| {
-            other.is_ascii_alphanumeric() || matches!(other, '.' | '_' | ':' | '/' | '#' | '-')
-        });
-        if !valid_first || !valid_rest || value.len() > CASE_REFERENCE_MAX_LENGTH {
-            return Err(invalid(
-                "The case reference must be a short opaque identifier.",
-            ));
+        let refused =
+            || invalid("The case reference must be a ticket identifier such as CASE-2026/0042.");
+        if value.len() > CASE_REFERENCE_MAX_LENGTH {
+            return Err(refused());
+        }
+        let (prefix, identifier) = value.split_once('-').ok_or_else(refused)?;
+        if !CASE_REFERENCE_PREFIXES.contains(&prefix) {
+            return Err(refused());
+        }
+        let groups: Vec<&str> = identifier.split(['-', '/']).collect();
+        let valid_groups = groups.len() <= CASE_REFERENCE_MAX_GROUPS
+            && groups.iter().all(|group| {
+                (1..=CASE_REFERENCE_MAX_GROUP_DIGITS).contains(&group.len())
+                    && group.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        if !valid_groups {
+            return Err(refused());
         }
         Ok(Self(value.to_owned()))
     }
@@ -323,13 +342,12 @@ impl<H: OffboardingMarketHook> OffboardingMarketHook for Arc<H> {
 // The command.
 // ---------------------------------------------------------------------------
 
-/// One offboarding command. `now` is the request time recorded on the marker,
-/// the history row and the audit record; the credential cutoff reads the
-/// database clock separately.
+/// One offboarding command. Every recorded time (the marker, the status
+/// transition, the closures, the history row and the audit records) is the
+/// database clock read by the marker update, after the row locks are held.
 pub struct OffboardAccount<H, E> {
     pub subject_id: Uuid,
     pub request: OffboardRequest,
-    pub now: DateTime<Utc>,
     pub audit: AuditContext,
     pub market: H,
     pub events: E,
@@ -400,9 +418,16 @@ struct Target {
     organization: Option<Uuid>,
 }
 
+/// One completed offboarding: its identifier and its database time.
+struct Operation {
+    id: Uuid,
+    at: DateTime<Utc>,
+}
+
 /// The account-side changes, recorded as counts in the audit record.
 struct AccountChanges {
     kyc_review_invalidated: bool,
+    kyc_state_unrecognized: bool,
     refresh_sessions_revoked: u64,
     reset_tokens_removed: u64,
     join_requests_closed: usize,
@@ -424,7 +449,8 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         }
         let target = self.revalidate_target(conn).await?;
         let visible_before = self.events.visible(conn, self.subject_id).await?;
-        let changes = self.change_account(conn, actor, &target).await?;
+        let at = self.mark(conn).await?;
+        let changes = self.change_account(conn, actor, &target, at).await?;
         let market = self
             .market
             .invalidate_user(
@@ -432,7 +458,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                 &UserMarketScope {
                     subject_id: self.subject_id,
                     actor_id: actor.id,
-                    now: self.now,
+                    now: at,
                 },
             )
             .await?;
@@ -447,16 +473,19 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                 )
                 .await?;
         }
-        let operation_id = Uuid::new_v4();
-        self.record(conn, actor, &target, operation_id).await?;
-        self.append_audit_record(conn, actor, &target, operation_id, &changes, &market)
+        let operation = Operation {
+            id: Uuid::new_v4(),
+            at,
+        };
+        self.record(conn, actor, &target, &operation).await?;
+        self.append_audit_record(conn, actor, &target, &operation, &changes, &market)
             .await?;
         Ok(OffboardResult {
-            operation_id,
+            operation_id: operation.id,
             user_id: self.subject_id,
             former_organization_id: target.organization,
             status: AccountStatus::Rejected.as_str(),
-            offboarded_at: self.now,
+            offboarded_at: at,
         })
     }
 
@@ -503,27 +532,46 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         })
     }
 
+    /// Set the rejected state, detach the member and set the marker in one
+    /// statement, so both marker constraints hold for the written row. The
+    /// time is the database clock now that the locks are held; it becomes the
+    /// time of every record this command writes.
+    async fn mark(&self, conn: &mut PgConnection) -> Result<DateTime<Utc>, AttemptError> {
+        let at = sqlx::query_scalar(
+            "UPDATE users SET status='REJECTED',organization_id=NULL,\
+             offboarded_at=clock_timestamp() WHERE id=$1 RETURNING offboarded_at",
+        )
+        .bind(self.subject_id)
+        .fetch_one(&mut *conn)
+        .await?;
+        Ok(at)
+    }
+
     async fn change_account(
         &self,
         conn: &mut PgConnection,
         actor: &CurrentActor,
         target: &Target,
+        at: DateTime<Utc>,
     ) -> Result<AccountChanges, AttemptError> {
+        // The shared review transition refuses a stored state outside its
+        // closed domain. Offboarding must not wait for an operator repair, so
+        // such a state is kept as it is and recorded in the audit instead.
+        let kyc_status: Option<String> =
+            sqlx::query_scalar("SELECT kyc_status::text FROM users WHERE id=$1")
+                .bind(self.subject_id)
+                .fetch_one(&mut *conn)
+                .await?;
+        let kyc_state_unrecognized = !matches!(
+            kyc_status.as_deref(),
+            Some("PENDING" | "SUBMITTED" | "APPROVED" | "REJECTED")
+        );
         // A detached target has no organization-bound review to invalidate.
-        let kyc_review_invalidated = match target.organization {
-            Some(_) => {
-                invalidate_review(conn, self.subject_id, actor.id, CLOSURE_REASON, self.now).await?
-            }
-            None => false,
+        let kyc_review_invalidated = if target.organization.is_some() && !kyc_state_unrecognized {
+            invalidate_review(conn, self.subject_id, actor.id, CLOSURE_REASON, at).await?
+        } else {
+            false
         };
-        // One statement, so both marker constraints hold for the written row.
-        sqlx::query(
-            "UPDATE users SET status='REJECTED',organization_id=NULL,offboarded_at=$2 WHERE id=$1",
-        )
-        .bind(self.subject_id)
-        .bind(self.now)
-        .execute(&mut *conn)
-        .await?;
         append_status_transition(
             conn,
             &StatusFact {
@@ -533,7 +581,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                 role: target.role.clone(),
                 from: Some(target.previous),
                 to: AccountStatus::Rejected,
-                at: self.now,
+                at,
             },
         )
         .await?;
@@ -549,7 +597,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         )
         .bind(self.subject_id)
         .bind(actor.id)
-        .bind(self.now)
+        .bind(at)
         .bind(JOIN_CLOSURE_NOTE)
         .fetch_all(&mut *conn)
         .await?
@@ -559,7 +607,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
              WHERE status='ACTIVE' AND (actor_user_id=$1 OR accountable_user_id=$1) RETURNING id",
         )
         .bind(self.subject_id)
-        .bind(self.now)
+        .bind(at)
         .fetch_all(&mut *conn)
         .await?
         .len();
@@ -569,7 +617,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
              WHERE status='ACTIVE' AND accountable_user_id=$1 RETURNING id",
         )
         .bind(self.subject_id)
-        .bind(self.now)
+        .bind(at)
         .bind(actor.id)
         .bind(CLOSURE_REASON)
         .fetch_all(&mut *conn)
@@ -580,7 +628,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
              revocation_reason=$4 WHERE user_id=$1 AND revoked_at IS NULL RETURNING id",
         )
         .bind(self.subject_id)
-        .bind(self.now)
+        .bind(at)
         .bind(actor.id)
         .bind(CLOSURE_REASON)
         .fetch_all(&mut *conn)
@@ -588,6 +636,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         .len();
         Ok(AccountChanges {
             kyc_review_invalidated,
+            kyc_state_unrecognized,
             refresh_sessions_revoked: credentials.refresh_sessions_revoked,
             reset_tokens_removed: credentials.reset_tokens_removed,
             join_requests_closed,
@@ -602,18 +651,18 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         conn: &mut PgConnection,
         actor: &CurrentActor,
         target: &Target,
-        operation_id: Uuid,
+        operation: &Operation,
     ) -> Result<(), AttemptError> {
         sqlx::query(
             "INSERT INTO individual_offboardings(operation_id,subject_user_id,\
              former_organization_id,actor_user_id,occurred_at,reason_code,evidence_case_ref,urgent) \
              VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
         )
-        .bind(operation_id)
+        .bind(operation.id)
         .bind(self.subject_id)
         .bind(target.organization)
         .bind(actor.id)
-        .bind(self.now)
+        .bind(operation.at)
         .bind(self.request.reason_code.as_str())
         .bind(self.request.evidence_case_ref.as_str())
         .bind(self.request.urgent)
@@ -627,7 +676,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
         conn: &mut PgConnection,
         actor: &CurrentActor,
         target: &Target,
-        operation_id: Uuid,
+        operation: &Operation,
         changes: &AccountChanges,
         market: &MarketInvalidationSummary,
     ) -> Result<(), AttemptError> {
@@ -640,13 +689,14 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                 resource_type: "user".into(),
                 resource_id: Some(self.subject_id.to_string()),
                 changes: Some(json!({
-                    "operation_id": operation_id,
+                    "operation_id": operation.id,
                     "status": {"from": target.previous.as_str(), "to": "REJECTED"},
                     "organization_id": {"from": target.organization, "to": null},
                     "reason_code": self.request.reason_code.as_str(),
                     "evidence_case_ref": self.request.evidence_case_ref.as_str(),
                     "urgent": self.request.urgent,
                     "kyc_review_invalidated": changes.kyc_review_invalidated,
+                    "kyc_state_unrecognized": changes.kyc_state_unrecognized,
                     "refresh_sessions_revoked": changes.refresh_sessions_revoked,
                     "reset_tokens_removed": changes.reset_tokens_removed,
                     "join_requests_closed": changes.join_requests_closed,
@@ -659,7 +709,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                 })),
                 ip_address: self.audit.ip_address.clone(),
                 request_id: self.audit.request_id.clone(),
-                at: self.now,
+                at: operation.at,
             },
         )
         .await?;
@@ -686,8 +736,10 @@ async fn require_unmarked_actor(conn: &mut PgConnection, actor: Uuid) -> Result<
 // The preview.
 // ---------------------------------------------------------------------------
 
-/// Advisory counts for the administrator's confirmation. No row is locked;
-/// the command discovers and locks its own scope.
+/// Advisory counts for the administrator's confirmation. No target or market
+/// row is locked; the command discovers and locks its own scope. The read runs
+/// in the authenticated request transaction, which holds the administrator's
+/// own user row for its short duration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OffboardingPreview {
     pub user_id: Uuid,
@@ -700,6 +752,9 @@ pub struct OffboardingPreview {
     pub pending_trades: i64,
     pub confirmed_trades: i64,
     pub delivered_trades: i64,
+    /// True when a confirmed or delivered count exceeded the bound and is
+    /// reported as [`PREVIEW_COUNT_LIMIT`].
+    pub informational_counts_capped: bool,
 }
 
 /// Read the preview of one target. The caller has checked the administrator.
@@ -733,7 +788,7 @@ pub async fn preview(
     if row.get::<Option<String>, _>("role").as_deref() == Some("ADMIN") {
         return Err(not_manageable());
     }
-    // Each count stops one row past the limit, so no count scans further.
+    // Each count stops one row past the bound.
     let counts = sqlx::query(
         "SELECT \
          (SELECT count(*) FROM (SELECT 1 FROM orderbook_orders WHERE owner_user_id=$1 \
@@ -750,35 +805,31 @@ pub async fn preview(
     .fetch_one(&mut *conn)
     .await
     .map_err(database)?;
-    let preview = OffboardingPreview {
+    let open_owned_orders: i64 = counts.get("open_owned_orders");
+    let pending_trades: i64 = counts.get("pending_trades");
+    if open_owned_orders > PREVIEW_COUNT_LIMIT || pending_trades > PREVIEW_COUNT_LIMIT {
+        return Err(refusal(
+            StatusCode::CONFLICT,
+            "OFFBOARD_PREVIEW_LIMIT",
+            "The account has more open orders or pending trades than one offboarding can process.",
+        ));
+    }
+    let confirmed_trades: i64 = counts.get("confirmed_trades");
+    let delivered_trades: i64 = counts.get("delivered_trades");
+    Ok(OffboardingPreview {
         user_id: subject,
         email: row.get("email"),
         status: row.get("status"),
         organization_id: row.get("organization_id"),
         organization_name: row.get("organization_name"),
         offboarded_at: row.get("offboarded_at"),
-        open_owned_orders: counts.get("open_owned_orders"),
-        pending_trades: counts.get("pending_trades"),
-        confirmed_trades: counts.get("confirmed_trades"),
-        delivered_trades: counts.get("delivered_trades"),
-    };
-    let largest = [
-        preview.open_owned_orders,
-        preview.pending_trades,
-        preview.confirmed_trades,
-        preview.delivered_trades,
-    ]
-    .into_iter()
-    .max()
-    .unwrap_or(0);
-    if largest > PREVIEW_COUNT_LIMIT {
-        return Err(refusal(
-            StatusCode::CONFLICT,
-            "OFFBOARD_PREVIEW_LIMIT",
-            "The account has more market rows than one offboarding can process.",
-        ));
-    }
-    Ok(preview)
+        open_owned_orders,
+        pending_trades,
+        confirmed_trades: confirmed_trades.min(PREVIEW_COUNT_LIMIT),
+        delivered_trades: delivered_trades.min(PREVIEW_COUNT_LIMIT),
+        informational_counts_capped: confirmed_trades > PREVIEW_COUNT_LIMIT
+            || delivered_trades > PREVIEW_COUNT_LIMIT,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -966,7 +1017,6 @@ async fn offboard<H: OffboardingMarketHook, E: AdmissionEvents>(
         OffboardAccount {
             subject_id: subject,
             request,
-            now,
             audit,
             market: state.service.market.clone(),
             events: state.service.events.clone(),
