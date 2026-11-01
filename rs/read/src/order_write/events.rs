@@ -36,6 +36,17 @@ async fn audit(
     Ok(())
 }
 
+/// An exact JSON number for a `numeric` value. `Decimal` serializes as a string
+/// and `f64` would round, so the decimal text becomes the number itself
+/// (`serde_json` keeps number text as written through `arbitrary_precision`).
+fn json_number(value: Decimal) -> Result<Value, sqlx::Error> {
+    value
+        .to_string()
+        .parse::<serde_json::Number>()
+        .map(Value::Number)
+        .map_err(|error| sqlx::Error::Encode(Box::new(error)))
+}
+
 pub(super) async fn restoration_effects(
     conn: &mut PgConnection,
     command: &InvalidateOrganization,
@@ -78,7 +89,14 @@ pub(super) async fn restoration_effects(
         } else {
             "UNKNOWN"
         };
-        let payload = json!({"source_kind":source,"demo_status":demo,"scope":scope,"observed_at":command.now,"market_product_code":product,"delivery_point_id":order.delivery_point_id,"delivery_point_name":point_name,"availability_window_code":order.availability_window,"order_id":order.id,"status":order.status,"old_remaining_quantity_mt":change.before.remaining_quantity_mt,"new_remaining_quantity_mt":order.remaining_quantity_mt});
+        let mut payload = json!({"source_kind":source,"demo_status":demo,"scope":scope,"observed_at":command.now,"market_product_code":product,"delivery_point_id":order.delivery_point_id,"delivery_point_name":point_name,"availability_window_code":order.availability_window,"order_id":order.id,"status":order.status});
+        // The quantities describe a remainder change. A status-only event leaves them out.
+        let remainder_changed = change.restored != Decimal::ZERO;
+        if remainder_changed {
+            payload["old_remaining_quantity_mt"] =
+                json_number(change.before.remaining_quantity_mt)?;
+            payload["new_remaining_quantity_mt"] = json_number(order.remaining_quantity_mt)?;
+        }
         let event = match order.status.as_str() {
             "CANCELLED" => "PIN_WITHDRAWN",
             "EXPIRED" => "PIN_EXPIRED",
@@ -86,7 +104,7 @@ pub(super) async fn restoration_effects(
             "FILLED" => "PIN_FILLED",
             _ => "PIN_QUANTITY_CHANGED",
         };
-        if change.restored != Decimal::ZERO || change.before.status != order.status {
+        if remainder_changed || change.before.status != order.status {
             sqlx::query("INSERT INTO watchlist_events(id,watchlist_id,watchlist_target_id,event_type,event_payload,is_read,created_at) SELECT gen_random_uuid(),watchlist_id,id,$4,$2::jsonb,false,$3 FROM watchlist_targets WHERE target_type='PIN' AND order_id=$1")
                 .bind(order.id).bind(&payload).bind(command.now).bind(event).execute(&mut *conn).await?;
         }
