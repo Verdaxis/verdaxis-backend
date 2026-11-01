@@ -452,7 +452,6 @@ fn config_for(scratch: &TempDir, server: &FakeServer, path: &str) -> HealthConfi
         request_timeout: Duration::from_secs(2),
         total_timeout: Duration::from_secs(5),
         max_body_bytes: 1024,
-        ..HealthConfig::default()
     }
 }
 
