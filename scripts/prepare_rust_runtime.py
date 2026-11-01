@@ -58,6 +58,20 @@ MAX_SYSTEM_STATUS_MESSAGE_CHARS = 280
 # deploy readiness gate and the monitors use it) and, with this key, refuses
 # every other Host. Without the key the Rust service does not check the Host.
 ALLOWED_HOSTS_KEY = "ALLOWED_HOSTS"
+# The market write settings the Rust market routes read, with Python's
+# defaults and bounds (app/config.py). An absent key is not projected, so the
+# Rust service applies the same default. The watchlist producer keys are never
+# projected: only the release metadata file carries them.
+MARKET_BOOL_KEYS = {"AUTO_MATCHING_ENABLED": True, "MARKET_SUPPORT_ENABLED": False}
+MARKET_INTEGER_KEYS = {
+    "MARKET_SUPPORT_MAX_TTL_HOURS": (1, 720),
+    "MARKET_SUPPORT_CONTEXT_TTL_MINUTES": (1, 1440),
+}
+MARKET_TEXT_KEYS = {
+    "MARKET_SUPPORT_CONSENT_VERSION": "v1",
+    "MARKET_SUPPORT_CONSENT_REFERENCE": "market-support/v1",
+    "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS": "",
+}
 # Pydantic accepts these spellings for a boolean setting; the deployed file
 # decides the value, exactly as the Python service reads it. A missing key is
 # Python's default (enabled), never Rust's own choice.
@@ -177,6 +191,71 @@ def kyc_execution_gate(values: dict) -> str:
     if normalized in _BOOL_FALSE:
         return "false"
     raise RustRuntimeError(f"{KYC_GATE_KEY} must be true or false")
+
+
+def _deployed_bool(values: dict, key: str, default: bool) -> bool:
+    raw = values.get(key)
+    if raw is None:
+        return default
+    if not isinstance(raw, str):
+        raise RustRuntimeError(f"{key} must be true or false")
+    normalized = raw.strip().lower()
+    if normalized in _BOOL_TRUE:
+        return True
+    if normalized in _BOOL_FALSE:
+        return False
+    raise RustRuntimeError(f"{key} must be true or false")
+
+
+def market_write_settings(values: dict, environment: str) -> dict:
+    """Return the market write keys present in the deployed `.env`, validated.
+
+    The Rust service refuses the same malformed values at startup, so the same
+    checks run here, before a restart: Python's boolean spellings, the integer
+    bounds, and the consent rule (when market support is enabled, both consent
+    values are required and the placeholders are refused in staging and
+    production). Booleans and integers are projected in normal form; text is
+    projected as written.
+    """
+    projected = {}
+    for key, default in MARKET_BOOL_KEYS.items():
+        if values.get(key) is not None:
+            projected[key] = "true" if _deployed_bool(values, key, default) else "false"
+    for key, (lowest, highest) in MARKET_INTEGER_KEYS.items():
+        raw = values.get(key)
+        if raw is None:
+            continue
+        try:
+            number = int(str(raw).strip())
+        except ValueError as exc:
+            raise RustRuntimeError(f"{key} must be an integer") from exc
+        if not lowest <= number <= highest:
+            raise RustRuntimeError(f"{key} must be from {lowest} to {highest}")
+        projected[key] = str(number)
+    for key in MARKET_TEXT_KEYS:
+        raw = values.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, str):
+            raise RustRuntimeError(f"{key} must be text")
+        projected[key] = raw
+    if _deployed_bool(values, "MARKET_SUPPORT_ENABLED", False):
+        version, reference = (
+            str(values.get(key) if values.get(key) is not None else MARKET_TEXT_KEYS[key]).strip()
+            for key in ("MARKET_SUPPORT_CONSENT_VERSION", "MARKET_SUPPORT_CONSENT_REFERENCE")
+        )
+        if not version or not reference:
+            raise RustRuntimeError(
+                "Market Support consent version and reference are required when enabled"
+            )
+        if environment in {"staging", "production"} and (
+            version == MARKET_TEXT_KEYS["MARKET_SUPPORT_CONSENT_VERSION"]
+            or reference == MARKET_TEXT_KEYS["MARKET_SUPPORT_CONSENT_REFERENCE"]
+        ):
+            raise RustRuntimeError(
+                "Market Support consent metadata must be explicitly configured"
+            )
+    return projected
 
 
 def phase2_settings(values: dict) -> dict:
@@ -337,6 +416,7 @@ def project_runtime_environment(
             projected[key] = value
     projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in UMAMI_KEYS) else "false"
     projected.update(system_status_settings(values))
+    projected.update(market_write_settings(values, environment))
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():
