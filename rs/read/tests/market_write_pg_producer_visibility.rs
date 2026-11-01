@@ -187,7 +187,7 @@ fn read_config(database_url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "unused".into(),
+        migration_revision: "kycg_20261014_staging".into(),
         database_url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
