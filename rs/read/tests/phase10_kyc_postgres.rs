@@ -814,7 +814,7 @@ mod postgres {
             &with_database(&fixture),
             &scratch.state_path(),
             Some(provider.client()),
-            { move |environment, _| async move { Ok(context_with(pool, environment)) } },
+            move |environment, _| async move { Ok(context_with(pool, environment)) },
         )
         .await;
         assert_eq!(exit, Exit::Ok);
@@ -1191,7 +1191,7 @@ mod postgres {
             &with_database(&fixture),
             &scratch.state_path(),
             Some(provider.client()),
-            { move |environment, _| async move { Ok(context_with(pool, environment)) } },
+            move |environment, _| async move { Ok(context_with(pool, environment)) },
         )
         .await;
         assert_eq!(exit, Exit::Ok);
