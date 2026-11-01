@@ -88,14 +88,17 @@ impl Fixture {
 
     /// `seed` false leaves the market empty for a test that seeds its own slice.
     async fn build(seed: bool) -> Self {
-        let database =
-            Arc::new(market_database::MarketDatabase::new("RUST_PRODUCER").await);
+        let database = Arc::new(market_database::MarketDatabase::new("RUST_PRODUCER").await);
         let admin_url = url::Url::parse(&database.admin_url).unwrap();
         let runtime_url = url::Url::parse(&database.runtime_url).unwrap();
         assert_eq!(admin_url.host_str(), Some("127.0.0.1"));
         assert!(admin_url.path().ends_with("_test"));
         assert_eq!(
-            (runtime_url.host_str(), runtime_url.port(), runtime_url.path()),
+            (
+                runtime_url.host_str(),
+                runtime_url.port(),
+                runtime_url.path()
+            ),
             (admin_url.host_str(), admin_url.port(), admin_url.path())
         );
         assert_ne!(runtime_url.username(), admin_url.username());
@@ -189,9 +192,12 @@ impl Fixture {
 
     /// The real writer cancels the seeded ASK and commits its evidence.
     async fn cancel(&self) {
-        run_effect_probe(&self.pool, self.probe(MutationKind::OrderCancelled, self.order))
-            .await
-            .unwrap();
+        run_effect_probe(
+            &self.pool,
+            self.probe(MutationKind::OrderCancelled, self.order),
+        )
+        .await
+        .unwrap();
     }
 
     /// The real writer inserts an ASK at 95 on the seeded slice.
@@ -394,7 +400,9 @@ async fn producer_restart_replays_without_duplicates() {
     assert_eq!(first.iter().map(|o| o.inserted).sum::<u64>(), 3);
     let events = f.events().await;
     assert_eq!(keys(&events), cancel_keys(&f, f.target, slice));
-    let captured = instant(evidence["captured_at"].as_str().unwrap());
+    // PostgreSQL keeps the writer instant at microsecond precision.
+    let captured =
+        chrono::SubsecRound::trunc_subsecs(instant(evidence["captured_at"].as_str().unwrap()), 6);
     let mutation: Uuid = evidence["mutation_id"].as_str().unwrap().parse().unwrap();
     for event in &events {
         assert_eq!(event.producer, "rust-market-v1");
@@ -500,7 +508,10 @@ async fn new_best_quote_keeps_new_order_and_best_price_events() {
             ),
         ])
     );
-    let new_order = events.iter().find(|e| e.class == "SLICE_NEW_ORDER").unwrap();
+    let new_order = events
+        .iter()
+        .find(|e| e.class == "SLICE_NEW_ORDER")
+        .unwrap();
     assert_eq!(new_order.payload["order_id"], inserted.to_string());
     assert_eq!(new_order.payload["price_per_mt_usd"].to_string(), "95");
     assert_eq!(new_order.payload["remaining_quantity_mt"].to_string(), "10");
@@ -551,15 +562,24 @@ async fn one_source_target_keeps_price_and_quantity_events() {
             ),
         ])
     );
-    let price = events.iter().find(|e| e.class == "PIN_PRICE_CHANGED").unwrap();
+    let price = events
+        .iter()
+        .find(|e| e.class == "PIN_PRICE_CHANGED")
+        .unwrap();
     assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "100");
     assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "110");
     let quantity = events
         .iter()
         .find(|e| e.class == "PIN_QUANTITY_CHANGED")
         .unwrap();
-    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "10");
-    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "8");
+    assert_eq!(
+        quantity.payload["old_remaining_quantity_mt"].to_string(),
+        "10"
+    );
+    assert_eq!(
+        quantity.payload["new_remaining_quantity_mt"].to_string(),
+        "8"
+    );
     assert_eq!(quantity.payload["status"], "OPEN");
     assert_eq!(quantity.attested, instant("2026-10-30T10:00:00.250Z"));
 }
@@ -579,15 +599,24 @@ async fn delayed_source_ignores_later_python_target_snapshot() {
         .unwrap();
     f.consume().await;
     let events = f.events().await;
-    let price = events.iter().find(|e| e.class == "PIN_PRICE_CHANGED").unwrap();
+    let price = events
+        .iter()
+        .find(|e| e.class == "PIN_PRICE_CHANGED")
+        .unwrap();
     assert_eq!(price.payload["old_price_per_mt_usd"].to_string(), "100");
     assert_eq!(price.payload["new_price_per_mt_usd"].to_string(), "110");
     let quantity = events
         .iter()
         .find(|e| e.class == "PIN_QUANTITY_CHANGED")
         .unwrap();
-    assert_eq!(quantity.payload["old_remaining_quantity_mt"].to_string(), "10");
-    assert_eq!(quantity.payload["new_remaining_quantity_mt"].to_string(), "8");
+    assert_eq!(
+        quantity.payload["old_remaining_quantity_mt"].to_string(),
+        "10"
+    );
+    assert_eq!(
+        quantity.payload["new_remaining_quantity_mt"].to_string(),
+        "8"
+    );
     let display: (String, String) = sqlx::query_as("SELECT snapshot_price_per_mt_usd::numeric::text,snapshot_remaining_quantity_mt::numeric::text FROM watchlist_targets WHERE id=$1")
         .bind(f.target)
         .fetch_one(&mut f.admin)
@@ -662,11 +691,12 @@ async fn producer_skips_a_sequence_hole_and_advances_the_watermark() {
     f.sequence().await;
     let high_water = f.high_water().await;
     assert!(high_water > hole);
-    let present: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE stream_seq=$1")
-        .bind(hole)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
+    let present: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE stream_seq=$1")
+            .bind(hole)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
     assert_eq!(present, 0);
     f.consume().await;
     assert_eq!(f.watermark().await, Some(high_water));
@@ -728,11 +758,13 @@ async fn uncommitted_source_is_invisible_and_rollback_leaves_no_event() {
         .fetch_one(&mut *open)
         .await
         .unwrap();
-    sqlx::query("UPDATE market_event_outbox SET stream_seq=nextval('market_event_stream_seq') WHERE id=$1")
-        .bind(id)
-        .execute(&mut *open)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE market_event_outbox SET stream_seq=nextval('market_event_stream_seq') WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&mut *open)
+    .await
+    .unwrap();
     f.sequence().await;
     let outcome = f.consume_once().await.unwrap();
     assert_eq!((outcome.sources, outcome.inserted), (0, 0));
@@ -752,10 +784,12 @@ async fn concurrent_consumers_serialize_on_the_watermark() {
     // An independent session holds the watermark row while both consumers start.
     let mut holder = PgConnection::connect(&f.database.admin_url).await.unwrap();
     let mut held = holder.begin().await.unwrap();
-    sqlx::query("SELECT consumed_through_seq FROM watchlist_producer_state WHERE singleton FOR UPDATE")
-        .execute(&mut *held)
-        .await
-        .unwrap();
+    sqlx::query(
+        "SELECT consumed_through_seq FROM watchlist_producer_state WHERE singleton FOR UPDATE",
+    )
+    .execute(&mut *held)
+    .await
+    .unwrap();
     let start = |url: String| {
         tokio::spawn(async move {
             let mut connection = PgConnection::connect(&url).await.unwrap();
@@ -876,7 +910,10 @@ async fn retention_fence_not_blocked_stops_consumption() {
         .execute(&mut f.admin)
         .await
         .unwrap();
-    assert_eq!(f.consume_once().await, Err(ProducerError::RetentionNotBlocked));
+    assert_eq!(
+        f.consume_once().await,
+        Err(ProducerError::RetentionNotBlocked)
+    );
     assert!(f.events().await.is_empty());
     assert_eq!(f.watermark().await, Some(0));
     sqlx::query("SELECT producer_fixture_fence('blocked')")
@@ -1011,9 +1048,15 @@ async fn transport_projection_never_reads_evidence_after_consumption() {
     assert_eq!(f.events().await.len(), 3);
     let high_water = f.high_water().await;
     let dispatch = dispatch_page(&f.pool, 0).await.unwrap();
-    let replay = replay_page(&f.pool, f.organization, 0, high_water, PageLimits::default())
-        .await
-        .unwrap();
+    let replay = replay_page(
+        &f.pool,
+        f.organization,
+        0,
+        high_water,
+        PageLimits::default(),
+    )
+    .await
+    .unwrap();
     assert!(!dispatch.events.is_empty());
     assert!(!replay.events.is_empty());
     let target = f.target.to_string();
@@ -1120,7 +1163,10 @@ async fn multi_fill_source_replay_keeps_every_distinct_derived_event_once() {
     .unwrap();
     assert!(rows.len() >= 2, "one match appends several rows");
     let mutation = rows[0].1["mutation_id"].clone();
-    assert!(rows.iter().all(|(_, evidence)| evidence["mutation_id"] == mutation));
+    assert!(
+        rows.iter()
+            .all(|(_, evidence)| evidence["mutation_id"] == mutation)
+    );
     f.consume().await;
     let events = f.events().await;
     for (pin, order) in pins.iter().zip(&resting) {
@@ -1128,7 +1174,10 @@ async fn multi_fill_source_replay_keeps_every_distinct_derived_event_once() {
         assert_eq!(mine.len(), 1, "one PIN class per filled order");
         assert_eq!(mine[0].class, "PIN_FILLED");
         assert_eq!(mine[0].payload["order_id"], order.to_string());
-        assert_eq!(mine[0].payload["new_remaining_quantity_mt"].to_string(), "0");
+        assert_eq!(
+            mine[0].payload["new_remaining_quantity_mt"].to_string(),
+            "0"
+        );
     }
     // Each slice transition the envelope records appears once, on the first row.
     let evidence = &rows[0].1;
@@ -1180,8 +1229,7 @@ async fn decline_restoration_source_emits_the_restored_quantity_once() {
     use tower::ServiceExt;
     use verdaxis_read::routes::market_write::trade_lifecycle::contract_router;
     const KEY: &str = "synthetic-lifecycle-signing-key-at-least-32";
-    let database =
-        Arc::new(market_database::MarketDatabase::new("RUST_PRODUCER").await);
+    let database = Arc::new(market_database::MarketDatabase::new("RUST_PRODUCER").await);
     let mut admin = PgConnection::connect(&database.admin_url).await.unwrap();
     for fixture in [
         include_str!("fixtures/phase9_trades.sql"),
@@ -1203,7 +1251,13 @@ async fn decline_restoration_source_emits_the_restored_quantity_once() {
         .unwrap();
     sqlx::query("SELECT trades_fixture_seed($1,$2)")
         .bind(product["id"].as_str().unwrap().parse::<Uuid>().unwrap())
-        .bind(product["lanes"][0].as_str().unwrap().parse::<Uuid>().unwrap())
+        .bind(
+            product["lanes"][0]
+                .as_str()
+                .unwrap()
+                .parse::<Uuid>()
+                .unwrap(),
+        )
         .execute(&mut admin)
         .await
         .unwrap();
@@ -1220,11 +1274,10 @@ async fn decline_restoration_source_emits_the_restored_quantity_once() {
         .execute(&mut admin)
         .await
         .unwrap();
-    let pin: Uuid =
-        sqlx::query_scalar("SELECT id FROM watchlist_targets WHERE target_type='PIN'")
-            .fetch_one(&mut admin)
-            .await
-            .unwrap();
+    let pin: Uuid = sqlx::query_scalar("SELECT id FROM watchlist_targets WHERE target_type='PIN'")
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .connect(&database.runtime_url)

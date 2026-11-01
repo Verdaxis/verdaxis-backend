@@ -6,11 +6,11 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use rust_decimal::Decimal;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 use verdaxis_read::market_contract::producer::{
-    decode, derive, number, price_move_is_material, schema_has_producer, ActivationRefusal,
-    DerivedEvent, EvidenceError, ProducerActivation, MAX_EVIDENCE_BYTES, MAX_ORDERS,
+    ActivationRefusal, DerivedEvent, EvidenceError, MAX_EVIDENCE_BYTES, MAX_ORDERS,
+    ProducerActivation, decode, derive, number, price_move_is_material, schema_has_producer,
 };
 
 const PRODUCT: &str = "SCALAR_FUEL";
@@ -197,11 +197,13 @@ fn terminal_status_without_remainder_change_emits_status_only() {
     assert_eq!(events[0].payload["status"], "CANCELLED");
     assert!(events[0].payload.get("old_remaining_quantity_mt").is_none());
     // A live status change without a remainder change emits nothing.
-    assert!(amend(
-        live("100", "10"),
-        live("100", "10").with_status("PARTIALLY_FILLED")
-    )
-    .is_empty());
+    assert!(
+        amend(
+            live("100", "10"),
+            live("100", "10").with_status("PARTIALLY_FILLED")
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -238,11 +240,13 @@ fn admitted_before_withdrawal_still_emits() {
     // The label comes from the public projection captured before the change.
     assert_eq!(events[0].payload["delivery_point_name"], "Rotterdam");
     // A terminal change of an order that was never public emits nothing.
-    assert!(amend(
-        live("100", "10").hidden(),
-        live("100", "10").with_status("CANCELLED").hidden()
-    )
-    .is_empty());
+    assert!(
+        amend(
+            live("100", "10").hidden(),
+            live("100", "10").with_status("CANCELLED").hidden()
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -408,9 +412,10 @@ fn no_benchmark_class_is_derived() {
         live("100", "10"),
         live("150", "1").with_status("PARTIALLY_FILLED"),
     );
-    assert!(all
-        .iter()
-        .all(|e| e.class.as_str() != "SLICE_BENCHMARK_MOVED"));
+    assert!(
+        all.iter()
+            .all(|e| e.class.as_str() != "SLICE_BENCHMARK_MOVED")
+    );
 }
 
 #[test]
@@ -558,25 +563,25 @@ fn activation_requires_both_release_keys() {
             Some("rust-market-v1"),
             None,
             RELEASE,
-            ActivationRefusal::InstantMissing,
+            ActivationRefusal::ActivatedAtMissing,
         ),
         (
             Some("rust-market-v1"),
             Some(" "),
             RELEASE,
-            ActivationRefusal::InstantMissing,
+            ActivationRefusal::ActivatedAtMissing,
         ),
         (
             Some("rust-market-v1"),
             Some("2026-11-01"),
             RELEASE,
-            ActivationRefusal::InstantInvalid,
+            ActivationRefusal::ActivatedAtInvalid,
         ),
         (
             Some("rust-market-v1"),
             Some("now"),
             RELEASE,
-            ActivationRefusal::InstantInvalid,
+            ActivationRefusal::ActivatedAtInvalid,
         ),
         (
             Some("rust-market-v1"),
