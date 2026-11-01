@@ -178,6 +178,26 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
             ),
     )
 }
+/// The account offboarding command and preview, composed with the production
+/// admission event producer and the supplied market implementation.
+///
+/// [`routes`] does not call this: the routes stay unmounted until the
+/// composition owner supplies the real user-scoped market invalidation behind
+/// its release switch. `None` when this composition has no Phase 2 settings.
+pub fn offboarding_routes<H: business::offboarding::OffboardingMarketHook>(
+    app: &AppState,
+    market: Arc<H>,
+) -> Option<Router> {
+    let settings = app.phase2.as_ref()?;
+    Some(business::offboarding::router(
+        app.clone(),
+        settings.verification.clone(),
+        business::offboarding::OffboardingService {
+            market,
+            events: Arc::new(Events(app.clone())),
+        },
+    ))
+}
 fn client(request: &Request) -> String {
     super::http::client_ip(
         request

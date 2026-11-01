@@ -8,6 +8,7 @@ pub mod error;
 pub mod invitations;
 pub mod joins;
 pub mod membership;
+pub mod offboarding;
 pub mod organizations;
 pub mod profile;
 pub mod status;
