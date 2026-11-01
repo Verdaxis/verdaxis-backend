@@ -264,3 +264,66 @@ fn serving_composition_leaves_offboarding_unmounted() {
         }
     }
 }
+
+/// The text of one function, from its signature to the next top-level item.
+fn function_body<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source
+        .find(signature)
+        .unwrap_or_else(|| panic!("{signature} is present"));
+    let rest = &source[start..];
+    let end = rest[1..]
+        .find("\n}\n")
+        .map(|offset| offset + 3)
+        .unwrap_or(rest.len());
+    &rest[..end]
+}
+
+/// The password workers can be busy under sign-in load. The unusable hash is
+/// therefore prepared after the caller is admitted and the request is valid,
+/// but before the offboarding transaction takes its first lock, and the
+/// credential cutoff does no password work while it holds the user row.
+#[test]
+fn unusable_hash_is_prepared_before_the_first_lock() {
+    let business = std::fs::read_to_string(source_root().join("business/offboarding.rs")).unwrap();
+    let route = function_body(&business, "async fn offboard<");
+    let position = |needle: &str| {
+        route
+            .find(needle)
+            .unwrap_or_else(|| panic!("the offboard route calls {needle}"))
+    };
+    let admitted = position("admit(");
+    let parsed = position("OffboardRequest::parse(");
+    let prepared = position("UnusablePasswordHash::prepare()");
+    let locked = position("run_organization_write(");
+    assert!(
+        admitted < prepared && parsed < prepared,
+        "prepared only for an admitted, valid request"
+    );
+    assert!(
+        prepared < locked,
+        "prepared before the transaction takes its first lock"
+    );
+    assert_eq!(
+        business.matches("UnusablePasswordHash::prepare()").count(),
+        1,
+        "the command itself never hashes inside the transaction"
+    );
+
+    let auth = std::fs::read_to_string(source_root().join("auth/offboarding.rs")).unwrap();
+    let cutoff = function_body(&auth, "pub async fn revoke_account_credentials(");
+    assert!(
+        cutoff.contains("unusable_hash: &UnusablePasswordHash"),
+        "the cutoff takes the prepared hash"
+    );
+    for needle in ["password::hash", "bcrypt::", "prepare()", "spawn_blocking"] {
+        assert!(
+            !cutoff.contains(needle),
+            "the cutoff must not do password work while it holds the row: {needle}"
+        );
+    }
+    assert_eq!(
+        auth.matches("password::hash(").count(),
+        1,
+        "only the preparation step hashes"
+    );
+}

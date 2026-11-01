@@ -21,7 +21,9 @@
 //! is replaced by a well-formed bcrypt hash of a discarded random secret, which
 //! the Rust and Python verifiers parse and reject for every presented password.
 //! It has the cost of a real password hash, so a sign-in attempt takes as long
-//! for an offboarded account as for an active one.
+//! for an offboarded account as for an active one. The caller prepares that
+//! hash before it takes its first lock, so no password work runs while a row
+//! is held.
 //! Every refresh family is revoked, and the reset, invitation, verification and
 //! pending approval-mail secrets are cleared. History rows (audit, sent mail,
 //! login days) and KYC evidence are left unchanged.
@@ -58,8 +60,31 @@ pub struct CredentialRevocation {
 /// A well-formed bcrypt hash of a fresh random secret that is never stored or
 /// returned. No presented password matches it, and a new value is made for
 /// every account, so no two accounts share one.
-pub fn unusable_password_hash() -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(generate_token(), password::BCRYPT_COST)
+///
+/// It is prepared before the caller takes any lock: the hash runs on the
+/// bounded password workers, which sign-in load can keep busy, and a wait
+/// there must never hold the user row or any later lock. The cost is the real
+/// password cost, so a sign-in attempt takes as long for an offboarded account
+/// as for an active one.
+#[derive(Clone)]
+pub struct UnusablePasswordHash(String);
+
+impl UnusablePasswordHash {
+    /// Hash a fresh random secret through the same path as a real password.
+    pub async fn prepare() -> Result<Self, password::PasswordError> {
+        password::hash(&generate_token()).await.map(Self)
+    }
+
+    /// The stored form, for the verifiers of both stacks.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for UnusablePasswordHash {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("UnusablePasswordHash(..)")
+    }
 }
 
 /// End every credential of one user inside the caller's transaction.
@@ -72,15 +97,16 @@ pub fn unusable_password_hash() -> Result<String, bcrypt::BcryptError> {
 /// ([`USER_LOCK_NOT_HELD`]). In both cases nothing is written. An unknown user
 /// returns [`sqlx::Error::RowNotFound`]. The caller commits or rolls back the
 /// whole operation, including after an error.
+///
+/// `unusable_hash` is prepared before the caller's first lock (see
+/// [`UnusablePasswordHash`]), so this function does no password work while it
+/// holds the row.
 pub async fn revoke_account_credentials(
     connection: &mut PgConnection,
     user_id: Uuid,
+    unusable_hash: &UnusablePasswordHash,
 ) -> Result<CredentialRevocation, sqlx::Error> {
     confirm_user_lock(connection, user_id).await?;
-    // The real password cost, on the bounded password workers.
-    let unusable_hash = password::hash(&generate_token())
-        .await
-        .map_err(|_| sqlx::Error::InvalidArgument("the unusable password hash failed".into()))?;
     // A separate statement, run only after the lock is confirmed: a clock read
     // inside a locking statement could be evaluated before that lock is granted.
     let cutoff: DateTime<Utc> = sqlx::query_scalar(
@@ -104,7 +130,7 @@ pub async fn revoke_account_credentials(
         )
         .bind(user_id)
         .bind(cutoff)
-        .bind(&unusable_hash)
+        .bind(unusable_hash.as_str())
         .fetch_one(&mut *connection)
         .await?;
     let refresh_sessions_revoked = store::revoke_user_families(connection, user_id).await?;

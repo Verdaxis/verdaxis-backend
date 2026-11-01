@@ -34,7 +34,7 @@ use verdaxis_read::auth::{
     limits::SharedLimits,
     login,
     offboarding::{
-        CUTOFF_SKEW_MARGIN_SECONDS, CredentialRevocation, USER_LOCK_NOT_HELD,
+        CUTOFF_SKEW_MARGIN_SECONDS, CredentialRevocation, USER_LOCK_NOT_HELD, UnusablePasswordHash,
         revoke_account_credentials,
     },
     password, refresh,
@@ -78,6 +78,8 @@ struct Database {
     session_tag: String,
     runtime_url: String,
     owner_url: String,
+    /// Prepared once, before any lock, as a real caller does.
+    unusable: UnusablePasswordHash,
 }
 
 struct TestUser {
@@ -135,6 +137,7 @@ impl Database {
             session_tag,
             runtime_url,
             owner_url,
+            unusable: UnusablePasswordHash::prepare().await.unwrap(),
         }
     }
 
@@ -223,9 +226,10 @@ async fn database_now(connection: &mut PgConnection) -> DateTime<Utc> {
 
 /// One complete caller transaction: lock the user row, then cut off.
 async fn cut_off(pool: &PgPool, user: Uuid) -> CredentialRevocation {
+    let unusable = UnusablePasswordHash::prepare().await.unwrap();
     let mut transaction = pool.begin().await.unwrap();
     lock_user_row(&mut transaction, user).await;
-    let revocation = revoke_account_credentials(&mut transaction, user)
+    let revocation = revoke_account_credentials(&mut transaction, user, &unusable)
         .await
         .unwrap();
     transaction.commit().await.unwrap();
@@ -541,6 +545,7 @@ fn error_code(issued: &Issued) -> &str {
 /// The caller side of a race: start the transaction, wait for the user row
 /// lock, read the database clock once it is granted, then cut off.
 async fn cut_off_after_wait(pool: PgPool, user: Uuid) -> (DateTime<Utc>, CredentialRevocation) {
+    let unusable = UnusablePasswordHash::prepare().await.unwrap();
     let mut transaction = pool.begin().await.unwrap();
     let requested = Instant::now();
     lock_user_row(&mut transaction, user).await;
@@ -549,7 +554,7 @@ async fn cut_off_after_wait(pool: PgPool, user: Uuid) -> (DateTime<Utc>, Credent
         requested.elapsed()
     );
     let acquired = database_now(&mut transaction).await;
-    let revocation = revoke_account_credentials(&mut transaction, user)
+    let revocation = revoke_account_credentials(&mut transaction, user, &unusable)
         .await
         .unwrap();
     transaction.commit().await.unwrap();
@@ -668,7 +673,7 @@ async fn cutoff_is_taken_after_user_lock() {
     let user = db.user(None).await;
     let mut transaction = db.cutoff.begin().await.unwrap();
     lock_user_row(&mut transaction, user.id).await;
-    revoke_account_credentials(&mut transaction, user.id)
+    revoke_account_credentials(&mut transaction, user.id, &db.unusable)
         .await
         .unwrap();
     let attempt = tokio::spawn(send_login(
@@ -689,7 +694,7 @@ async fn cutoff_is_taken_after_user_lock() {
     let (token, device) = seed_family(&db, user.id).await;
     let mut transaction = db.cutoff.begin().await.unwrap();
     lock_user_row(&mut transaction, user.id).await;
-    revoke_account_credentials(&mut transaction, user.id)
+    revoke_account_credentials(&mut transaction, user.id, &db.unusable)
         .await
         .unwrap();
     let attempt = tokio::spawn(send_refresh(
@@ -1152,7 +1157,7 @@ async fn credential_cutoff_requires_the_held_user_lock() {
     lock_user_row(&mut holder, user.id).await;
     let mut transaction = db.cutoff.begin().await.unwrap();
     let started = Instant::now();
-    let error = revoke_account_credentials(&mut transaction, user.id)
+    let error = revoke_account_credentials(&mut transaction, user.id, &db.unusable)
         .await
         .expect_err("another transaction holds the user row");
     assert!(
@@ -1172,14 +1177,14 @@ async fn credential_cutoff_requires_the_held_user_lock() {
     // No internal commit: the caller's rollback discards every change.
     let mut transaction = db.cutoff.begin().await.unwrap();
     lock_user_row(&mut transaction, user.id).await;
-    revoke_account_credentials(&mut transaction, user.id)
+    revoke_account_credentials(&mut transaction, user.id, &db.unusable)
         .await
         .unwrap();
     transaction.rollback().await.unwrap();
     assert_eq!(credential_snapshot(&db.owner, user.id).await, before);
 
     let mut transaction = db.cutoff.begin().await.unwrap();
-    let missing = revoke_account_credentials(&mut transaction, Uuid::new_v4()).await;
+    let missing = revoke_account_credentials(&mut transaction, Uuid::new_v4(), &db.unusable).await;
     assert!(matches!(missing, Err(sqlx::Error::RowNotFound)));
     transaction.rollback().await.unwrap();
 }
@@ -1208,7 +1213,7 @@ async fn credential_cutoff_refuses_without_the_caller_lock() {
                 .await
                 .unwrap();
         }
-        let error = revoke_account_credentials(&mut transaction, user.id)
+        let error = revoke_account_credentials(&mut transaction, user.id, &db.unusable)
             .await
             .expect_err("the caller has not written the user row");
         assert!(refused(&error), "{lock:?}: {error:?}");
@@ -1218,7 +1223,7 @@ async fn credential_cutoff_refuses_without_the_caller_lock() {
 
     // A connection outside any transaction holds nothing.
     let mut connection = db.cutoff.acquire().await.unwrap();
-    let error = revoke_account_credentials(&mut connection, user.id)
+    let error = revoke_account_credentials(&mut connection, user.id, &db.unusable)
         .await
         .expect_err("an autocommit connection holds no row lock");
     assert!(refused(&error), "{error:?}");
@@ -1232,7 +1237,7 @@ async fn credential_cutoff_refuses_without_the_caller_lock() {
         .execute(&mut *transaction)
         .await
         .unwrap();
-    revoke_account_credentials(&mut transaction, user.id)
+    revoke_account_credentials(&mut transaction, user.id, &db.unusable)
         .await
         .expect("a written row is held by this transaction");
     transaction.rollback().await.unwrap();
@@ -1442,10 +1447,10 @@ async fn detached_streams_close_after_membership_recheck() {
         .execute(&mut *transaction)
         .await
         .unwrap();
-    revoke_account_credentials(&mut transaction, departed.id)
+    revoke_account_credentials(&mut transaction, departed.id, &db.unusable)
         .await
         .unwrap();
-    revoke_account_credentials(&mut transaction, cut_only.id)
+    revoke_account_credentials(&mut transaction, cut_only.id, &db.unusable)
         .await
         .unwrap();
     transaction.commit().await.unwrap();

@@ -32,7 +32,7 @@ use verdaxis_read::{
     AppState, Config,
     auth::{
         VerificationSettings, VerifiedAccess,
-        offboarding::CUTOFF_SKEW_MARGIN_SECONDS,
+        offboarding::{CUTOFF_SKEW_MARGIN_SECONDS, UnusablePasswordHash},
         token_bytes::{generate_token, token_digest},
         verify_access,
     },
@@ -397,7 +397,7 @@ impl Harness {
         .await
     }
 
-    fn command(
+    async fn command(
         &self,
         subject: Uuid,
         expected: Option<Uuid>,
@@ -405,6 +405,7 @@ impl Harness {
         OffboardAccount {
             subject_id: subject,
             request: OffboardRequest::parse(&serde_json::to_vec(&body(expected)).unwrap()).unwrap(),
+            unusable_hash: UnusablePasswordHash::prepare().await.unwrap(),
             audit: AuditContext::default(),
             market: Arc::new(RecordingHook),
             events: NoEvents,
@@ -924,7 +925,7 @@ async fn actor_is_revalidated_under_lock() {
         .unwrap();
     let command = {
         let access = harness.access(seed.admin);
-        let command = harness.command(seed.subject, Some(seed.organization));
+        let command = harness.command(seed.subject, Some(seed.organization)).await;
         let pool = harness.runtime.clone();
         tokio::spawn(run_ordered_write(
             pool,
@@ -980,7 +981,7 @@ async fn stale_membership_conflicts() {
         .unwrap();
     let command = {
         let access = harness.access(seed.admin);
-        let command = harness.command(seed.subject, Some(seed.organization));
+        let command = harness.command(seed.subject, Some(seed.organization)).await;
         tokio::spawn(run_ordered_write(
             harness.runtime.clone(),
             Arc::new(Semaphore::new(4)),
@@ -1211,7 +1212,7 @@ async fn offboarding_lock_winner_blocks_reattachment() {
         harness.runtime.clone(),
         Arc::new(Semaphore::new(4)),
         harness.access(seed.admin),
-        harness.command(seed.subject, Some(seed.organization)),
+        harness.command(seed.subject, Some(seed.organization)).await,
         control.clone(),
     ));
     control.reached().await;
@@ -1282,7 +1283,7 @@ async fn session_lock_winner_is_cut_off() {
         .unwrap();
     let command = {
         let access = harness.access(seed.admin);
-        let command = harness.command(seed.subject, Some(seed.organization));
+        let command = harness.command(seed.subject, Some(seed.organization)).await;
         tokio::spawn(run_ordered_write(
             harness.runtime.clone(),
             Arc::new(Semaphore::new(4)),

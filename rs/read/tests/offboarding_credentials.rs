@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 use verdaxis_read::auth::{
-    offboarding::{CUTOFF_SKEW_MARGIN_SECONDS, unusable_password_hash},
+    offboarding::{CUTOFF_SKEW_MARGIN_SECONDS, UnusablePasswordHash},
     password,
 };
 
@@ -73,8 +73,16 @@ fn skew_margin_is_a_few_seconds() {
 
 #[tokio::test]
 async fn unusable_hash_rejected_by_both_stacks() {
-    let first = unusable_password_hash().expect("hash");
-    let second = unusable_password_hash().expect("hash");
+    let first = UnusablePasswordHash::prepare()
+        .await
+        .expect("hash")
+        .as_str()
+        .to_owned();
+    let second = UnusablePasswordHash::prepare()
+        .await
+        .expect("hash")
+        .as_str()
+        .to_owned();
     assert_ne!(first, second, "every account gets its own unusable hash");
     for hash in [&first, &second] {
         assert!(

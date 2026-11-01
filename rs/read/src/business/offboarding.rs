@@ -55,8 +55,9 @@ use crate::{
     ApiError, AppState,
     auth::{
         AuthError, AuthenticatedError, AuthenticatedRequest, CurrentActor, VerificationSettings,
-        VerifiedAccess, offboarding::revoke_account_credentials, run_authenticated,
-        verify_authorization,
+        VerifiedAccess,
+        offboarding::{UnusablePasswordHash, revoke_account_credentials},
+        run_authenticated, verify_authorization,
     },
 };
 
@@ -348,6 +349,9 @@ impl<H: OffboardingMarketHook> OffboardingMarketHook for Arc<H> {
 pub struct OffboardAccount<H, E> {
     pub subject_id: Uuid,
     pub request: OffboardRequest,
+    /// Prepared before the transaction takes its first lock; every retried
+    /// attempt reuses it.
+    pub unusable_hash: UnusablePasswordHash,
     pub audit: AuditContext,
     pub market: H,
     pub events: E,
@@ -585,7 +589,7 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
             },
         )
         .await?;
-        let credentials = revoke_account_credentials(conn, self.subject_id)
+        let credentials = revoke_account_credentials(conn, self.subject_id, &self.unusable_hash)
             .await
             .map_err(|error| match error {
                 sqlx::Error::RowNotFound => AttemptError::Application(not_found()),
@@ -1011,12 +1015,19 @@ async fn offboard<H: OffboardingMarketHook, E: AdmissionEvents>(
         .await
         .map_err(|_| body_too_large())?;
     let request = OffboardRequest::parse(&body)?;
+    // Before the first lock of the offboarding transaction, and only after the
+    // caller is admitted and the request is valid: the password workers can be
+    // busy, and that wait must not hold any row.
+    let unusable_hash = UnusablePasswordHash::prepare()
+        .await
+        .map_err(|_| ApiError::database())?;
     super::transaction::run_organization_write(
         &state.app,
         access,
         OffboardAccount {
             subject_id: subject,
             request,
+            unusable_hash,
             audit,
             market: state.service.market.clone(),
             events: state.service.events.clone(),
