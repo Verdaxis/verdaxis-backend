@@ -338,6 +338,31 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_phase4_authority.sh
+      - name: Individual account state marker schema
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_schema.sh
+      - name: Account access marker admission
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_admission.sh
+      - name: Account credential cutoff
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_credentials.sh
+      - name: Account offboarding command
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_command.sh
+      - name: Market invalidation, matching, conservation and locks
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_market.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         if: matrix.check == 'phase2'
