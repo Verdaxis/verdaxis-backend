@@ -13,14 +13,13 @@
 //! journal plugs in there: a monitor never publishes a status that the journal
 //! refused to admit.
 use crate::cli::Exit;
-use crate::cli::state::write_atomic;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -468,7 +467,47 @@ pub fn publish(path: &Path, status: &Status, admission: &dyn Admission) -> Resul
             .create(parent)
             .map_err(|_| Exit::Dependency)?;
     }
-    write_atomic(path, status)
+    write_document(path, status)
+}
+
+/// Write the document as compact JSON plus one newline, the bytes the previous
+/// monitor wrote. The sequence is: a fresh temp file beside the target (0600),
+/// write, `fsync`, rename over the target, `fsync` the directory. A failure
+/// before the rename leaves the old document and removes the temp file.
+fn write_document(path: &Path, status: &Status) -> Result<(), Exit> {
+    if !path.is_absolute() {
+        return Err(Exit::Precondition);
+    }
+    let parent = path.parent().ok_or(Exit::Precondition)?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(Exit::Precondition)?;
+    let mut document = serde_json::to_vec(status).map_err(|_| Exit::Precondition)?;
+    document.push(b'\n');
+    let temporary = parent.join(format!(
+        ".{name}.tmp.{}.{}",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let written = (|| -> std::io::Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC)
+            .open(&temporary)?;
+        file.write_all(&document)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(Exit::Dependency);
+    }
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| Exit::Dependency)
 }
 
 /// Run one collection. A refusal or a panic becomes the fixed `fatal_error`

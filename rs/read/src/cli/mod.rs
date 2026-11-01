@@ -410,10 +410,10 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             }
         },
         Command::Monitor(args) if args.kind == MonitorKind::Health => {
-            run_local_monitor(&args, monitors::health::run_default).await
+            run_local_monitor(&args, monitors::health::run_default)
         }
         Command::Monitor(args) if args.kind == MonitorKind::BackupVerify => {
-            run_local_monitor(&args, monitors::backup::run_default).await
+            run_local_monitor(&args, monitors::backup::run_default)
         }
         command => {
             // Parsing never grants execution authority. Until its owning task
@@ -440,20 +440,31 @@ impl Command {
     }
 }
 
-/// Run a local monitor that takes no flags. The monitor reads local files only,
-/// so it runs on a blocking thread and never opens a database pool.
-async fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
-    if args.environment.is_some()
-        || args.event.is_some()
-        || args.remind.is_some()
-        || args.telegram_disabled
-    {
+/// Whether `args` is exactly the bare command `monitor <kind>`: every other
+/// field holds the value the parser gives when the flag is absent. A flag added
+/// to `MonitorArgs` later is therefore refused by default.
+fn is_bare_monitor(args: &MonitorArgs) -> bool {
+    let Some(name) = args.kind.to_possible_value() else {
+        return false;
+    };
+    let bare = parse(vec![
+        OsString::from("monitor"),
+        OsString::from(name.get_name()),
+    ]);
+    matches!(bare, Ok(Command::Monitor(bare)) if bare == *args)
+}
+
+/// Run a local monitor that takes no flags.
+///
+/// The monitor reads local files only and opens no pool. It runs on the calling
+/// thread: a oneshot has no other task, and a blocking-pool thread could wait
+/// forever under a unit's `TasksMax`.
+fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
+    if !is_bare_monitor(args) {
         report("monitor", "usage_refused");
         return Exit::Usage;
     }
-    tokio::task::spawn_blocking(run)
-        .await
-        .unwrap_or(Exit::Dependency)
+    std::panic::catch_unwind(run).unwrap_or(Exit::Dependency)
 }
 
 fn report(command: &str, outcome: &str) {
