@@ -775,8 +775,11 @@ async fn expiry_mail_lease_is_exclusive() {
     // lock of the claim is held across it.
     gate.entered.notified().await;
     assert!(
-        db.probe("SELECT reminder_fixture_user_update_lock_free($1)", party.user)
-            .await,
+        db.probe(
+            "SELECT reminder_fixture_user_update_lock_free($1)",
+            party.user
+        )
+        .await,
         "no user row lock during the provider call"
     );
     assert!(
@@ -1399,8 +1402,11 @@ async fn expiry_claim_takes_the_user_row_then_the_order_row() {
     };
     db.wait_blocked(JOB_APP, ORDER_FIRST_APP).await;
     assert!(
-        !db.probe("SELECT reminder_fixture_user_update_lock_free($1)", party.user)
-            .await,
+        !db.probe(
+            "SELECT reminder_fixture_user_update_lock_free($1)",
+            party.user
+        )
+        .await,
         "the user row is locked before the order row"
     );
     assert!(
