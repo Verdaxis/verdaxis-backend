@@ -1,4 +1,4 @@
-"""PD10-W1 regressions: structural transport, publication, transitive imports."""
+"""Regressions: structural transport, publication, transitive imports."""
 import hashlib
 import json
 import tempfile

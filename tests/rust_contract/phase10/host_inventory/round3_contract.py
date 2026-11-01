@@ -1,4 +1,4 @@
-"""PD10-W2: unresolved identities, strict commands and uncertain roots."""
+"""Unresolved identities, strict commands and uncertain roots."""
 import json
 import tempfile
 import unittest

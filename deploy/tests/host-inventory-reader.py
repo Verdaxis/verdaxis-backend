@@ -281,7 +281,7 @@ def scan_script(path):
             'dropped': dropped, 'priority_overflow': overflow}
 
 
-# Only these structural values may cross the host boundary (PD10-W1).
+# Only these structural values may cross the host boundary.
 PATH_VALUE = re.compile(r'/[A-Za-z0-9_./@+-]{1,4095}')
 NAME_VALUE = re.compile(r'[A-Za-z_][A-Za-z0-9_.@:-]{0,127}')
 TIMER_KEYS = {'OnCalendar', 'OnBootSec', 'OnStartupSec', 'OnActiveSec',
@@ -316,7 +316,7 @@ def logical_statements(text):
 
 
 def script_operand(value):
-    """PD10-W2: one script, optional exact interpreter, no executable tail."""
+    """One script, optional exact interpreter, no executable tail."""
     if any(char in value for char in ';|&<>`$*?[]{}\n\r\\'):
         return None, False
     try:

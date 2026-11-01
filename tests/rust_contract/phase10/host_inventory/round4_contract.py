@@ -1,4 +1,4 @@
-"""PD10-W3: acquisition is not completeness; deny reads before opening."""
+"""Acquisition is not completeness; deny reads before opening."""
 import json
 import tempfile
 import unittest

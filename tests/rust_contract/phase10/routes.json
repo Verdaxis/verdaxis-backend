@@ -1831,7 +1831,7 @@
       "source": "app/routers/activity.py",
       "kind": "route",
       "end_state": "gone",
-      "owner": "Task 32 removal owner (PD6-1)",
+      "owner": "Task 32 removal owner (retired stream route)",
       "task": 32,
       "source_sha256": "f7aea5f8b529743525ecfdfb2a7fd3295d969a077aa98ed0958e78bdf4571538",
       "status": "planned",

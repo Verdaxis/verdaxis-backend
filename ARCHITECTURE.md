@@ -901,7 +901,7 @@ redaction. Transport fixes the two SSH targets and the private evidence folder;
 its fixture tests substitute all commands and SSH. The shell CLI still refuses
 live collection pending separate authorization. Incomplete reads remain explicit
 coverage failures; observations do not approve dependencies or create schedules.
-PD10-W1 restricts host output to structural allowlisted fields and host-computed
+The reader restricts host output to structural allowlisted fields and host-computed
 digests. Unknown lines become `<unparsed>` with a digest; raw unit, cron and
 script text never crosses SSH. Local Python/shell references use bounded
 transitive no-follow inspection; unresolved, dynamic and removed-package
