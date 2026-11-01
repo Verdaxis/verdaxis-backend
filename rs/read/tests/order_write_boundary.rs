@@ -371,6 +371,14 @@ fn scan_repository() -> Vec<String> {
         root.join("rs/read/src/auth/store.rs"),
         root.join("rs/read/tests/auth_store_postgres.rs"),
     ];
+    // The news refresh job holds the transaction-scoped advisory key the Python
+    // job used, so both stacks never refresh at once. The key never names an
+    // order-book row. The job and its PostgreSQL test (which proves the shared
+    // key) are named exactly.
+    let news_refresh_lock = [
+        root.join("rs/read/src/cli/jobs/news.rs"),
+        root.join("rs/read/tests/phase10_news_postgres.rs"),
+    ];
     let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
     let mut violations = Vec::new();
 
@@ -423,6 +431,7 @@ fn scan_repository() -> Vec<String> {
                 && !price_alert_cap.contains(path)
                 && !stream_sequencer_lock.contains(path)
                 && !device_session_lock.contains(path)
+                && !news_refresh_lock.contains(path)
             {
                 violations.push(format!(
                     "{}: advisory lock outside order_write",
