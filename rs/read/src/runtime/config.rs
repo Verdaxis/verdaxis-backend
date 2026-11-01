@@ -160,9 +160,15 @@ pub fn config_from_deployed_environment(
     {
         return Err("the prepared budget artifact is internally inconsistent".into());
     }
+    let deployment = required("ENVIRONMENT")?;
+    // Refuse a malformed market setting before serving, as Python refuses it.
+    let market_write = super::market_write::MarketWriteOptions::from_deployed_environment(
+        environment,
+        &deployment,
+    )?;
     let config = Config {
         kyc_execution_gate_enabled: deployed_bool(environment, "KYC_EXECUTION_GATE_ENABLED", true)?,
-        environment: required("ENVIRONMENT")?,
+        environment: deployment,
         release_sha,
         migration_revision: required("MIGRATION_REVISION")?,
         database_url: required("DATABASE_URL")?,
@@ -216,6 +222,7 @@ pub fn config_from_deployed_environment(
             // The deploy preparer projects the environment's public API host;
             // an absent key leaves the in-app Host check off.
             allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
+            market_write,
         },
     };
     // Refuse an unknown status or an over-long message before serving, like

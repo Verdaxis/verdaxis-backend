@@ -31,8 +31,15 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/orderbook/bids", get(bids))
         .route("/api/orderbook/asks", get(asks))
-        .route("/api/orderbook", get(list).post(create_order_boundary))
+        .route("/api/orderbook", get(list))
         .route("/api/orderbook/with-ci", get(with_ci))
+}
+
+/// The unauthenticated answer of `POST /api/orderbook` for a composition that
+/// does not serve the market writes. The market write composition mounts the
+/// real order-entry route on the same path instead, so the two never meet.
+pub fn order_create_boundary() -> axum::Router<crate::AppState> {
+    axum::Router::new().route("/api/orderbook", axum::routing::post(create_order_boundary))
 }
 
 /// Python registers a real POST write route on `/api/orderbook`, so an

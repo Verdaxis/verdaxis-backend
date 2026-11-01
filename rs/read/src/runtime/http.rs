@@ -707,6 +707,14 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(business) => routes.merge(business),
         None => routes,
     };
+    // The market writes mount under the same condition as Phase 4. Without
+    // them, `POST /api/orderbook` keeps its unauthenticated boundary answer.
+    let routes = match super::market_write::routes(&state, limits.clone()) {
+        Some(market) => routes.merge(market),
+        None => routes.merge(
+            crate::routes::orderbook_lists::order_create_boundary().with_state(state.clone()),
+        ),
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);
@@ -728,6 +736,7 @@ pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
         .merge(public_routes())
+        .merge(crate::routes::orderbook_lists::order_create_boundary())
         .fallback(fallback)
         .with_state(state.clone())
         .merge(stated)

@@ -105,6 +105,9 @@ pub struct AppState {
     /// settings stream admission uses. `None` until the runtime starts it;
     /// stream routes then answer the terminal 503 while REST stays available.
     pub streams: Option<std::sync::Arc<streams::http::Streams>>,
+    /// Validated market write settings; `None` without the Phase 2 settings,
+    /// so the market operations are not mounted and Caddy keeps them on Python.
+    pub(crate) market_write: Option<runtime::market_write::MarketWriteSettings>,
     pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
@@ -139,6 +142,13 @@ impl AppState {
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
         let host_policy = runtime::host::HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
+        let market_write = if phase2.is_some() {
+            Some(runtime::market_write::MarketWriteSettings::from_config(
+                &config,
+            )?)
+        } else {
+            None
+        };
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -161,6 +171,7 @@ impl AppState {
             reference_cache,
             phase2,
             streams: None,
+            market_write,
             phase3,
             trading_caches,
             trading_cache,
@@ -294,6 +305,10 @@ pub struct Phase2Options {
     /// loopback. Unset or blank turns the check off; a malformed value stops
     /// the start (see `runtime::host`).
     pub allowed_hosts: Option<String>,
+    /// The market write settings (`AUTO_MATCHING_ENABLED`, the six
+    /// `MARKET_SUPPORT_*` keys and the conversion collector). Absent keys keep
+    /// Python's defaults.
+    pub market_write: runtime::market_write::MarketWriteOptions,
 }
 
 fn read_admission_default() -> u32 {

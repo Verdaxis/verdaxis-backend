@@ -10,6 +10,7 @@ pub mod health;
 pub mod host;
 pub mod http;
 pub mod logging;
+pub mod market_write;
 pub mod phase2;
 pub mod phase3;
 pub mod phase4;
