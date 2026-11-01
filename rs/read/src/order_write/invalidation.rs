@@ -27,7 +27,7 @@ pub struct InvalidateOrganization {
 #[derive(Debug)]
 pub struct InvalidationResult {
     pub withdrawn_orders: Vec<Uuid>,
-    pub preserved_trade_ids: Vec<Uuid>,
+    pub cancelled_trade_ids: Vec<Uuid>,
     pub released_uncommitted_quantity: Decimal,
     pub outbox_ids: Vec<Uuid>,
 }
@@ -89,6 +89,14 @@ pub(super) struct Order {
     pub inventory_item_id: Option<Uuid>,
     pub price_per_mt_usd: Decimal,
     pub provenance: String,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+pub(super) struct OrderRestoration {
+    pub before: Order,
+    pub after: Order,
+    pub restored: Decimal,
+    pub released: Decimal,
 }
 
 #[derive(PartialEq, Eq)]
@@ -101,15 +109,30 @@ async fn preview(
     conn: &mut PgConnection,
     organization: Uuid,
 ) -> Result<Preview, InvalidationError> {
-    let commitments = sqlx::query_as::<_,Commitment>("SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE (buyer_id=$1 OR seller_id=$1) AND status IN ('PENDING_CONFIRMATION','CONFIRMED','DELIVERED') ORDER BY id LIMIT 101")
+    let commitments = sqlx::query_as::<_,Commitment>("SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE (buyer_id=$1 OR seller_id=$1) AND status='PENDING_CONFIRMATION' ORDER BY id LIMIT 101")
         .bind(organization).fetch_all(&mut *conn).await?;
-    let orders = sqlx::query_as::<_,Order>("SELECT id,organization_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance FROM orderbook_orders WHERE organization_id=$1 AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY id LIMIT 101")
+    let mut orders = sqlx::query_as::<_,Order>("SELECT id,organization_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at FROM orderbook_orders WHERE organization_id=$1 AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY id LIMIT 101")
         .bind(organization).fetch_all(&mut *conn).await?;
     if commitments.len() > 100 || orders.len() > 100 {
         return Err(refusal(
             "MARKET_INVALIDATION_LIMIT",
             "Market invalidation exceeds the transaction bound.",
         ));
+    }
+    let linked_ids: BTreeSet<_> = commitments
+        .iter()
+        .flat_map(|trade| [trade.bid_order_id, trade.ask_order_id])
+        .flatten()
+        .collect();
+    if !linked_ids.is_empty() {
+        let linked = sqlx::query_as::<_,Order>("SELECT id,organization_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at FROM orderbook_orders WHERE id=ANY($1) ORDER BY id")
+            .bind(linked_ids.iter().copied().collect::<Vec<_>>()).fetch_all(&mut *conn).await?;
+        if linked.len() != linked_ids.len() {
+            drift(conn).await?;
+        }
+        orders.extend(linked);
+        orders.sort_by_key(|order| order.id);
+        orders.dedup_by_key(|order| order.id);
     }
     Ok(Preview {
         commitments,
@@ -231,39 +254,94 @@ pub async fn invalidate_organization(
     if locked != order_ids || preview(conn, command.organization_id).await? != before {
         drift(conn).await?;
     }
-    let mut releases = BTreeMap::<Uuid, Decimal>::new();
-    let mut total = Decimal::ZERO;
-    for order in &before.orders {
-        if let Some(item) = order.inventory_item_id
-            && order.remaining_quantity_mt > Decimal::ZERO
-        {
-            let value = releases.entry(item).or_default();
-            *value = value
-                .checked_add(order.remaining_quantity_mt)
-                .ok_or_else(|| {
-                    refusal(
-                        "INVENTORY_RESERVATION_INVALID",
-                        "Reservation sum is out of range.",
-                    )
-                })?;
-            total = total
-                .checked_add(order.remaining_quantity_mt)
-                .ok_or_else(|| {
-                    refusal(
-                        "INVENTORY_RESERVATION_INVALID",
-                        "Reservation sum is out of range.",
-                    )
-                })?;
-        }
-    }
-    release_uncommitted(conn, &releases).await?;
+    let mut restored = BTreeMap::<Uuid, Decimal>::new();
     let mut participants = BTreeSet::from([command.organization_id]);
     for trade in &before.commitments {
         participants.extend([trade.buyer_id, trade.seller_id]);
+        for order in [trade.bid_order_id, trade.ask_order_id]
+            .into_iter()
+            .flatten()
+        {
+            let quantity = restored.entry(order).or_default();
+            *quantity = quantity.checked_add(trade.quantity_mt).ok_or_else(|| {
+                refusal("ORDER_QUANTITY_INVALID", "Restoration sum is out of range.")
+            })?;
+        }
     }
+    let mut releases = BTreeMap::<Uuid, Decimal>::new();
+    let mut total = Decimal::ZERO;
+    let mut changes = Vec::new();
+    let mut withdrawn = Vec::new();
     for order in &before.orders {
-        sqlx::query("UPDATE orderbook_orders SET status='CANCELLED',version=version+1,updated_at=$2 WHERE id=$1")
-            .bind(order.id).bind(command.now).execute(&mut *conn).await?;
+        participants.insert(order.organization_id);
+        let restored = restored.get(&order.id).copied().unwrap_or_default();
+        let mut after = order.clone();
+        after.remaining_quantity_mt = after
+            .remaining_quantity_mt
+            .checked_add(restored)
+            .filter(|quantity| *quantity <= order.quantity_mt)
+            .ok_or_else(|| {
+                refusal(
+                    "ORDER_QUANTITY_INVALID",
+                    "Restored quantity exceeds the order capacity.",
+                )
+            })?;
+        let terminal = matches!(order.status.as_str(), "CANCELLED" | "EXPIRED");
+        let owned = order.organization_id == command.organization_id;
+        let released = if terminal {
+            restored
+        } else if owned {
+            after.status = "CANCELLED".into();
+            withdrawn.push(order.id);
+            after.remaining_quantity_mt
+        } else if order.expires_at.is_some_and(|expiry| expiry <= command.now) {
+            after.status = "EXPIRED".into();
+            after.remaining_quantity_mt
+        } else {
+            if restored > Decimal::ZERO {
+                after.status = if after.remaining_quantity_mt == order.quantity_mt {
+                    "OPEN".into()
+                } else {
+                    "PARTIALLY_FILLED".into()
+                };
+            }
+            Decimal::ZERO
+        };
+        if let Some(item) = order.inventory_item_id
+            && released > Decimal::ZERO
+        {
+            let quantity = releases.entry(item).or_default();
+            *quantity = quantity.checked_add(released).ok_or_else(|| {
+                refusal(
+                    "INVENTORY_RESERVATION_INVALID",
+                    "Reservation sum is out of range.",
+                )
+            })?;
+            total = total.checked_add(released).ok_or_else(|| {
+                refusal(
+                    "INVENTORY_RESERVATION_INVALID",
+                    "Reservation sum is out of range.",
+                )
+            })?;
+        }
+        changes.push(OrderRestoration {
+            before: order.clone(),
+            after,
+            restored,
+            released,
+        });
+    }
+    release_uncommitted(conn, &releases).await?;
+    sqlx::query("UPDATE trades SET status='CANCELLED' WHERE id=ANY($1)")
+        .bind(&trade_ids)
+        .execute(&mut *conn)
+        .await?;
+    for change in &changes {
+        if change.restored != Decimal::ZERO || change.before.status != change.after.status {
+            sqlx::query("UPDATE orderbook_orders SET status=$2,remaining_quantity_mt=$3,version=version+1,updated_at=$4 WHERE id=$1")
+                .bind(change.after.id).bind(&change.after.status).bind(change.after.remaining_quantity_mt)
+                .bind(command.now).execute(&mut *conn).await?;
+        }
     }
     rebuild_live_slice_benchmarks_for_keys(
         conn,
@@ -273,7 +351,7 @@ pub async fn invalidate_organization(
         command.now,
     )
     .await?;
-    events::withdrawal_effects(conn, command, &before.orders).await?;
+    events::restoration_effects(conn, command, &changes, &trade_ids).await?;
     let outbox_id = events::organization_effects(
         conn,
         command,
@@ -283,8 +361,8 @@ pub async fn invalidate_organization(
     )
     .await?;
     Ok(InvalidationResult {
-        withdrawn_orders: order_ids,
-        preserved_trade_ids: trade_ids,
+        withdrawn_orders: withdrawn,
+        cancelled_trade_ids: trade_ids,
         released_uncommitted_quantity: total,
         outbox_ids: vec![outbox_id],
     })

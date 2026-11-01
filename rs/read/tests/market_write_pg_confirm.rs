@@ -623,7 +623,7 @@ async fn decline_clock_is_captured_after_the_order_lock_wait() {
     assert_eq!(amount(&f.stock().await.1), amount("0"));
 }
 
-async fn preserving_rejection(
+async fn reject_organization(
     f: &Fixture,
 ) -> Result<verdaxis_read::business::organizations::OrganizationDecision, verdaxis_read::ApiError> {
     use std::sync::Arc;
@@ -639,7 +639,7 @@ async fn preserving_rejection(
 }
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
-async fn confirmation_and_preserving_organization_rejection_keep_the_pending_commitment() {
+async fn organization_rejection_cancels_pending_but_retains_confirmed_commitments() {
     for confirm_first in [false, true] {
         let mut f = Fixture::new("BUYER", false).await;
         if confirm_first {
@@ -664,7 +664,7 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
                 router,
                 trade,
             };
-            preserving_rejection(&fixture).await
+            reject_organization(&fixture).await
         });
         wait_for_lock(&mut f.admin).await;
         holder.commit().await.unwrap();
@@ -683,8 +683,8 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
                 .fetch_one(&mut f.admin)
                 .await
                 .unwrap();
-            assert_eq!(state, "PENDING_CONFIRMATION");
-            assert_eq!(amount(&f.stock().await.1), amount("3"));
+            assert_eq!(state, "CANCELLED");
+            assert_eq!(amount(&f.stock().await.1), amount("0"));
             let before = f.snapshot().await;
             assert_eq!(
                 f.call("confirm", SELLER, None).await.0,
@@ -692,7 +692,8 @@ async fn confirmation_and_preserving_organization_rejection_keep_the_pending_com
             );
             assert_eq!(f.snapshot().await, before);
             let (s, b) = f.call("decline", SELLER, None).await;
-            assert_eq!(s, StatusCode::OK, "{b}");
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+            assert_eq!(f.snapshot().await, before);
             assert_eq!(f.order().await.0, "CANCELLED");
             assert_eq!(amount(&f.stock().await.1), amount("0"));
             assert_eq!(amount(&f.stock().await.0), amount("10"));
