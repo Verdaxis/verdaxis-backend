@@ -660,11 +660,13 @@ class SyntheticStagingRelease:
             f"MIGRATOR_DATABASE_URL={self.url(migrator, driver='postgresql+asyncpg')}\n"
         )
 
-    def helper_environment(self, release_sha: str | None = None) -> dict[str, str]:
+    def helper_environment(
+        self, release_sha: str | None = None, environment: str = "staging"
+    ) -> dict[str, str]:
         # The deploy transaction runs helpers under `env -i PATH=...` plus these two keys.
         return {
             "PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1",
-            "ENVIRONMENT": "staging", "RELEASE_SHA": release_sha or self.source_sha,
+            "ENVIRONMENT": environment, "RELEASE_SHA": release_sha or self.source_sha,
         }
 
     def revision(self) -> str:
@@ -682,7 +684,8 @@ class SyntheticStagingRelease:
         assert self.revision() == target
 
     def checkpoint(self, label, expected, target, *, source_sha=None, approved_sha=None,
-                   release_sha=None, environment_file=None, refusal=None):
+                   release_sha=None, environment_file=None, environment="staging",
+                   refusal=None):
         before = self.revision()
         source = source_sha or self.source_sha
         result = subprocess.run(
@@ -691,7 +694,7 @@ class SyntheticStagingRelease:
              "--environment-file", str(environment_file or self.environment_file),
              "--source-sha", source, "--approved-source-sha", approved_sha or source,
              "--expected-current", expected, "--target", target],
-            cwd=self.source, env=self.helper_environment(release_sha),
+            cwd=self.source, env=self.helper_environment(release_sha, environment),
             capture_output=True, text=True, check=False, timeout=900,
         )
         self.calls.append({
@@ -700,11 +703,11 @@ class SyntheticStagingRelease:
             "before": before, "after": self.revision(),
         })
 
-    def converge(self, environment: str = "staging"):
+    def converge(self, environment: str = "staging", bundle_root: Path | None = None):
         return subprocess.run(
             [sys.executable, str(self.source / "scripts/converge_runtime_acls.py"),
              "--environment", environment, "--environment-file", str(self.environment_file),
-             "--bundle-root", str(self.source)],
+             "--bundle-root", str(bundle_root or self.source)],
             cwd=self.source, env={"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"},
             capture_output=True, text=True, check=False, timeout=600,
         )
@@ -758,6 +761,14 @@ class SyntheticStagingRelease:
         self.checkpoint("migrator URL uses the app role", READ_INDEXES, PARENT,
                         environment_file=app_as_migrator,
                         refusal=f"migrator role must be exactly {STAGING_MIGRATOR}")
+        # The refusal above comes from the application settings, which load before the
+        # helper runs. With `ENVIRONMENT=development` those settings do not pin the
+        # deployed role names, so the same file reaches the helper's own distinct-role
+        # check, which runs before any database connection.
+        self.checkpoint("migrator URL uses the app role (helper check)", READ_INDEXES, PARENT,
+                        environment_file=app_as_migrator, environment="development",
+                        refusal="MIGRATOR_DATABASE_URL must be distinct from DATABASE_URL "
+                                "and use a distinct role")
 
         self.checkpoint("pause at read indexes", READ_INDEXES, READ_INDEXES)
         self.checkpoint("apply producer", READ_INDEXES, PARENT)
@@ -864,12 +875,23 @@ def test_alembic_heads_is_one_after_both_checkpoints(staging_release):
         assert call["before"] == call["expected"] and call["after"] == call["target"], call
 
     refused = [call for call in release.calls if call["refusal"] is not None]
-    assert len(refused) == 11
+    assert len(refused) == 12
     for call in refused:
         assert call["returncode"] != 0, call["label"]
         assert call["refusal"] in call["output"], (call["label"], call["output"])
         assert call["after"] == call["before"], call["label"]
         assert "migration checkpoint applied" not in call["output"], call["label"]
+
+    # Two different layers refuse a migrator URL that names the app role. The
+    # application settings refuse first and raise a validation error; the helper's own
+    # check prints its refusal line and is reached only when the settings do not.
+    by_label = {call["label"]: call for call in refused}
+    settings_layer = by_label["migrator URL uses the app role"]["output"]
+    helper_layer = by_label["migrator URL uses the app role (helper check)"]["output"]
+    assert "migration checkpoint refused" not in settings_layer, settings_layer
+    assert ("migration checkpoint refused: MIGRATOR_DATABASE_URL must be distinct from "
+            "DATABASE_URL and use a distinct role") in helper_layer, helper_layer
+    assert "migrator role must be exactly" not in helper_layer, helper_layer
 
     assert release.revision() == REVISION
     assert release.sql("SELECT count(*) FROM alembic_version") == "1"
@@ -1032,22 +1054,77 @@ def test_trade_freezes_acl_matrix(staging_release):
         release.sql("ALTER TABLE trade_freezes DROP COLUMN IF EXISTS review_reference")
 
 
-def test_convergence_refuses_wrong_owner_and_missing_declared_column(staging_release):
+def converge_refusal_text(refused) -> str:
+    assert refused.returncode != 0
+    assert "owner-executable runtime ACL convergence failed" in refused.stderr
+    return refused.stderr
+
+
+OWNER_GUARD_CONDITION = "WHERE owner.rolname <> :'migrator_role'"
+
+
+def bundle_without_owner_guard(release, destination: Path) -> Path:
+    """A copy of the committed ACL bundle whose owner guard can never trigger."""
+    for relative in ("deploy/postgres/app_acl_policy.sql", "deploy/postgres/converge_runtime_object_acls.sql"):
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = (release.source / relative).read_text()
+        if relative.endswith("converge_runtime_object_acls.sql"):
+            assert text.count(OWNER_GUARD_CONDITION) == 1
+            text = text.replace(OWNER_GUARD_CONDITION, "WHERE false")
+        target.write_text(text)
+    return destination
+
+
+def test_convergence_refuses_wrong_owner_and_missing_declared_column(staging_release, tmp_path):
     release = staging_release
     before = acl_rows(release, NON_OWNER_TABLE_ACL, table="trade_freezes") | acl_rows(
         release, COLUMN_ACL, table="trade_freezes")
-    release.sql("CREATE TABLE public.convergence_owner_probe (id integer)")
+    probe_backup_select = (
+        f"SELECT has_table_privilege('{STAGING_BACKUP}', 'public.convergence_owner_probe', 'SELECT')")
+
+    # Control: a probe table owned by the migrator converges, and the backup role gets
+    # SELECT on it. This shows that the probe alone is not what makes convergence fail.
+    release.sql(f"CREATE TABLE public.convergence_owner_probe (id integer);"
+                f"ALTER TABLE public.convergence_owner_probe OWNER TO {STAGING_MIGRATOR}")
     try:
-        refused = release.converge()
-        assert refused.returncode != 0
-        assert "owner-executable runtime ACL convergence failed" in refused.stderr
+        converged = release.converge()
+        assert converged.returncode == 0, converged.stderr
+        assert release.sql(probe_backup_select) == "t"
     finally:
         release.sql("DROP TABLE public.convergence_owner_probe")
+
+    # Wrong owner: the table belongs to the admin, but the migrator holds every
+    # privilege on it with grant option. Only the owner guard stops convergence here:
+    # without it the migrator could grant the backup role SELECT and the run would
+    # succeed. The probe backup grant must be absent after the refusal.
+    create_wrong_owner_probe = (
+        "CREATE TABLE public.convergence_owner_probe (id integer);"
+        f"GRANT ALL ON public.convergence_owner_probe TO {STAGING_MIGRATOR} WITH GRANT OPTION")
+    release.sql(create_wrong_owner_probe)
+    try:
+        assert release.sql(
+            "SELECT pg_get_userbyid(relowner) <> '" + STAGING_MIGRATOR + "' FROM pg_class "
+            "WHERE oid = 'public.convergence_owner_probe'::regclass") == "t"
+        # The same probe passes when the owner guard is removed from a copy of the
+        # bundle, so the refusal below can only come from that guard.
+        unguarded = release.converge(bundle_root=bundle_without_owner_guard(release, tmp_path / "unguarded"))
+        assert unguarded.returncode == 0, unguarded.stderr
+        assert release.sql(probe_backup_select) == "t"
+        release.sql("DROP TABLE public.convergence_owner_probe;" + create_wrong_owner_probe)
+        assert release.sql(probe_backup_select) == "f"
+        error = converge_refusal_text(release.converge())
+        assert "ERROR:  division by zero" in error, error
+        assert release.sql(probe_backup_select) == "f"
+    finally:
+        release.sql("DROP TABLE public.convergence_owner_probe")
+
+    # Missing declared column: the table and its owner are unchanged. Without the column
+    # guard, convergence would grant the columns that still exist and succeed.
     release.sql("ALTER TABLE trade_freezes RENAME COLUMN clear_note TO clear_note_renamed")
     try:
-        refused = release.converge()
-        assert refused.returncode != 0
-        assert "owner-executable runtime ACL convergence failed" in refused.stderr
+        error = converge_refusal_text(release.converge())
+        assert "ERROR:  division by zero" in error, error
     finally:
         release.sql("ALTER TABLE trade_freezes RENAME COLUMN clear_note_renamed TO clear_note")
     after = acl_rows(release, NON_OWNER_TABLE_ACL, table="trade_freezes") | acl_rows(
