@@ -165,6 +165,8 @@ market_error_codes! {
         "The trade is not frozen";
     TradeNotSettleable => "TRADE_NOT_SETTLEABLE", StatusCode::CONFLICT,
         "The trade cannot be settled in its current state";
+    TradeDemoNotFreezable => "TRADE_DEMO_NOT_FREEZABLE", StatusCode::CONFLICT,
+        "A demonstration trade cannot be frozen";
     FreezeHistoryImmutable => "FREEZE_HISTORY_IMMUTABLE", StatusCode::CONFLICT,
         "The freeze history is immutable";
     DeliveryQuantityInvalid => "DELIVERY_QUANTITY_INVALID", StatusCode::UNPROCESSABLE_ENTITY,
