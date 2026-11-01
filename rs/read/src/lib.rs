@@ -411,6 +411,21 @@ pub mod market_freeze {
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }
 
+/// Administrator obligation list and responsible-person reassignment types
+/// and sealed command entry point.
+pub mod market_reassignment {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::reassignment::{
+        AUDIT_ACTION, CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
+        EVENT_TYPE, OBLIGATION_PAGE_LIMIT, ObligationPage, REQUEST_BODY_LIMIT_BYTES,
+        ReassignRequest, ResponsibleSide,
+    };
+    pub(crate) use crate::order_write::reassignment::{
+        ReassignmentCommand, ReassignmentInput, execute_reassignment,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
 /// Narrow lifecycle component interface; transaction ownership stays sealed.
 pub mod market_lifecycle {
     pub(crate) use crate::order_write::effects::AuditContext;

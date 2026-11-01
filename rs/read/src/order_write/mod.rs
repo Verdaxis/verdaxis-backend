@@ -32,6 +32,7 @@ pub(crate) mod orders;
 pub mod outbox;
 mod post_only;
 pub mod producer;
+pub mod reassignment;
 mod reservations;
 pub mod support;
 pub mod trade_lifecycle;
