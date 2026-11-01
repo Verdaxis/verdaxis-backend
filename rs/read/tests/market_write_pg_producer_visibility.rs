@@ -1055,7 +1055,10 @@ async fn went_quiet_rows_need_trusted_attestation_after_activation() {
     let summary = f.summary(&scope, unrecorded()).await;
     f.assert_counts(&summary, &[]);
     for id in hidden.iter().chain([&trusted]) {
-        assert_eq!(f.acknowledge(&scope, unrecorded(), *id).await.err(), Some(404));
+        assert_eq!(
+            f.acknowledge(&scope, unrecorded(), *id).await.err(),
+            Some(404)
+        );
     }
     assert_eq!(f.rows().await, before, "refusals write nothing");
 
@@ -1064,7 +1067,10 @@ async fn went_quiet_rows_need_trusted_attestation_after_activation() {
     let summary = f.summary(&scope, recorded()).await;
     f.assert_counts(&summary, &[(f.spot_slice, false, at)]);
     for id in &hidden {
-        assert_eq!(f.acknowledge(&scope, recorded(), *id).await.err(), Some(404));
+        assert_eq!(
+            f.acknowledge(&scope, recorded(), *id).await.err(),
+            Some(404)
+        );
     }
     assert_eq!(f.rows().await, before, "refusals write nothing");
     let acknowledged = f
