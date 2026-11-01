@@ -210,6 +210,8 @@ struct OrderState {
     public: Option<Value>,
     qualified: bool,
     provenance: String,
+    /// The row's last change instant: `updated_at`, else `created_at`.
+    observed_at: Option<DateTime<Utc>>,
 }
 
 impl OrderState {
@@ -236,7 +238,7 @@ impl OrderState {
             "price_per_mt_usd":self.price.to_string(),"quantity_mt":self.quantity.to_string(),
             "remaining_quantity_mt":self.remaining.to_string(),"provenance":self.provenance,
             "public_admitted":self.public.is_some(),"benchmark_qualified":self.qualified,
-            "public_projection":self.public})
+            "public_projection":self.public,"observed_at":self.observed_at})
     }
 }
 
@@ -1128,7 +1130,7 @@ async fn load_orders(
             ),
         );
     }
-    let rows=sqlx::query("SELECT o.id,o.organization_id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,dp.name AS point_name FROM orderbook_orders o LEFT JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
+    let rows=sqlx::query("SELECT o.id,o.organization_id,o.product_id,o.delivery_point_id,o.availability_window,o.version,o.status::text AS status,o.side::text AS side,o.price_per_mt_usd,o.quantity_mt,o.remaining_quantity_mt,o.provenance::text AS provenance,COALESCE(o.updated_at,o.created_at) AS observed_at,dp.name AS point_name FROM orderbook_orders o LEFT JOIN delivery_points dp ON dp.id=o.delivery_point_id WHERE o.id=ANY($1) ORDER BY o.id")
         .bind(ids).fetch_all(conn).await?;
     if rows.len() != ids.len() {
         return Err(inconsistent());
@@ -1161,6 +1163,7 @@ async fn load_orders(
                 qualified: admitted.as_ref().is_some_and(|(_, q)| *q),
                 public: admitted.map(|(p, _)| p),
                 provenance: r.try_get("provenance")?,
+                observed_at: r.try_get("observed_at")?,
             })
         })
         .collect()
@@ -1178,7 +1181,7 @@ async fn aggregates(
     for slice in slices {
         for side in ["BID", "ASK"] {
             let sql = order_query_sql(
-                "SELECT e.remaining_quantity_mt,e.price_per_mt_usd,e.provenance::text AS provenance, /* private_digest_input(e) */ FROM eligible_orders e",
+                "SELECT e.remaining_quantity_mt,e.price_per_mt_usd,e.provenance::text AS provenance,COALESCE(e.updated_at,e.created_at) AS observed_at, /* private_digest_input(e) */ FROM eligible_orders e",
             );
             let filters = PublicOrderFilters {
                 surface: OrderSurface::Candidates,
@@ -1193,6 +1196,9 @@ async fn aggregates(
                 .await?;
             let mut real = Vec::new();
             let mut demo = Vec::new();
+            // The latest change instant of each provenance's qualified rows.
+            let mut real_observed: Option<DateTime<Utc>> = None;
+            let mut demo_observed: Option<DateTime<Utc>> = None;
             for row in rows {
                 let private: Value = row.try_get("private_digest_input")?;
                 if !candidate_is_benchmark_qualified(policy, &private, &clock) {
@@ -1202,11 +1208,19 @@ async fn aggregates(
                     row.try_get::<Decimal, _>("remaining_quantity_mt")?,
                     row.try_get::<Decimal, _>("price_per_mt_usd")?,
                 );
-                match row.try_get::<String, _>("provenance")?.as_str() {
-                    "REAL" => real.push(economic),
-                    "DEMO" => demo.push(economic),
+                let observed: Option<DateTime<Utc>> = row.try_get("observed_at")?;
+                let latest = match row.try_get::<String, _>("provenance")?.as_str() {
+                    "REAL" => {
+                        real.push(economic);
+                        &mut real_observed
+                    }
+                    "DEMO" => {
+                        demo.push(economic);
+                        &mut demo_observed
+                    }
                     _ => return Err(inconsistent()),
-                }
+                };
+                *latest = (*latest).max(observed);
             }
             let economic: Vec<_> = real.iter().chain(&demo).copied().collect();
             let quantity = total_quantity(&economic)?;
@@ -1216,7 +1230,8 @@ async fn aggregates(
                 json!({"market_product":slice.product,"delivery_point_id":slice.point,
                 "availability_window":slice.window,"side":side,"quantity_mt":quantity.to_string(),
                 "order_count":economic.len(),"real_count":real.len(),"demo_count":demo.len(),
-                "real":provenance_aggregate(&real,side)?,"demo":provenance_aggregate(&demo,side)?,
+                "real":provenance_aggregate(&real,side,real_observed)?,
+                "demo":provenance_aggregate(&demo,side,demo_observed)?,
                 "best_price_per_mt_usd":best.map(|p|p.to_string()),
                 "benchmark_price_per_mt_usd":vwap.map(|p|p.to_string())}),
             );
@@ -1238,10 +1253,12 @@ fn best_price(rows: &[(Decimal, Decimal)], side: &str) -> Option<Decimal> {
 fn provenance_aggregate(
     rows: &[(Decimal, Decimal)],
     side: &str,
+    observed_at: Option<DateTime<Utc>>,
 ) -> Result<Value, MarketWriteError> {
     Ok(
         json!({"quantity_mt":total_quantity(rows)?.to_string(),"order_count":rows.len(),
-        "best_price_per_mt_usd":best_price(rows,side).map(|p|p.to_string())}),
+        "best_price_per_mt_usd":best_price(rows,side).map(|p|p.to_string()),
+        "observed_at":observed_at}),
     )
 }
 

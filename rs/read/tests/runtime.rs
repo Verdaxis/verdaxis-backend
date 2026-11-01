@@ -683,6 +683,64 @@ fn deployed_start_refuses_an_unreadable_watchlist_activation() {
 }
 
 #[test]
+fn deployed_environment_reads_the_watchlist_event_producer() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    use verdaxis_read::watchlist_producer::{ActivationRefusal, ProducerActivation};
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let budget = budget_document(compiled_sha());
+    // Neither key: the producer is not selected and stays inactive.
+    let config = config_from_deployed_environment(&deployed_environment(), bind, &budget).unwrap();
+    assert_eq!(config.phase2.watchlist_event_producer, None);
+    assert_eq!(
+        ProducerActivation::from_release(
+            config.phase2.watchlist_event_producer.as_deref(),
+            config.phase2.watchlist_producer_activated_at.as_deref(),
+            &config.release_sha,
+        ),
+        Err(ActivationRefusal::ProducerMissing)
+    );
+    // Both keys from the same release file activate it; the producer alone does not.
+    let mut environment = deployed_environment();
+    environment.insert("WATCHLIST_EVENT_PRODUCER".into(), "rust-market-v1".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(
+        config.phase2.watchlist_event_producer.as_deref(),
+        Some("rust-market-v1")
+    );
+    assert_eq!(
+        ProducerActivation::from_release(
+            config.phase2.watchlist_event_producer.as_deref(),
+            config.phase2.watchlist_producer_activated_at.as_deref(),
+            &config.release_sha,
+        ),
+        Err(ActivationRefusal::ActivatedAtMissing)
+    );
+    environment.insert(
+        "WATCHLIST_PRODUCER_ACTIVATED_AT".into(),
+        "2026-11-01T00:00:00Z".into(),
+    );
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    let activation = ProducerActivation::from_release(
+        config.phase2.watchlist_event_producer.as_deref(),
+        config.phase2.watchlist_producer_activated_at.as_deref(),
+        &config.release_sha,
+    )
+    .unwrap();
+    assert_eq!(activation.release_sha(), config.release_sha);
+    // The deployed revision here predates the producer schema: still inactive.
+    assert_eq!(
+        ProducerActivation::from_config(&config),
+        Err(ActivationRefusal::SchemaTooOld)
+    );
+    environment.insert("WATCHLIST_EVENT_PRODUCER".into(), "legacy-python".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(
+        ProducerActivation::from_config(&config),
+        Err(ActivationRefusal::LegacyProducer)
+    );
+}
+
+#[test]
 fn deployed_environment_builds_the_runtime_configuration() {
     use verdaxis_read::runtime::config::config_from_deployed_environment;
     let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();

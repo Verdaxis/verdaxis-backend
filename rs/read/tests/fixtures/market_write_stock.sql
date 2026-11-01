@@ -18,7 +18,8 @@ CREATE TABLE orderbook_orders (
     quantity_mt numeric NOT NULL,
     remaining_quantity_mt numeric NOT NULL,
     version integer NOT NULL DEFAULT 1,
-    expires_at timestamptz
+    expires_at timestamptz,
+    updated_at timestamptz
 );
 CREATE TABLE trades (
     id uuid PRIMARY KEY,
