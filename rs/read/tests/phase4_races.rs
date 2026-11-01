@@ -2003,24 +2003,44 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
     let python = tokio::spawn(async move {
         let cleared_low = python_writers::clear_reset_hash_of(&mut maintenance, low).await;
         match cleared_low {
-            Ok(_) => sqlx::query("COMMIT")
-                .execute(&mut maintenance)
-                .await
-                .is_ok(),
-            Err(_) => {
-                let _ = sqlx::query("ROLLBACK").execute(&mut maintenance).await;
-                false
+            Ok(_) => {
+                sqlx::query("COMMIT").execute(&mut maintenance).await.unwrap();
+                (true, None)
+            }
+            Err(error) => {
+                let code = error.as_database_error().and_then(|error| error.code())
+                    .expect("maintenance refusal has a SQLSTATE").into_owned();
+                sqlx::query("ROLLBACK").execute(&mut maintenance).await.unwrap();
+                (false, Some(code))
             }
         }
     });
     let rejection = finished(rejection).await;
-    let committed = python.await.unwrap();
+    let (committed, maintenance_code) = python.await.unwrap();
+    let rejection_busy = matches!(&rejection, Err(error) if error.detail["code"] == "MARKET_BUSY");
+    let resolution = if let Some(code) = maintenance_code.as_deref() {
+        assert!(rejection.is_ok(), "only the maintenance transaction may lose this resolution");
+        assert!(matches!(code, "40P01" | "55P03"), "unexpected maintenance SQLSTATE: {code}");
+        code
+    } else if rejection_busy {
+        assert!(committed, "only the rejection may lose the lock-deadline resolution");
+        // The ordered owner maps SQLSTATE 55P03 to MARKET_BUSY.
+        "55P03"
+    } else {
+        rejection.as_ref().expect("the rejection commits or returns MARKET_BUSY");
+        assert!(committed);
+        // Both commands completed, so the ordered owner's internal retry must
+        // have recovered the sole victim. The counter proves the detected cycle.
+        "40P01"
+    };
+    if resolution == "40P01" {
+        wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
+    }
     let (rejection, retries) = retry_waiting_command(rejection, || {
         spawn_write(&world.pool, world.actor, review_organization(&world, organization, false))
     }).await;
-    println!("auth_maintenance_vs_ordered_write_lock_order retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
+    println!("auth_maintenance_vs_ordered_write_lock_order resolution={resolution} retried_iterations={} total_retries={retries} total_iterations=1", usize::from(retries > 0));
     rejection.expect("the rejection commits within its bounded retry");
-    wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
     let cleared: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM users WHERE id = ANY($1) AND password_reset_token_hash IS NULL",
     )
