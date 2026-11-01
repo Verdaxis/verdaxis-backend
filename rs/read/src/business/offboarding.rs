@@ -52,7 +52,9 @@ use super::{
     transaction::{AttemptError, BusinessCommand, CommandFuture, OrganizationWritePlan},
 };
 // The case-reference contract is shared with the trade responsibility reassignment.
-pub use crate::case_reference::{CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference};
+pub use crate::case_reference::{
+    CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
+};
 use crate::{
     ApiError, AppState,
     auth::{
@@ -76,7 +78,6 @@ pub const REASON_CODES: [&str; 4] = [
     "ACCOUNT_HOLDER_REQUEST",
 ];
 
-
 /// The largest request body. The four fields fit well inside it, so a larger
 /// body can only carry text the contract does not accept.
 pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
@@ -87,7 +88,6 @@ pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
 /// delivered trades only inform the administrator: above the bound their
 /// counts are reported as the bound, with `informational_counts_capped` set.
 pub const PREVIEW_COUNT_LIMIT: i64 = 100;
-
 
 /// The audit action name of a completed offboarding.
 pub const AUDIT_ACTION: &str = "admin.user_offboarded";
@@ -122,7 +122,6 @@ impl ReasonCode {
         self.0
     }
 }
-
 
 /// The validated body of one offboarding command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,7 +164,9 @@ impl OffboardRequest {
             reason_code: ReasonCode::parse(text_field(&fields, "reason_code")?)?,
             evidence_case_ref: CaseReference::parse(text_field(&fields, "evidence_case_ref")?)
                 .map_err(|_| {
-                    invalid("The case reference must be a ticket identifier such as CASE-2026/0042.")
+                    invalid(
+                        "The case reference must be a ticket identifier such as CASE-2026/0042.",
+                    )
                 })?,
             urgent: fields["urgent"]
                 .as_bool()

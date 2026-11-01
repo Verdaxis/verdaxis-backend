@@ -42,7 +42,9 @@ use super::transaction::{
 };
 use super::{AuthenticatedActor, MarketErrorCode, MarketWriteError};
 // The case-reference contract is shared with the account offboarding command.
-pub use crate::case_reference::{CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference};
+pub use crate::case_reference::{
+    CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
+};
 
 /// The audit action of one completed reassignment.
 pub const AUDIT_ACTION: &str = "trade.responsibility_reassigned";
@@ -56,8 +58,6 @@ pub const REQUEST_BODY_LIMIT_BYTES: usize = 4096;
 
 /// The largest obligation page, and the page size when none is given.
 pub const OBLIGATION_PAGE_LIMIT: i64 = 100;
-
-
 
 /// The trade states whose obligations a responsible person still carries.
 const REASSIGNABLE_STATUSES: [&str; 2] = ["CONFIRMED", "DELIVERED"];
@@ -99,7 +99,6 @@ impl ResponsibleSide {
         }
     }
 }
-
 
 /// The JSON body exactly as the contract states it: four required fields and
 /// nothing else, so no free text can enter the record.
