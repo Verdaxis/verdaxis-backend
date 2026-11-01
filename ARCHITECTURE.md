@@ -178,9 +178,13 @@ unauthenticated boundary answer. No pool or task is added. Mounting routes no
 traffic: `deploy/caddy/rust-market-write.caddy` owns exactly the operations of
 `tests/rust_contract/phase89/switch-routes.json`, and the market switch imports
 it together with the reviewed Phase 7 retirement snippet
-(`deploy/caddy/phase10-phase7-retire.caddy`). Every Rust outbox insert also sends
-Python's commit-time wake (`pg_notify('verdaxis_market_events', '')`), so live
-subscribers do not wait for the dispatchers' poll. See
+(`deploy/caddy/phase10-phase7-retire.caddy`). The market writes'
+outbox inserts (`order_write`: `append_market_effect`, `insert_outbox` and the
+organization invalidation in `events.rs`) also send Python's commit-time wake
+(`pg_notify('verdaxis_market_events', '')`), so live subscribers do not wait for
+the dispatchers' poll. Three other Rust outbox writers send no wake and rely on
+the poll: organization approval (`business/organizations.rs`), user admission
+(`runtime/phase4_adapters.rs`) and price alerts (`streams/price_alerts.rs`). See
 `docs/rust-phase89-switch.md`.
 
 ## Rust business transaction foundation

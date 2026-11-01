@@ -52,16 +52,21 @@ least one of them.
 
 ## Live updates
 
-Every Rust insert into `market_event_outbox` also runs
-`pg_notify('verdaxis_market_events', '')` in the same transaction: the signal
-Python's writers send. PostgreSQL delivers it when the transaction commits, so
-the dispatchers wake at once instead of at their next poll.
+Every outbox insert of a Rust market write (`order_write`:
+`append_market_effect`, `insert_outbox` and the organization invalidation in
+`events.rs`) also runs `pg_notify('verdaxis_market_events', '')` in the same
+transaction: the signal Python's writers send. PostgreSQL delivers it when the
+transaction commits, so the dispatchers wake at once instead of at their next
+poll. Three other Rust outbox writers send no wake and are delivered at the
+next poll: organization approval (`business/organizations.rs`), user admission
+(`runtime/phase4_adapters.rs`) and price alerts (`streams/price_alerts.rs`).
 
 ## Watchlist producer activation
 
 `scripts/deploy.sh` takes two optional approval variables,
 `WATCHLIST_EVENT_PRODUCER` (`legacy-python` or `rust-market-v1`) and
-`WATCHLIST_PRODUCER_ACTIVATED_AT` (RFC 3339 with an offset), and writes them to
+`WATCHLIST_PRODUCER_ACTIVATED_AT` (a real UTC time in RFC 3339 form, offset `Z`
+or `+00:00`; an impossible date or clock time is refused), and writes them to
 `.runtime-release.env`:
 
 - without a supplied value, the recorded keys are carried forward unchanged;
