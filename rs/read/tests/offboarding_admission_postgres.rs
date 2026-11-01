@@ -62,6 +62,8 @@ const ISSUER: &str = "verdaxis";
 const AUDIENCE: &str = "verdaxis-api";
 const ORIGIN: &str = "https://app.verdaxis.exchange";
 const ENVIRONMENT: &str = "production";
+/// Concurrent runtime reads; the read pool holds exactly this many connections.
+const ADMISSION_SLOTS: u32 = 4;
 /// A password the strength rules of every route accept.
 const PASSWORD: &str = "OffboardPassword123";
 
@@ -95,8 +97,9 @@ struct Account {
 impl World {
     async fn open() -> Self {
         let app_url = disposable_url("RUST_TEST_DATABASE_URL", APP_ROLE);
+        // The runtime read pool must hold exactly the admission slots.
         let app = PgPoolOptions::new()
-            .max_connections(6)
+            .max_connections(ADMISSION_SLOTS)
             .connect(&app_url)
             .await
             .unwrap();
@@ -128,8 +131,8 @@ impl World {
                 prepared_budget: None,
                 phase2: Default::default(),
                 bind: "127.0.0.1:0".parse().unwrap(),
-                read_admission_slots: 4,
-                pool_max: 5,
+                read_admission_slots: ADMISSION_SLOTS,
+                pool_max: ADMISSION_SLOTS + 1,
                 python_budget: 20,
                 configured_max_connections: 100,
                 compliance_eur_usd_rate: None,
@@ -378,7 +381,10 @@ fn authentication(result: &Result<String, AuthenticatedError>) -> Option<AuthErr
 }
 
 fn email_settings(world: &World) -> EmailSettings {
-    EmailSettings::new(world.app.clone(), MailDispatcher::new(MailClient::disabled()))
+    EmailSettings::new(
+        world.app.clone(),
+        MailDispatcher::new(MailClient::disabled()),
+    )
 }
 
 async fn accept_invitation(world: &World, token: &str) -> (u16, Value) {
@@ -397,8 +403,7 @@ async fn accept_invitation(world: &World, token: &str) -> (u16, Value) {
             .header("origin", ORIGIN)
             .header("content-type", "application/json")
             .body(Body::from(
-                json!({"token": token, "new_password": PASSWORD, "accept_terms": true})
-                    .to_string(),
+                json!({"token": token, "new_password": PASSWORD, "accept_terms": true}).to_string(),
             ))
             .unwrap(),
     )
@@ -478,15 +483,24 @@ async fn marked_login_refresh_and_issuance_denied() {
         .unwrap();
     assert_eq!(marked_reply, control_reply);
     assert_eq!(world.count(issued, control.id).await, 1);
-    let before = world.user_row(marked.id).await.get::<String, _>("password_hash");
+    let before = world
+        .user_row(marked.id)
+        .await
+        .get::<String, _>("password_hash");
     let token = reset_token(&world, marked.id).await;
     let error = password_reset::reset(&settings, &token, "ReplacedPassword456")
         .await
         .unwrap_err();
     assert_eq!(error.status.as_u16(), 400);
-    assert_eq!(code(&json!({"detail": error.detail})), "RESET_TOKEN_INVALID");
     assert_eq!(
-        world.user_row(marked.id).await.get::<String, _>("password_hash"),
+        code(&json!({"detail": error.detail})),
+        "RESET_TOKEN_INVALID"
+    );
+    assert_eq!(
+        world
+            .user_row(marked.id)
+            .await
+            .get::<String, _>("password_hash"),
         before
     );
     assert_eq!(
@@ -505,12 +519,8 @@ async fn marked_login_refresh_and_issuance_denied() {
 
     // Email verification: an unverified offboarded account neither verifies
     // nor receives a new link; the unverified control verifies.
-    let unverified = world
-        .account("BUYER", "REJECTED", None, false, true)
-        .await;
-    let unverified_control = world
-        .account("BUYER", "REJECTED", None, false, false)
-        .await;
+    let unverified = world.account("BUYER", "REJECTED", None, false, true).await;
+    let unverified_control = world.account("BUYER", "REJECTED", None, false, false).await;
     for account in [&unverified, &unverified_control] {
         sqlx::query(
             "UPDATE users SET email_verification_token_hash=$2,\
@@ -525,7 +535,10 @@ async fn marked_login_refresh_and_issuance_denied() {
     let error = email_verification::verify(&settings, &unverified.id.to_string())
         .await
         .unwrap_err();
-    assert_eq!(code(&json!({"detail": error.detail})), "EMAIL_TOKEN_INVALID");
+    assert_eq!(
+        code(&json!({"detail": error.detail})),
+        "EMAIL_TOKEN_INVALID"
+    );
     let row = world.user_row(unverified.id).await;
     assert!(!row.get::<bool, _>("email_verified"));
     email_verification::verify(&settings, &unverified_control.id.to_string())
@@ -554,7 +567,10 @@ async fn marked_login_refresh_and_issuance_denied() {
     .execute(&world.owner)
     .await
     .unwrap();
-    let before = world.user_row(marked.id).await.get::<String, _>("password_hash");
+    let before = world
+        .user_row(marked.id)
+        .await
+        .get::<String, _>("password_hash");
     let (status, body) = accept_invitation(&world, &invitation).await;
     assert_eq!((status, code(&body)), (400, "INVITATION_INVALID"));
     let row = world.user_row(marked.id).await;
@@ -651,9 +667,12 @@ async fn marked_user_not_in_review_queue() {
     let marked = world.offboarded().await;
     let control = world.rejected().await;
     let mut connection = world.app.acquire().await.unwrap();
-    let listed = review_queue::list(&mut connection, review_queue::ReviewQuery::new(100).unwrap())
-        .await
-        .unwrap();
+    let listed = review_queue::list(
+        &mut connection,
+        review_queue::ReviewQuery::new(100).unwrap(),
+    )
+    .await
+    .unwrap();
     let ids: Vec<&str> = listed["items"]
         .as_array()
         .unwrap()
@@ -674,7 +693,11 @@ async fn marked_user_not_in_review_queue() {
 
 struct NoEvents;
 impl AdmissionEvents for NoEvents {
-    fn visible<'a>(&'a self, _: &'a mut PgConnection, _: Uuid) -> CommandFuture<'a, bool, AttemptError> {
+    fn visible<'a>(
+        &'a self,
+        _: &'a mut PgConnection,
+        _: Uuid,
+    ) -> CommandFuture<'a, bool, AttemptError> {
         Box::pin(async { Ok(false) })
     }
     fn append<'a>(
@@ -732,7 +755,10 @@ async fn marked_account_approval_refused() {
     assert_eq!(error.detail["code"], "ACCOUNT_OFFBOARDED");
     let row = world.user_row(marked.id).await;
     assert_eq!(row.get::<String, _>("status"), "REJECTED");
-    assert!(row.get::<Option<DateTime<Utc>>, _>("offboarded_at").is_some());
+    assert!(
+        row.get::<Option<DateTime<Utc>>, _>("offboarded_at")
+            .is_some()
+    );
     assert_eq!(world.count(transitions, marked.id).await, 0);
 
     // The actor projection of the organization write reads the marker too.

@@ -9,14 +9,14 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, Utc};
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use serde_json::{json, Value};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use serde_json::{Value, json};
 use uuid::Uuid;
 use verdaxis_read::auth::{
-    cutoff_refusal, validate_account, validate_account_for_path, verify_access, AccountState,
-    AuthError, TokenIssuance, TokenIssuer, VerificationSettings,
+    AccountState, AuthError, TokenIssuance, TokenIssuer, VerificationSettings, cutoff_refusal,
+    validate_account, validate_account_for_path, verify_access,
 };
-use verdaxis_read::streams::auth::{admit_account, verify_stream, StreamError};
+use verdaxis_read::streams::auth::{StreamError, admit_account, verify_stream};
 
 const SECRET: &str = "offboarding-admission-secret-at-least-32-characters";
 const ISSUER: &str = "verdaxis-offboarding-test";
