@@ -30,6 +30,7 @@ pub const ALLOWED_REVISIONS: &[&str] = &[
     "p5_20261020_read_indexes",
     "p89_20261022_watchlist_producer",
     "p89_20261022_trade_freeze",
+    "ob_20261031_offboarding",
 ];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.
@@ -140,7 +141,8 @@ mod tests {
                 "sse_20261021_replay_floor",
                 "p5_20261020_read_indexes",
                 "p89_20261022_watchlist_producer",
-                "p89_20261022_trade_freeze"
+                "p89_20261022_trade_freeze",
+                "ob_20261031_offboarding"
             ])
         );
     }

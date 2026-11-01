@@ -379,7 +379,9 @@ SELECT pg_temp.assert_role_policy(
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
         WHERE namespace.nspname = 'public'
           AND object.relkind IN ('r', 'p')
-          AND object.relname IN ('audit_logs', 'user_status_transitions')
+          AND object.relname IN (
+              'audit_logs', 'user_status_transitions', 'individual_offboardings'
+          )
           AND (
               has_table_privilege(
                   :'app_role', object.oid,

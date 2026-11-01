@@ -640,6 +640,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                 | "p5_20261020_read_indexes"
                 | "p89_20261022_watchlist_producer"
                 | "p89_20261022_trade_freeze"
+                | "ob_20261031_offboarding"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }
