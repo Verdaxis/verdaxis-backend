@@ -288,8 +288,7 @@ fn state_files_with_a_second_link_are_refused() {
 
     std::fs::hard_link(&state, directory.path().join("state-alias.json"))
         .expect("link the state file");
-    std::fs::hard_link(&lock, directory.path().join("lock-alias"))
-        .expect("link the lock file");
+    std::fs::hard_link(&lock, directory.path().join("lock-alias")).expect("link the lock file");
 
     assert_eq!(
         read_bounded::<Record>(&state, 4096),
