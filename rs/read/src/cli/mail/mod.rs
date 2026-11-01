@@ -5,6 +5,7 @@
 //! digest, never by the address, and the provider payload is never logged.
 pub mod approval;
 pub mod expiry;
+pub mod kyc;
 
 use crate::crud::referrals::invite::MailClient;
 use serde_json::Value;
