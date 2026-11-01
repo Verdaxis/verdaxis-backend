@@ -205,6 +205,7 @@ impl Fixture {
                         std::sync::Arc::new(tokio::sync::Semaphore::new(8)),
                         access,
                         verdaxis_read::business::organizations::ReviewOrganization {
+                            audit: Default::default(),
                             organization_id: id(0x2000),
                             approve: false,
                             reason: Some("Concurrent review".into()),
@@ -249,7 +250,7 @@ impl Fixture {
             app.clone(),
             verdaxis_read::crud::watchlists::WatchlistSettings::new(
                 verification(),
-                chrono::Utc::now(),
+                Some(chrono::Utc::now()),
             ),
         ))
         .merge(trade_lifecycle::router(app, verification()))
