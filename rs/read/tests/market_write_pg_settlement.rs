@@ -1,4 +1,6 @@
 #![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
 use axum::{
     Router,
     body::Body,
@@ -27,6 +29,7 @@ fn amount(v: &Value) -> rust_decimal::Decimal {
     v.as_str().unwrap().parse().unwrap()
 }
 struct Fixture {
+    _database: std::sync::Arc<market_database::MarketDatabase>,
     admin: PgConnection,
     pool: PgPool,
     router: Router,
@@ -34,8 +37,10 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
-        let a = std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").expect("disposable admin URL");
-        let r = std::env::var("RUST_SETTLEMENT_DATABASE_URL").expect("disposable runtime URL");
+        let database =
+            std::sync::Arc::new(market_database::MarketDatabase::new("RUST_SETTLEMENT").await);
+        let a = database.admin_url.clone();
+        let r = database.runtime_url.clone();
         let au = url::Url::parse(&a).unwrap();
         let ru = url::Url::parse(&r).unwrap();
         assert_eq!(au.host_str(), Some("127.0.0.1"));
@@ -91,6 +96,7 @@ impl Fixture {
             .unwrap();
         let router = contract_router(pool.clone(), KEY, true);
         Self {
+            _database: database,
             admin,
             pool,
             router,
@@ -255,6 +261,7 @@ async fn organization_rejection_retains_confirmed_and_delivered_settlement() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn detached_party_delivers_and_pays_its_preexisting_trade() {
     let mut f = Fixture::new().await;
+    f.change(SELLER, "org_reject").await;
     f.change(SELLER, "detached").await;
     let original = f.snapshot().await;
     let delivered = ok(f.deliver(SELLER, Some("delivery")).await, "DELIVERED").await;
@@ -325,15 +332,7 @@ async fn pay_requires_the_recorded_seller_and_supplier_role() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn keyed_and_unkeyed_cleanup_after_rejection_unlink_and_move() {
-    for change in [
-        "rejected",
-        "detached",
-        "moved",
-        "org_reject",
-        "kyc",
-        "email",
-        "password",
-    ] {
+    for change in ["rejected", "org_reject", "kyc", "email", "password"] {
         for key in [None, Some("cleanup")] {
             let mut f = Fixture::new().await;
             f.change(SELLER, change).await;
@@ -346,7 +345,7 @@ async fn keyed_and_unkeyed_cleanup_after_rejection_unlink_and_move() {
 #[tokio::test]
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn detached_party_replays_a_rust_receipt() {
-    for change in ["rejected", "detached", "moved", "org_reject"] {
+    for change in ["rejected", "org_reject"] {
         let mut f = Fixture::new().await;
         let delivered = ok(f.deliver(SELLER, Some("settle")).await, "DELIVERED").await;
         let paid = ok(f.pay(SELLER, Some("settle")).await, "PAID").await;
@@ -635,6 +634,7 @@ async fn old_python_receipt_replays_after_detachment_in_rust() {
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     sqlx::query("INSERT INTO market_command_results(id,actor_user_id,effective_organization_id,operation,idempotency_key,request_hash,resource_type,resource_id,response_status,response_body) VALUES($1,$2,$3,'trade.deliver','old',$4,'trade',$5,200,$6)").bind(Uuid::new_v4()).bind(id(SELLER)).bind(id(0x2000)).bind(hash).bind(f.trade).bind(&body).execute(&mut f.admin).await.unwrap();
+    f.change(SELLER, "org_reject").await;
     f.change(SELLER, "detached").await;
     let before = f.snapshot().await;
     assert_eq!(
@@ -802,10 +802,7 @@ async fn wait_for_lock(conn: &mut PgConnection) {
 async fn deliver_and_pay_serialize_in_both_orders() {
     for first in ["deliver", "pay"] {
         let mut f = Fixture::new().await;
-        let mut holder =
-            PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
-                .await
-                .unwrap();
+        let mut holder = PgConnection::connect(&f._database.admin_url).await.unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
         sqlx::query("SELECT id FROM trades WHERE id=$1 FOR UPDATE")
             .bind(f.trade)
@@ -934,9 +931,12 @@ async fn receipt_collision_revalidates_recorded_side_before_replay() {
         routes::market_write::trade_lifecycle::{ReceiptCollision, contract_router_with_collision},
     };
     for (assisted, change, matching, expected) in [
-        (false, false, true, 200),
-        (false, false, false, 409),
-        (true, true, true, 403),
+        (false, "none", true, 200),
+        (false, "none", false, 409),
+        (true, "detached", true, 403),
+        (false, "detached", true, 403),
+        (false, "moved", true, 403),
+        (false, "org_reject", true, 200),
     ] {
         let mut f = Fixture::new().await;
         if assisted {
@@ -972,8 +972,11 @@ async fn receipt_collision_revalidates_recorded_side_before_replay() {
             .execute(&mut f.admin)
             .await
             .unwrap();
-        if change {
-            f.change(SELLER, "detached").await;
+        if change != "none" {
+            f.change(SELLER, change).await;
+            if change == "org_reject" {
+                f.change(SELLER, "detached").await;
+            }
         }
         hook.release.notify_one();
         let (s, b) = task.await.unwrap();
@@ -1025,10 +1028,7 @@ async fn receipt_context_mismatch_returns_no_stored_body() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn receipt_lock_contention_is_bounded_and_has_no_effect() {
     let mut f = Fixture::new().await;
-    let mut holder =
-        PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
-            .await
-            .unwrap();
+    let mut holder = PgConnection::connect(&f._database.admin_url).await.unwrap();
     sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
     sqlx::query("SELECT settlement_fixture_hold_key($1)")
         .bind(id(SELLER))
@@ -1047,6 +1047,7 @@ async fn receipt_lock_contention_is_bounded_and_has_no_effect() {
 #[ignore = "requires an attested disposable PostgreSQL"]
 async fn recorded_party_history_and_counts_survive_detachment() {
     let mut f = Fixture::new().await;
+    f.change(SELLER, "org_reject").await;
     f.change(SELLER, "detached").await;
     ok(f.deliver(SELLER, None).await, "DELIVERED").await;
     ok(f.pay(SELLER, None).await, "PAID").await;
@@ -1161,7 +1162,8 @@ async fn legacy_fee_is_visible_to_the_recorded_buyer() {
     let mut f = Fixture::new().await;
     f.sql("SELECT settlement_fixture_confirmed(3,100,NULL,1.125)")
         .await;
-    f.change(BUYER, "moved").await;
+    f.change(BUYER, "org_reject").await;
+    f.change(BUYER, "detached").await;
     let body = ok(f.deliver(BUYER, None).await, "DELIVERED").await;
     assert_eq!(
         amount(&body["commission_amount_usd"]),
@@ -1230,8 +1232,6 @@ async fn both_recorded_sides_keep_cleanup_without_fresh_admission() {
         for change in [
             "rejected",
             "pending",
-            "detached",
-            "moved",
             "org_reject",
             "email",
             "password",
@@ -1472,10 +1472,7 @@ async fn both_settlement_receipt_locks_return_bounded_unavailable() {
         if action == "pay" {
             ok(f.deliver(SELLER, None).await, "DELIVERED").await;
         }
-        let mut holder =
-            PgConnection::connect(&std::env::var("RUST_SETTLEMENT_ADMIN_DATABASE_URL").unwrap())
-                .await
-                .unwrap();
+        let mut holder = PgConnection::connect(&f._database.admin_url).await.unwrap();
         sqlx::query("BEGIN").execute(&mut holder).await.unwrap();
         sqlx::query("SELECT settlement_fixture_hold_operation_key($1,$2)")
             .bind(id(SELLER))

@@ -3,8 +3,7 @@ CREATE TABLE IF NOT EXISTS trades_fixture_requests(key text PRIMARY KEY,value te
 CREATE OR REPLACE FUNCTION trades_fixture_seed(product uuid, point uuid) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE buyer uuid := '00000000-0000-0000-0000-000000001000'; seller uuid := '00000000-0000-0000-0000-000000002000';
 BEGIN
- TRUNCATE trades_fixture_requests;
- TRUNCATE organizations, watchlists, market_event_outbox, live_slice_benchmarks, audit_logs CASCADE;
+
  INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES
  (buyer,'Trade buyer','SHIPOWNER','APPROVED','REAL'),(seller,'Trade seller','FUEL_SUPPLIER','APPROVED','REAL'),
  ('00000000-0000-0000-0000-000000003000','Other buyer','SHIPOWNER','APPROVED','REAL');

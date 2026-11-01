@@ -190,7 +190,7 @@ impl MarketCommand for Command {
             let Some(key) = &self.key else {
                 return Ok(None);
             };
-            // The context comes from recorded participation, never current membership.
+            // The sealed context verifies recorded identity and current membership.
             let mut result = tx
                 .replay_receipt(
                     &context,
@@ -330,14 +330,30 @@ async fn case_result(name: &str) -> Result<Value, Error> {
                     .bind(f.actor)
                     .execute(&mut f.admin)
                     .await?;
-                let result = run(f.pool.clone(), f.actor, cmd.clone()).await?;
-                assert!(result.replayed);
+                let result = run(f.pool.clone(), f.actor, cmd.clone()).await;
+                if state == "rejected" {
+                    assert!(result?.replayed);
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().code,
+                        MarketErrorCode::TradePartyForbidden
+                    );
+                }
             }
+            sqlx::query("UPDATE users SET organization_id=NULL WHERE id=$1")
+                .bind(f.actor)
+                .execute(&mut f.admin)
+                .await?;
+            sqlx::query("UPDATE organizations SET verification_status='REJECTED' WHERE id=$1")
+                .bind(f.org)
+                .execute(&mut f.admin)
+                .await?;
+            assert!(run(f.pool.clone(), f.actor, cmd.clone()).await?.replayed);
             let org: Uuid =
                 sqlx::query_scalar("SELECT effective_organization_id FROM market_command_results")
                     .fetch_one(&f.pool)
                     .await?;
-            json!({"replayed_states":["rejected","detached","moved"],"effects":f.effects().await,"fresh_execution_calls":cmd.calls.load(Ordering::SeqCst),"recorded_organization_preserved":org==f.org})
+            json!({"replayed_states":["rejected","rejected_organization"],"effects":f.effects().await,"fresh_execution_calls":cmd.calls.load(Ordering::SeqCst),"recorded_organization_preserved":org==f.org})
         }
         "identity" => {
             let cmd = f.command();
