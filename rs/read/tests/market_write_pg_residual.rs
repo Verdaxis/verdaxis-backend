@@ -574,6 +574,32 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
+    /// Poll until `waiter` waits on a heavyweight lock held by any of `blockers`.
+    async fn wait_lock_any(&mut self, waiter: &str, blockers: &[&str]) -> i32 {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let pid: Option<i32> = sqlx::query_scalar("SELECT residual_waiting_on_any($1,$2)")
+                .bind(waiter)
+                .bind(blockers)
+                .fetch_one(&mut self.admin)
+                .await
+                .unwrap();
+            if let Some(pid) = pid {
+                return pid;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{waiter} did not wait for {blockers:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+    async fn demo_organizations(&mut self) {
+        sqlx::query("SELECT residual_demo_organizations()")
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
     /// A session advisory barrier that Rust commands named `RUST_HELD_APP` meet
     /// at their first effect row, after they took their economic locks.
     async fn barrier(&self) -> PgConnection {
@@ -774,7 +800,8 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
     scan.go().await;
     f.wait_lock(PYTHON_APP, HOLDER_APP).await;
     let create = f.spawn(RUST_APP, f.bid("2", "110", "SPOT", None)).await;
-    f.wait_lock(RUST_APP, HOLDER_APP).await;
+    // Rust holds B and queues for A behind the waiting scan.
+    f.wait_lock_any(RUST_APP, &[HOLDER_APP, PYTHON_APP]).await;
     let observed = Instant::now();
     sqlx::raw_sql("COMMIT").execute(&mut holder).await.unwrap();
     assert!(
@@ -783,6 +810,14 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
     );
     let rust = create.await.unwrap();
     let python = scan.finish().await;
+    // A victim's deadlock is counted when its backend reports statistics.
+    let mut deadlocks = f.deadlocks().await;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while deadlocks == 0 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        deadlocks = f.deadlocks().await;
+    }
+    println!("OPPOSITE_ORDER_DEADLOCKS detected={deadlocks}");
     let python_victim = python["ok"] == false;
     if python_victim {
         assert_eq!(
@@ -804,10 +839,11 @@ async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opp
         "Rust create must succeed or refuse within its bound: {rust:?}"
     );
     println!(
-        "OPPOSITE_ORDER_OUTCOME rust_status={} rust_code={} python_ok={} python_error={}",
+        "OPPOSITE_ORDER_OUTCOME rust_status={} rust_code={} python_ok={} python_created={} python_error={}",
         rust.0,
         code(&rust),
         python["ok"],
+        python["result"]["created"],
         python["error"]
     );
     let rerun = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
@@ -1082,7 +1118,7 @@ async fn reminder_dedupe_holds_for_rust_written_expiry_instants() {
 async fn demo_slice_holder_bounds_a_rust_create_without_party_deadlock() {
     for above_budget in [false, true] {
         let mut f = Fixture::new().await;
-        ok(&f.python(f.command("demo_organizations")).await);
+        f.demo_organizations().await;
         let (now, window) = f.demo_ticks(1).await.remove(0);
         let real = Uuid::new_v4();
         let demo = Uuid::new_v4();
@@ -1147,7 +1183,7 @@ async fn demo_slice_holder_bounds_a_rust_create_without_party_deadlock() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn rust_slice_holder_bounds_the_demo_tick() {
     let mut f = Fixture::new().await;
-    ok(&f.python(f.command("demo_organizations")).await);
+    f.demo_organizations().await;
     let (now, window) = f.demo_ticks(1).await.remove(0);
     let real = Uuid::new_v4();
     f.ask(real, 950, 5, &window, None).await;
@@ -1189,6 +1225,7 @@ async fn rust_slice_holder_bounds_the_demo_tick() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn demo_tick_rows_are_exactly_the_documented_columns_and_read_by_rust() {
     let mut f = Fixture::new().await;
+    f.demo_organizations().await;
     let (now, _window) = f.demo_ticks(1).await.remove(0);
     assert_eq!(ok(&f.demo_tick(&now).await)["created_trades"], 1);
     let shape: Value = sqlx::query_scalar("SELECT residual_demo_shape()")
@@ -1257,6 +1294,7 @@ async fn demo_tick_rows_are_exactly_the_documented_columns_and_read_by_rust() {
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn demo_prune_quarantine_and_seed_reset_refuse_freeze_history_without_partial_effect() {
     let mut f = Fixture::new().await;
+    f.demo_organizations().await;
     let ticks = f.demo_ticks(2).await;
     for (now, _) in &ticks {
         assert_eq!(ok(&f.demo_tick(now).await)["created_trades"], 1);
@@ -1477,10 +1515,52 @@ async fn seed_writes_exact_columns_and_holds_no_slice_lock() {
         advisory, 0,
         "the seed inserts orders without an advisory slice lock"
     );
-    let cancel = tokio::time::timeout(Duration::from_secs(30), f.call(f.cancel(order, SELLER)))
-        .await
-        .expect("the seed blocks no Rust cancellation");
-    expect_status(&cancel, StatusCode::NO_CONTENT);
+    // The seed's open transaction has already written trading tables, so it
+    // holds the one public cache generation row that every trading-table
+    // write advances. A Rust cancellation therefore waits on that row, not on
+    // a slice lock, and its lock bound refuses it with no effect.
+    let before = f.snapshot().await;
+    let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
+    let mut waits = Value::Null;
+    while !cancel.is_finished() {
+        let observed: Value = sqlx::query_scalar("SELECT residual_lock_waits($1)")
+            .bind(RUST_APP)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        if observed != json!([]) {
+            waits = observed;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let cancel = cancel.await.unwrap();
+    println!("SEED_CONTENDER status={} waits={waits}", cancel.0);
+    expect_status(&cancel, StatusCode::CONFLICT);
+    assert_eq!(code(&cancel), "MARKET_BUSY");
+    let waited_on: Vec<&str> = waits
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|wait| wait["relation"].as_str())
+        .collect();
+    assert_eq!(
+        waited_on,
+        ["public_read_cache_generations"],
+        "the only contended row is the cache generation: {waits}"
+    );
+    assert!(
+        waits
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|wait| wait["blockers"][0]["pid"] == json!(python)),
+        "the paused seed is the blocker: {waits}"
+    );
+    assert_eq!(
+        f.snapshot().await,
+        before,
+        "a bounded refusal has no effect"
+    );
     seed.release().await;
     let result = seed.finish().await;
     ok(&result);
@@ -1501,6 +1581,10 @@ async fn seed_writes_exact_columns_and_holds_no_slice_lock() {
     assert!(shape["demo_trades"].as_i64().unwrap() > 0);
     assert_eq!(shape["demo_trades_with_users"], 0);
     assert!(shape["demo_trades_linked"].as_i64().unwrap() > 0);
+    expect_status(
+        &f.call(f.cancel(order, SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
     assert_eq!(f.order(order).await["status"], "CANCELLED");
     f.ledger().await;
 }

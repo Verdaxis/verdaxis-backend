@@ -29,6 +29,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Run as a script, Python puts only this folder on the path; the application
+# package lives at the repository root.
+sys.path.insert(0, str(ROOT))
 
 
 def emit(kind: str, value: object = None) -> None:
@@ -139,15 +142,6 @@ async def reminder_delivery(command, engine, factory):
         sent = await reminders.deliver_expiry_reminder_emails(db, now=instant(command.get("now")))
         await db.commit()
     return {"sent": sent, "sender_calls": calls}
-
-
-async def demo_organizations(command, engine, factory):
-    from app.services.demo_activity import ensure_demo_activity_organizations
-
-    async with factory() as db:
-        await ensure_demo_activity_organizations(db)
-        await db.commit()
-    return {}
 
 
 async def demo_find_ticks(command, engine, factory):
@@ -269,7 +263,6 @@ async def seed_market(command, engine, factory):
 COMMANDS = {
     "reminder_scan": reminder_scan,
     "reminder_delivery": reminder_delivery,
-    "demo_organizations": demo_organizations,
     "demo_find_ticks": demo_find_ticks,
     "demo_tick": demo_tick,
     "demo_prune": demo_prune,

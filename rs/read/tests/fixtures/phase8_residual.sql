@@ -36,12 +36,20 @@ CREATE OR REPLACE FUNCTION residual_ask(target uuid, price numeric, qty numeric,
     FROM delivery_points d WHERE d.name='Rotterdam';
 $$;
 
+-- The two demo activity organizations with exactly the values the demo CLI
+-- provisions, so its merge finds them unchanged. The runtime role may not
+-- insert organizations; in a deployed database they already exist.
+CREATE OR REPLACE FUNCTION residual_demo_organizations() RETURNS void LANGUAGE sql AS $$
+    INSERT INTO organizations(id,name,domain,type,supplier_tier,verification_status,provenance)
+    VALUES('7cc77115-0a9f-4ec4-8c74-05aa10050111','Verdaxis Demo Buyer Activity','demo-buyer.verdaxis.local','FUEL_BUYER',NULL,'APPROVED','DEMO'),
+          ('d1e43e55-3fb0-4b5e-9f0b-93aa10050222','Verdaxis Demo Supplier Activity','demo-supplier.verdaxis.local','FUEL_SUPPLIER','REGIONAL_SUPPLIER','APPROVED','DEMO')
+    ON CONFLICT(id) DO NOTHING;
+$$;
+
 -- A disclosed demo ASK of the demo activity seller in one B30 Rotterdam window.
 CREATE OR REPLACE FUNCTION residual_demo_ask(target uuid, price numeric, win text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-    INSERT INTO organizations(id,name,domain,type,supplier_tier,verification_status,provenance)
-    VALUES('d1e43e55-3fb0-4b5e-9f0b-93aa10050222','Verdaxis Demo Supplier Activity','demo-supplier.verdaxis.local','FUEL_SUPPLIER','REGIONAL_SUPPLIER','APPROVED','DEMO')
-    ON CONFLICT(id) DO NOTHING;
+    PERFORM residual_demo_organizations();
     INSERT INTO orderbook_orders(id,organization_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,expires_at)
     SELECT target,'d1e43e55-3fb0-4b5e-9f0b-93aa10050222','SYSTEM','DEMO','ASK','c4cecebc-3d2d-5840-8021-57a9a11bc673',d.id,5,5,price,win,'OPEN',false,true,'ISCC EU','ISO 8217:2024 RF 380',true,10,'LIFECYCLE','residue','NL',now()+interval '2 days'
     FROM delivery_points d WHERE d.name='Rotterdam';
@@ -77,6 +85,25 @@ CREATE OR REPLACE FUNCTION residual_waiting(waiter text, blocker text) RETURNS i
       AND a.application_name=waiter AND a.wait_event_type='Lock'
       AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name=blocker)
     LIMIT 1
+$$;
+
+-- As above, for a waiter blocked by any of several named backends (a second
+-- row-lock waiter queues behind the first waiter, not the holder).
+CREATE OR REPLACE FUNCTION residual_waiting_on_any(waiter text, blockers text[]) RETURNS integer LANGUAGE sql AS $$
+    SELECT a.pid FROM pg_stat_activity a WHERE a.datname=current_database()
+      AND a.application_name=waiter AND a.wait_event_type='Lock'
+      AND EXISTS(SELECT 1 FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(a.pid)) AND b.application_name=ANY(blockers))
+    LIMIT 1
+$$;
+
+-- The ungranted locks of the backends named `waiter` and who blocks them.
+CREATE OR REPLACE FUNCTION residual_lock_waits(waiter text) RETURNS jsonb LANGUAGE sql AS $$
+    SELECT coalesce(jsonb_agg(jsonb_build_object('pid',l.pid,'query',left(a.query,300),'locktype',l.locktype,'relation',l.relation::regclass::text,
+        'mode',l.mode,'objid',l.objid,'classid',l.classid,'transactionid',l.transactionid::text,
+        'blockers',(SELECT jsonb_agg(jsonb_build_object('pid',b.pid,'app',b.application_name,'query',left(b.query,300)))
+                    FROM pg_stat_activity b WHERE b.pid=ANY(pg_blocking_pids(l.pid))))),'[]'::jsonb)
+    FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+    WHERE a.application_name=waiter AND a.datname=current_database() AND (NOT l.granted OR l.locktype='tuple')
 $$;
 
 -- Run on the barrier session: observe the wait, then release the barrier at once.
@@ -174,12 +201,12 @@ SELECT jsonb_build_object(
 $$;
 
 CREATE OR REPLACE FUNCTION residual_freeze(target uuid, cleared boolean) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE freeze uuid:=gen_random_uuid();
+DECLARE freeze_id uuid:=gen_random_uuid();
 BEGIN
     INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id)
-    VALUES(freeze,target,'ACTIVE','COMPLIANCE_REVIEW','Fixture review','00000000-0000-0000-0000-000000003001');
+    VALUES(freeze_id,target,'ACTIVE','COMPLIANCE_REVIEW','Fixture review','00000000-0000-0000-0000-000000003001');
     IF cleared THEN
-        UPDATE trade_freezes SET status='CLEARED',cleared_at=now(),cleared_by_user_id='00000000-0000-0000-0000-000000003001',clear_note='Fixture clearance',version=2 WHERE id=freeze;
+        UPDATE trade_freezes SET status='CLEARED',cleared_at=now(),cleared_by_user_id='00000000-0000-0000-0000-000000003001',clear_note='Fixture clearance',version=2 WHERE id=freeze_id;
     END IF;
 END $$;
 
