@@ -808,10 +808,11 @@ async fn marked_token_shapes_fail_closed() {
     let world = World::open().await;
     let marked = world.offboarded().await;
     let control = world.rejected().await;
-    let cutoff: DateTime<Utc> = sqlx::query_scalar("SELECT date_trunc('second', now()) - interval '1 minute'")
-        .fetch_one(&world.owner)
-        .await
-        .unwrap();
+    let cutoff: DateTime<Utc> =
+        sqlx::query_scalar("SELECT date_trunc('second', now()) - interval '1 minute'")
+            .fetch_one(&world.owner)
+            .await
+            .unwrap();
     sqlx::query("UPDATE users SET authentication_revoked_at=$2 WHERE id=ANY($1)")
         .bind(vec![marked.id, control.id])
         .bind(cutoff)
@@ -821,15 +822,31 @@ async fn marked_token_shapes_fail_closed() {
     let shapes = |user: Uuid| {
         let at = |seconds: i64| cutoff + Duration::seconds(seconds);
         [
-            ("before", shaped_token(user, at(-5).timestamp(), json!(at(-5).timestamp_micros()))),
-            ("equal", shaped_token(user, at(0).timestamp(), json!(at(0).timestamp_micros()))),
-            ("after", shaped_token(user, at(30).timestamp(), json!(at(30).timestamp_micros()))),
-            ("out of range", shaped_token(user, at(30).timestamp(), json!(u64::MAX))),
+            (
+                "before",
+                shaped_token(user, at(-5).timestamp(), json!(at(-5).timestamp_micros())),
+            ),
+            (
+                "equal",
+                shaped_token(user, at(0).timestamp(), json!(at(0).timestamp_micros())),
+            ),
+            (
+                "after",
+                shaped_token(user, at(30).timestamp(), json!(at(30).timestamp_micros())),
+            ),
+            (
+                "out of range",
+                shaped_token(user, at(30).timestamp(), json!(u64::MAX)),
+            ),
         ]
     };
     for (shape, token) in shapes(marked.id) {
         let (result, ran) = stream_token(&world, token).await;
-        assert_eq!(authentication(&result), Some(AuthError::SessionRevoked), "{shape}");
+        assert_eq!(
+            authentication(&result),
+            Some(AuthError::SessionRevoked),
+            "{shape}"
+        );
         assert!(!ran, "{shape}");
     }
     for (shape, token) in shapes(control.id) {
@@ -915,7 +932,9 @@ async fn offboarding_commit_wins_over_waiting_mutation() {
     let result = handle.await.unwrap();
     assert!(matches!(
         result,
-        Err(AuthenticatedError::Authentication(AuthError::SessionRevoked))
+        Err(AuthenticatedError::Authentication(
+            AuthError::SessionRevoked
+        ))
     ));
     assert!(!ran.load(Ordering::SeqCst));
 }
