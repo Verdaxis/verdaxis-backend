@@ -24,9 +24,9 @@
 //!   refused rather than treated as host names.
 
 use super::super::context::{self, Purpose, RunContext};
-use super::super::gate::{require_apply, require_target};
+use super::super::gate::{require_apply, require_job_preflight, require_target};
 use super::super::{Environment, Exit, JobArgs, JobKind};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, TimeZone, Utc};
 use futures_util::StreamExt;
 use reqwest::redirect::Policy;
 use serde_json::Value;
@@ -467,7 +467,9 @@ fn validated_feed_entry(
 /// A publication time the database and Python's `datetime` can hold (years 1
 /// to 9999), else the run time.
 pub fn bounded_published(published: Option<DateTime<Utc>>, now: DateTime<Utc>) -> DateTime<Utc> {
-    published.unwrap_or(now)
+    published
+        .filter(|time| (1..=9999).contains(&time.year()))
+        .unwrap_or(now)
 }
 
 /// Read a Webz `published` value: epoch seconds or milliseconds, or an ISO
@@ -1366,12 +1368,30 @@ async fn insert_rows(connection: &mut PgConnection, rows: &[NewsRow]) -> Result<
 // The command
 // ---------------------------------------------------------------------------
 
-/// Every refusal that needs no database or network: `--apply` and the settings.
+/// Every refusal that needs no database or network, in this order: release
+/// and identity, deploy state, `--apply`, settings. The deployed environment
+/// and release come from the job environment (`ENVIRONMENT`, `RELEASE_SHA`).
 pub fn preflight(
     args: &JobArgs,
     vars: &HashMap<String, String>,
-    _deploy_state: &Path,
+    deploy_state: &Path,
 ) -> Result<NewsConfig, Exit> {
+    let expected_sha = &args.identity.release_sha;
+    let full_sha = expected_sha.len() == 40
+        && expected_sha
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    if !full_sha || !deploy_state.is_absolute() {
+        return Err(Exit::Precondition);
+    }
+    let value = |key: &str| vars.get(key).map(String::as_str).unwrap_or("");
+    require_job_preflight(
+        value("ENVIRONMENT"),
+        value("RELEASE_SHA"),
+        args.identity.environment,
+        expected_sha,
+        deploy_state,
+    )?;
     require_apply(args.apply)?;
     NewsConfig::from_environment(vars)
 }
@@ -1382,6 +1402,9 @@ pub fn deploy_state_path(
     environment: Environment,
 ) -> Result<PathBuf, Exit> {
     let directory = PathBuf::from(vars.get("DEPLOY_STATE_DIR").ok_or(Exit::Precondition)?);
+    if !directory.is_absolute() {
+        return Err(Exit::Precondition);
+    }
     Ok(directory.join(format!("{}.state", environment.as_str())))
 }
 
@@ -1423,18 +1446,17 @@ pub fn environment_from_os(
     variables: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
 ) -> HashMap<String, String> {
     variables
-        .map(|(key, value)| {
-            (
-                key.to_string_lossy().into_owned(),
-                value.to_string_lossy().into_owned(),
-            )
-        })
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect()
 }
 
 /// Entry point for `job news`. The owner of `cli/mod.rs` routes
 /// `JobKind::News` here.
 pub async fn run(args: &JobArgs) -> Exit {
+    let _ = tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .try_init();
     let vars = environment_from_os(std::env::vars_os());
     let Ok(state) = deploy_state_path(&vars, args.identity.environment) else {
         return Exit::Precondition;
