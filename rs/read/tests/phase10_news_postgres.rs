@@ -32,14 +32,34 @@ fn fixed_now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 11, 1, 12, 0, 0).unwrap()
 }
 
+/// url, title, summary, source, source_url, category, relevance, published_at
+/// and fetched_at of one stored row.
+type StoredRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    i32,
+    DateTime<Utc>,
+    DateTime<Utc>,
+);
+
+/// The advisory key is shared by the whole database, so cases that run the job
+/// take turns. Each case holds this for its whole life.
+static ONE_REFRESH_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A schema with a `news_items` table, granted to the deployed roles.
 struct Fixture {
     schema: String,
     admin: PgPool,
+    _turn: tokio::sync::MutexGuard<'static, ()>,
 }
 
 impl Fixture {
     async fn new() -> Self {
+        let turn = ONE_REFRESH_AT_A_TIME.lock().await;
         let schema = format!("news_t_{}", Uuid::new_v4().simple());
         let options = PgConnectOptions::from_str(&url("RUST_TEST_MIGRATOR_DATABASE_URL")).unwrap();
         let mut setup = PgConnection::connect_with(&options)
@@ -59,26 +79,18 @@ impl Fixture {
         .await
         .expect("create news_items");
         let admin = pool_for(&url("RUST_TEST_MIGRATOR_DATABASE_URL"), &schema).await;
-        Self { schema, admin }
+        Self {
+            schema,
+            admin,
+            _turn: turn,
+        }
     }
 
     async fn pool(&self, variable: &str) -> PgPool {
         pool_for(&url(variable), &self.schema).await
     }
 
-    async fn rows(
-        &self,
-    ) -> Vec<(
-        String,
-        String,
-        Option<String>,
-        String,
-        String,
-        String,
-        i32,
-        DateTime<Utc>,
-        DateTime<Utc>,
-    )> {
+    async fn rows(&self) -> Vec<StoredRow> {
         sqlx::query_as(
             "SELECT url, title, summary, source, source_url, category, relevance, published_at, fetched_at \
              FROM news_items ORDER BY url",

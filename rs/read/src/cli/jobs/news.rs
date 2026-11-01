@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_imports)]
 //! `verdaxis-read job news`: one database-locked news refresh per timer run.
 //!
 //! The order is the one the Python job used. A transaction takes the
@@ -18,6 +17,8 @@
 //! - an empty `WEBZ_API_TOKEN` counts as no token;
 //! - a headline whose source URL would not fit the `source_url` column is
 //!   skipped instead of failing the whole insert;
+//! - a model-written summary meets the same plain-text and length rule as a
+//!   provider summary before it is stored;
 //! - IP literals are judged by the special-purpose address registry and by the
 //!   WHATWG host parser a browser uses, so odd spellings such as `0x7f.1` are
 //!   refused rather than treated as host names.
@@ -271,10 +272,9 @@ pub fn validated_public_http_url(raw: &str, max_chars: usize) -> Option<String> 
     if candidate.is_empty() || candidate.chars().count() > max_chars {
         return None;
     }
-    if candidate
-        .chars()
-        .any(|character| character.is_whitespace() || (character as u32) < 0x20 || character == '\u{7f}')
-    {
+    if candidate.chars().any(|character| {
+        character.is_whitespace() || (character as u32) < 0x20 || character == '\u{7f}'
+    }) {
         return None;
     }
     let (_, authority) = split_authority(candidate)?;
@@ -293,7 +293,9 @@ pub fn validated_public_http_url(raw: &str, max_chars: usize) -> Option<String> 
             let hostname = domain.trim_end_matches('.').to_lowercase();
             !hostname.is_empty()
                 && hostname != "localhost"
-                && !LOCAL_SUFFIXES.iter().any(|suffix| hostname.ends_with(suffix))
+                && !LOCAL_SUFFIXES
+                    .iter()
+                    .any(|suffix| hostname.ends_with(suffix))
         }
         Host::Ipv4(address) => is_global_v4(address),
         Host::Ipv6(address) => is_global_v6(address),
@@ -330,7 +332,11 @@ pub fn validated_article_url(raw: &str, allowed_domains: &[String]) -> Option<St
 
 /// Plain text with no control characters (line breaks only when allowed),
 /// whitespace collapsed, non-empty and at most `max_chars` characters.
-pub fn bounded_plain_text(raw: &Value, max_chars: usize, allow_line_breaks: bool) -> Option<String> {
+pub fn bounded_plain_text(
+    raw: &Value,
+    max_chars: usize,
+    allow_line_breaks: bool,
+) -> Option<String> {
     let raw = raw.as_str()?;
     let forbidden = |character: char| {
         let code = character as u32;
@@ -356,8 +362,11 @@ fn is_truthy(value: &Value) -> bool {
     }
 }
 
-fn first_truthy<'a>(candidates: [Option<&'a Value>; 2]) -> Option<&'a Value> {
-    candidates.into_iter().flatten().find(|value| is_truthy(value))
+fn first_truthy(candidates: [Option<&Value>; 2]) -> Option<&Value> {
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|value| is_truthy(value))
 }
 
 // ---------------------------------------------------------------------------
@@ -384,8 +393,16 @@ impl FeedSpec {
 /// The maritime publishers, in the order the Python job read them.
 pub fn default_feeds() -> Vec<FeedSpec> {
     vec![
-        FeedSpec::new("TradeWinds", "https://www.tradewindsnews.com/rss", "tradewindsnews.com"),
-        FeedSpec::new("Ship & Bunker", "https://shipandbunker.com/rss", "shipandbunker.com"),
+        FeedSpec::new(
+            "TradeWinds",
+            "https://www.tradewindsnews.com/rss",
+            "tradewindsnews.com",
+        ),
+        FeedSpec::new(
+            "Ship & Bunker",
+            "https://shipandbunker.com/rss",
+            "shipandbunker.com",
+        ),
         FeedSpec::new("Splash247", "https://splash247.com/feed/", "splash247.com"),
         FeedSpec::new(
             "Maritime Executive",
@@ -455,7 +472,11 @@ pub fn parse_webz_published(raw: Option<&Value>, now: DateTime<Utc>) -> DateTime
             let Some(value) = number.as_f64().filter(|value| *value >= 0.0) else {
                 return now;
             };
-            let seconds = if value > 10_000_000_000.0 { value / 1000.0 } else { value };
+            let seconds = if value > 10_000_000_000.0 {
+                value / 1000.0
+            } else {
+                value
+            };
             if !seconds.is_finite() || seconds > MAX_SECONDS {
                 return now;
             }
@@ -474,10 +495,14 @@ fn parse_iso_with_offset(text: &str) -> Option<DateTime<Utc>> {
     if let Ok(parsed) = DateTime::parse_from_rfc3339(text) {
         return Some(parsed.with_timezone(&Utc));
     }
-    ["%Y-%m-%dT%H:%M:%S%.f%z", "%Y-%m-%d %H:%M:%S%.f%z", "%Y-%m-%d %H:%M:%S%.f%:z"]
-        .iter()
-        .find_map(|format| DateTime::parse_from_str(text, format).ok())
-        .map(|parsed| parsed.with_timezone(&Utc))
+    [
+        "%Y-%m-%dT%H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%.f%z",
+        "%Y-%m-%d %H:%M:%S%.f%:z",
+    ]
+    .iter()
+    .find_map(|format| DateTime::parse_from_str(text, format).ok())
+    .map(|parsed| parsed.with_timezone(&Utc))
 }
 
 /// One Webz post as a candidate, or `None` when any required field is missing,
@@ -607,7 +632,11 @@ impl Fetch for ReqwestFetch {
             return Err(FetchError::Unavailable);
         }
         let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| FetchError::Unavailable)? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| FetchError::Unavailable)?
+        {
             if body.len() + chunk.len() > request.max_bytes {
                 return Err(FetchError::TooLarge);
             }
@@ -630,7 +659,11 @@ pub struct NewsSources<F> {
 impl<F: Fetch> NewsSources<F> {
     /// One bounded Webz page. `None` means the request failed; `Some(empty)`
     /// is a valid answer with no usable record.
-    pub async fn fetch_webz(&self, webz: &WebzConfig, now: DateTime<Utc>) -> Option<Vec<Candidate>> {
+    pub async fn fetch_webz(
+        &self,
+        webz: &WebzConfig,
+        now: DateTime<Utc>,
+    ) -> Option<Vec<Candidate>> {
         let query = [
             ("token", webz.token.expose().to_owned()),
             ("format", "json".to_owned()),
@@ -760,11 +793,33 @@ pub struct Categorization {
 /// The deterministic label used when no model answer is available.
 pub fn local_categorize_headline(title: &str) -> Categorization {
     const KEYWORD_CATEGORIES: [(&str, &[&str]); 6] = [
-        ("regulation", &["imo", "regulation", "sanction", "compliance", "mandate", "law"]),
-        ("carbon", &["carbon", "emission", "ets", "fuel eu", "decarbon"]),
-        ("bunkers", &["bunker", "marine fuel", "lng", "methanol", "biofuel"]),
-        ("commodities", &["commodity", "commodities", "crude", "oil price", "energy"]),
-        ("shipping", &["shipping", "vessel", "tanker", "freight", "port"]),
+        (
+            "regulation",
+            &[
+                "imo",
+                "regulation",
+                "sanction",
+                "compliance",
+                "mandate",
+                "law",
+            ],
+        ),
+        (
+            "carbon",
+            &["carbon", "emission", "ets", "fuel eu", "decarbon"],
+        ),
+        (
+            "bunkers",
+            &["bunker", "marine fuel", "lng", "methanol", "biofuel"],
+        ),
+        (
+            "commodities",
+            &["commodity", "commodities", "crude", "oil price", "energy"],
+        ),
+        (
+            "shipping",
+            &["shipping", "vessel", "tanker", "freight", "port"],
+        ),
         ("markets", &["market", "trading", "trade", "price"]),
     ];
     let lowered = icu_casemap::CaseMapper::new()
@@ -844,7 +899,10 @@ impl GeminiClient {
     }
 
     async fn attempt(&self, prompt: &str, timeout: Duration) -> Result<String, AttemptError> {
-        let url = format!("{}/v1beta/models/{GEMINI_MODEL}:generateContent", self.base_url);
+        let url = format!(
+            "{}/v1beta/models/{GEMINI_MODEL}:generateContent",
+            self.base_url
+        );
         let body = serde_json::json!({"contents": [{"parts": [{"text": prompt}]}]});
         let mut response = self
             .client
@@ -857,7 +915,11 @@ impl GeminiClient {
             .map_err(|_| AttemptError::Retryable)?;
         let status = response.status();
         let mut received = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| AttemptError::Retryable)? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| AttemptError::Retryable)?
+        {
             if received.len() + chunk.len() > GEMINI_RESPONSE_MAX_BYTES {
                 return Err(AttemptError::Final);
             }
@@ -1112,11 +1174,11 @@ fn interpret_answer(text: &str) -> Answer {
         .and_then(Value::as_i64)
         .filter(|relevance| (1..=5).contains(relevance))
         .unwrap_or(3);
+    // The same plain-text rule as a Webz summary: no control characters,
+    // collapsed whitespace, non-empty, at most NEWS_SUMMARY_MAX_CHARS.
     let summary = fields
         .get("summary")
-        .and_then(Value::as_str)
-        .filter(|summary| !summary.is_empty())
-        .map(str::to_owned);
+        .and_then(|summary| bounded_plain_text(summary, NEWS_SUMMARY_MAX_CHARS, true));
     Answer::Label(Categorization {
         category: category.to_owned(),
         relevance: relevance as i32,
@@ -1174,12 +1236,76 @@ pub async fn refresh_news<F: Fetch, M: TextModel>(
     categorizer: &mut Categorizer<M>,
     now: impl Fn() -> DateTime<Utc>,
 ) -> Result<Refresh, Exit> {
-    // Interface stub: the refresh is written in the next commit.
-    let _ = (pool, target, sources, categorizer, now);
+    let mut transaction = pool.begin().await.map_err(|_| Exit::Dependency)?;
+    require_target(&mut transaction, target.environment, target.database).await?;
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| Exit::Dependency)?;
+    if !acquired {
+        transaction.rollback().await.map_err(|_| Exit::Dependency)?;
+        return Ok(Refresh::LockBusy);
+    }
+
+    let candidates = sources.fetch_news_items(now()).await;
+    if candidates.is_empty() {
+        tracing::info!("news_feed.no_items_fetched");
+        transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        return Ok(Refresh::Completed {
+            fetched: 0,
+            new: 0,
+            inserted: 0,
+        });
+    }
+    let candidates = dedupe_candidates(candidates);
+    let fetched = candidates.len();
+
+    let stored = stored_urls(&mut transaction, &candidates).await?;
+    let new_items: Vec<Candidate> = candidates
+        .into_iter()
+        .filter(|candidate| !stored.contains(&candidate.url))
+        .collect();
+    if new_items.is_empty() {
+        tracing::info!(total = fetched, "news_feed.all_duplicates");
+        transaction.commit().await.map_err(|_| Exit::Dependency)?;
+        return Ok(Refresh::Completed {
+            fetched,
+            new: 0,
+            inserted: 0,
+        });
+    }
+    tracing::info!(
+        new_count = new_items.len(),
+        total_fetched = fetched,
+        provider_enabled = categorizer.provider_enabled(),
+        "news_feed.categorizing"
+    );
+
+    let new = new_items.len();
+    let mut rows = Vec::with_capacity(new);
+    for item in new_items {
+        let label = categorizer.categorize(&item.title).await;
+        rows.push(NewsRow {
+            id: Uuid::new_v4(),
+            title: item.title,
+            summary: label.summary.or(item.summary),
+            source: item.source,
+            source_url: item.source_url,
+            url: item.url,
+            category: label.category,
+            relevance: label.relevance,
+            published_at: item.published_at,
+            fetched_at: now(),
+        });
+    }
+    let inserted = insert_rows(&mut transaction, &rows).await?;
+    transaction.commit().await.map_err(|_| Exit::Dependency)?;
+    tracing::info!(inserted, "news_feed.refresh_complete");
     Ok(Refresh::Completed {
-        fetched: 0,
-        new: 0,
-        inserted: 0,
+        fetched,
+        new,
+        inserted,
     })
 }
 
@@ -1187,7 +1313,10 @@ async fn stored_urls(
     connection: &mut PgConnection,
     candidates: &[Candidate],
 ) -> Result<HashSet<String>, Exit> {
-    let urls: Vec<&str> = candidates.iter().map(|candidate| candidate.url.as_str()).collect();
+    let urls: Vec<&str> = candidates
+        .iter()
+        .map(|candidate| candidate.url.as_str())
+        .collect();
     let stored: Vec<String> = sqlx::query_scalar("SELECT url FROM news_items WHERE url = ANY($1)")
         .bind(urls)
         .fetch_all(&mut *connection)
@@ -1199,7 +1328,8 @@ async fn stored_urls(
 /// Insert the rows and count only those the table accepted. A URL another
 /// writer stored after the check is skipped by the conflict clause.
 async fn insert_rows(connection: &mut PgConnection, rows: &[NewsRow]) -> Result<u64, Exit> {
-    let column = |extract: fn(&NewsRow) -> String| -> Vec<String> { rows.iter().map(extract).collect() };
+    let column =
+        |extract: fn(&NewsRow) -> String| -> Vec<String> { rows.iter().map(extract).collect() };
     let result = sqlx::query(
         "INSERT INTO news_items \
          (id, title, summary, source, source_url, url, category, relevance, published_at, fetched_at) \
@@ -1232,7 +1362,11 @@ async fn insert_rows(connection: &mut PgConnection, rows: &[NewsRow]) -> Result<
 pub async fn run(args: &JobArgs) -> Exit {
     let (exit, outcome, counts) = match execute(args).await {
         Ok(Refresh::LockBusy) => (Exit::Ok, "lock_busy", serde_json::json!({"inserted": 0})),
-        Ok(Refresh::Completed { fetched, new, inserted }) => (
+        Ok(Refresh::Completed {
+            fetched,
+            new,
+            inserted,
+        }) => (
             Exit::Ok,
             "complete",
             serde_json::json!({"fetched": fetched, "new": new, "inserted": inserted}),

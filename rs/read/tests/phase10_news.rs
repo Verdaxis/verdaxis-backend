@@ -29,10 +29,13 @@ fn now() -> DateTime<Utc> {
 // Fakes
 // ---------------------------------------------------------------------------
 
+/// The URL and query pairs of one request.
+type RecordedCall = (String, Vec<(String, String)>);
+
 #[derive(Default)]
 struct FakeFetch {
     responses: Mutex<HashMap<String, Result<Vec<u8>, FetchError>>>,
-    calls: Mutex<Vec<(String, Vec<(String, String)>)>>,
+    calls: Mutex<Vec<RecordedCall>>,
 }
 
 impl FakeFetch {
@@ -980,10 +983,7 @@ async fn the_gemini_client_sends_the_key_in_a_header_and_reads_the_first_candida
     let base = serve(router).await;
     let client = GeminiClient::new(Secret::new("fixture-key"), &base).unwrap();
     let text = client
-        .generate(
-            &format!("prefix\nHeadline: Carbon news"),
-            Duration::from_secs(15),
-        )
+        .generate("prefix\nHeadline: Carbon news", Duration::from_secs(15))
         .await
         .unwrap();
     assert_eq!(text, "{\"category\": \"carbon\"}");
