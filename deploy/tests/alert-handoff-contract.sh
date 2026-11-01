@@ -29,15 +29,14 @@ fail() {
     failures=$((failures + 1))
 }
 
-# check LABEL COMMAND...: one assertion; the label names the cell.
+# check LABEL COMMAND...: one assertion; the label names the cell. A failure
+# is reported and counted, and the remaining assertions still run.
 check() {
     local label=$1
     shift
-    if "$@"; then
-        return 0
+    if ! "$@"; then
+        fail "$label" "$*"
     fi
-    fail "$label" "$*"
-    return 1
 }
 
 has_line() { grep -Fxq -- "$2" "$1"; }
@@ -82,7 +81,7 @@ static_unit_abi() {
         check "$cell" lacks_text "$unit" "python"
         check "$cell" lacks_text "$unit" "venv"
     done
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 # Every sandbox line of the current unit survives in the reviewed unit; only
@@ -98,7 +97,7 @@ static_sandbox_kept() {
             check "$cell" has_line "$policy/$name" "$line"
         done < "$root/deploy/monitor/$name"
     done
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 static_policy() {
@@ -119,7 +118,7 @@ static_policy() {
     # native read-only (0400) lock refuses a direct Python invocation.
     check "$cell" grep -Fq 'os.O_CREAT | os.O_RDWR' "$root/deploy/monitor/alert_dispatch.py"
     check "$cell" grep -Fq 'const FENCED_LOCK_MODE: u32 = 0o400;' "$root/rs/read/src/cli/monitors/alert.rs"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 # ---- disposable target: host side -------------------------------------------------------
@@ -443,7 +442,7 @@ setup_target() {
     check "$cell" start_fakes
     destination_status 200
     check "$cell" test "$(stat -c %a /etc/verdaxis-monitor/alert.env)" = 600
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
     printf 'TARGET nproc=%s systemd=%s\n' "$(nproc)" "$(systemctl --version | head -n 1)"
 }
 
@@ -476,7 +475,7 @@ cell_enqueue_and_dispatch() {
     check "$cell" test "$(systemctl show -p TasksMax --value verdaxis-health.service)" = 16
     allowed "$cell" verdaxis-health test -x "$binary_path"
     allowed "$cell" verdaxis-backup-reader test -x "$binary_path"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 # Leave one admitted failure per check whose delivery keeps failing.
@@ -519,7 +518,7 @@ cell_producer_isolation() {
         denied "$cell" "$user" cat "$alert_dir/health.json"
         denied "$cell" "$user" cat /etc/verdaxis-monitor/alert.env
     done
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 expect_acl() {
@@ -558,7 +557,7 @@ cell_acl_modes() {
     # The retained heads exhausted their three persisted attempts.
     check "$cell" grep -Fq '"blocked":"exhausted"' "$alert_dir/health.delivery.json"
     check "$cell" grep -Fq '"attempts":3' "$alert_dir/health.delivery.json"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 # Re-arm and drain every retained head with the destination working again.
@@ -640,7 +639,7 @@ for n in range(10**15, 10**15 + 256):
     check "$cell" test "$(run_producer verdaxis-backup-verify.service backup)" = 0
     check "$cell" test -z "$(pending "$health_dir")"
     check "$cell" test -z "$(pending "$backup_dir")"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 cell_acknowledged_crash() {
@@ -664,7 +663,7 @@ cell_acknowledged_crash() {
     ready_ok
     check "$cell" test "$(run_producer verdaxis-health.service health)" = 0
     check "$cell" test -z "$(pending "$health_dir")"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 snapshot_state() {
@@ -706,7 +705,7 @@ cell_after_reboot() {
     texts=$(texts_since "$count" | grep -F 'Verdaxis local health' | tr '\n' '|')
     check "$cell" test "$texts" = "Verdaxis local health: FAILURE|Verdaxis local health: RECOVERY|"
     check "$cell" test -z "$(pending "$health_dir")"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
 cell_revert() {
@@ -746,10 +745,32 @@ Verdaxis local health: RECOVERY"
     # No permission was broadened on the way.
     check "$cell" test "$(snapshot_state | grep -v 'json ' | grep -v '^[0-9]' | grep -v '\.health\.lock')" \
         = "$(printf '%s\n' "$acl_before" | grep -v '\.health\.lock')"
-    [ "$failures" -eq "$before" ] && pass "$cell"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
+}
+
+# On a failed cell: the unit results, the monitors' status codes (no secrets:
+# fixed codes only), the dispatcher progress and the recent unit journal.
+diagnose() {
+    local unit
+    echo "---- diagnostics"
+    for unit in verdaxis-health.service verdaxis-backup-verify.service \
+        verdaxis-monitor-alert@health.service verdaxis-monitor-alert@backup.service; do
+        printf '%s %s\n' "$unit" "$(systemctl show -p ActiveState -p Result -p ExecMainStatus "$unit" | tr '\n' ' ')"
+    done
+    for path in "$health_dir/status.json" "$backup_dir/status.json" \
+        "$alert_dir/health.delivery.json" "$alert_dir/backup.delivery.json"; do
+        printf '%s: %s\n' "$path" "$(cat "$path" 2>/dev/null)"
+    done
+    printf 'pending health: %s\n' "$(pending "$health_dir" | tr '\n' ' ')"
+    printf 'pending backup: %s\n' "$(pending "$backup_dir" | tr '\n' ' ')"
+    journalctl --no-pager -o short-monotonic -n 120 -u verdaxis-health.service -u verdaxis-backup-verify.service \
+        -u 'verdaxis-monitor-alert@*' -u fake-services.service 2>&1 | tail -n 120
+    echo "---- end of diagnostics"
 }
 
 inside_target() {
+    # Every assertion reports and counts; one failed cell does not stop the rest.
+    set +e
     if [ "${VERDAXIS_DISPOSABLE_TARGET:-0}" != 1 ] || { [ ! -e /run/.containerenv ] && [ ! -e /.dockerenv ]; } \
         || [ "$(id -u)" != 0 ]; then
         echo "refusing: this mode runs only as root inside the disposable target" >&2
@@ -775,6 +796,9 @@ inside_target() {
             exit 2
             ;;
     esac
+    if [ "$failures" -ne 0 ]; then
+        diagnose
+    fi
 }
 
 # ---- main ---------------------------------------------------------------------------------------
