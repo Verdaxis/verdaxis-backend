@@ -78,8 +78,8 @@ async fn unusable_hash_rejected_by_both_stacks() {
     assert_ne!(first, second, "every account gets its own unusable hash");
     for hash in [&first, &second] {
         assert!(
-            hash.starts_with("$2b$"),
-            "a standard bcrypt hash both stacks parse"
+            hash.starts_with(&format!("$2b${}$", password::BCRYPT_COST)),
+            "a standard bcrypt hash both stacks parse, at the real password cost"
         );
         assert_eq!(hash.len(), 60);
     }

@@ -1,7 +1,8 @@
 //! Credential cutoff for an account whose access ends.
 //!
 //! [`revoke_account_credentials`] runs inside the caller's transaction, after
-//! the caller has locked the target user row in its own lock order. It never
+//! the caller has locked and written the target user row in its own lock
+//! order. It never
 //! commits and never takes another lock before the user row: no device
 //! advisory lock (session writers take that one *before* the user row), and
 //! only the user's own refresh-session and reset-token rows afterwards, which
@@ -19,6 +20,8 @@
 //! columns move to at least the cutoff and never backwards. The password hash
 //! is replaced by a well-formed bcrypt hash of a discarded random secret, which
 //! the Rust and Python verifiers parse and reject for every presented password.
+//! It has the cost of a real password hash, so a sign-in attempt takes as long
+//! for an offboarded account as for an active one.
 //! Every refresh family is revoked, and the reset, invitation, verification and
 //! pending approval-mail secrets are cleared. History rows (audit, sent mail,
 //! login days) and KYC evidence are left unchanged.
@@ -27,17 +30,15 @@ use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-use super::{store, token_bytes::generate_token};
+use super::{password, store, token_bytes::generate_token};
 
 /// Seconds added to the database clock reading. A few seconds covers ordinary
 /// clock differences between application hosts and the database host; it is
 /// small because an account cannot sign in while the cutoff is in the future.
 pub const CUTOFF_SKEW_MARGIN_SECONDS: i64 = 5;
 
-/// bcrypt's minimum cost. The unusable hash protects a discarded 256-bit
-/// random secret, so its strength comes from that entropy, not from the cost,
-/// and the hash stays cheap to compute while the user row is locked.
-const UNUSABLE_HASH_COST: u32 = 4;
+/// The refusal when the calling transaction does not hold the user row lock.
+pub const USER_LOCK_NOT_HELD: &str = "the caller must hold the user row lock";
 
 /// What one credential cutoff changed. It carries no secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,23 +59,28 @@ pub struct CredentialRevocation {
 /// returned. No presented password matches it, and a new value is made for
 /// every account, so no two accounts share one.
 pub fn unusable_password_hash() -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(generate_token(), UNUSABLE_HASH_COST)
+    bcrypt::hash(generate_token(), password::BCRYPT_COST)
 }
 
 /// End every credential of one user inside the caller's transaction.
 ///
-/// The caller must already hold the user row lock (`FOR UPDATE`) in this
-/// transaction. The lock is confirmed without waiting: when another
-/// transaction holds the row, PostgreSQL refuses with `55P03` and nothing is
-/// written. An unknown user returns [`sqlx::Error::RowNotFound`]. The caller
-/// commits or rolls back the whole operation, including after an error.
+/// The caller must already hold the user row in this transaction by having
+/// written it (for example the account state change that precedes the
+/// cutoff). The helper never waits: when another transaction holds the row,
+/// PostgreSQL refuses with `55P03`; when this transaction has not written it,
+/// the helper refuses with [`sqlx::Error::InvalidArgument`]
+/// ([`USER_LOCK_NOT_HELD`]). In both cases nothing is written. An unknown user
+/// returns [`sqlx::Error::RowNotFound`]. The caller commits or rolls back the
+/// whole operation, including after an error.
 pub async fn revoke_account_credentials(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<CredentialRevocation, sqlx::Error> {
     confirm_user_lock(connection, user_id).await?;
-    let unusable_hash =
-        unusable_password_hash().map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
+    // The real password cost, on the bounded password workers.
+    let unusable_hash = password::hash(&generate_token())
+        .await
+        .map_err(|_| sqlx::Error::InvalidArgument("the unusable password hash failed".into()))?;
     // A separate statement, run only after the lock is confirmed: a clock read
     // inside a locking statement could be evaluated before that lock is granted.
     let cutoff: DateTime<Utc> = sqlx::query_scalar(
@@ -116,18 +122,41 @@ pub async fn revoke_account_credentials(
     })
 }
 
-/// Confirm this transaction holds the user row lock. Re-locking a row the
-/// transaction already holds returns at once; `NOWAIT` refuses instead of
-/// waiting when another transaction holds it, so this helper never waits for
-/// a lock outside the caller's lock order.
+/// Confirm this transaction holds the user row, without waiting.
+///
+/// The lock the helper needs is the row write lock: it excludes every
+/// concurrent writer and every session issuer (they take `FOR UPDATE`) until
+/// the caller's transaction ends. The proof is that the visible row version
+/// was written by this transaction (`xmin` equals its transaction id; a frozen
+/// version reports the frozen id, never a live one). A row this transaction
+/// only locked is refused: `FOR UPDATE` and the weaker `FOR KEY SHARE` that a
+/// foreign-key check takes cannot be told apart without page inspection, so
+/// both fail closed. A lock taken inside a savepoint is refused as well.
+///
+/// Without the proof, a `NOWAIT` lock attempt tells a row held elsewhere
+/// (`55P03`) from a row nobody holds; the second case is refused, and the lock
+/// the attempt took ends with the caller's rollback.
 async fn confirm_user_lock(
     connection: &mut PgConnection,
     user_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE NOWAIT")
-        .bind(user_id)
-        .fetch_optional(&mut *connection)
-        .await?
-        .map(|_| ())
-        .ok_or(sqlx::Error::RowNotFound)
+    let written: Option<bool> = sqlx::query_scalar(
+        "SELECT COALESCE(u.xmin::text = (pg_current_xact_id_if_assigned()::text::numeric \
+         % 4294967296)::text, false) FROM users u WHERE u.id = $1",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *connection)
+    .await?;
+    match written {
+        None => Err(sqlx::Error::RowNotFound),
+        Some(true) => Ok(()),
+        Some(false) => {
+            sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE id = $1 FOR UPDATE NOWAIT")
+                .bind(user_id)
+                .fetch_optional(&mut *connection)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?;
+            Err(sqlx::Error::InvalidArgument(USER_LOCK_NOT_HELD.into()))
+        }
+    }
 }

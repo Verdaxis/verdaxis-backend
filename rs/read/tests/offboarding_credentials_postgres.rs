@@ -33,7 +33,10 @@ use verdaxis_read::auth::{
     AccountState, AuthError, TokenIssuer, TokenType, VerificationSettings, cutoff_refusal,
     limits::SharedLimits,
     login,
-    offboarding::{CUTOFF_SKEW_MARGIN_SECONDS, CredentialRevocation, revoke_account_credentials},
+    offboarding::{
+        CUTOFF_SKEW_MARGIN_SECONDS, CredentialRevocation, USER_LOCK_NOT_HELD,
+        revoke_account_credentials,
+    },
     password, refresh,
     store::{self, NewRefreshRow},
     token_bytes::{generate_token, token_digest},
@@ -196,10 +199,17 @@ async fn warm(pool: &PgPool, connections: usize) {
     }
 }
 
+/// Lock the user row and write it, as the account change before a cutoff
+/// does: the helper accepts only a row this transaction wrote.
 async fn lock_user_row(connection: &mut PgConnection, user: Uuid) {
     sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
         .bind(user)
-        .fetch_one(connection)
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET status = status WHERE id = $1")
+        .bind(user)
+        .execute(&mut *connection)
         .await
         .unwrap();
 }
@@ -1174,6 +1184,61 @@ async fn credential_cutoff_requires_the_held_user_lock() {
     transaction.rollback().await.unwrap();
 }
 
+#[tokio::test]
+#[ignore = "requires a migrated disposable PostgreSQL database and Python"]
+async fn credential_cutoff_refuses_without_the_caller_lock() {
+    let db = Database::connect().await;
+    let user = db.user(None).await;
+    seed_family(&db, user.id).await;
+    let before = credential_snapshot(&db.owner, user.id).await;
+    let refused = |error: &sqlx::Error| matches!(error, sqlx::Error::InvalidArgument(message) if message == USER_LOCK_NOT_HELD);
+
+    // No lock, a foreign-key strength lock, and a lock without a write: each
+    // is refused and writes nothing.
+    for lock in [
+        None,
+        Some("SELECT id FROM users WHERE id = $1 FOR KEY SHARE"),
+        Some("SELECT id FROM users WHERE id = $1 FOR UPDATE"),
+    ] {
+        let mut transaction = db.cutoff.begin().await.unwrap();
+        if let Some(statement) = lock {
+            sqlx::query(statement)
+                .bind(user.id)
+                .fetch_one(&mut *transaction)
+                .await
+                .unwrap();
+        }
+        let error = revoke_account_credentials(&mut transaction, user.id)
+            .await
+            .expect_err("the caller has not written the user row");
+        assert!(refused(&error), "{lock:?}: {error:?}");
+        transaction.rollback().await.unwrap();
+        assert_eq!(credential_snapshot(&db.owner, user.id).await, before);
+    }
+
+    // A connection outside any transaction holds nothing.
+    let mut connection = db.cutoff.acquire().await.unwrap();
+    let error = revoke_account_credentials(&mut connection, user.id)
+        .await
+        .expect_err("an autocommit connection holds no row lock");
+    assert!(refused(&error), "{error:?}");
+    drop(connection);
+    assert_eq!(credential_snapshot(&db.owner, user.id).await, before);
+
+    // A row this transaction wrote is held until it ends: accepted.
+    let mut transaction = db.cutoff.begin().await.unwrap();
+    sqlx::query("UPDATE users SET status = 'REJECTED' WHERE id = $1")
+        .bind(user.id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    revoke_account_credentials(&mut transaction, user.id)
+        .await
+        .expect("a written row is held by this transaction");
+    transaction.rollback().await.unwrap();
+    assert_eq!(credential_snapshot(&db.owner, user.id).await, before);
+}
+
 // ---------------------------------------------------------------------------
 // Streams and delivery (the unchanged Python code).
 // ---------------------------------------------------------------------------
@@ -1369,6 +1434,11 @@ async fn detached_streams_close_after_membership_recheck() {
         .unwrap();
     sqlx::query("UPDATE users SET status = 'REJECTED', organization_id = NULL WHERE id = $1")
         .bind(departed.id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET status = status WHERE id = $1")
+        .bind(cut_only.id)
         .execute(&mut *transaction)
         .await
         .unwrap();
