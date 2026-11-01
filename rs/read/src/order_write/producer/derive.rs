@@ -168,9 +168,17 @@ fn order_events(
 }
 
 /// The price branch and the quantity/status branch are independent; both may emit.
+///
+/// A PIN class compares the new state with the old one. When the old state
+/// was not public, its price and remainder are never disclosed, so no PIN
+/// class is derived; the order still reaches SLICE targets through the
+/// aggregate rules, which compare public states only.
 fn pin_classes(transition: &OrderTransition) -> Vec<(EventClass, Map<String, Value>)> {
     let after = &transition.after;
     let before = transition.before.as_ref();
+    if before.is_some_and(|before| !before.public_admitted) {
+        return Vec::new();
+    }
     let base = order_payload(transition.order_id, after, before);
     let mut classes = Vec::new();
     if let Some(before) = before

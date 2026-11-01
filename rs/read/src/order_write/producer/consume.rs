@@ -22,6 +22,9 @@ pub const MAX_SOURCES_PER_BATCH: i64 = 100;
 /// A batch stops adding sources before it passes this many derived rows. One
 /// source is never split, so a single larger source runs alone.
 pub const MAX_ROWS_PER_BATCH: usize = 5_000;
+/// One insert statement carries at most this many rows, so a large source
+/// fits the statement deadline; all statements share the batch transaction.
+pub const INSERT_CHUNK_ROWS: usize = 1_000;
 
 /// What one committed batch did.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +170,9 @@ pub async fn consume_batch(
         covered = row.stream_seq;
         processed += 1;
     }
+    // A retention delete that committed while the outbox was read is visible
+    // to this new statement: read the fence and the floor again before writing.
+    require_coverage(&mut tx, watermark).await?;
     let inserted = insert_events(&mut tx, pending).await?;
     if covered > watermark {
         sqlx::query(
@@ -264,29 +270,34 @@ async fn insert_events(
     if target_ids.is_empty() {
         return Ok(0);
     }
-    let result = sqlx::query(
-        "INSERT INTO watchlist_events (id, watchlist_id, watchlist_target_id, event_type, \
-         event_payload, is_read, created_at, producer, source_event_id, source_stream_seq, \
-         scope_attested_at, derived_event_key) \
-         SELECT gen_random_uuid(), t.watchlist_id, t.id, d.class, d.payload::json, false, d.at, \
-         $8, d.source, d.seq, d.at, d.key \
-         FROM unnest($1::uuid[], $2::text[], $3::text[], $4::uuid[], $5::bigint[], \
-         $6::timestamptz[], $7::text[]) AS d(target_id, class, payload, source, seq, at, key) \
-         JOIN watchlist_targets t ON t.id = d.target_id \
-         ON CONFLICT (producer, source_event_id, watchlist_target_id, derived_event_key) \
-         WHERE source_event_id IS NOT NULL DO NOTHING",
-    )
-    .bind(&target_ids)
-    .bind(&classes)
-    .bind(&payloads)
-    .bind(&sources)
-    .bind(&sequences)
-    .bind(&instants)
-    .bind(&keys)
-    .bind(RUST_PRODUCER)
-    .execute(&mut *conn)
-    .await?;
-    Ok(result.rows_affected())
+    let mut inserted = 0;
+    for start in (0..target_ids.len()).step_by(INSERT_CHUNK_ROWS) {
+        let rows = start..(start + INSERT_CHUNK_ROWS).min(target_ids.len());
+        let result = sqlx::query(
+            "INSERT INTO watchlist_events (id, watchlist_id, watchlist_target_id, event_type, \
+             event_payload, is_read, created_at, producer, source_event_id, source_stream_seq, \
+             scope_attested_at, derived_event_key) \
+             SELECT gen_random_uuid(), t.watchlist_id, t.id, d.class, d.payload::json, false, d.at, \
+             $8, d.source, d.seq, d.at, d.key \
+             FROM unnest($1::uuid[], $2::text[], $3::text[], $4::uuid[], $5::bigint[], \
+             $6::timestamptz[], $7::text[]) AS d(target_id, class, payload, source, seq, at, key) \
+             JOIN watchlist_targets t ON t.id = d.target_id \
+             ON CONFLICT (producer, source_event_id, watchlist_target_id, derived_event_key) \
+             WHERE source_event_id IS NOT NULL DO NOTHING",
+        )
+        .bind(&target_ids[rows.clone()])
+        .bind(&classes[rows.clone()])
+        .bind(&payloads[rows.clone()])
+        .bind(&sources[rows.clone()])
+        .bind(&sequences[rows.clone()])
+        .bind(&instants[rows.clone()])
+        .bind(&keys[rows])
+        .bind(RUST_PRODUCER)
+        .execute(&mut *conn)
+        .await?;
+        inserted += result.rows_affected();
+    }
+    Ok(inserted)
 }
 
 /// Create the watermark once, at the sequenced high-water barrier, before any

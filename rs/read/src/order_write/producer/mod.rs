@@ -40,6 +40,18 @@ pub const RUST_PRODUCER: &str = "rust-market-v1";
 pub const LEGACY_PRODUCER: &str = "legacy-python";
 /// The bounded poll that covers a missed or absent wake signal.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(2);
+/// The longest wait between retries after consecutive failed batches.
+pub const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+/// The wait after `failures` consecutive failed batches: the poll interval,
+/// doubled per further failure, at most [`MAX_RETRY_DELAY`]. A failure never
+/// ends the consumer; it retries from the unchanged watermark.
+pub fn retry_delay(failures: u32) -> Duration {
+    let doublings = failures.saturating_sub(1).min(5);
+    POLL_INTERVAL
+        .saturating_mul(1 << doublings)
+        .min(MAX_RETRY_DELAY)
+}
 /// The first schema revision that carries the producer columns and watermark.
 pub const PRODUCER_REVISION: &str = "p89_20261022_watchlist_producer";
 
@@ -191,8 +203,10 @@ impl From<sqlx::Error> for ProducerError {
 }
 
 /// Consume until `stop` turns true: drain every waiting batch, then wait for a
-/// wake signal or the poll interval. A refusal is logged once per change of
-/// reason and retried at the poll interval without any write.
+/// wake signal or the poll interval. A failed batch writes nothing and moves
+/// no watermark; it is logged once per change of reason and retried after
+/// [`retry_delay`], so contention or a statement deadline never ends the
+/// consumer.
 pub async fn run_producer(
     pool: sqlx::PgPool,
     activation: ProducerActivation,
@@ -200,6 +214,7 @@ pub async fn run_producer(
     mut stop: watch::Receiver<bool>,
 ) {
     let mut reported: Option<&'static str> = None;
+    let mut failures: u32 = 0;
     loop {
         if *stop.borrow() {
             return;
@@ -208,40 +223,46 @@ pub async fn run_producer(
             Ok(mut connection) => consume::consume_batch(&mut connection, &activation).await,
             Err(error) => Err(error.into()),
         };
-        let drained = match result {
+        // `None`: run the next batch at once; `Some`: wait this long first.
+        let wait = match result {
             Ok(outcome) => {
+                failures = 0;
                 if reported.take().is_some() {
                     tracing::info!(watermark = outcome.watermark, "watchlist producer resumed");
                 }
-                outcome.drained
+                outcome.drained.then_some(POLL_INTERVAL)
             }
             Err(error) => {
+                failures = failures.saturating_add(1);
                 if reported != Some(error.reason()) {
                     reported = Some(error.reason());
                     match error {
                         ProducerError::InvalidEvidence { stream_seq, .. } => tracing::warn!(
                             reason = error.reason(),
                             stream_seq,
-                            "watchlist producer stopped"
+                            "watchlist producer waiting"
                         ),
-                        _ => tracing::warn!(reason = error.reason(), "watchlist producer stopped"),
+                        _ => tracing::warn!(reason = error.reason(), "watchlist producer waiting"),
                     }
                 }
-                true
+                Some(retry_delay(failures))
             }
         };
-        if drained {
-            tokio::select! {
-                biased;
-                changed = stop.changed() => {
-                    // A dropped sender also means stop.
-                    if changed.is_err() {
-                        return;
-                    }
+        let Some(wait) = wait else {
+            continue;
+        };
+        // After a failure the wake signal does not shorten the backoff.
+        let backing_off = failures > 0;
+        tokio::select! {
+            biased;
+            changed = stop.changed() => {
+                // A dropped sender also means stop.
+                if changed.is_err() {
+                    return;
                 }
-                () = wake.notified() => {}
-                () = tokio::time::sleep(POLL_INTERVAL) => {}
             }
+            () = wake.notified(), if !backing_off => {}
+            () = tokio::time::sleep(wait) => {}
         }
     }
 }
@@ -289,8 +310,8 @@ pub fn start(state: &crate::AppState, wake: Option<Arc<Notify>>) -> Option<Produ
 #[cfg(feature = "contract-tests")]
 pub mod contract {
     pub use super::consume::{
-        BatchOutcome, BootstrapOutcome, MAX_ROWS_PER_BATCH, MAX_SOURCES_PER_BATCH,
-        bootstrap_watermark, consume_batch,
+        BatchOutcome, BootstrapOutcome, INSERT_CHUNK_ROWS, MAX_ROWS_PER_BATCH,
+        MAX_SOURCES_PER_BATCH, bootstrap_watermark, consume_batch,
     };
     pub use super::derive::{DerivedEvent, EventClass, derive, number, price_move_is_material};
     pub use super::evidence::{
@@ -299,6 +320,6 @@ pub mod contract {
     };
     pub use super::{
         ActivationRefusal, LEGACY_PRODUCER, ProducerActivation, ProducerError, RUST_PRODUCER,
-        schema_has_producer,
+        retry_delay, run_producer, schema_has_producer,
     };
 }
