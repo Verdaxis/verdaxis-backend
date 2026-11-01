@@ -19,11 +19,14 @@ paths = Path('deploy/tests/shellcheck-files.txt').read_text().splitlines()
 assert paths and len(paths) == len(set(paths))
 assert {'deploy/scripts/verify-artifact.sh', 'deploy/tests/artifact-contract.sh'} <= set(paths)
 for path in paths:
-    assert re.fullmatch(r'(deploy|scripts)/[A-Za-z0-9_./-]+\.sh', path), path
+    assert (re.fullmatch(r'(deploy|scripts)/[A-Za-z0-9_./-]+\.sh', path)
+            or re.fullmatch(r'rs/read/tests/run_phase10_[a-z0-9_]+\.sh', path)), path
     assert Path(path).is_file() and not Path(path).is_symlink(), path
 # Every active Phase 10 shell file is reviewed; future files join atomically.
-for directory in ('deploy/scripts', 'deploy/tests'):
-    for path in Path(directory).glob('*.sh'):
+# The Phase 10 PostgreSQL runners are test scripts; they are reviewed the same way.
+for directory, pattern in (('deploy/scripts', '*.sh'), ('deploy/tests', '*.sh'),
+                           ('rs/read/tests', 'run_phase10_*.sh')):
+    for path in Path(directory).glob(pattern):
         assert str(path) in paths, f'unreviewed script: {path}'
 workflow = yaml.safe_load(Path('.github/workflows/rust-read-ci.yml').read_text())
 job = workflow['jobs']['phase10-shellcheck']

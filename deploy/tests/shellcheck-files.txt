@@ -5,3 +5,5 @@ deploy/tests/collect-host-inventory.sh
 deploy/tests/verify-host-inventory.sh
 deploy/scripts/verify-deploy-start-guard.sh
 deploy/tests/guard-contract.sh
+rs/read/tests/run_phase10_reminders.sh
+rs/read/tests/run_phase10_inspect.sh
