@@ -20,6 +20,10 @@ required-features = ["contract-tests"]
 name = "phase10_state_postgres"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "phase10_news_postgres"
+required-features = ["contract-tests"]
+
 # Phase 4 Task 13: three offline cases run in every workspace test; the
 # PostgreSQL cases inside the file are feature-gated by contract-tests.
 [[test]]
@@ -147,6 +151,8 @@ chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
 clap = { version = "=4.6.7", features = ["derive"] }
 cookie = "0.18"
+# Phase 10 Task 11: RSS, Atom and RDF parsing for the news refresh job.
+feed-rs = "=3.0.0"
 futures-util = "0.3"
 getrandom = "=0.4.3"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
