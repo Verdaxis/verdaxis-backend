@@ -1,7 +1,8 @@
 //! Task 15: the watchlist event feed (W07) and read state (W08).
 //!
-//! The cursor grammar, query bounds, the PD4-G guard and the payload projection
-//! run without a database. The feed order, guard-before-limit pagination,
+//! The cursor grammar, query bounds and the payload projection run without a
+//! database. The admission rule is one SQL relation, so its cases need a
+//! database: the PostgreSQL module below and `market_write_pg_producer_visibility`. The feed order, guard-before-limit pagination,
 //! committed read state and the missing-target path need disposable PostgreSQL;
 //! they provision their own fixture schema and skip when it is absent, so an
 //! offline `cargo test --workspace` stays green.
@@ -10,8 +11,8 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{Map, Value, json};
 use uuid::Uuid;
 use verdaxis_read::crud::watchlists::{
-    EventCursor, EventQuery, EventsPage, StoredEvent, TargetColumns, VisibleSnapshot, acknowledge,
-    decode_cursor, encode_cursor, event_visible, feed_page, parse_event_query,
+    EventAdmission, EventCursor, EventQuery, EventsPage, StoredEvent, TargetColumns,
+    VisibleSnapshot, acknowledge, decode_cursor, encode_cursor, feed_page, parse_event_query,
 };
 
 fn instant(seconds: i64) -> DateTime<Utc> {
@@ -118,77 +119,6 @@ fn query_defaults_and_bounds_are_the_route_contract() {
         assert_eq!(error.status.as_u16(), 422, "{raw}");
         assert_eq!(error.detail[0]["type"], kind, "{raw}");
     }
-}
-
-// ---------------------------------------------------------------- PD4-G guard
-
-#[test]
-fn the_guard_hides_best_price_and_orders_outside_the_public_scope() {
-    let public = uuid(1);
-    let hidden = uuid(2);
-    let visible = snapshot(&[public]);
-    let slice = target("SLICE", None, None);
-    let pinned = |order: Option<Uuid>| target("PIN", order, None);
-
-    assert!(!event_visible(
-        "SLICE_BEST_PRICE_MOVED",
-        Some(public),
-        Some(&slice),
-        &visible
-    ));
-    assert!(!event_visible(
-        "SLICE_BEST_PRICE_MOVED",
-        None,
-        Some(&slice),
-        &visible
-    ));
-    assert!(!event_visible(
-        "SLICE_NEW_ORDER",
-        Some(hidden),
-        Some(&slice),
-        &visible
-    ));
-    assert!(!event_visible(
-        "PIN_PRICE_CHANGED",
-        None,
-        Some(&pinned(Some(hidden))),
-        &visible
-    ));
-    assert!(!event_visible(
-        "PIN_PRICE_CHANGED",
-        None,
-        Some(&pinned(None)),
-        &visible
-    ));
-
-    // A deleted target has no PIN context; the event type and source order
-    // still decide, and W08 reports the absent target separately.
-    assert!(event_visible("SLICE_NEW_ORDER", None, None, &visible));
-    assert!(!event_visible(
-        "SLICE_BEST_PRICE_MOVED",
-        None,
-        None,
-        &visible
-    ));
-
-    assert!(event_visible(
-        "SLICE_NEW_ORDER",
-        Some(public),
-        Some(&slice),
-        &visible
-    ));
-    assert!(event_visible(
-        "SLICE_BENCHMARK_MOVED",
-        None,
-        Some(&slice),
-        &visible
-    ));
-    assert!(event_visible(
-        "PIN_PRICE_CHANGED",
-        Some(public),
-        Some(&pinned(Some(public))),
-        &visible
-    ));
 }
 
 // ----------------------------------------------------------- payload projection
@@ -567,6 +497,12 @@ mod postgres {
                  id uuid PRIMARY KEY, watchlist_id uuid NOT NULL, watchlist_target_id uuid NOT NULL, \
                  event_type text NOT NULL, event_payload json, is_read boolean NOT NULL DEFAULT false, \
                  created_at timestamptz NOT NULL)",
+            // The producer identity columns of the migrated schema, with their
+            // defaults: every row this module stores is a legacy row.
+            "ALTER TABLE watchlist_events \
+                 ADD COLUMN IF NOT EXISTS producer text NOT NULL DEFAULT 'legacy-python', \
+                 ADD COLUMN IF NOT EXISTS source_event_id uuid, \
+                 ADD COLUMN IF NOT EXISTS scope_attested_at timestamptz",
             "GRANT SELECT, INSERT, UPDATE, DELETE ON delivery_points, watchlists, \
                  watchlist_targets, watchlist_events TO rust_app",
             "TRUNCATE watchlist_events, watchlist_targets, watchlists, delivery_points",
@@ -687,6 +623,12 @@ mod postgres {
         snapshot(&[uuid(PUBLIC_ORDER)])
     }
 
+    /// These rows are all legacy rows, so a recorded activation admits no
+    /// best-price row among them.
+    fn admission() -> EventAdmission {
+        EventAdmission::new(Some(instant(1_792_000_000)))
+    }
+
     fn query(limit: i64, cursor: Option<EventCursor>) -> EventQuery {
         EventQuery { limit, cursor }
     }
@@ -717,9 +659,15 @@ mod postgres {
         }
         let mut connection = migrator.acquire().await.unwrap();
 
-        let first = feed_page(&mut connection, uuid(CONTAINER), &visible(), query(2, None))
-            .await
-            .unwrap();
+        let first = feed_page(
+            &mut connection,
+            uuid(CONTAINER),
+            &visible(),
+            admission(),
+            query(2, None),
+        )
+        .await
+        .unwrap();
         let ids: Vec<Uuid> = first.items.iter().map(|item| item.id).collect();
         assert_eq!(
             ids,
@@ -734,6 +682,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(2, Some(cursor)),
         )
         .await
@@ -752,6 +701,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(2, Some(cursor)),
         )
         .await
@@ -831,9 +781,15 @@ mod postgres {
 
         // Three visible rows, three hidden rows above the oldest visible one.
         // The limit counts visible rows only, so the third is still pending.
-        let page = feed_page(&mut connection, uuid(CONTAINER), &visible(), query(2, None))
-            .await
-            .unwrap();
+        let page = feed_page(
+            &mut connection,
+            uuid(CONTAINER),
+            &visible(),
+            admission(),
+            query(2, None),
+        )
+        .await
+        .unwrap();
         let ids: Vec<Uuid> = page.items.iter().map(|item| item.id).collect();
         assert_eq!(
             ids,
@@ -853,6 +809,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(2, Some(cursor)),
         )
         .await
@@ -881,9 +838,15 @@ mod postgres {
             .await;
         }
         let mut connection = migrator.acquire().await.unwrap();
-        let page = feed_page(&mut connection, uuid(CONTAINER), &visible(), query(2, None))
-            .await
-            .unwrap();
+        let page = feed_page(
+            &mut connection,
+            uuid(CONTAINER),
+            &visible(),
+            admission(),
+            query(2, None),
+        )
+        .await
+        .unwrap();
         assert_eq!(page.items.len(), 2);
         assert_eq!(page.next_cursor, None);
     }
@@ -910,6 +873,7 @@ mod postgres {
             uuid(CONTAINER),
             uuid(0x7600_0000_0000_0000_0000_0000_0000_0001),
             &visible(),
+            admission(),
         )
         .await
         .unwrap();
@@ -924,6 +888,7 @@ mod postgres {
             uuid(CONTAINER),
             uuid(0x7600_0000_0000_0000_0000_0000_0000_0001),
             &visible(),
+            admission(),
         )
         .await
         .unwrap();
@@ -978,9 +943,15 @@ mod postgres {
         ] {
             let before = xmin(&migrator, id).await;
             let mut transaction = migrator.begin().await.unwrap();
-            let error = acknowledge(&mut transaction, uuid(CONTAINER), uuid(id), &visible())
-                .await
-                .unwrap_err();
+            let error = acknowledge(
+                &mut transaction,
+                uuid(CONTAINER),
+                uuid(id),
+                &visible(),
+                admission(),
+            )
+            .await
+            .unwrap_err();
             transaction.rollback().await.unwrap();
             assert_eq!(error.status.as_u16(), 404);
             assert_eq!(error.detail, Value::String("Event not found".into()));
@@ -1011,18 +982,30 @@ mod postgres {
         .await;
 
         let mut first = migrator.begin().await.unwrap();
-        let ack = acknowledge(&mut first, uuid(CONTAINER), uuid(id), &visible())
-            .await
-            .unwrap();
+        let ack = acknowledge(
+            &mut first,
+            uuid(CONTAINER),
+            uuid(id),
+            &visible(),
+            admission(),
+        )
+        .await
+        .unwrap();
         assert!(ack.is_some_and(|event| event.is_read));
 
         // The second reader starts while the first still holds the row lock.
         let pool = migrator.clone();
         let second = tokio::spawn(async move {
             let mut transaction = pool.begin().await.unwrap();
-            let ack = acknowledge(&mut transaction, uuid(CONTAINER), uuid(id), &visible())
-                .await
-                .unwrap();
+            let ack = acknowledge(
+                &mut transaction,
+                uuid(CONTAINER),
+                uuid(id),
+                &visible(),
+                admission(),
+            )
+            .await
+            .unwrap();
             transaction.commit().await.unwrap();
             ack.is_some_and(|event| event.is_read)
         });
@@ -1086,6 +1069,7 @@ mod postgres {
             uuid(CONTAINER + 1),
             uuid(0x7800_0000_0000_0000_0000_0000_0000_0001),
             &visible(),
+            admission(),
         )
         .await
         .unwrap_err();
@@ -1120,6 +1104,7 @@ mod postgres {
             uuid(CONTAINER),
             uuid(0x7900_0000_0000_0000_0000_0000_0000_0001),
             &visible(),
+            admission(),
         )
         .await
         .unwrap();
@@ -1151,6 +1136,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(20, None),
         )
         .await
@@ -1184,6 +1170,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(20, None),
         )
         .await
@@ -1243,6 +1230,7 @@ mod postgres {
             &mut connection,
             uuid(CONTAINER),
             &visible(),
+            admission(),
             query(20, None),
         )
         .await
@@ -1252,7 +1240,7 @@ mod postgres {
         assert_eq!(page.items[0].order_id, None);
 
         let summary = visible()
-            .detail(&mut connection, uuid(OWNER), uuid(CONTAINER), at)
+            .detail(&mut connection, uuid(OWNER), uuid(CONTAINER), admission())
             .await
             .unwrap()
             .expect("the owner's container");

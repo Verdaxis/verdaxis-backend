@@ -1,12 +1,13 @@
 //! The watchlist read guard stays in force beside the stream transport.
 //!
 //! The stream transport carries committed market events. It never writes
-//! watchlist events, and no Rust source produces them before a trusted
-//! producer is activated. Until then the feed and the counts apply one rule:
-//! every `SLICE_BEST_PRICE_MOVED` row is hidden whatever the cutoff value, and
-//! a row whose source order or pinned order is outside the current public
-//! order scope is hidden too. The rule applies before feed pagination and
-//! before unread and latest-event aggregation.
+//! watchlist events. The feed and the counts apply one admission rule: a
+//! `SLICE_BEST_PRICE_MOVED` row is hidden unless the trusted producer wrote it
+//! and attested it at or after the recorded activation, so the rows stored
+//! here, which carry no producer identity, stay hidden whatever the activation
+//! value; and a row whose source order or pinned order is outside the current
+//! public order scope is hidden too. The rule applies before feed pagination
+//! and before unread and latest-event aggregation.
 //!
 //! The source and pure tests run in every build of this target. The database
 //! tests are ignored here: `tests/postgres/test_phase6_watchlist_guard.py`
@@ -22,8 +23,8 @@ use serde_json::json;
 use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 use verdaxis_read::crud::watchlists::{
-    Event, EventQuery, Metrics, Slice, Summary, Target, VisibleSnapshot, WatchlistEvent,
-    acknowledge, capture_visible, decode_cursor, event_visible, feed_page,
+    EventAdmission, EventQuery, Slice, Summary, VisibleSnapshot, WatchlistEvent, acknowledge,
+    capture_visible, decode_cursor, feed_page,
 };
 use verdaxis_read::{
     Config, MarketPolicy, PointPolicy, ProductPolicy, VisibilityClock, compiled_sha,
@@ -228,92 +229,36 @@ fn no_producer_startup() {
 
 // ---------------------------------------------------------------- pure rules
 
-fn pure_target(id: Uuid, kind: &str, order: Option<Uuid>) -> Target {
-    serde_json::from_value(json!({
-        "id": id,
-        "target_type": kind,
-        "market_product_code": "GUARD",
-        "delivery_point_id": Uuid::from_u128(9),
-        "availability_window_code": "SPOT",
-        "order_id": order,
-        "created_at": "2026-10-01T00:00:00Z",
-    }))
-    .expect("a projected target")
-}
-
-/// The guard has no activation instant. No cutoff value, including the
-/// default instant, the current clock and both representable extremes, lets a
-/// best-price row count toward unread or latest-event metrics. The feed rule
-/// takes no cutoff at all.
+/// The admission has no default activation: with none recorded it binds no
+/// instant, so no stored best-price row is admitted, and the watchlist read
+/// path puts no fixed or clock instant in place of a missing record.
 #[test]
 fn no_default_activation_cutoff() {
-    let public_order = Uuid::from_u128(1);
-    let slice = Uuid::from_u128(10);
-    let pin = Uuid::from_u128(11);
-    let targets = vec![
-        pure_target(slice, "SLICE", None),
-        pure_target(pin, "PIN", Some(public_order)),
-    ];
-    let visible_orders = HashSet::from([public_order]);
-    let ordinary = instant("2026-10-19T00:00:00Z");
-    let now = Utc::now();
-
-    let mut events = vec![Event {
-        target_id: slice,
-        event_type: "SLICE_NEW_ORDER".into(),
-        order_id: Some(public_order),
-        is_read: false,
-        created_at: ordinary,
-    }];
-    let best_price_times = [
-        DateTime::<Utc>::MIN_UTC,
-        DateTime::<Utc>::default(),
-        ordinary + Duration::seconds(1),
-        now,
-        DateTime::<Utc>::MAX_UTC,
-    ];
-    for (index, created_at) in best_price_times.into_iter().enumerate() {
-        events.push(Event {
-            target_id: if index % 2 == 0 { slice } else { pin },
-            event_type: BEST_PRICE.into(),
-            order_id: Some(public_order),
-            is_read: false,
-            created_at,
-        });
-    }
-
-    for cutoff in [
-        DateTime::<Utc>::default(),
-        DateTime::<Utc>::MIN_UTC,
-        ordinary,
-        now,
-        DateTime::<Utc>::MAX_UTC,
+    assert_eq!(EventAdmission::new(None).activation(), None);
+    let recorded = instant("2026-10-19T00:00:00Z");
+    assert_eq!(
+        EventAdmission::new(Some(recorded)).activation(),
+        Some(recorded)
+    );
+    let root = repository_root();
+    for name in [
+        "rs/read/src/crud/watchlists/http.rs",
+        "rs/read/src/crud/watchlists/admission.rs",
     ] {
-        let metrics = Metrics::from_visible_events(&targets, &events, &visible_orders, cutoff);
-        assert_eq!(metrics.unread.get(&slice), Some(&1), "cutoff {cutoff}");
-        assert_eq!(metrics.unread.get(&pin), None, "cutoff {cutoff}");
-        assert_eq!(
-            metrics.latest.get(&slice),
-            Some(&ordinary),
-            "cutoff {cutoff}"
-        );
-        assert_eq!(metrics.latest.get(&pin), None, "cutoff {cutoff}");
+        let text = source_text(&root.join(name));
+        for fixed in [
+            "MAX_UTC",
+            "MIN_UTC",
+            "UNIX_EPOCH",
+            "with_ymd_and_hms",
+            "unwrap_or(",
+        ] {
+            assert!(
+                !text.contains(fixed),
+                "{name} puts `{fixed}` in place of a missing activation"
+            );
+        }
     }
-
-    let scope = VisibleSnapshot::from_orders(vec![(
-        public_order,
-        "GUARD".into(),
-        Uuid::from_u128(9),
-        "SPOT".into(),
-    )]);
-    assert!(!event_visible(BEST_PRICE, Some(public_order), None, &scope));
-    assert!(!event_visible(BEST_PRICE, None, None, &scope));
-    assert!(event_visible(
-        "SLICE_NEW_ORDER",
-        Some(public_order),
-        None,
-        &scope
-    ));
 }
 
 // ------------------------------------------------------------- PostgreSQL
@@ -543,14 +488,21 @@ async fn whole_feed(
     app: &mut PgConnection,
     watch: &Watch,
     scope: &VisibleSnapshot,
+    admission: EventAdmission,
     limit: i64,
 ) -> Vec<WatchlistEvent> {
     let mut rows = Vec::new();
     let mut cursor = None;
     for _ in 0..100 {
-        let page = feed_page(app, watch.container, scope, EventQuery { limit, cursor })
-            .await
-            .expect("a feed page");
+        let page = feed_page(
+            app,
+            watch.container,
+            scope,
+            admission,
+            EventQuery { limit, cursor },
+        )
+        .await
+        .expect("a feed page");
         let page_size = i64::try_from(page.items.len()).expect("a small page");
         assert!(page_size <= limit, "a page holds at most the limit");
         rows.extend(page.items);
@@ -571,10 +523,10 @@ async fn summary_at(
     market: &Market,
     watch: &Watch,
     scope: &VisibleSnapshot,
-    cutoff: DateTime<Utc>,
+    admission: EventAdmission,
 ) -> Summary {
     scope
-        .detail(app, market.owner, watch.container, cutoff)
+        .detail(app, market.owner, watch.container, admission)
         .await
         .expect("the detail read")
         .expect("the owner's watchlist")
@@ -593,6 +545,7 @@ async fn assert_refused_without_write(
     app: &mut PgConnection,
     watch: &Watch,
     scope: &VisibleSnapshot,
+    admission: EventAdmission,
     event: Uuid,
 ) {
     let state = "SELECT xmin::text, is_read FROM watchlist_events WHERE id=$1";
@@ -601,7 +554,7 @@ async fn assert_refused_without_write(
         .fetch_one(&mut *app)
         .await
         .expect("the stored row");
-    let error = acknowledge(app, watch.container, event, scope)
+    let error = acknowledge(app, watch.container, event, scope, admission)
         .await
         .expect_err("a guarded row cannot be acknowledged");
     assert_eq!(error.status.as_u16(), 404, "event {event}");
@@ -680,10 +633,11 @@ fn assert_feed_matches_counts(feed: &[WatchlistEvent], summary: &Summary) {
     );
 }
 
-/// Best-price rows sourced from an order that is public now stay hidden for a
-/// cutoff before, at and after them, in the feed, the counts and the read
-/// state. Rows dated after this run are hidden too: the rule is not a clock
-/// cutoff that would reveal newer rows.
+/// Best-price rows sourced from an order that is public now stay hidden for an
+/// activation before, at and after them, and with none recorded, in the feed,
+/// the counts and the read state. These rows carry no producer identity, and
+/// rows dated after this run are hidden too: the rule is not a clock cutoff
+/// that would reveal newer rows.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL harness"]
 async fn best_price_guard_before_at_after_cutoff() {
@@ -755,43 +709,43 @@ async fn best_price_guard_before_at_after_cutoff() {
     .await;
 
     let scope = public_scope(&mut app, &market).await;
-    let feed = whole_feed(&mut app, &watch, &scope, 100).await;
-    assert_eq!(ids(&feed), vec![new_order, price_change]);
-
     for activation in [
-        cutoff - Duration::days(3),
-        cutoff - microsecond,
-        cutoff,
-        cutoff + microsecond,
-        cutoff + Duration::days(3),
+        None,
+        Some(cutoff - Duration::days(3)),
+        Some(cutoff - microsecond),
+        Some(cutoff),
+        Some(cutoff + microsecond),
+        Some(cutoff + Duration::days(3)),
     ] {
-        let summary = summary_at(&mut app, &market, &watch, &scope, activation).await;
-        assert_eq!(summary.unread_event_count, 1, "cutoff {activation}");
+        let admission = EventAdmission::new(activation);
+        let feed = whole_feed(&mut app, &watch, &scope, admission, 100).await;
+        assert_eq!(ids(&feed), vec![new_order, price_change], "{admission:?}");
+        let summary = summary_at(&mut app, &market, &watch, &scope, admission).await;
+        assert_eq!(summary.unread_event_count, 1, "{admission:?}");
         assert_eq!(
             summary.latest_event_at,
             Some(cutoff - Duration::days(1)),
-            "cutoff {activation}"
+            "{admission:?}"
         );
         let spot = slice_of(&summary, watch.spot_slice);
-        assert_eq!(spot.unread_event_count, 1, "cutoff {activation}");
+        assert_eq!(spot.unread_event_count, 1, "{admission:?}");
         assert_eq!(
             spot.latest_event_at,
             Some(cutoff - Duration::days(1)),
-            "cutoff {activation}"
+            "{admission:?}"
         );
         let pins: Vec<Uuid> = spot.pins.iter().map(|pin| pin.id).collect();
-        assert_eq!(pins, vec![watch.public_pin], "cutoff {activation}");
-        assert_eq!(spot.pins[0].unread_event_count, 0, "cutoff {activation}");
+        assert_eq!(pins, vec![watch.public_pin], "{admission:?}");
+        assert_eq!(spot.pins[0].unread_event_count, 0, "{admission:?}");
         assert_eq!(
             spot.pins[0].latest_event_at,
             Some(cutoff - Duration::days(2)),
-            "cutoff {activation}"
+            "{admission:?}"
         );
         assert_feed_matches_counts(&feed, &summary);
-    }
-
-    for event in hidden {
-        assert_refused_without_write(&mut app, &watch, &scope, event).await;
+        for event in &hidden {
+            assert_refused_without_write(&mut app, &watch, &scope, admission, *event).await;
+        }
     }
 }
 
@@ -869,10 +823,12 @@ async fn guard_precedes_pagination_and_counts() {
     .await;
 
     let scope = public_scope(&mut app, &market).await;
+    let admission = EventAdmission::new(Some(base));
     let first = feed_page(
         &mut app,
         watch.container,
         &scope,
+        admission,
         EventQuery {
             limit: 2,
             cursor: None,
@@ -893,6 +849,7 @@ async fn guard_precedes_pagination_and_counts() {
         &mut app,
         watch.container,
         &scope,
+        admission,
         EventQuery {
             limit: 2,
             cursor: Some(cursor),
@@ -903,7 +860,7 @@ async fn guard_precedes_pagination_and_counts() {
     assert_eq!(ids(&second.items), vec![quiet]);
     assert_eq!(second.next_cursor, None);
 
-    let summary = summary_at(&mut app, &market, &watch, &scope, base).await;
+    let summary = summary_at(&mut app, &market, &watch, &scope, admission).await;
     assert_eq!(summary.unread_event_count, 1);
     assert_eq!(summary.latest_event_at, Some(at(5)));
     assert_eq!(summary.total_slice_count, 2);
@@ -987,10 +944,11 @@ async fn watchlist_feed_metrics_contract() {
     }
 
     let scope = public_scope(&mut app, &market).await;
-    let feed = whole_feed(&mut app, &watch, &scope, 1).await;
+    let admission = EventAdmission::new(Some(base));
+    let feed = whole_feed(&mut app, &watch, &scope, admission, 1).await;
     assert_eq!(ids(&feed).into_iter().collect::<HashSet<_>>(), visible);
     assert_eq!(feed.len(), visible.len(), "no feed row repeats");
-    let summary = summary_at(&mut app, &market, &watch, &scope, base).await;
+    let summary = summary_at(&mut app, &market, &watch, &scope, admission).await;
     assert_feed_matches_counts(&feed, &summary);
     assert_eq!(summary.unread_event_count, 3);
 
@@ -1000,20 +958,26 @@ async fn watchlist_feed_metrics_contract() {
         .map(|row| row.id)
         .expect("a visible unread slice row");
     let mut transaction = app.begin().await.expect("a read-state transaction");
-    let acknowledged = acknowledge(&mut transaction, watch.container, first_unread, &scope)
-        .await
-        .expect("a visible row can be acknowledged")
-        .expect("its target exists");
+    let acknowledged = acknowledge(
+        &mut transaction,
+        watch.container,
+        first_unread,
+        &scope,
+        admission,
+    )
+    .await
+    .expect("a visible row can be acknowledged")
+    .expect("its target exists");
     assert!(acknowledged.is_read);
     transaction.commit().await.expect("commit the read state");
 
-    let feed = whole_feed(&mut app, &watch, &scope, 1).await;
-    let summary = summary_at(&mut app, &market, &watch, &scope, base).await;
+    let feed = whole_feed(&mut app, &watch, &scope, admission, 1).await;
+    let summary = summary_at(&mut app, &market, &watch, &scope, admission).await;
     assert_feed_matches_counts(&feed, &summary);
     assert_eq!(summary.unread_event_count, 2);
 
     for event in hidden {
-        assert_refused_without_write(&mut app, &watch, &scope, event).await;
+        assert_refused_without_write(&mut app, &watch, &scope, admission, event).await;
     }
 }
 
