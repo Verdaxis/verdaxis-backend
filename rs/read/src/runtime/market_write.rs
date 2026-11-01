@@ -24,7 +24,8 @@ use crate::auth::limits::SharedLimits;
 use crate::market_support::SupportSettings;
 use crate::providers::umami::{UmamiConfig, UmamiPolicy};
 use crate::routes::market_write::{
-    amend, freeze, inventory, matchmaking, order_create, orders, trade_lifecycle, trades,
+    amend, freeze, inventory, matchmaking, order_create, orders, reassignment, trade_lifecycle,
+    trades,
 };
 use crate::subscriptions::FeeConfig;
 use crate::{AppState, Config};
@@ -373,4 +374,19 @@ pub(crate) fn routes(app: &AppState, limits: SharedLimits) -> Option<Router> {
             .merge(suggestions)
             .merge(support),
     )
+}
+
+/// The administrator obligation list and responsible-person reassignment.
+///
+/// [`routes`] does not call this, so no served router reaches these paths.
+/// The composition owner mounts it only behind the offboarding release
+/// switch, after the account offboarding command is composed. `None` under
+/// the same condition as [`routes`].
+pub fn reassignment_routes(app: &AppState) -> Option<Router> {
+    let phase2 = app.phase2.as_ref()?;
+    app.market_write.as_ref()?;
+    Some(reassignment::router(reassignment::ReassignmentState::new(
+        app.pools.read.clone(),
+        phase2.verification.clone(),
+    )))
 }
