@@ -930,7 +930,7 @@ impl ObservedRow {
         match self {
             Self::User => "SELECT id FROM users WHERE id=$1 FOR UPDATE",
             Self::Trade => {
-                "SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id FROM trades WHERE id=$1 FOR UPDATE"
+                "SELECT status::text AS status,buyer_id,seller_id,buyer_user_id,seller_user_id,buyer_provenance::text AS buyer_provenance,seller_provenance::text AS seller_provenance FROM trades WHERE id=$1 FOR UPDATE"
             }
         }
     }
