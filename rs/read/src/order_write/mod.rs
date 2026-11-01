@@ -3,14 +3,17 @@
 //! Standalone order commands use [`execute_order_command`]. Ordered business
 //! commands enter only through the borrowed [`invalidate_organization`]
 //! subcommand after business-owner organization/user locks; that subcommand
-//! never owns completion or retries. No module outside `order_write` locks or
-//! changes order/trade/inventory rows.
+//! never owns completion or retries. The order-expiry reminder job takes its
+//! scan key and its user-then-order row locks through the borrowed
+//! `reminders` functions and writes only notification rows itself. No module
+//! outside `order_write` locks or changes order/trade/inventory rows.
 
 mod benchmarks;
 pub mod command;
 mod events;
 mod invalidation;
 pub mod locks;
+mod reminders;
 mod reservations;
 mod transaction;
 
@@ -19,6 +22,10 @@ pub use benchmarks::{
 };
 pub use invalidation::{
     InvalidateOrganization, InvalidationError, InvalidationResult, invalidate_organization,
+};
+pub use reminders::{
+    REMINDER_SCAN_KEY, RecipientsLocked, ReminderCandidate, ReminderRow, ReminderWindow,
+    lock_reminder_delivery, lock_reminder_recipients, reminder_candidates,
 };
 
 pub use command::{

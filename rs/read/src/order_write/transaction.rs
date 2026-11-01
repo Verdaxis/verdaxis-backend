@@ -14,6 +14,11 @@
 //! 3. The sorted, deduplicated market-slice advisory locks.
 //! 4. The `orderbook_orders` row locks, in the order the operation declares.
 //! 5. The actor user rows, then the organization rows, each by ascending id.
+//!
+//! Steps 4 and 5 describe this shell only, which no business command uses yet.
+//! The market operation graph takes the organization and user rows before the
+//! order rows, and every borrowed subcommand (`invalidate_organization`, the
+//! reminder locks) follows the graph, not this shell.
 //! 6. The outbox events, then the receipt.
 //! 7. `COMMIT`. A failed commit is ambiguous and is never replayed.
 //!

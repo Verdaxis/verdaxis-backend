@@ -4,6 +4,7 @@
 //! only the logging rule. A delivery record names the recipient by a short
 //! digest, never by the address, and the provider payload is never logged.
 pub mod approval;
+pub mod expiry;
 
 use crate::crud::referrals::invite::MailClient;
 use serde_json::Value;

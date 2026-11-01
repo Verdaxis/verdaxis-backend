@@ -373,6 +373,12 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_phase4_authority.sh
+      - name: Phase 10 order-expiry reminder job
+        if: matrix.check == 'postgres'
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_phase10_reminders.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         if: matrix.check == 'phase2'

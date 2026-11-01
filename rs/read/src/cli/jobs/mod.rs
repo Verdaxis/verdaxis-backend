@@ -4,3 +4,4 @@
 pub mod auth;
 pub mod news;
 pub mod prune;
+pub mod reminders;

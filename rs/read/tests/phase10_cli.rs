@@ -49,7 +49,6 @@ fn subcommand_dispatch_is_exact() {
         vec!["job", "news", "--apply"],
         vec!["job", "auth-maintenance", "--apply"],
         vec!["job", "prune-analytics", "--apply"],
-        vec!["job", "reminders", "--apply"],
         vec!["job", "kyc-notices", "--apply"],
         vec!["job", "demo", "--apply"],
         vec!["monitor", "outbox"],
@@ -100,6 +99,24 @@ fn subcommand_dispatch_is_exact() {
         assert!(
             parse_arguments(args(&values)).is_ok(),
             "valid local command: {values:?}"
+        );
+    }
+    // The reminder job runs in production only: staging is refused before any
+    // pool (exit 2); production waits for its deployed context (exit 3).
+    for (environment, code) in [("staging", 2), ("production", 3)] {
+        let values = [
+            "job",
+            "reminders",
+            "--apply",
+            "--environment",
+            environment,
+            "--release-sha",
+            sha,
+        ];
+        assert_eq!(
+            binary(&values).status.code(),
+            Some(code),
+            "reminders: {environment}"
         );
     }
     for values in [
