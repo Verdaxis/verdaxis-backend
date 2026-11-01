@@ -15,6 +15,10 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
+use verdaxis_read::crud::watchlists::{
+    EventAdmission, EventQuery, Summary, VisibleSnapshot, WatchlistEvent, acknowledge,
+    capture_visible, feed_page,
+};
 use verdaxis_read::market_contract::effects::{
     EffectProbe, MutationKind, run_effect_probe, run_expiry_effect_probe,
     run_new_order_effect_probe,
@@ -301,7 +305,19 @@ impl Fixture {
     }
 
     async fn events(&mut self) -> Vec<Event> {
-        sqlx::query("SELECT watchlist_target_id,event_type,derived_event_key,event_payload::jsonb AS payload,producer,source_event_id,source_stream_seq,scope_attested_at,created_at FROM watchlist_events ORDER BY watchlist_target_id,derived_event_key")
+        self.events_where("true").await
+    }
+
+    /// The rows the trusted producer wrote, next to legacy rows a test stored.
+    async fn trusted_events(&mut self) -> Vec<Event> {
+        self.events_where("producer='rust-market-v1'").await
+    }
+
+    async fn events_where(&mut self, filter: &'static str) -> Vec<Event> {
+        let statement = format!(
+            "SELECT watchlist_target_id,event_type,derived_event_key,event_payload::jsonb AS payload,producer,source_event_id,source_stream_seq,scope_attested_at,created_at FROM watchlist_events WHERE {filter} ORDER BY watchlist_target_id,derived_event_key"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(statement))
             .fetch_all(&mut self.admin)
             .await
             .unwrap()
@@ -1667,4 +1683,293 @@ async fn coverage_is_rechecked_after_the_outbox_read() {
     assert_eq!(consumer.await.unwrap(), Err(ProducerError::CoverageLost));
     assert!(f.events().await.is_empty());
     assert_eq!(f.watermark().await, Some(0));
+}
+
+// ------------------------------------------------- trusted chain to readers
+
+/// The read settings of a test runtime on this database.
+fn read_config(database_url: String) -> verdaxis_read::Config {
+    verdaxis_read::Config {
+        kyc_execution_gate_enabled: true,
+        environment: "test".into(),
+        release_sha: verdaxis_read::compiled_sha().into(),
+        migration_revision: "p89_20261022_trade_freeze".into(),
+        database_url,
+        db_session_time_zone: "UTC".into(),
+        prepared_budget: None,
+        bind: "127.0.0.1:0".parse().expect("a loopback address"),
+        read_admission_slots: 4,
+        pool_max: 5,
+        python_budget: 0,
+        configured_max_connections: 100,
+        compliance_eur_usd_rate: None,
+        fleet_artifact_path: "data/fleet_demand.json".into(),
+        phase2: Default::default(),
+    }
+}
+
+/// The watchlist reads as the application role: the public order scope, the
+/// whole feed, the container counts and one acknowledgement.
+struct Reader {
+    app: PgConnection,
+    config: verdaxis_read::Config,
+    policy: verdaxis_read::MarketPolicy,
+    owner: Uuid,
+    watchlist: Uuid,
+}
+
+impl Reader {
+    async fn new(f: &Fixture) -> Self {
+        Self {
+            app: PgConnection::connect(&f.database.runtime_url)
+                .await
+                .unwrap(),
+            config: read_config(f.database.runtime_url.clone()),
+            policy: serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json"))
+                .unwrap(),
+            owner: f.actor,
+            watchlist: f.watchlist,
+        }
+    }
+
+    async fn scope(&mut self) -> VisibleSnapshot {
+        capture_visible(
+            &mut self.app,
+            &self.policy,
+            &verdaxis_read::VisibilityClock::at(Utc::now()),
+            &self.config,
+        )
+        .await
+        .expect("capture the public order scope")
+    }
+
+    async fn feed(
+        &mut self,
+        scope: &VisibleSnapshot,
+        admission: EventAdmission,
+    ) -> Vec<WatchlistEvent> {
+        let page = feed_page(
+            &mut self.app,
+            self.watchlist,
+            scope,
+            admission,
+            EventQuery {
+                limit: 50,
+                cursor: None,
+            },
+        )
+        .await
+        .expect("a feed page");
+        assert!(page.next_cursor.is_none(), "one page holds every row");
+        page.items
+    }
+
+    async fn summary(&mut self, scope: &VisibleSnapshot, admission: EventAdmission) -> Summary {
+        scope
+            .detail(&mut self.app, self.owner, self.watchlist, admission)
+            .await
+            .expect("the detail read")
+            .expect("the owner's watchlist")
+    }
+
+    async fn acknowledge(
+        &mut self,
+        scope: &VisibleSnapshot,
+        admission: EventAdmission,
+        event: Uuid,
+    ) -> Result<Option<WatchlistEvent>, u16> {
+        let mut transaction = self.app.begin().await.unwrap();
+        let result = acknowledge(&mut transaction, self.watchlist, event, scope, admission).await;
+        transaction.commit().await.unwrap();
+        result.map_err(|error| error.status.as_u16())
+    }
+}
+
+/// The feed, the counts and the latest instant agree on exactly `visible`,
+/// given as (event, is_read, created_at), for the one slice of the watchlist.
+fn assert_surfaces_agree(
+    feed: &[WatchlistEvent],
+    summary: &Summary,
+    slice: Uuid,
+    visible: &[(Uuid, bool, DateTime<Utc>)],
+) {
+    let listed: BTreeSet<(Uuid, bool)> = feed.iter().map(|row| (row.id, row.is_read)).collect();
+    let expected: BTreeSet<(Uuid, bool)> =
+        visible.iter().map(|(id, read, _)| (*id, *read)).collect();
+    assert_eq!(listed, expected, "the feed lists exactly the admitted rows");
+    let unread = i64::try_from(visible.iter().filter(|(_, read, _)| !read).count()).unwrap();
+    let latest = visible.iter().map(|(_, _, created)| *created).max();
+    assert_eq!(summary.unread_event_count, unread);
+    assert_eq!(summary.latest_event_at, latest);
+    let slices: Vec<Uuid> = summary.slices.iter().map(|entry| entry.id).collect();
+    assert_eq!(slices, vec![slice]);
+    let entry = &summary.slices[0];
+    assert_eq!(entry.unread_event_count, unread);
+    assert_eq!(entry.latest_event_at, latest);
+    assert!(
+        entry.pins.is_empty(),
+        "the pin on the cancelled order is not listed"
+    );
+}
+
+/// A row as an earlier Python emitter stored it on the slice target: the
+/// legacy producer, no source identity and no attestation.
+async fn legacy_slice_event(
+    f: &mut Fixture,
+    slice: Uuid,
+    kind: &str,
+    source: Option<Uuid>,
+    created: DateTime<Utc>,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query("SELECT producer_visibility_event($1,$2,$3,$4,$5,$6,false,false,NULL,$7)")
+        .bind(id)
+        .bind(f.watchlist)
+        .bind(slice)
+        .bind(kind)
+        .bind(source)
+        .bind(created)
+        .bind(id.to_string())
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    id
+}
+
+/// A real cancel of the only ASK on a slice runs through the trusted producer
+/// to the readers, next to rows an earlier Python emitter left on the same
+/// slice. With the activation recorded, the trusted best-price and went-quiet
+/// rows and the legacy new-order row are listed, counted and acknowledgeable
+/// alike; the legacy best-price row and the pin row on the cancelled order are
+/// hidden from all three surfaces. Without a recorded activation only the
+/// legacy new-order row remains. A second consumption adds nothing.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn real_cancel_chain_yields_a_visible_best_price_row() {
+    let mut f = Fixture::new().await;
+    sqlx::raw_sql(include_str!("fixtures/phase8_producer_visibility.sql"))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let slice = f.slice_target().await;
+    // PostgreSQL keeps microseconds; the stored legacy instants are exact.
+    let legacy_at =
+        chrono::SubsecRound::trunc_subsecs(Utc::now(), 6) - chrono::Duration::minutes(5);
+    let legacy_new_at = legacy_at + chrono::Duration::seconds(1);
+    let legacy_best =
+        legacy_slice_event(&mut f, slice, "SLICE_BEST_PRICE_MOVED", None, legacy_at).await;
+    let bid = f.opposite;
+    let legacy_new =
+        legacy_slice_event(&mut f, slice, "SLICE_NEW_ORDER", Some(bid), legacy_new_at).await;
+
+    f.cancel().await;
+    f.sequence().await;
+    let first = f.consume().await;
+    assert_eq!(first.iter().map(|o| o.inserted).sum::<u64>(), 3);
+    let events = f.trusted_events().await;
+    assert_eq!(keys(&events), cancel_keys(&f, f.target, slice));
+    let replay = f.consume().await;
+    assert_eq!(replay.iter().map(|o| o.inserted).sum::<u64>(), 0);
+    assert_eq!(
+        f.trusted_events().await,
+        events,
+        "a second consumption adds nothing"
+    );
+
+    let stored: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
+        "SELECT id,watchlist_target_id,event_type::text FROM watchlist_events WHERE producer='rust-market-v1'",
+    )
+    .fetch_all(&mut f.admin)
+    .await
+    .unwrap();
+    let trusted = |target: Uuid, class: &str| {
+        stored
+            .iter()
+            .find(|(_, t, c)| *t == target && c == class)
+            .map(|(id, _, _)| *id)
+            .unwrap()
+    };
+    let best = trusted(slice, "SLICE_BEST_PRICE_MOVED");
+    let quiet = trusted(slice, "SLICE_WENT_QUIET");
+    let withdrawn = trusted(f.target, "PIN_WITHDRAWN");
+    let trusted_at = events[0].created;
+    assert!(events.iter().all(|event| event.created == trusted_at));
+
+    let mut reader = Reader::new(&f).await;
+    let scope = reader.scope().await;
+    assert!(
+        !scope.contains(f.order),
+        "the cancelled ASK left the public scope"
+    );
+    assert!(scope.contains(f.opposite), "the BID stays public");
+    let recorded = EventAdmission::new(Some(instant("2026-10-01T00:00:00Z")));
+    let unrecorded = EventAdmission::new(None);
+
+    let feed = reader.feed(&scope, recorded).await;
+    let moved = feed
+        .iter()
+        .find(|row| row.id == best)
+        .expect("the trusted best-price row");
+    assert_eq!(moved.event_type, "SLICE_BEST_PRICE_MOVED");
+    assert_eq!(
+        moved.event_payload["old_price_per_mt_usd"].to_string(),
+        "100"
+    );
+    assert_eq!(moved.event_payload["new_price_per_mt_usd"], Value::Null);
+    let summary = reader.summary(&scope, recorded).await;
+    assert_surfaces_agree(
+        &feed,
+        &summary,
+        slice,
+        &[
+            (best, false, trusted_at),
+            (quiet, false, trusted_at),
+            (legacy_new, false, legacy_new_at),
+        ],
+    );
+    let unrecorded_feed = reader.feed(&scope, unrecorded).await;
+    let unrecorded_summary = reader.summary(&scope, unrecorded).await;
+    assert_surfaces_agree(
+        &unrecorded_feed,
+        &unrecorded_summary,
+        slice,
+        &[(legacy_new, false, legacy_new_at)],
+    );
+
+    for hidden in [legacy_best, withdrawn] {
+        assert_eq!(
+            reader.acknowledge(&scope, recorded, hidden).await.err(),
+            Some(404),
+            "a hidden row cannot be acknowledged"
+        );
+    }
+    let read_state: Vec<(Uuid, bool)> =
+        sqlx::query_as("SELECT id,is_read FROM watchlist_events WHERE id = ANY($1) ORDER BY id")
+            .bind(vec![legacy_best, withdrawn])
+            .fetch_all(&mut f.admin)
+            .await
+            .unwrap();
+    assert!(
+        read_state.iter().all(|(_, read)| !read),
+        "a refusal writes nothing"
+    );
+    let acknowledged = reader
+        .acknowledge(&scope, recorded, best)
+        .await
+        .expect("the trusted row can be acknowledged")
+        .expect("its target exists");
+    assert_eq!(acknowledged.id, best);
+    assert!(acknowledged.is_read);
+    let feed = reader.feed(&scope, recorded).await;
+    let summary = reader.summary(&scope, recorded).await;
+    assert_surfaces_agree(
+        &feed,
+        &summary,
+        slice,
+        &[
+            (best, true, trusted_at),
+            (quiet, false, trusted_at),
+            (legacy_new, false, legacy_new_at),
+        ],
+    );
 }
