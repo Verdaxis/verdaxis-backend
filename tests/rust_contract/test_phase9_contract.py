@@ -49,6 +49,13 @@ PROPERTIES = {
     "residual_python_writers": {12, 27, 29},
 }
 KYC_FIELDS = {"code", "message", "kyc_status", "grace_expires_at"}
+DEMO_FREEZE_REFUSAL = "409 TRADE_DEMO_NOT_FREEZABLE"
+DEMO_FREEZE_SCENARIO = (
+    "A trade whose buyer and seller provenance are both DEMO is refused with "
+    "409 TRADE_DEMO_NOT_FREEZABLE in every state, after the active-row check and "
+    "before the settleable check: no freeze row, no audit row and no trade, order "
+    "or stock change. A trade with one REAL side stays freezable."
+)
 
 
 def load_ledger(path=LEDGER):
@@ -99,6 +106,8 @@ def validate_requirements(ledger):
     assert by_route["O1"]["response"]["status"] == 201
     assert all(by_route[route]["response"]["status"] == 200 for route in ("O2", "I5", "T1", "T2", "T3", "T4", "T5", "T6", "T7", "M1", "M2", "F2", "F3"))
     assert by_route["F1"]["response"]["statuses"] == [201, 200]
+    assert DEMO_FREEZE_REFUSAL in by_route["F1"]["refusals"]
+    assert by_route["F1"]["scenarios"]["demo_trade"] == DEMO_FREEZE_SCENARIO
     assert by_route["I5"]["response"]["fields"] == {"status": "published", "listing_id": "UUID"}
     assert by_route["T2"]["response"]["empty"] == {
         "total_count": 0, "action_required_count": 0,
@@ -254,7 +263,9 @@ def test_missing_ledger_reports_matching_requirements(tmp_path):
         validate_requirements(load_ledger(tmp_path / "absent.json"))
 
 
-@pytest.mark.parametrize("change", ["property", "owner", "client_change", "effect_owner", "kyc_field"])
+@pytest.mark.parametrize("change", [
+    "property", "owner", "client_change", "effect_owner", "kyc_field", "demo_refusal", "demo_scenario",
+])
 def test_phase9_ledger_requires_each_contract_family(change):
     ledger = copy.deepcopy(load_ledger())
     if change == "property":
@@ -265,8 +276,14 @@ def test_phase9_ledger_requires_each_contract_family(change):
         ledger["client_changes"].pop()
     elif change == "effect_owner":
         ledger["routes"][0]["effect_owners"] = [19]
-    else:
+    elif change == "kyc_field":
         ledger["error_contract"]["kyc_refusal"]["fields"].remove("grace_expires_at")
+    else:
+        freeze = next(row for row in ledger["routes"] if row["route_id"] == "F1")
+        if change == "demo_refusal":
+            freeze["refusals"].remove(DEMO_FREEZE_REFUSAL)
+        else:
+            del freeze["scenarios"]["demo_trade"]
     with pytest.raises(AssertionError):
         validate_requirements(ledger)
 
