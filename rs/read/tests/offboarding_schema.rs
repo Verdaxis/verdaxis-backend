@@ -90,10 +90,10 @@ fn migration_graph() -> Vec<(String, Vec<String>)> {
                 if let Some(value) = quoted_values(rest).into_iter().next() {
                     revision.get_or_insert(value);
                 }
-            } else if let Some(rest) = line.strip_prefix("down_revision") {
-                if parents.is_empty() {
-                    parents = quoted_values(rest);
-                }
+            } else if let Some(rest) = line.strip_prefix("down_revision")
+                && parents.is_empty()
+            {
+                parents = quoted_values(rest);
             }
         }
         if let Some(revision) = revision {
