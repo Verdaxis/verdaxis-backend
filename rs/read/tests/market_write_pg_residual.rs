@@ -34,6 +34,11 @@ use verdaxis_read::{
     AppState,
     auth::VerificationSettings,
     routes::market_write::{amend, inventory, order_create, orders, trades},
+    streams::{
+        bus::{Delivery, PublicChannel},
+        http::{StreamsState, routes as stream_routes},
+        runtime::{CapacityConfig, StreamRuntime, start_streams},
+    },
 };
 
 const KEY: &str = "synthetic-residual-signing-key-at-least-32";
@@ -52,6 +57,11 @@ const HOLDER_APP: &str = "residual-holder";
 const FORBIDDEN_APP: &str = "residual-forbidden";
 const QUARANTINE_ONE_APP: &str = "phase8_residual_py_one";
 const QUARANTINE_TWO_APP: &str = "phase8_residual_py_two";
+/// A Rust command held after its outbox insert, before it commits.
+const CHAIN_HELD_APP: &str = "chain-rust-held";
+const CHAIN_BARRIER_APP: &str = "chain-barrier";
+/// The Rust stream runtime's sequencer session.
+const ELECTION_APP: &str = "verdaxis-stream-election";
 /// Longest time from an observed lock wait to its release. It keeps the
 /// waiter inside the 500 ms market lock bound on a loaded host.
 const RELEASE_BUDGET: Duration = Duration::from_millis(350);
@@ -793,6 +803,9 @@ impl WaitGraph {
                 FORBIDDEN_APP,
                 QUARANTINE_ONE_APP,
                 QUARANTINE_TWO_APP,
+                CHAIN_HELD_APP,
+                CHAIN_BARRIER_APP,
+                ELECTION_APP,
             ];
             let mut contention = Contention::default();
             while !flag.load(Ordering::Relaxed) {
@@ -2106,4 +2119,953 @@ async fn forbidden_slice_then_user_order_is_detected_as_a_lock_cycle() {
         StatusCode::NO_CONTENT,
     );
     f.ledger().await;
+}
+
+// ---- producer chain and stream transport -----------------------------------
+//
+// The trusted watchlist producer and the stream transport against the same
+// database as the retained Python writers: a Python outbox row without
+// producer evidence among Rust sources, the commit boundary of the sequencer
+// (Rust and Python dispatchers), and the private and public stream frames of
+// rows that carry captured watchlist targets in their internal column.
+
+const CHAIN_RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
+const ASSIGN_SQL: &str = include_str!("../sql/streams_assign.sql");
+const BUYER_ORG: u128 = 0x1000;
+const OBSERVER_ORG: u128 = 0x3000;
+const OBSERVER: u128 = 0x3001;
+const STREAM_KEY: &str = "synthetic-chain-stream-key-at-least-32-chars";
+const STREAM_PARTY: &str = "chain-tests";
+/// How long a frame or delivery that is already on its way may take.
+const FRAME_BOUND: Duration = Duration::from_secs(10);
+/// A Rust writer sends no wake: its row is sequenced by the next sequencer
+/// poll. One poll interval plus allowance for a loaded host.
+const POLL_BOUND: Duration = Duration::from_secs(5);
+/// Keys that would carry producer evidence or watchlist subscriptions.
+const INTERNAL_KEYS: [&str; 7] = [
+    "producer_evidence",
+    "targets",
+    "target_id",
+    "watchlist_id",
+    "observer_id",
+    "watchlist_target_id",
+    "mutation_id",
+];
+
+fn producer_activation() -> verdaxis_read::market_contract::producer::ProducerActivation {
+    verdaxis_read::market_contract::producer::ProducerActivation::from_release(
+        Some("rust-market-v1"),
+        Some("2026-10-01T00:00:00Z"),
+        CHAIN_RELEASE,
+    )
+    .unwrap()
+}
+
+/// The payload a stream subscriber receives for a stored outbox payload: the
+/// public marker removed and the schema version added when absent.
+fn delivered(stored: &Value) -> Value {
+    let mut payload = stored.clone();
+    let object = payload.as_object_mut().expect("an object payload");
+    object.remove("_public_market_invalidation");
+    object.entry("schema_version").or_insert(json!(1));
+    payload
+}
+
+/// Every object key at any depth of `value`.
+fn all_keys(value: &Value, keys: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(object) => {
+            for (key, inner) in object {
+                keys.insert(key.clone());
+                all_keys(inner, keys);
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|inner| all_keys(inner, keys)),
+        _ => {}
+    }
+}
+
+/// A delivered payload carries no internal key and names none of `hidden`.
+fn assert_no_internal_identity(text: &str, payload: Option<&Value>, hidden: &[Uuid]) {
+    if let Some(payload) = payload {
+        let mut keys = BTreeSet::new();
+        all_keys(payload, &mut keys);
+        for key in INTERNAL_KEYS {
+            assert!(!keys.contains(key), "internal key {key} delivered");
+        }
+    }
+    for identity in hidden {
+        assert!(
+            !text.contains(&identity.to_string()),
+            "a watcher identity reached a frame"
+        );
+    }
+}
+
+/// The two month windows after the current one, as canonical codes.
+fn month_windows() -> [String; 2] {
+    let now = chrono::Utc::now();
+    [
+        (now + chrono::Duration::days(32))
+            .format("%Y-%m")
+            .to_string(),
+        (now + chrono::Duration::days(63))
+            .format("%Y-%m")
+            .to_string(),
+    ]
+}
+
+/// Rust market writers send no stream wake: their rows reach subscribers
+/// through the sequencer poll.
+fn assert_writers_send_no_wake() {
+    let root = repository_root().join("rs/read/src/order_write");
+    let mut pending = vec![root];
+    let mut scanned = 0;
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap().to_lowercase();
+                assert!(
+                    !text.contains("pg_notify") && !text.contains("notify verdaxis"),
+                    "{} sends a database notification",
+                    path.display()
+                );
+                scanned += 1;
+            }
+        }
+    }
+    assert!(scanned > 10, "the writer sources were not found");
+}
+
+/// One row of `chain_outbox` or `chain_sequenced_after`.
+fn seq_of(row: &Value) -> i64 {
+    row["seq"].as_i64().expect("a sequenced row")
+}
+
+/// Whole SSE frames from a live body, each read within a bound.
+struct Frames {
+    body: axum::body::BodyDataStream,
+    buffer: Vec<u8>,
+}
+impl Frames {
+    async fn open(router: &Router, path: &str, cursor: Option<i64>) -> Self {
+        let mut request = Request::builder().uri(path);
+        if let Some(cursor) = cursor {
+            request = request.header("last-event-id", cursor.to_string());
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        Self {
+            body: response.into_body().into_data_stream(),
+            buffer: Vec::new(),
+        }
+    }
+    /// The next frame, or `None` when none arrives within `bound`.
+    async fn next_within(&mut self, bound: Duration) -> Option<String> {
+        use futures_util::StreamExt;
+        let read = async {
+            loop {
+                if let Some(end) = self.buffer.windows(2).position(|pair| pair == b"\n\n") {
+                    let frame: Vec<u8> = self.buffer.drain(..end + 2).take(end).collect();
+                    return String::from_utf8(frame).unwrap();
+                }
+                let chunk = self.body.next().await.expect("the stream stays open");
+                self.buffer.extend_from_slice(&chunk.unwrap());
+            }
+        };
+        tokio::time::timeout(bound, read).await.ok()
+    }
+}
+
+/// The `(field, value)` lines of one frame.
+fn frame_fields(frame: &str) -> Vec<(String, String)> {
+    frame
+        .split('\n')
+        .map(|line| match line.split_once(':') {
+            Some((field, value)) => (
+                field.to_owned(),
+                value.strip_prefix(' ').unwrap_or(value).to_owned(),
+            ),
+            None => (line.to_owned(), String::new()),
+        })
+        .collect()
+}
+fn frame_value(frame: &str, name: &str) -> Option<String> {
+    frame_fields(frame)
+        .into_iter()
+        .find(|(field, _)| field == name)
+        .map(|(_, value)| value)
+}
+fn is_heartbeat(frame: &str) -> bool {
+    frame_value(frame, "event").as_deref() == Some("heartbeat")
+}
+
+/// One private business frame: id, event name and data, nothing else.
+type Business = (i64, String, Value);
+fn business(frame: &str) -> Business {
+    assert_eq!(frame_fields(frame).len(), 3, "one id, event and data line");
+    (
+        frame_value(frame, "id").unwrap().parse().unwrap(),
+        frame_value(frame, "event").unwrap(),
+        serde_json::from_str(&frame_value(frame, "data").unwrap()).unwrap(),
+    )
+}
+
+/// Read `count` business frames, skipping heartbeats; every frame text is
+/// returned too for the identity checks.
+async fn business_frames(frames: &mut Frames, count: usize) -> (Vec<Business>, Vec<String>) {
+    let (mut found, mut texts) = (Vec::new(), Vec::new());
+    while found.len() < count {
+        let frame = frames
+            .next_within(FRAME_BOUND)
+            .await
+            .expect("a business frame within the bound");
+        if !is_heartbeat(&frame) {
+            found.push(business(&frame));
+        }
+        texts.push(frame);
+    }
+    (found, texts)
+}
+
+/// No business frame arrives within `bound`; heartbeats only.
+async fn assert_no_business(frames: &mut Frames, bound: Duration) -> Vec<String> {
+    let mut texts = Vec::new();
+    let deadline = Instant::now() + bound;
+    while let Some(frame) = frames
+        .next_within(deadline.saturating_duration_since(Instant::now()))
+        .await
+    {
+        assert!(is_heartbeat(&frame), "an unexpected frame: {frame:?}");
+        texts.push(frame);
+    }
+    texts
+}
+
+/// A signed stream token for `user` in `organization`, valid for one minute.
+fn stream_token(user: u128, organization: u128) -> String {
+    let now = chrono::Utc::now();
+    encode(
+        &Header::default(),
+        &json!({"sub":id(user),"org_id":id(organization),"environment":"test","type":"stream",
+            "jti":Uuid::new_v4(),"iss":STREAM_PARTY,"aud":STREAM_PARTY,
+            "iat":now.timestamp(),"exp":(now+chrono::Duration::seconds(60)).timestamp()}),
+        &EncodingKey::from_secret(STREAM_KEY.as_bytes()),
+    )
+    .unwrap()
+}
+fn trades_path(user: u128, organization: u128) -> String {
+    format!(
+        "/api/stream/trades?stream_token={}",
+        stream_token(user, organization)
+    )
+}
+
+impl Fixture {
+    /// The producer and chain fixture functions and one unrelated observer.
+    async fn chain(&mut self) {
+        for source in [
+            include_str!("fixtures/phase8_producer.sql"),
+            include_str!("fixtures/phase8_chain.sql"),
+        ] {
+            sqlx::raw_sql(source)
+                .execute(&mut self.admin)
+                .await
+                .unwrap();
+        }
+        sqlx::query("SELECT chain_observer($1,$2)")
+            .bind(id(OBSERVER_ORG))
+            .bind(id(OBSERVER))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+    /// A target of the observer in its own watchlist: `(target, watchlist)`.
+    async fn watch(&mut self, kind: &str, order: Option<Uuid>, window: &str) -> (Uuid, Uuid) {
+        let target = Uuid::new_v4();
+        let watchlist =
+            sqlx::query_scalar("SELECT producer_fixture_target($1,$2,$3,$4,'B30',$5,$6)")
+                .bind(target)
+                .bind(id(OBSERVER))
+                .bind(kind)
+                .bind(order)
+                .bind(self.point)
+                .bind(window)
+                .fetch_one(&mut self.admin)
+                .await
+                .unwrap();
+        (target, watchlist)
+    }
+    async fn outbox(&mut self, order: Uuid) -> Vec<Value> {
+        let rows: Value = sqlx::query_scalar("SELECT chain_outbox($1)")
+            .bind(order.to_string())
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap();
+        rows.as_array().unwrap().clone()
+    }
+    async fn sequenced_after(&mut self, seq: i64) -> Vec<Value> {
+        let rows: Value = sqlx::query_scalar("SELECT chain_sequenced_after($1)")
+            .bind(seq)
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap();
+        rows.as_array().unwrap().clone()
+    }
+    async fn chain_scalar(&mut self, function: &str) -> Option<i64> {
+        sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT {function}()::bigint")))
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap()
+    }
+    async fn high_water(&mut self) -> i64 {
+        self.chain_scalar("chain_high_water").await.unwrap()
+    }
+    async fn unsequenced(&mut self) -> i64 {
+        self.chain_scalar("chain_unsequenced").await.unwrap()
+    }
+    async fn producer_watermark(&mut self) -> Option<i64> {
+        self.chain_scalar("chain_watermark").await
+    }
+    async fn sequencer_holder(&mut self) -> Option<i64> {
+        self.chain_scalar("chain_sequencer_holder").await
+    }
+    async fn backends(&mut self, application: &str) -> i64 {
+        sqlx::query_scalar("SELECT chain_backends($1)")
+            .bind(application)
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap()
+    }
+    async fn trusted_events(&mut self) -> Vec<Value> {
+        let rows: Value = sqlx::query_scalar("SELECT chain_events()")
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap();
+        rows.as_array().unwrap().clone()
+    }
+    /// The sequencer's own assignment statement, committed: the rows it numbered.
+    async fn sequence(&mut self) -> u64 {
+        let mut tx = self.admin.begin().await.unwrap();
+        let assigned = sqlx::query(ASSIGN_SQL)
+            .bind(1000_i64)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        tx.commit().await.unwrap();
+        assigned
+    }
+    /// Wait until every committed outbox row has a stream sequence.
+    async fn wait_sequenced(&mut self) {
+        let deadline = Instant::now() + POLL_BOUND;
+        while self.unsequenced().await > 0 {
+            assert!(Instant::now() < deadline, "rows stayed unsequenced");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+    /// The explicit operator step that creates the producer watermark.
+    async fn bootstrap(&self) -> i64 {
+        use verdaxis_read::market_contract::producer::{BootstrapOutcome, bootstrap_watermark};
+        let mut connection = PgConnection::connect(&self.runtime_url).await.unwrap();
+        let outcome = bootstrap_watermark(&mut connection).await.unwrap();
+        connection.close().await.unwrap();
+        match outcome {
+            BootstrapOutcome::Created { watermark } => watermark,
+            other => panic!("the watermark already existed: {other:?}"),
+        }
+    }
+    /// Consume until drained on a fresh runtime connection, as a restarted
+    /// producer does; returns the event rows inserted.
+    async fn consume(&self) -> u64 {
+        use verdaxis_read::market_contract::producer::consume_batch;
+        let mut connection = PgConnection::connect(&self.runtime_url).await.unwrap();
+        let mut inserted = 0;
+        for _ in 0..50 {
+            let outcome = consume_batch(&mut connection, &producer_activation())
+                .await
+                .unwrap();
+            inserted += outcome.inserted;
+            if outcome.drained {
+                connection.close().await.unwrap();
+                return inserted;
+            }
+        }
+        panic!("the producer backlog did not drain");
+    }
+    /// The Rust stream runtime (sequencer election, dispatch and hub) on the
+    /// runtime role, ready to serve.
+    async fn stream_app(&self) -> (AppState, StreamRuntime) {
+        let pool_max = 9;
+        let mut config: verdaxis_read::Config = serde_json::from_value(json!({
+            "environment":"test","release_sha":verdaxis_read::compiled_sha(),
+            "migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,
+            "db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,
+            "pool_max":pool_max,"python_budget":52,"configured_max_connections":100,
+            "kyc_execution_gate_enabled":true,
+            "phase2":{"jwt_secret":STREAM_KEY,"jwt_issuer":STREAM_PARTY,"jwt_audience":STREAM_PARTY,
+                "frontend_url":"https://example.test","email_from":"fixture@example.test",
+                "resend_api_key":"fixture-mail-key"}}))
+        .unwrap();
+        // Two services of four workers, each with pool 2, overflow 1 and one
+        // listener, plus the reserve: the Python budget of 52 connections.
+        config.prepared_budget = Some(
+            json!({"version":1,"release_sha":config.release_sha,"environment_digest":"a".repeat(64),
+                "services":2,"workers":4,"pool":2,"overflow":1,"reserve":20,"rust_pool":pool_max,
+                "python_budget":52,"cache_listener":0,"stream_listener":1,"total":52+pool_max+1,
+                "configured_max_connections":100})
+            .to_string(),
+        );
+        let pools = verdaxis_read::connect(&config).await.unwrap();
+        let policy =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let mut state = AppState::new(config, pools, policy).unwrap();
+        let runtime = start_streams(&mut state, CapacityConfig::default())
+            .await
+            .expect("the stream runtime starts");
+        let deadline = Instant::now() + FRAME_BOUND;
+        while !verdaxis_read::streams::runtime::ready(&state) {
+            assert!(Instant::now() < deadline, "the stream runtime is not ready");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        (state, runtime)
+    }
+    async fn stop_streams(&mut self, runtime: StreamRuntime) {
+        runtime.shutdown().await;
+        let deadline = Instant::now() + FRAME_BOUND;
+        while self.backends(ELECTION_APP).await > 0 {
+            assert!(
+                Instant::now() < deadline,
+                "the sequencer session stayed open"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+}
+
+/// A Python outbox row without producer evidence between two Rust sources:
+/// the producer derives events from the two Rust sources only, its watermark
+/// covers all three rows, and neither a restart nor a rewound watermark adds
+/// or changes an event.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn legacy_outbox_row_without_evidence_is_covered_by_the_producer_without_events() {
+    let mut f = Fixture::new().await;
+    f.chain().await;
+    f.demo_organizations().await;
+    let (now, demo_window) = f.demo_ticks(1).await.remove(0);
+    // Each Rust source is the only order of its own slice, apart from the
+    // slice of the demo tick.
+    let windows: Vec<String> = std::iter::once("SPOT".to_owned())
+        .chain(month_windows())
+        .filter(|window| *window != demo_window)
+        .take(2)
+        .collect();
+    let orders = [Uuid::new_v4(), Uuid::new_v4()];
+    let mut expected = BTreeSet::new();
+    let mut hidden = vec![id(OBSERVER), id(OBSERVER_ORG)];
+    for (order, window) in orders.iter().zip(&windows) {
+        f.ask(*order, 150, 5, window, None).await;
+        let (pin, pin_list) = f.watch("PIN", Some(*order), window).await;
+        let (slice, slice_list) = f.watch("SLICE", None, window).await;
+        expected.insert((pin, "PIN_WITHDRAWN".to_owned()));
+        expected.insert((slice, "SLICE_BEST_PRICE_MOVED".to_owned()));
+        expected.insert((slice, "SLICE_WENT_QUIET".to_owned()));
+        hidden.extend([pin, pin_list, slice, slice_list]);
+    }
+    let bootstrap = f.bootstrap().await;
+
+    // Rust source, Python demo source, Rust source; each sequenced in turn.
+    expect_status(
+        &f.call(f.cancel(orders[0], SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
+    assert!(f.sequence().await >= 1);
+    let first = f.outbox(orders[0]).await;
+    let after_first = first.iter().map(seq_of).max().unwrap();
+    assert_eq!(ok(&f.demo_tick(&now).await)["created_trades"], 1);
+    assert_eq!(f.sequence().await, 1, "the tick appends one outbox row");
+    let demo = f.sequenced_after(after_first).await;
+    assert_eq!(demo.len(), 1);
+    assert_eq!(demo[0]["event_type"], "demo_market_changed");
+    assert_eq!(demo[0]["mutation"], Value::Null, "no producer evidence");
+    let demo_seq = seq_of(&demo[0]);
+    expect_status(
+        &f.call(f.cancel(orders[1], SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
+    assert!(f.sequence().await >= 1);
+    let second = f.outbox(orders[1]).await;
+    for (rows, label) in [(&first, "first"), (&second, "second")] {
+        assert!(!rows.is_empty(), "{label} source has outbox rows");
+        let mutations: BTreeSet<&str> = rows
+            .iter()
+            .map(|row| row["mutation"].as_str().expect("Rust rows carry evidence"))
+            .collect();
+        assert_eq!(mutations.len(), 1, "{label}: one mutation");
+    }
+    assert!(first.iter().all(|row| seq_of(row) < demo_seq));
+    assert!(second.iter().all(|row| seq_of(row) > demo_seq));
+    let mutation = |rows: &[Value]| -> (Uuid, i64) {
+        (
+            rows[0]["mutation"].as_str().unwrap().parse().unwrap(),
+            rows.iter().map(seq_of).min().unwrap(),
+        )
+    };
+    let sources = [mutation(&first), mutation(&second)];
+    let high_water = f.high_water().await;
+    assert_eq!(high_water, second.iter().map(seq_of).max().unwrap());
+
+    let inserted = f.consume().await;
+    let events = f.trusted_events().await;
+    assert_eq!(inserted as usize, events.len());
+    let derived: BTreeSet<(Uuid, String)> = events
+        .iter()
+        .map(|event| {
+            (
+                event["target"].as_str().unwrap().parse().unwrap(),
+                event["class"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    println!("CHAIN_DERIVED {derived:?}");
+    assert_eq!(derived, expected, "events of exactly the two Rust sources");
+    for event in &events {
+        assert_eq!(event["producer"], "rust-market-v1");
+        let source: Uuid = event["source"].as_str().unwrap().parse().unwrap();
+        let seq = event["seq"].as_i64().unwrap();
+        assert!(sources.contains(&(source, seq)), "source {source} at {seq}");
+        assert_ne!(seq, demo_seq, "no event from the evidence-free row");
+    }
+    assert_eq!(
+        f.producer_watermark().await,
+        Some(high_water),
+        "the watermark covers the evidence-free row and the last source"
+    );
+
+    // A restart on new connections adds nothing.
+    assert_eq!(f.consume().await, 0);
+    assert_eq!(f.trusted_events().await, events);
+    assert_eq!(f.producer_watermark().await, Some(high_water));
+    // A restart from the bootstrap checkpoint re-reads all three rows and
+    // changes nothing.
+    sqlx::query("SELECT producer_fixture_watermark($1)")
+        .bind(bootstrap)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(f.consume().await, 0);
+    assert_eq!(f.trusted_events().await, events);
+    assert_eq!(f.producer_watermark().await, Some(high_water));
+    // The demo row keeps its shape: two demo participants, public marker, no evidence.
+    let demo = f.sequenced_after(after_first).await;
+    assert_eq!(demo[0]["payload"]["_public_market_invalidation"], true);
+    assert_eq!(demo[0]["participants"].as_array().unwrap().len(), 2);
+    assert_no_internal_identity(&demo[0].to_string(), None, &hidden);
+}
+
+/// The commit boundary of the sequencer. While a Rust cancellation is open
+/// after its outbox insert, another session sees no row and the sequencer
+/// statement numbers nothing, without waiting on the writer. After the commit
+/// the row is numbered once, through the poll (Rust writers send no wake),
+/// and reaches the organization channel once with the public marker as a
+/// public invalidation. The unchanged Python dispatcher, as sequencer and hub
+/// for a second cancellation and as replay for both, maps the same rows
+/// without the internal evidence column.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_once() {
+    assert_writers_send_no_wake();
+    let mut f = Fixture::new().await;
+    f.chain().await;
+    let [later, _] = month_windows();
+    let (first, second) = (Uuid::new_v4(), Uuid::new_v4());
+    f.ask(first, 150, 5, "SPOT", None).await;
+    f.ask(second, 160, 5, &later, None).await;
+    let mut hidden = vec![id(OBSERVER), id(OBSERVER_ORG)];
+    for (order, window) in [(first, "SPOT"), (second, later.as_str())] {
+        let (pin, pin_list) = f.watch("PIN", Some(order), window).await;
+        hidden.extend([pin, pin_list]);
+    }
+    let start = f.high_water().await;
+    let (state, runtime) = f.stream_app().await;
+    let hub = state.streams.as_ref().unwrap().hub.clone();
+    let mut seller_channel = hub.subscribe_org(id(SELLER_ORG)).unwrap();
+    let mut prices = hub.subscribe_public(PublicChannel::Prices).unwrap();
+
+    // Hold the cancellation after its outbox insert, before its commit.
+    let mut barrier = PgConnection::connect(&f.admin_url).await.unwrap();
+    sqlx::query("SELECT set_config('application_name',$1,false)")
+        .bind(CHAIN_BARRIER_APP)
+        .execute(&mut barrier)
+        .await
+        .unwrap();
+    sqlx::query("SELECT chain_hold()")
+        .execute(&mut barrier)
+        .await
+        .unwrap();
+    let graph = WaitGraph::start(&f.admin_url).await;
+    let held = f.spawn(CHAIN_HELD_APP, f.cancel(first, SELLER)).await;
+    f.wait_lock(CHAIN_HELD_APP, CHAIN_BARRIER_APP).await;
+    let observed = Instant::now();
+    assert!(
+        f.outbox(first).await.is_empty(),
+        "another session sees no row"
+    );
+    let mut observer = PgConnection::connect(&f.runtime_url).await.unwrap();
+    let visible: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM market_event_outbox WHERE aggregate_id=$1")
+            .bind(first.to_string())
+            .fetch_one(&mut observer)
+            .await
+            .unwrap();
+    assert_eq!(visible, 0, "the runtime role sees no row");
+    let mut tx = observer.begin().await.unwrap();
+    let numbered = sqlx::query(ASSIGN_SQL)
+        .bind(1000_i64)
+        .execute(&mut *tx)
+        .await
+        .unwrap()
+        .rows_affected();
+    tx.rollback().await.unwrap();
+    assert_eq!(numbered, 0, "the sequencer statement numbers no open row");
+    assert_eq!(f.unsequenced().await, 0);
+    let release_ms = observed.elapsed();
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT chain_release()")
+            .fetch_one(&mut barrier)
+            .await
+            .unwrap()
+    );
+    assert!(release_ms < RELEASE_BUDGET, "held {release_ms:?}");
+    println!("CHAIN_HELD_OBSERVED held_ms={}", release_ms.as_millis());
+    expect_status(&held.await.unwrap(), StatusCode::NO_CONTENT);
+    let committed = Instant::now();
+    let contention = graph.stop().await;
+    contention.assert_no_cycle("held cancellation");
+    assert!(
+        !contention.waited(ELECTION_APP, CHAIN_HELD_APP),
+        "the sequencer never waits on an open writer"
+    );
+    barrier.close().await.unwrap();
+    observer.close().await.unwrap();
+
+    // After the commit: one row, one sequence, one delivery, through the poll.
+    let delivery = tokio::time::timeout(POLL_BOUND, seller_channel.recv())
+        .await
+        .expect("the poll sequences the committed row")
+        .expect("an open channel");
+    println!(
+        "CHAIN_RUST_DELIVERY after_commit_ms={}",
+        committed.elapsed().as_millis()
+    );
+    let rows = f.outbox(first).await;
+    assert_eq!(
+        rows.len(),
+        1,
+        "one row for the cancellation: {}",
+        rows.len()
+    );
+    let row = &rows[0];
+    assert_eq!(row["participants"], json!([id(SELLER_ORG)]));
+    assert_eq!(row["payload"]["_public_market_invalidation"], true);
+    assert_eq!(row["attempts"], 1, "numbered once");
+    assert_eq!(row["dispatched"], true);
+    assert!(row["mutation"].is_string());
+    assert_eq!(
+        row["targets"].as_array().map(Vec::len),
+        Some(1),
+        "the internal column keeps the captured PIN"
+    );
+    let Delivery::Private(event) = delivery else {
+        panic!("a private delivery first: {delivery:?}");
+    };
+    assert_eq!(event.seq(), seq_of(row));
+    assert_eq!(event.event_type(), row["event_type"].as_str().unwrap());
+    assert_eq!(event.payload(), &delivered(&row["payload"]));
+    assert_eq!(event.participants().to_vec(), vec![id(SELLER_ORG)]);
+    assert_no_internal_identity(&event.payload().to_string(), Some(event.payload()), &hidden);
+    assert!(matches!(
+        tokio::time::timeout(FRAME_BOUND, prices.recv()).await,
+        Ok(Some(Delivery::PublicInvalidation))
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), seller_channel.recv())
+            .await
+            .is_err(),
+        "one delivery for one row"
+    );
+    drop((seller_channel, prices));
+    f.stop_streams(runtime).await;
+    assert_eq!(f.sequencer_holder().await, None);
+
+    // The unchanged Python dispatcher takes the sequencer lock and is idle.
+    let mut command = f.command("dispatch");
+    command["args"] = json!({"orgs":[id(SELLER_ORG)],"after_seq":start,"expect_private":1});
+    let mut driver = Driver::start(command).await;
+    driver.go().await;
+    let listener = driver.held().await;
+    assert_eq!(f.sequencer_holder().await, Some(i64::from(listener)));
+    expect_status(
+        &f.call(f.cancel(second, SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
+    driver.release().await;
+    let result = driver.finish().await;
+    let result = ok(&result);
+    let second_rows = f.outbox(second).await;
+    assert_eq!(second_rows.len(), 1);
+    let second_row = &second_rows[0];
+    assert_eq!(second_row["attempts"], 1, "numbered once");
+    assert!(seq_of(second_row) > seq_of(row));
+    let channel = format!("trades:{}", id(SELLER_ORG));
+    let private: Vec<&Value> = result["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|frame| !frame["seq"].is_null())
+        .collect();
+    assert_eq!(private.len(), 1, "one Python delivery: {}", private.len());
+    let frame = private[0];
+    assert_eq!(frame["channel"], channel);
+    assert_eq!(frame["seq"], second_row["seq"]);
+    assert_eq!(frame["event_type"], second_row["event_type"]);
+    assert_eq!(frame["payload"], delivered(&second_row["payload"]));
+    let latency = frame["after_release_s"].as_f64().unwrap();
+    println!("CHAIN_PYTHON_DELIVERY after_release_s={latency:.3}");
+    assert!(
+        latency < POLL_BOUND.as_secs_f64(),
+        "the Python poll sequenced it"
+    );
+    let public: BTreeSet<&str> = result["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|frame| frame["seq"].is_null())
+        .map(|frame| {
+            assert_eq!(frame["event_type"], "market_invalidated");
+            assert_eq!(
+                frame["payload"],
+                json!({"schema_version":1,"resync_required":true})
+            );
+            frame["channel"].as_str().unwrap()
+        })
+        .collect();
+    assert_eq!(public, BTreeSet::from(["orderbook", "prices"]));
+    // Python replay of the Rust-numbered and the Python-numbered row.
+    let replay = result["replay"][id(SELLER_ORG).to_string()]
+        .as_array()
+        .unwrap();
+    assert_eq!(replay.len(), 2);
+    for (replayed, stored) in replay.iter().zip([row, second_row]) {
+        assert_eq!(replayed["seq"], stored["seq"]);
+        assert_eq!(replayed["event_type"], stored["event_type"]);
+        assert_eq!(replayed["payload"], delivered(&stored["payload"]));
+        assert_eq!(replayed["public"], true);
+        assert_eq!(replayed["participants"], json!([id(SELLER_ORG)]));
+        assert!(
+            !replayed["fields"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("producer_evidence"))
+        );
+    }
+    assert!(
+        !result["mapped_columns"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("producer_evidence")),
+        "the Python outbox model maps no evidence column"
+    );
+    for frame in result["frames"].as_array().unwrap().iter().chain(replay) {
+        assert_no_internal_identity(&frame.to_string(), Some(&frame["payload"]), &hidden);
+    }
+    assert_eq!(f.unsequenced().await, 0);
+}
+
+/// Private stream frames of rows that carry captured watchlist targets: both
+/// economic parties and an unrelated observer holding a PIN and a SLICE target
+/// on the traded order, live and with an explicit replay cursor. Frames carry
+/// exactly the stored participant payload, never the evidence column or a
+/// watcher identity; the observer receives none; public frames keep the exact
+/// invalidation shape. The internal column keeps the captured target set, and
+/// the producer derives the observer's events from it.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn private_stream_frames_never_carry_producer_evidence_live_or_replayed() {
+    let mut f = Fixture::new().await;
+    f.chain().await;
+    let listing = f.listing().await;
+    let (pin, pin_list) = f.watch("PIN", Some(listing), "SPOT").await;
+    let (slice, slice_list) = f.watch("SLICE", None, "SPOT").await;
+    let hidden = [
+        id(OBSERVER),
+        id(OBSERVER_ORG),
+        pin,
+        pin_list,
+        slice,
+        slice_list,
+    ];
+    f.bootstrap().await;
+    let start = f.high_water().await;
+    let (state, runtime) = f.stream_app().await;
+    let router = stream_routes().with_state(StreamsState {
+        state: Arc::new(state),
+    });
+    let parties = [
+        (BUYER, BUYER_ORG),
+        (SELLER, SELLER_ORG),
+        (OBSERVER, OBSERVER_ORG),
+    ];
+    let mut live = Vec::new();
+    for (user, organization) in parties {
+        live.push(Frames::open(&router, &trades_path(user, organization), None).await);
+    }
+    let mut public = Vec::new();
+    for path in ["/api/stream/prices", "/api/stream/orderbook"] {
+        public.push(Frames::open(&router, path, None).await);
+    }
+
+    let take = f.take(listing, "10").await;
+    expect_status(&f.call(take).await, StatusCode::OK);
+    expect_status(
+        &f.call(f.cancel(listing, SELLER)).await,
+        StatusCode::NO_CONTENT,
+    );
+    f.wait_sequenced().await;
+    let rows = f.sequenced_after(start).await;
+    let mutations: BTreeSet<&str> = rows
+        .iter()
+        .map(|row| {
+            row["mutation"]
+                .as_str()
+                .expect("every row carries evidence")
+        })
+        .collect();
+    assert_eq!(mutations.len(), 2, "the take and the cancellation");
+    // The internal column keeps the exact captured set: the observer's PIN
+    // and SLICE target on the traded slice.
+    let captured = json!([
+        {"target_id":pin,"watchlist_id":pin_list,"observer_id":id(OBSERVER),"target_type":"PIN"},
+        {"target_id":slice,"watchlist_id":slice_list,"observer_id":id(OBSERVER),"target_type":"SLICE"},
+    ]);
+    for row in &rows {
+        let mut targets: Vec<Value> = row["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|target| {
+                json!({"target_id":target["target_id"],"watchlist_id":target["watchlist_id"],
+                    "observer_id":target["observer_id"],"target_type":target["target_type"]})
+            })
+            .collect();
+        targets.sort_by_key(|target| target["target_type"].as_str().unwrap().to_owned());
+        assert_eq!(Value::Array(targets), captured, "captured set of a row");
+    }
+    let expected = |organization: u128| -> Vec<Business> {
+        rows.iter()
+            .filter(|row| {
+                row["participants"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(id(organization)))
+            })
+            .map(|row| {
+                (
+                    seq_of(row),
+                    row["event_type"].as_str().unwrap().to_owned(),
+                    delivered(&row["payload"]),
+                )
+            })
+            .collect()
+    };
+    assert!(expected(OBSERVER_ORG).is_empty());
+    let mut frame_texts = Vec::new();
+    let mut live_frames = Vec::new();
+    for (frames, (_, organization)) in live.iter_mut().zip(parties).take(2) {
+        let wanted = expected(organization);
+        assert!(!wanted.is_empty());
+        let (found, texts) = business_frames(frames, wanted.len()).await;
+        assert_eq!(
+            found, wanted,
+            "live frames are the stored participant payloads"
+        );
+        live_frames.push(found);
+        frame_texts.extend(texts);
+    }
+    // Every event reached the parties; the observer has heartbeats only.
+    frame_texts.extend(assert_no_business(&mut live[2], Duration::from_secs(1)).await);
+    for frames in &mut public {
+        let mut invalidations = 0;
+        while let Some(frame) = frames.next_within(Duration::from_secs(1)).await {
+            if !is_heartbeat(&frame) {
+                assert_eq!(frame_fields(&frame).len(), 2, "no id on a public frame");
+                assert_eq!(frame_value(&frame, "event").unwrap(), "market_invalidated");
+                assert_eq!(
+                    serde_json::from_str::<Value>(&frame_value(&frame, "data").unwrap()).unwrap(),
+                    json!({"schema_version":1,"resync_required":true})
+                );
+                invalidations += 1;
+            }
+            frame_texts.push(frame);
+        }
+        assert!(invalidations >= 1, "the public marker invalidates");
+    }
+    drop((live, public));
+
+    // Explicit-cursor replay gives the same frames, then the heartbeat.
+    for ((user, organization), live) in parties.iter().zip(&live_frames) {
+        let mut replay =
+            Frames::open(&router, &trades_path(*user, *organization), Some(start)).await;
+        let mut found = Vec::new();
+        loop {
+            let frame = replay.next_within(FRAME_BOUND).await.unwrap();
+            if is_heartbeat(&frame) {
+                frame_texts.push(frame);
+                break;
+            }
+            found.push(business(&frame));
+            frame_texts.push(frame);
+        }
+        assert_eq!(&found, live, "replay equals live delivery");
+    }
+    let mut observer_replay =
+        Frames::open(&router, &trades_path(OBSERVER, OBSERVER_ORG), Some(start)).await;
+    let first = observer_replay.next_within(FRAME_BOUND).await.unwrap();
+    assert!(is_heartbeat(&first), "the observer replays no event");
+    frame_texts.push(first);
+    drop(observer_replay);
+    for text in &frame_texts {
+        let payload = frame_value(text, "data").and_then(|data| serde_json::from_str(&data).ok());
+        assert_no_internal_identity(text, payload.as_ref(), &hidden);
+    }
+    println!("CHAIN_FRAMES checked={}", frame_texts.len());
+    f.stop_streams(runtime).await;
+
+    // The producer derives the observer's events from the captured set.
+    f.consume().await;
+    let events = f.trusted_events().await;
+    let classes: BTreeSet<(Uuid, String)> = events
+        .iter()
+        .map(|event| {
+            (
+                event["target"].as_str().unwrap().parse().unwrap(),
+                event["class"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    println!("CHAIN_OBSERVER_EVENTS {classes:?}");
+    assert!(classes.contains(&(pin, "PIN_WITHDRAWN".to_owned())));
+    for event in &events {
+        assert!(mutations.contains(event["source"].as_str().unwrap()));
+        let target: Uuid = event["target"].as_str().unwrap().parse().unwrap();
+        assert!(target == pin || target == slice);
+    }
 }
