@@ -653,6 +653,14 @@ pub fn run(config: &HealthConfig, admission: &dyn Admission) -> Exit {
 
 /// [`run`] with the observation time given, for tests that use a fixed clock.
 pub fn run_at(config: &HealthConfig, admission: &dyn Admission, now: DateTime<Utc>) -> Exit {
+    // One producer at a time, from observation to publication.
+    let _serialized = match admission.serialize() {
+        Ok(guard) => guard,
+        Err(exit) => {
+            report_refused(COMMAND);
+            return exit;
+        }
+    };
     let status = guarded(MONITOR_NAME, now, || collect(config, now));
     match publish(&config.status_file, &status, admission) {
         Ok(()) => {

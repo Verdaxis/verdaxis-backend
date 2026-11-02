@@ -386,6 +386,12 @@ fn read_entry(
     {
         return Err(EntryFault::Invalid);
     }
+    #[cfg(target_os = "linux")]
+    if !acl::entry_acl_matches(&file, &paths.handoff_directory())
+        .map_err(|_| EntryFault::Unreadable)?
+    {
+        return Err(EntryFault::Invalid);
+    }
     let mut bytes = Vec::new();
     file.take(MAX_ENTRY_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -513,6 +519,33 @@ mod acl {
             bytes.extend_from_slice(&id.to_le_bytes());
         }
         bytes
+    }
+
+    /// Whether an entry's access ACL is exactly what the producer sets for the
+    /// handoff directory's named readers. An entry without an extended ACL
+    /// (owner-only fixtures) passes; its mode bits are checked separately.
+    pub fn entry_acl_matches(file: &File, directory: &Path) -> std::io::Result<bool> {
+        let mut buffer = vec![0_u8; MAX_ACL_BYTES];
+        // SAFETY: the descriptor is open and the buffer length is passed.
+        let length = unsafe {
+            libc::fgetxattr(
+                file.as_raw_fd(),
+                ACCESS.as_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+            )
+        };
+        if length < 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.raw_os_error() == Some(libc::ENODATA) {
+                Ok(true)
+            } else {
+                Err(error)
+            };
+        }
+        buffer.truncate(length as usize);
+        let expected = entry_acl(&default_named_users(directory)?);
+        Ok(decode(&buffer)? == decode(&expected)?)
     }
 
     /// Set the access ACL of `file`, then read it back and require the same
@@ -1031,6 +1064,22 @@ impl JournalAdmission {
 }
 
 impl Admission for JournalAdmission {
+    /// Take the producer's stable `.<check>.producer.lock` without waiting and
+    /// hold it until the run ends, across observation, admission and status
+    /// publication. A second producer of the same check (a manual run beside
+    /// the timer) is refused with exit 4 before it observes anything, so two
+    /// observations can never be admitted out of order. The journal lock stays
+    /// separate, so the dispatcher never waits for an observation.
+    fn serialize(&self) -> Result<Option<Box<dyn std::any::Any>>, Exit> {
+        let paths = &self.producer.paths;
+        create_private_directory(&paths.state_directory).map_err(Refusal::exit)?;
+        let file = open_producer_lock(&paths.producer_lock()).map_err(|_| Exit::Dependency)?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(Box::new(HeldLock(file)))),
+            Err(_) => Err(Exit::Dependency),
+        }
+    }
+
     fn admit(&self, status: &Status) -> Result<(), Exit> {
         let observed_at = parse_bounded_timestamp(&status.generated_at).ok_or(Exit::Dependency)?;
         let observation = AlertObservation {

@@ -76,6 +76,9 @@ struct Cli {
     command: Command,
 }
 
+// The command is parsed once per process; the size of its largest variant
+// (the monitor flags) does not matter, and boxing it would only add noise.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
     Serve(ServeArgs),

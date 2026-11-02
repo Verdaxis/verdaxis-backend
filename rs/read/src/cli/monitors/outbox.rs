@@ -170,43 +170,27 @@ impl Target {
     }
 }
 
-/// Parse a keyword DSN into a URL that sqlx reads. Only the connection keys the
-/// probe needs are accepted; an unknown key or a malformed pair is refused.
+/// Parse a keyword DSN into a URL that sqlx reads. Every key becomes a query
+/// parameter of an authority-less `postgres:` URL, so a DSN without `host`
+/// keeps the local default (`PGHOST`, else the socket directory), as libpq
+/// does. Only the connection keys the probe needs are accepted; an unknown key
+/// or a malformed pair is refused.
 fn keyword_dsn_to_url(dsn: &str) -> Result<url::Url, ProbeError> {
-    let mut url = url::Url::parse("postgres://localhost").map_err(|_| ProbeError::InvalidTarget)?;
+    let mut url = url::Url::parse("postgres:").map_err(|_| ProbeError::InvalidTarget)?;
     for (key, value) in keyword_pairs(dsn)? {
         match key.as_str() {
-            "host" | "hostaddr" if value.starts_with('/') => {
-                url.query_pairs_mut().append_pair("host", &value);
-            }
-            "host" | "hostaddr" => url
-                .set_host(Some(&value))
-                .map_err(|_| ProbeError::InvalidTarget)?,
             "port" => {
-                let port = value
+                value
                     .parse::<u16>()
                     .map_err(|_| ProbeError::InvalidTarget)?;
-                url.set_port(Some(port))
-                    .map_err(|_| ProbeError::InvalidTarget)?;
             }
-            "dbname" => url.set_path(&format!("/{}", percent_encode(&value))),
-            "user" => url
-                .set_username(&percent_encode(&value))
-                .map_err(|_| ProbeError::InvalidTarget)?,
-            "password" => url
-                .set_password(Some(&percent_encode(&value)))
-                .map_err(|_| ProbeError::InvalidTarget)?,
-            "sslmode" | "application_name" => {
-                url.query_pairs_mut().append_pair(&key, &value);
-            }
+            "host" | "hostaddr" | "dbname" | "user" | "password" | "sslmode"
+            | "application_name" => {}
             _ => return Err(ProbeError::InvalidTarget),
         }
+        url.query_pairs_mut().append_pair(&key, &value);
     }
     Ok(url)
-}
-
-fn percent_encode(value: &str) -> String {
-    percent_encoding::utf8_percent_encode(value, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
 
 /// `key=value` pairs separated by whitespace. A value may be single-quoted,

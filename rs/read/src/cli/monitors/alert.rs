@@ -48,7 +48,10 @@ use crate::cli::monitors::alert_journal::{
     AlertState, Check, Head, HeldLock, JournalPaths, JournalReader, LOCK_TIMEOUT, LockFailure,
     Sequence, lock_with_timeout,
 };
-use crate::cli::monitors::status::{parse_bounded_timestamp, parse_strict_json, utc_text};
+use crate::cli::monitors::status::{
+    Category, CheckStatus, MAX_STATUS_BYTES, Previous, Status, load_monitor_status,
+    parse_bounded_timestamp, parse_strict_json, utc_text,
+};
 use crate::cli::state::{read_bounded, write_atomic};
 use crate::cli::{Exit, MonitorArgs};
 use chrono::{DateTime, Utc};
@@ -64,7 +67,12 @@ use std::time::Duration;
 /// Most delivery attempts of one head, across crashes and restarts.
 pub const MAX_ATTEMPTS: u32 = 3;
 /// Shortest time between two attempts of the same head.
-pub const ATTEMPT_SPACING: Duration = Duration::from_secs(5);
+/// Longest wait a dispatcher run makes for the next due attempt itself; a
+/// longer wait ends the run (exit 4) and a later wakeup makes the attempt.
+pub const INLINE_WAIT: Duration = Duration::from_secs(30);
+/// Budget kept back for one send (its timeout plus a margin) before the run's
+/// deadline; a send that would not fit is left for the next run.
+const SEND_RESERVE: Duration = Duration::from_secs(12);
 /// Shortest time before the second and the third attempt of one head, so a
 /// short provider outage does not spend all three attempts.
 pub const RETRY_SPACING: [Duration; 2] = [Duration::from_secs(60), Duration::from_secs(300)];
@@ -86,6 +94,11 @@ const MAX_DELIVERY_BYTES: u64 = 65_536;
 /// Python refuses a state document observed more than this far in the future.
 const LEGACY_FUTURE_TOLERANCE_SECONDS: i64 = 300;
 const DEFAULT_TELEGRAM_BASE: &str = "https://api.telegram.org";
+/// The check name in the handoff status document.
+const HANDOFF_CHECK_NAME: &str = "alert_handoff";
+/// The handoff status is read by the monitoring identity: owner write, all read.
+const PUBLIC_FILE_MODE: u32 = 0o644;
+const PUBLIC_DIRECTORY_MODE: u32 = 0o755;
 /// Mode of the stable delivery lock while the native dispatcher owns a check.
 const FENCED_LOCK_MODE: u32 = 0o400;
 /// Mode Python creates and expects for the stable delivery lock.
@@ -311,6 +324,10 @@ fn classify_error(error: &reqwest::Error) -> SendOutcome {
 }
 
 impl Transport for HttpTransport {
+    fn ready(&self) -> bool {
+        self.client.is_some()
+    }
+
     async fn send(&self, settings: &AlertSettings, delivery: &Delivery) -> SendOutcome {
         let Some(client) = &self.client else {
             return SendOutcome::NotDelivered;
@@ -627,7 +644,6 @@ pub struct DispatcherConfig {
     pub backup: JournalPaths,
     pub lock_timeout: Duration,
     pub max_attempts: u32,
-    pub attempt_spacing: Duration,
     /// Shortest time before the second and the third attempt of a head.
     pub retry_spacing: [Duration; 2],
 }
@@ -649,7 +665,6 @@ impl DispatcherConfig {
             backup: JournalPaths::new(Check::Backup, backup_state_directory),
             lock_timeout: LOCK_TIMEOUT,
             max_attempts: MAX_ATTEMPTS,
-            attempt_spacing: ATTEMPT_SPACING,
             retry_spacing: RETRY_SPACING,
         }
     }
@@ -809,16 +824,30 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         }
     }
 
+    /// Time left in this run's budget; `None` when no deadline is set.
+    fn remaining(&self) -> Option<Duration> {
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()))
+    }
+
+    /// The lock wait: the configured bound, cut to the remaining budget.
+    fn lock_wait(&self) -> Duration {
+        self.remaining().map_or(self.config.lock_timeout, |left| {
+            left.min(self.config.lock_timeout)
+        })
+    }
+
     fn reader(&self, check: Check) -> JournalReader {
-        JournalReader::new(self.config.journal(check).clone(), self.config.lock_timeout)
+        JournalReader::new(self.config.journal(check).clone(), self.lock_wait())
     }
 
     /// `--event <check>`: deliver the oldest unacknowledged entry, if any.
     pub async fn wake(&self, check: Check) -> Result<Outcome, Exit> {
         let lock = self.delivery_lock(check)?;
-        let outcome = self.drain_head(check).await?;
+        let outcome = self.drain_head(check).await?.unwrap_or(Outcome::Idle);
+        self.publish_handoff_status(check, outcome)?;
         drop(lock);
-        Ok(outcome.unwrap_or(Outcome::Idle))
+        Ok(outcome)
     }
 
     /// `--remind <check>`: drain a pending head first; with an empty journal,
@@ -830,8 +859,50 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
             Some(outcome) => outcome,
             None => self.remind_failure(check).await?,
         };
+        self.publish_handoff_status(check, outcome)?;
         drop(lock);
         Ok(outcome)
+    }
+
+    /// Publish the check's world-readable handoff status: `failure` with a
+    /// fixed `handoff_<reason>` code while the check is blocked or has no
+    /// destination, `healthy` with `ok` otherwise. It names no sequence, path
+    /// or destination detail.
+    fn publish_handoff_status(&self, check: Check, outcome: Outcome) -> Result<(), Exit> {
+        let (category, code) = match outcome {
+            Outcome::Blocked(_, reason) => {
+                (Category::Failure, format!("handoff_{}", reason.as_str()))
+            }
+            Outcome::Unconfigured(_) => (Category::Failure, "handoff_unconfigured".to_owned()),
+            _ => (Category::Healthy, "ok".to_owned()),
+        };
+        let path = self.config.handoff_status(check);
+        let now = utc_text(self.clock.now());
+        let last_success_at = if category == Category::Healthy {
+            Some(now.clone())
+        } else {
+            match load_monitor_status(&path, MAX_STATUS_BYTES) {
+                Previous::Valid(previous) => previous
+                    .checks
+                    .into_iter()
+                    .find(|item| item.name == HANDOFF_CHECK_NAME)
+                    .and_then(|item| item.last_success_at),
+                _ => None,
+            }
+        };
+        let status = Status {
+            category,
+            checks: vec![CheckStatus {
+                category,
+                code,
+                duration_ms: 0,
+                last_success_at,
+                name: HANDOFF_CHECK_NAME.to_owned(),
+            }],
+            generated_at: now,
+            schema_version: 1,
+        };
+        write_public(&self.config.status_directory, &path, &status)
     }
 
     /// `--reconcile`: record an operator's finding for one uncertain
@@ -880,7 +951,9 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         self.save_delivery(check, &delivery)
     }
 
-    /// `--rearm`: give an exhausted head a fresh set of attempts.
+    /// `--rearm`: give the head a fresh set of attempts, due at once. Allowed
+    /// for an exhausted head and for one that is still retrying; an uncertain,
+    /// invalid or reused head needs `--reconcile` or `--repair` instead.
     pub fn rearm(&self, check: Check, sequence: Sequence) -> Result<(), Exit> {
         let _lock = self.delivery_lock(check)?;
         let mut delivery = self.load_delivery(check)?;
@@ -888,19 +961,63 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
             .head
             .as_mut()
             .filter(|head| {
-                head.sequence == sequence && head.blocked == Some(BlockReason::Exhausted)
+                head.sequence == sequence
+                    && matches!(head.blocked, None | Some(BlockReason::Exhausted))
             })
             .ok_or(Exit::Precondition)?;
         head.attempts = 0;
         head.blocked = None;
+        head.last_attempt_at = None;
         self.save_delivery(check, &delivery)
     }
 
     /// `--repair --reason`: clear an `invalid_entry` or `sequence_reused` block
-    /// after the operator repaired the journal.
+    /// after the operator repaired the journal. The block must name
+    /// `sequence`, and the journal's oldest entry must now be valid and not the
+    /// blocked one (or the journal empty); a reused entry must be gone. The
+    /// acknowledgement is kept, so nothing acknowledged is sent again. The
+    /// repair and its reason are logged.
     pub fn repair(&self, check: Check, sequence: Sequence, reason: &str) -> Result<(), Exit> {
-        let _ = (check, sequence, reason);
-        Err(Exit::Precondition)
+        let reason = reason.trim();
+        if reason.is_empty() || reason.chars().count() > MAX_REASON_CHARS {
+            return Err(Exit::Usage);
+        }
+        let _lock = self.delivery_lock(check)?;
+        let mut delivery = self.load_delivery(check)?;
+        let blocked = delivery.head.as_ref().filter(|head| {
+            head.sequence == sequence
+                && matches!(
+                    head.blocked,
+                    Some(BlockReason::InvalidEntry | BlockReason::SequenceReused)
+                )
+        });
+        if blocked.is_none() {
+            return Err(Exit::Precondition);
+        }
+        let acknowledged = delivery.acknowledged.as_ref().map(|ack| ack.sequence);
+        let repaired = match self.reader(check).head()? {
+            Head::Empty => true,
+            Head::Invalid(_) => false,
+            Head::Entry {
+                sequence: oldest, ..
+            } => oldest != sequence && acknowledged.is_none_or(|ack| oldest > ack),
+        };
+        if !repaired {
+            return Err(Exit::Precondition);
+        }
+        delivery.head = None;
+        self.save_delivery(check, &delivery)?;
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "command": "monitor alert",
+                "action": "repair",
+                "check": check.as_str(),
+                "sequence": sequence.0,
+                "reason": reason,
+            })
+        );
+        Ok(())
     }
 
     /// `--release`: hand the check back to the Python dispatcher. Refused
@@ -930,7 +1047,7 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         let file = open_delivery_lock(&path)?;
         let lock_file = file.try_clone().map_err(|_| Exit::Dependency)?;
         // A timeout and an unusable lock are both "try again later" (exit 4).
-        let held = lock_with_timeout(lock_file, self.config.lock_timeout)
+        let held = lock_with_timeout(lock_file, self.lock_wait())
             .map_err(|_: LockFailure| Exit::Dependency)?;
         set_lock_mode(&file, FENCED_LOCK_MODE)?;
         Ok(DeliveryLock { file, _held: held })
@@ -998,9 +1115,14 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
                             .block(check, &mut delivery, sequence, BlockReason::SequenceReused)
                             .map(Some);
                     }
+                    let configured = self.settings.configured(check);
+                    if configured.is_empty() {
+                        // Fail closed: without a destination nothing is
+                        // acknowledged; the head waits for the configuration.
+                        return Ok(Some(Outcome::Unconfigured(Some(sequence))));
+                    }
                     let legacy = self.current_legacy(check)?;
                     let now = self.clock.now();
-                    let configured = self.settings.configured(check);
                     let destinations = configured
                         .iter()
                         .map(|destination| {
@@ -1032,10 +1154,6 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
                         state: Some(entry.state),
                     });
                     self.save_delivery(check, &delivery)?;
-                    if configured.is_empty() {
-                        self.finalize(check, &mut delivery)?;
-                        return Ok(Some(Outcome::Unconfigured(Some(sequence))));
-                    }
                     return self.attempt(check, &mut delivery).await.map(Some);
                 }
             }
@@ -1093,16 +1211,21 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         if attempts >= self.config.max_attempts {
             return self.block(check, delivery, sequence, BlockReason::Exhausted);
         }
-        if let Some(last) = last_attempt_at.as_deref().and_then(parse_bounded_timestamp) {
-            let spacing = chrono::Duration::from_std(self.config.attempt_spacing)
-                .unwrap_or(chrono::Duration::MAX);
-            if let Ok(wait) = (last + spacing - self.clock.now()).to_std()
-                && !wait.is_zero()
-            {
-                self.clock
-                    .sleep(wait.min(self.config.attempt_spacing))
-                    .await;
+        if self.settings.configured(check).is_empty() {
+            return Ok(Outcome::Unconfigured(Some(sequence)));
+        }
+        // A client that cannot be built spends no attempt.
+        if !self.transport.ready() {
+            return Err(Exit::Dependency);
+        }
+        if let Some(wait) = self.wait_before_attempt(attempts, last_attempt_at.as_deref()) {
+            let fits = self
+                .remaining()
+                .is_none_or(|left| wait + SEND_RESERVE <= left);
+            if wait > INLINE_WAIT || !fits {
+                return Ok(Outcome::Waiting(sequence));
             }
+            self.clock.sleep(wait).await;
         }
         {
             let head = delivery.head.as_mut().ok_or(Exit::Precondition)?;
@@ -1112,6 +1235,10 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         self.save_delivery(check, delivery)?;
 
         for destination in pending {
+            // A send that cannot finish inside the budget waits for the next run.
+            if self.remaining().is_some_and(|left| left < SEND_RESERVE) {
+                break;
+            }
             let kind = self.set_status(delivery, destination, DestinationStatus::InFlight, None)?;
             self.save_delivery(check, delivery)?;
             self.reached(DispatchStage::InFlight(destination));
@@ -1172,6 +1299,28 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         }
         self.finalize(check, delivery)?;
         Ok(Outcome::Delivered(sequence))
+    }
+
+    /// How long until the next attempt of a head is due: the retry spacing
+    /// after its first and second attempts. `None` when it is due now.
+    fn wait_before_attempt(
+        &self,
+        attempts: u32,
+        last_attempt_at: Option<&str>,
+    ) -> Option<Duration> {
+        let index = usize::try_from(attempts).ok()?.checked_sub(1)?;
+        let spacing = self
+            .config
+            .retry_spacing
+            .get(index)
+            .or(self.config.retry_spacing.last())
+            .copied()?;
+        let last = parse_bounded_timestamp(last_attempt_at?)?;
+        let spacing = chrono::Duration::from_std(spacing).ok()?;
+        (last + spacing - self.clock.now())
+            .to_std()
+            .ok()
+            .filter(|wait| !wait.is_zero())
     }
 
     /// Set one destination's status (and confirmation time) and return its kind.
@@ -1257,9 +1406,10 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         };
         let configured = self.settings.configured(check);
         if configured.is_empty() {
-            legacy.observed_at = utc_text(now);
-            write_atomic(&self.config.legacy_state(check), &legacy)?;
             return Ok(Outcome::Unconfigured(None));
+        }
+        if !self.transport.ready() {
+            return Err(Exit::Dependency);
         }
         let mut sent = false;
         let mut failed = false;
@@ -1425,6 +1575,51 @@ fn open_delivery_lock(path: &Path) -> Result<File, Exit> {
     Ok(file)
 }
 
+/// Publish a world-readable document atomically: a 0644 temp file beside the
+/// target, written and synced, renamed over it, and the directory synced.
+fn write_public(directory: &Path, path: &Path, status: &Status) -> Result<(), Exit> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    match std::fs::symlink_metadata(directory) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => return Err(Exit::Precondition),
+        Err(_) => std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(PUBLIC_DIRECTORY_MODE)
+            .create(directory)
+            .map_err(|_| Exit::Dependency)?,
+    }
+    let mut document = serde_json::to_vec(status).map_err(|_| Exit::Precondition)?;
+    document.push(b'\n');
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or(Exit::Precondition)?;
+    let temporary = directory.join(format!(".{name}.tmp.{}", uuid::Uuid::new_v4().simple()));
+    let written = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(PUBLIC_FILE_MODE)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&temporary)?;
+        // The process umask may narrow the creation mode; set it exactly.
+        file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(
+            PUBLIC_FILE_MODE,
+        ))?;
+        file.write_all(&document)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(Exit::Dependency);
+    }
+    File::open(directory)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| Exit::Dependency)
+}
+
 fn set_lock_mode(file: &File, mode: u32) -> Result<(), Exit> {
     use rustix::fs::Mode;
     let current = file.metadata().map_err(|_| Exit::Dependency)?.mode() & 0o777;
@@ -1565,12 +1760,12 @@ pub async fn run_action<T: Transport, C: Clock>(
     let mut results = Vec::new();
     match action {
         Action::Wake(check) => {
-            let result = bounded(dispatcher.wake(*check)).await;
+            let result = budgeted(dispatcher).wake(*check).await;
             results.push((*check, result));
         }
         Action::Remind(checks) => {
             for check in checks {
-                let result = bounded(dispatcher.remind(*check)).await;
+                let result = budgeted(dispatcher).remind(*check).await;
                 results.push((*check, result));
             }
         }
@@ -1613,11 +1808,13 @@ pub async fn run_action<T: Transport, C: Clock>(
     (exit, named)
 }
 
-/// Bound one check's work by [`WORKER_BUDGET`]; running out is exit 4.
-async fn bounded(work: impl Future<Output = Result<Outcome, Exit>>) -> Result<Outcome, Exit> {
-    tokio::time::timeout(WORKER_BUDGET, work)
-        .await
-        .unwrap_or(Err(Exit::Dependency))
+/// The dispatcher with one check's [`WORKER_BUDGET`]: every lock wait and send
+/// fits inside it. A run is never cancelled mid-send, which would leave the
+/// send in flight and so uncertain.
+fn budgeted<'a, T: Transport, C: Clock>(dispatcher: &Dispatcher<'a, T, C>) -> Dispatcher<'a, T, C> {
+    dispatcher
+        .clone()
+        .with_deadline(std::time::Instant::now() + WORKER_BUDGET)
 }
 
 /// `verdaxis-read monitor alert ...` with the installed layout, the alert
@@ -1641,12 +1838,20 @@ pub async fn run_command(args: &MonitorArgs) -> Exit {
 }
 
 /// The one stderr line of a run: each check's outcome, no secret.
+/// A failed run is logged with a journald priority prefix: error (`<3>`) for a
+/// blocked check or a missing configuration, warning (`<4>`) for a retry.
 pub fn report_line(outcomes: &[(Check, String)], exit: Exit) -> String {
     let outcome = if exit == Exit::Ok { "ok" } else { "failed" };
+    let priority = match exit {
+        Exit::Ok => "",
+        Exit::Dependency => "<4>",
+        _ => "<3>",
+    };
     let counts: serde_json::Map<String, serde_json::Value> = outcomes
         .iter()
         .map(|(check, outcome)| (check.as_str().to_owned(), outcome.clone().into()))
         .collect();
-    serde_json::json!({"command": "monitor alert", "outcome": outcome, "counts": counts})
-        .to_string()
+    let line =
+        serde_json::json!({"command": "monitor alert", "outcome": outcome, "counts": counts});
+    format!("{priority}{line}")
 }
