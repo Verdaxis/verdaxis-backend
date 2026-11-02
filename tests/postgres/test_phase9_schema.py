@@ -913,6 +913,7 @@ def test_release_pin_is_an_exact_equality(tmp_path):
     }
     assert {row for row in policy_rows if PARENT in row or REVISION in row} == {
         (READ_INDEXES, PARENT), (PARENT, PARENT), (PARENT, REVISION), (REVISION, REVISION),
+        (REVISION, HEAD),
     }
     assert {
         ("p3_20261020_auth_tokens", "sse_20261021_replay_floor"),
