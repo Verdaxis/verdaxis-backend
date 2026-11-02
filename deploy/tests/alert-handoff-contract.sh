@@ -201,7 +201,7 @@ build_image() {
     fi
     local context="$stage/image"
     mkdir -p "$context"
-    printf 'FROM docker.io/library/debian:bookworm-slim\nRUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv acl python3 util-linux procps && rm -rf /var/lib/apt/lists/*\n' \
+    printf 'FROM docker.io/library/debian:bookworm-slim\nRUN apt-get update && apt-get install -y --no-install-recommends systemd systemd-sysv acl ca-certificates python3 util-linux procps && rm -rf /var/lib/apt/lists/*\n' \
         > "$context/Containerfile"
     "$engine" build -t "$image_tag" -f "$context/Containerfile" "$context" >/dev/null
 }
@@ -370,7 +370,22 @@ run_producer() {
     systemctl reset-failed "$service" "verdaxis-monitor-alert@$check.service" >/dev/null 2>&1 || true
     systemctl start "$service" >/dev/null 2>&1 || true
     wait_settled "verdaxis-monitor-alert@$check.service" || true
-    systemctl show -p ExecMainStatus --value "$service"
+    local status
+    status=$(systemctl show -p ExecMainStatus --value "$service")
+    trace_run "$service" "$check" "$status" >&2
+    printf '%s\n' "$status"
+}
+
+# One trace line per producer run: its exit, its status codes (fixed codes
+# only) and the dispatcher's last report line.
+trace_run() {
+    local service=$1 check=$2 status=$3 directory codes
+    if [ "$check" = health ]; then directory=$health_dir; else directory=$backup_dir; fi
+    codes=$(python3 -c 'import json, sys; print(",".join(c["name"] + ":" + c["code"] for c in json.load(open(sys.argv[1]))["checks"]))' \
+        "$directory/status.json" 2>/dev/null)
+    printf 'RUN %s exit=%s codes=%s dispatcher=%s requests=%s\n' "$service" "$status" "$codes" \
+        "$(journalctl -o cat --no-pager -n 20 -u "verdaxis-monitor-alert@$check.service" 2>/dev/null | grep -F '"command"' | tail -n 1)" \
+        "$(request_count)"
 }
 
 wake() {
@@ -409,6 +424,8 @@ write(os.path.join(directory, "attempts", f"attempt-{backup_id}.json"), {"schema
       "started_at": (at - datetime.timedelta(minutes=5)).isoformat(),
       "finished_at": at.isoformat(), "backup_id": backup_id})
 PY
+    # The backup producer publishes for the readers group.
+    chgrp -R verdaxis-backup-readers "$directory"
 }
 
 break_backup() { rm -rf /home/verdaxis-prod/backups/*; }
@@ -612,7 +629,7 @@ cell_failed_enqueue() {
     refused_run "$cell" verdaxis-backup-verify.service backup "$backup_dir"
     kill "$holder" 2>/dev/null || true
     wait "$holder" 2>/dev/null || true
-    # A full journal: 256 admitted entries and a changed observation.
+    # A full journal: 256 admitted healthy entries and a failing observation.
     systemctl mask --runtime verdaxis-monitor-alert@health.service >/dev/null
     as_user verdaxis-health python3 -c '
 import json, os, sys
@@ -621,7 +638,7 @@ for n in range(10**15, 10**15 + 256):
     p = os.path.join(d, f"{n}.json")
     with open(p, "w") as h:
         h.write(json.dumps({"check": "health", "observed_at": "2026-07-20T04:00:00Z",
-                            "schema_version": 1, "sequence": n, "state": "failure"}, sort_keys=True))
+                            "schema_version": 1, "sequence": n, "state": "healthy"}, sort_keys=True))
 ' "$health_dir/alert-handoff"
     ready_fail
     refused_run "$cell" verdaxis-health.service health "$health_dir"
@@ -761,6 +778,10 @@ diagnose() {
         "$alert_dir/health.delivery.json" "$alert_dir/backup.delivery.json"; do
         printf '%s: %s\n' "$path" "$(cat "$path" 2>/dev/null)"
     done
+    ls -la /home/verdaxis-prod /home/verdaxis-prod/backups /home/verdaxis-prod/backups/attempts 2>&1
+    cat /home/verdaxis-prod/backups/attempts/*.json 2>&1
+    echo
+    runuser -u verdaxis-backup-reader -- ls /home/verdaxis-prod/backups/attempts 2>&1
     printf 'pending health: %s\n' "$(pending "$health_dir" | tr '\n' ' ')"
     printf 'pending backup: %s\n' "$(pending "$backup_dir" | tr '\n' ' ')"
     journalctl --no-pager -o short-monotonic -n 120 -u verdaxis-health.service -u verdaxis-backup-verify.service \
