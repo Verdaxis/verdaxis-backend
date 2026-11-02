@@ -1205,13 +1205,16 @@ async fn unknown_outcome_can_be_resolved_by_admin_user_read() {
     let _ = IGNORE;
 }
 
-/// The command's connection is lost while it is about to commit, so nothing
-/// commits and the administrator gets no success answer. Reading the user
-/// through the preview shows the account not offboarded and the market scope
-/// as before; repeating the command then takes effect exactly once.
+/// The command's connection ends while its COMMIT is in flight: the server
+/// terminated the backend, so the COMMIT gets the termination notice instead
+/// of a result. The outcome is unknown to the client, so the answer is
+/// `503 COMMIT_OUTCOME_UNKNOWN` without `Retry-After`. Reading the user
+/// through the preview decides it: here the account is not offboarded and the
+/// market scope is as before, and repeating the command takes effect exactly
+/// once.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
-async fn lost_reply_without_commit_reads_unmarked_and_repeats() {
+async fn commit_time_termination_is_unknown_until_the_user_is_read() {
     let mut world = World::new().await;
     world.standard_market().await;
     let before = world.snapshot().await;
@@ -1242,15 +1245,11 @@ async fn lost_reply_without_commit_reads_unmarked_and_repeats() {
         error.status,
         error.detail["code"].as_str().unwrap_or_default().to_owned(),
     );
-    eprintln!("lost connection before the commit answered {answer:?}");
-    assert!(
-        matches!(
-            (answer.0, answer.1.as_str()),
-            (StatusCode::SERVICE_UNAVAILABLE, "COMMIT_OUTCOME_UNKNOWN")
-                | (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR")
-        ),
-        "{answer:?}"
+    assert_eq!(
+        (answer.0, answer.1.as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, "COMMIT_OUTCOME_UNKNOWN")
     );
+    assert_eq!(error.retry_after, None, "the client re-reads, not waits");
 
     let (status, preview) = world.preview().await;
     assert_eq!(status, StatusCode::OK, "{preview}");
@@ -1270,4 +1269,68 @@ async fn lost_reply_without_commit_reads_unmarked_and_repeats() {
     }
     let item = row(&committed, "inventory", ITEM);
     assert_eq!(decimal(&item["current_stock_mt"]), d(11));
+}
+
+/// The command's connection ends while a statement before the COMMIT is
+/// running: here it waits for a pending trade row another session holds. The
+/// error comes before any COMMIT is sent, so it keeps its classification,
+/// `500 DATABASE_ERROR`, and nothing is kept. Once the row is free, the repeat
+/// takes effect exactly once.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn termination_before_commit_keeps_its_classification() {
+    let mut world = World::new().await;
+    world.standard_market().await;
+    let before = world.snapshot().await;
+    let mut holder = world.observer().await;
+    sqlx::raw_sql("BEGIN").execute(&mut holder).await.unwrap();
+    sqlx::query("SELECT id FROM trades WHERE id=$1 FOR UPDATE")
+        .bind(PENDING)
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut holder)
+        .await
+        .unwrap();
+    let served = world.served.clone();
+    let command = tokio::spawn(async move {
+        send(
+            &served,
+            "POST",
+            &format!("/api/auth/admin/users/{SUBJECT}/offboard"),
+            Some(ADMIN),
+            Some(offboard_body(Some(SUBJECT_ORGANIZATION))),
+            &[],
+        )
+        .await
+    });
+    let mut observer = world.observer().await;
+    let waiter = await_row_waiter(&mut observer, holder_pid).await;
+    assert_eq!(waiter.relation, "trades");
+    let terminated: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1)")
+        .bind(waiter.pid)
+        .fetch_one(&mut observer)
+        .await
+        .unwrap();
+    assert!(terminated);
+    let (status, body) = command.await.unwrap();
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR"),
+        "{body}"
+    );
+    sqlx::raw_sql("ROLLBACK")
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    assert_eq!(world.snapshot().await, before, "nothing is kept");
+
+    let (status, body) = world.offboard(&world.served.clone()).await;
+    assert_eq!(status, StatusCode::OK, "the repeat takes effect: {body}");
+    let committed = world.snapshot().await;
+    assert_eq!(committed["records"], 1);
+    for trade in [PENDING, PENDING_TAKEN] {
+        assert_eq!(row(&committed, "trades", trade)["status"], "CANCELLED");
+    }
 }

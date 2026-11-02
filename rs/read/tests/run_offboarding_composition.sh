@@ -23,7 +23,8 @@ cases=(
   market_failure_rolls_back_credentials_and_membership
   concurrent_offboard_and_mutation_has_one_ordered_winner
   unknown_outcome_can_be_resolved_by_admin_user_read
-  lost_reply_without_commit_reads_unmarked_and_repeats
+  commit_time_termination_is_unknown_until_the_user_is_read
+  termination_before_commit_keeps_its_classification
 )
 
 container=''
