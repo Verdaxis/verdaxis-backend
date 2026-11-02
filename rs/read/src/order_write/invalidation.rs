@@ -169,13 +169,15 @@ struct Preview {
 const ORDER_COLUMNS: &str = "id,organization_id,owner_user_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at";
 
 // One person's market scope as predicates on `$1`. The invalidation selects
-// with them, and the offboarding preview counts with them
-// ([`count_user_scope`]), so the two cannot describe different rows.
+// its pending trades and open orders with them, and the offboarding preview
+// counts with the same predicates ([`count_user_scope`]).
 const USER_TRADES: &str = "(buyer_user_id=$1 OR seller_user_id=$1)";
 const USER_ORDERS: &str = "owner_user_id=$1";
 // The states either scope changes: pending trades and open order remainders.
 const PENDING_TRADE: &str = "status='PENDING_CONFIRMATION'";
 const OPEN_ORDER: &str = "status IN ('OPEN','PARTIALLY_FILLED')";
+// Order states that are only restored, never withdrawn (see `invalidate`).
+const TERMINAL_ORDER: &str = "status IN ('CANCELLED','EXPIRED')";
 
 async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, InvalidationError> {
     // One row past the bound proves overflow without reading the whole scope.
@@ -232,8 +234,13 @@ async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, Inval
 /// past the bound, so a larger scope is reported without reading all of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UserScopeCounts {
-    /// Open order remainders the person owns: [`invalidate_user`] withdraws them.
+    /// Open order remainders the person owns. The bound applies to them.
     pub open_orders: i64,
+    /// Every order [`invalidate_user`] withdraws: the open orders above and
+    /// the person's other non-terminal orders linked to the pending trades
+    /// (for example a fully taken ASK whose quantity is in a pending trade).
+    /// It stops after three times the bound.
+    pub withdrawn_orders: i64,
     /// Pending trades that record the person: [`invalidate_user`] cancels them.
     pub pending_trades: i64,
     /// Those pending trades under an active freeze: each one makes
@@ -257,20 +264,30 @@ pub async fn count_user_scope(
     subject_id: Uuid,
 ) -> Result<UserScopeCounts, sqlx::Error> {
     let past_bound = MAX_INVALIDATION_ROWS as i64 + 1;
-    let (open_orders, pending_trades, frozen_pending_trades) =
-        sqlx::query_as::<_, (i64, i64, i64)>(sqlx::AssertSqlSafe(format!(
+    // Open orders plus the orders of both pending-trade sides; the scope
+    // withdraws at most all three collections.
+    let withdrawn_cap = 3 * past_bound;
+    let (open_orders, withdrawn_orders, pending_trades, frozen_pending_trades) =
+        sqlx::query_as::<_, (i64, i64, i64, i64)>(sqlx::AssertSqlSafe(format!(
             "SELECT \
              (SELECT count(*) FROM (SELECT 1 FROM orderbook_orders WHERE {USER_ORDERS} AND {OPEN_ORDER} LIMIT $2) AS rows),\
+             (SELECT count(*) FROM (SELECT 1 FROM orderbook_orders WHERE {USER_ORDERS} AND NOT {TERMINAL_ORDER} \
+              AND ({OPEN_ORDER} OR id IN (\
+               SELECT bid_order_id FROM trades WHERE {USER_TRADES} AND {PENDING_TRADE} \
+               UNION SELECT ask_order_id FROM trades WHERE {USER_TRADES} AND {PENDING_TRADE})) \
+              LIMIT $3) AS rows),\
              (SELECT count(*) FROM (SELECT 1 FROM trades WHERE {USER_TRADES} AND {PENDING_TRADE} LIMIT $2) AS rows),\
              (SELECT count(*) FROM (SELECT 1 FROM trades t WHERE {USER_TRADES} AND {PENDING_TRADE} \
               AND EXISTS(SELECT 1 FROM trade_freezes f WHERE f.trade_id=t.id AND f.status='ACTIVE') LIMIT $2) AS rows)"
         )))
         .bind(subject_id)
         .bind(past_bound)
+        .bind(withdrawn_cap)
         .fetch_one(&mut *conn)
         .await?;
     Ok(UserScopeCounts {
         open_orders,
+        withdrawn_orders,
         pending_trades,
         frozen_pending_trades,
     })

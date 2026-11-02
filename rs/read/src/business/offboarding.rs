@@ -258,12 +258,16 @@ pub struct UserMarketScope {
     pub now: DateTime<Utc>,
 }
 
-/// What the market hook changed, recorded as counts in the audit record.
+/// What the market hook changed. The audit record carries the counts, the
+/// identifiers of the withdrawn orders and the cancelled trades (the links to
+/// their own audit rows), and the released tonnes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MarketInvalidationSummary {
     pub withdrawn_orders: Vec<Uuid>,
     pub cancelled_trades: Vec<Uuid>,
     pub outbox_ids: Vec<Uuid>,
+    /// Tonnes returned from reservations to inventory, in total.
+    pub released_quantity_mt: rust_decimal::Decimal,
 }
 
 /// User-scoped market invalidation on the caller's transaction.
@@ -336,6 +340,7 @@ impl OffboardingMarketHook for UserMarketInvalidation {
                 withdrawn_orders: result.withdrawn_orders,
                 cancelled_trades: result.cancelled_trade_ids,
                 outbox_ids: result.outbox_ids,
+                released_quantity_mt: result.released_uncommitted_quantity,
             })
         })
     }
@@ -710,7 +715,10 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> OffboardAccount<H, E> {
                     "support_authorizations_revoked": changes.support_authorizations_revoked,
                     "staff_capabilities_revoked": changes.staff_capabilities_revoked,
                     "withdrawn_orders": market.withdrawn_orders.len(),
+                    "withdrawn_order_ids": market.withdrawn_orders,
                     "cancelled_trades": market.cancelled_trades.len(),
+                    "cancelled_trade_ids": market.cancelled_trades,
+                    "released_quantity_mt": market.released_quantity_mt.normalize().to_string(),
                     "market_events": market.outbox_ids.len(),
                 })),
                 ip_address: self.audit.ip_address.clone(),
@@ -754,7 +762,12 @@ pub struct OffboardingPreview {
     pub organization_id: Option<Uuid>,
     pub organization_name: Option<String>,
     pub offboarded_at: Option<DateTime<Utc>>,
+    /// The orders the command withdraws: the person's open order remainders
+    /// and the person's other orders linked to the pending trades it cancels
+    /// (for example a fully taken ASK). The 100-row bound applies to the open
+    /// remainders.
     pub open_owned_orders: i64,
+    /// The pending trades the command cancels.
     pub pending_trades: i64,
     /// Pending trades of the person under an active freeze. Each one blocks
     /// the command: it refuses with `409 MARKET_INVALIDATION_TRADE_FROZEN`
@@ -799,7 +812,8 @@ pub async fn preview(
         return Err(not_manageable());
     }
     // The rows the command withdraws or cancels, counted with the market
-    // scope's own predicates. Each count stops one row past the bound.
+    // scope's own predicates. The bound applies to the open remainders and
+    // the pending trades, as in the command.
     let scope = count_user_scope(conn, subject).await.map_err(database)?;
     if scope.exceeds_bound() {
         return Err(refusal(
@@ -831,7 +845,7 @@ pub async fn preview(
         organization_id: row.get("organization_id"),
         organization_name: row.get("organization_name"),
         offboarded_at: row.get("offboarded_at"),
-        open_owned_orders: scope.open_orders,
+        open_owned_orders: scope.withdrawn_orders,
         pending_trades: scope.pending_trades,
         frozen_pending_trades: scope.frozen_pending_trades,
         confirmed_trades: confirmed_trades.min(PREVIEW_COUNT_LIMIT),
