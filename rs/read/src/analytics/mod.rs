@@ -14,6 +14,8 @@ pub mod cohorts;
 pub mod commercial;
 pub mod engagement;
 pub mod events;
+pub mod sender;
+
 pub mod facts;
 pub mod liquidity;
 pub mod marketplace;

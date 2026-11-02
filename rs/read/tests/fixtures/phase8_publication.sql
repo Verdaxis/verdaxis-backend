@@ -1,0 +1,1 @@
+INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,idempotency_operation,idempotency_key,idempotency_request_hash) VALUES($1,$2,$3,$3,'inventory.publish','publication','same')

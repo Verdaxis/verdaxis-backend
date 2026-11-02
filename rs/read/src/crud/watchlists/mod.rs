@@ -1,3 +1,4 @@
+mod admission;
 mod containers;
 mod events;
 mod http;
@@ -12,9 +13,10 @@ pub use reads::{
     load_legacy_list,
 };
 
+pub use admission::EventAdmission;
 pub use events::{
     EventCursor, EventQuery, EventsPage, StoredEvent, TargetColumns, WatchlistEvent, acknowledge,
-    decode_cursor, encode_cursor, event_visible, feed_page, parse_event_query,
+    decode_cursor, encode_cursor, feed_page, parse_event_query,
 };
-pub use metrics::{Event, Metrics, visible_order_rows};
+pub use metrics::{Metrics, visible_order_rows};
 pub use projection::{Slice, Summary, Target, project_summary};

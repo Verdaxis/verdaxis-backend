@@ -160,9 +160,15 @@ pub fn config_from_deployed_environment(
     {
         return Err("the prepared budget artifact is internally inconsistent".into());
     }
+    let deployment = required("ENVIRONMENT")?;
+    // Refuse a malformed market setting before serving, as Python refuses it.
+    let market_write = super::market_write::MarketWriteOptions::from_deployed_environment(
+        environment,
+        &deployment,
+    )?;
     let config = Config {
         kyc_execution_gate_enabled: deployed_bool(environment, "KYC_EXECUTION_GATE_ENABLED", true)?,
-        environment: required("ENVIRONMENT")?,
+        environment: deployment,
         release_sha,
         migration_revision: required("MIGRATION_REVISION")?,
         database_url: required("DATABASE_URL")?,
@@ -209,11 +215,14 @@ pub fn config_from_deployed_environment(
             watchlist_producer_activated_at: environment
                 .get("WATCHLIST_PRODUCER_ACTIVATED_AT")
                 .cloned(),
+            // Written beside the activation instant in the same release file.
+            watchlist_event_producer: environment.get("WATCHLIST_EVENT_PRODUCER").cloned(),
             system_status: environment.get("SYSTEM_STATUS").cloned(),
             system_status_message: environment.get("SYSTEM_STATUS_MESSAGE").cloned(),
             // The deploy preparer projects the environment's public API host;
             // an absent key leaves the in-app Host check off.
             allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
+            market_write,
         },
     };
     // Refuse an unknown status or an over-long message before serving, like
@@ -277,6 +286,29 @@ pub fn deployed_arguments(
         return Err("--budget-file must be an absolute path".into());
     }
     Ok((bind, budget))
+}
+
+/// The operator flag of the one-shot watchlist producer bootstrap.
+pub const BOOTSTRAP_PRODUCER_FLAG: &str = "--bootstrap-watchlist-producer";
+
+/// The arguments of the one-shot bootstrap: the flag, then the absolute path
+/// of the prepared budget artifact. It binds no socket, so no `--bind`.
+pub fn bootstrap_arguments(arguments: &[String]) -> Result<std::path::PathBuf, String> {
+    match arguments {
+        [flag, budget_flag, path]
+            if flag == BOOTSTRAP_PRODUCER_FLAG && budget_flag == "--budget-file" =>
+        {
+            let path = std::path::PathBuf::from(path);
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Err("--budget-file must be an absolute path".into())
+            }
+        }
+        _ => Err(format!(
+            "usage: {BOOTSTRAP_PRODUCER_FLAG} --budget-file <path>"
+        )),
+    }
 }
 
 pub(crate) struct DatabaseTarget {
@@ -606,6 +638,8 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                 | "p3_20261020_auth_tokens"
                 | "sse_20261021_replay_floor"
                 | "p5_20261020_read_indexes"
+                | "p89_20261022_watchlist_producer"
+                | "p89_20261022_trade_freeze"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }

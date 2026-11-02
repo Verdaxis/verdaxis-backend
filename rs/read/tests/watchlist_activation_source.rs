@@ -170,3 +170,47 @@ fn the_scan_finds_the_calls_it_checks() {
             .any(|token| calls[1].contains(token))
     );
 }
+
+#[test]
+fn the_producer_activation_reads_its_release_keys_and_no_clock() {
+    const PRODUCER_KEY: &str = "WATCHLIST_EVENT_PRODUCER";
+    let sources = production_sources();
+    let text_of = |name: &str| {
+        sources
+            .iter()
+            .find(|(path, _)| relative(path) == name)
+            .map(|(_, text)| text.as_str())
+            .unwrap_or_else(|| panic!("{name} is a production source"))
+    };
+    let config = text_of("runtime/config.rs");
+    assert!(
+        config.contains(&format!(".get({PRODUCER_KEY:?})")),
+        "runtime/config.rs must read {PRODUCER_KEY}"
+    );
+    let named: Vec<String> = sources
+        .iter()
+        .filter(|(_, text)| text.contains(PRODUCER_KEY))
+        .map(|(path, _)| relative(path))
+        .collect();
+    assert_eq!(named, vec!["runtime/config.rs"]);
+    // The consumer's activation reads both recorded values and nothing else.
+    let producer = text_of("order_write/producer/mod.rs");
+    let start = producer
+        .find("pub fn from_release(")
+        .expect("the activation constructor");
+    let end = producer[start..]
+        .find("pub fn from_config(")
+        .expect("the configuration adapter")
+        + start;
+    let body = &producer[start..end];
+    for forbidden in CLOCK_OR_DEFAULT {
+        assert!(
+            !body.contains(forbidden),
+            "the producer activation consults `{forbidden}`"
+        );
+    }
+    let adapter = &producer[end..];
+    assert!(adapter.contains("watchlist_event_producer"));
+    assert!(adapter.contains("watchlist_producer_activated_at"));
+    assert!(adapter.contains("release_sha"));
+}

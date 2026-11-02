@@ -38,6 +38,8 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('kyc_grace_notices', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('live_slice_benchmarks', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('market_command_results', ARRAY['SELECT', 'INSERT']),
+    -- Includes nullable producer_evidence. The shared writer/sequencer keeps
+    -- INSERT/UPDATE; the producer consumer uses SELECT only. No DELETE.
     ('market_event_outbox', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     -- Phase 6 replay state and retention ownership are migration-owned; the
     -- application may read the barrier and the owner record, never change them.
@@ -87,6 +89,7 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('supplier_offers', ARRAY['SELECT']),
     ('supply_listings', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('traceability_events', ARRAY['SELECT']),
+    ('trade_freezes', ARRAY['SELECT', 'INSERT']),
     ('trades', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('user_login_days', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('user_preferences', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -94,7 +97,9 @@ INSERT INTO app_table_policy (table_name, privileges) VALUES
     ('users', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('vessels', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('watchlist_entries', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    -- Producer identity columns use the existing event insertion authority.
     ('watchlist_events', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('watchlist_producer_state', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('watchlist_targets', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('watchlists', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']);
 
@@ -195,6 +200,11 @@ INSERT INTO app_column_policy (table_name, column_name, privilege_type) VALUES
     ('rfq_quotes', 'offer_terms', 'UPDATE'),
     ('rfq_quotes', 'expires_at', 'UPDATE'),
     ('rfq_quotes', 'revision', 'UPDATE'),
+    ('trade_freezes', 'status', 'UPDATE'),
+    ('trade_freezes', 'cleared_at', 'UPDATE'),
+    ('trade_freezes', 'cleared_by_user_id', 'UPDATE'),
+    ('trade_freezes', 'clear_note', 'UPDATE'),
+    ('trade_freezes', 'version', 'UPDATE'),
     ('market_support_contexts', 'status', 'UPDATE'),
     ('market_support_contexts', 'ended_at', 'UPDATE'),
     ('market_support_contexts', 'version', 'UPDATE'),

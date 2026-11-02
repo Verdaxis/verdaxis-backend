@@ -77,6 +77,17 @@ impl PublicOrder {
         crossed: bool,
         benchmark: Option<&LiveBenchmark>,
     ) -> Result<Json, ApiError> {
+        self.public_with_terms(crossed, benchmark, None)
+    }
+
+    /// A caller may supply already validated public terms without changing the
+    /// private row used for the reviewed-terms digest.
+    pub(crate) fn public_with_terms(
+        &self,
+        crossed: bool,
+        benchmark: Option<&LiveBenchmark>,
+        normalized: Option<&Json>,
+    ) -> Result<Json, ApiError> {
         let digest = canonical_terms_from_row(&self.private)
             .and_then(|terms| digest_terms(&terms))
             .map_err(|_| ApiError::internal())?;
@@ -103,8 +114,10 @@ impl PublicOrder {
             ("fame_terms", "fame_v1", "fame"),
             ("lng_terms", "lng_v1", "lng"),
         ] {
-            let public = public_response_terms(profile, &self.private[name])
-                .map_err(|_| ApiError::internal())?;
+            let terms = normalized
+                .filter(|terms| terms["side"] == self.side && !self.private[name].is_null())
+                .unwrap_or(&self.private[name]);
+            let public = public_response_terms(profile, terms).map_err(|_| ApiError::internal())?;
             let schema = format!("{schema}_{}", self.side.to_lowercase());
             out.insert(name.into(), ordered_public_terms(&public, &schema)?);
         }

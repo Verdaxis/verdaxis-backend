@@ -5,8 +5,7 @@
 //! 1. A source boundary: outside `rs/read/src/order_write/` no Rust source and
 //!    no shared SQL may write an order-book row, take an order-row `FOR UPDATE`
 //!    lock, call the acceptance-ordinal sequence, or take an advisory lock. Every
-//!    insert target in the whole crate must be one of the two reviewed write
-//!    tables, and external callers may name only the declared CF4_04 exports
+//!    insert target inside the boundary must belong to that exact source file, and external callers may name only the declared CF4_04 exports
 //!    alongside the marked registration line in `lib.rs`. The scan is over source, so it holds for code no test exercises.
 //! 2. A behaviour parity: the lock keys, slice order, idempotency scopes and
 //!    request hashes must equal the vectors the specified Python exported into
@@ -315,6 +314,46 @@ fn repository_root() -> PathBuf {
         .expect("repository root")
 }
 
+/// Every boundary file retains receipt/outbox inserts; additional insert targets
+/// belong only to the exact named source file.
+fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
+    let boundary = root.join("rs/read/src/order_write");
+    if !path.starts_with(&boundary) {
+        return false;
+    }
+    if WRITE_TABLES.contains(&table) {
+        return true;
+    }
+    let per_file: &[(&str, &[&str])] = &[
+        (
+            "effects.rs",
+            &["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"],
+        ),
+        ("matching.rs", &["TRADES"]),
+        ("trades.rs", &["TRADES"]),
+        (
+            "order_create.rs",
+            &["ORDERBOOK_ORDERS", "MARKET_SUPPORT_AUTHORIZATIONS"],
+        ),
+        ("dismissal.rs", &["MATCH_SUGGESTIONS"]),
+        ("benchmarks.rs", &["LIVE_SLICE_BENCHMARKS"]),
+        ("events.rs", &["WATCHLIST_EVENTS"]),
+        // The trusted producer's consumer transaction and watermark bootstrap.
+        (
+            "producer/consume.rs",
+            &["WATCHLIST_EVENTS", "WATCHLIST_PRODUCER_STATE"],
+        ),
+        ("inventory.rs", &["INVENTORY_ITEMS", "ORDERBOOK_ORDERS"]),
+        ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
+        ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
+        ("freeze.rs", &["TRADE_FREEZES"]),
+    ];
+    per_file
+        .iter()
+        .any(|(file, tables)| path == boundary.join(file) && tables.contains(&table))
+}
+
+/// Every source-boundary violation in the repository, as `path: rule` text.
 /// The one integration test that commits an order-book change as the disposable
 /// owner role, to prove a stale generation invalidates a warm cache entry. It
 /// must simulate another writer's change, so it cannot drive the command
@@ -384,16 +423,8 @@ fn scan_repository() -> Vec<String> {
         for (start, end) in literal_ranges(&text) {
             let literal = normalized(&text[start..end]);
             if inside_boundary {
-                // Inside the boundary the only reviewed insert targets are the
-                // receipt and the outbox (`WRITE_TABLES`), plus the two leaves
-                // PD4-INT-4 assigns to this boundary as plan work: the
-                // benchmark slice table and the watchlist event table. Every
-                // other insert belongs elsewhere.
                 for target in insert_targets(&literal) {
-                    let approved_leaf = (path == &boundary.join("benchmarks.rs")
-                        && target == "LIVE_SLICE_BENCHMARKS")
-                        || (path == &boundary.join("events.rs") && target == "WATCHLIST_EVENTS");
-                    if !WRITE_TABLES.contains(&target.as_str()) && !approved_leaf {
+                    if !boundary_insert_allowed(&root, path, &target) {
                         violations.push(format!("{}: INSERT INTO {target}", path.display()));
                     }
                 }
@@ -1280,4 +1311,461 @@ fn the_entry_point_signature_is_the_reviewed_one() {
         execute_order_command(state, context, command).await
     }
     let _ = call;
+}
+
+#[test]
+fn effect_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let effects = root.join("rs/read/src/order_write/effects.rs");
+    for table in ["AUDIT_LOGS", "NOTIFICATIONS", "LIVE_SLICE_BENCHMARKS"] {
+        assert!(boundary_insert_allowed(&root, &effects, table));
+        for file in [
+            "transaction.rs",
+            "outbox.rs",
+            "command.rs",
+            "nested/effects.rs",
+        ] {
+            assert!(!boundary_insert_allowed(
+                &root,
+                &root.join("rs/read/src/order_write").join(file),
+                table
+            ));
+        }
+    }
+    for file in ["effects.rs", "transaction.rs", "outbox.rs", "command.rs"] {
+        for table in WRITE_TABLES {
+            assert!(boundary_insert_allowed(
+                &root,
+                &root.join("rs/read/src/order_write").join(file),
+                table
+            ));
+        }
+    }
+    assert!(!boundary_insert_allowed(&root, &effects, "USERS"));
+    assert!(!boundary_insert_allowed(&root, &effects, "UNLISTED_TABLE"));
+}
+
+#[test]
+fn dismissal_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let dismissal = boundary.join("dismissal.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &dismissal,
+        "MATCH_SUGGESTIONS"
+    ));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("effects.rs"),
+        boundary.join("nested/dismissal.rs"),
+        boundary.join("unlisted.rs"),
+    ]);
+    for path in files {
+        if path != dismissal {
+            assert!(!boundary_insert_allowed(&root, &path, "MATCH_SUGGESTIONS"));
+        }
+    }
+    for table in [
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &dismissal, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &dismissal, table));
+    }
+}
+
+#[test]
+fn order_create_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    for table in ["ORDERBOOK_ORDERS", "MARKET_SUPPORT_AUTHORIZATIONS"] {
+        assert!(boundary_insert_allowed(
+            &root,
+            &boundary.join("order_create.rs"),
+            table
+        ));
+        for file in [
+            "transaction.rs",
+            "orders.rs",
+            "matching.rs",
+            "effects.rs",
+            "nested/order_create.rs",
+        ] {
+            assert!(!boundary_insert_allowed(&root, &boundary.join(file), table));
+        }
+    }
+    for table in [
+        "TRADES",
+        "USERS",
+        "NOTIFICATIONS",
+        "INVENTORY_ITEMS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("order_create.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn matching_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("matching.rs"),
+        "TRADES"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/matching.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "TRADES"
+        ));
+    }
+    for table in [
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "INVENTORY_ITEMS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("matching.rs"),
+            table
+        ));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(
+            &root,
+            &boundary.join("matching.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn benchmark_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let benchmarks = boundary.join("benchmarks.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &benchmarks,
+        "LIVE_SLICE_BENCHMARKS"
+    ));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("nested/benchmarks.rs"),
+        boundary.join("unlisted.rs"),
+    ]);
+    for path in files {
+        // `effects.rs` keeps its own reviewed entry for this table.
+        if path != benchmarks && path != boundary.join("effects.rs") {
+            assert!(!boundary_insert_allowed(
+                &root,
+                &path,
+                "LIVE_SLICE_BENCHMARKS"
+            ));
+        }
+    }
+    for table in [
+        "WATCHLIST_EVENTS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "MATCH_SUGGESTIONS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &benchmarks, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &benchmarks, table));
+    }
+}
+
+#[test]
+fn watchlist_event_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let events = boundary.join("events.rs");
+    let consumer = boundary.join("producer/consume.rs");
+    assert!(boundary_insert_allowed(&root, &events, "WATCHLIST_EVENTS"));
+    assert!(boundary_insert_allowed(
+        &root,
+        &consumer,
+        "WATCHLIST_EVENTS"
+    ));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("nested/events.rs"),
+        boundary.join("unlisted.rs"),
+        boundary.join("producer/derive.rs"),
+        boundary.join("consume.rs"),
+    ]);
+    for path in files {
+        if path != events && path != consumer {
+            assert!(!boundary_insert_allowed(&root, &path, "WATCHLIST_EVENTS"));
+        }
+    }
+    for table in [
+        "LIVE_SLICE_BENCHMARKS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "MATCH_SUGGESTIONS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &events, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &events, table));
+    }
+}
+
+#[test]
+fn producer_insert_authority_is_scoped_to_the_consumer_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let consumer = boundary.join("producer/consume.rs");
+    for table in ["WATCHLIST_EVENTS", "WATCHLIST_PRODUCER_STATE"] {
+        assert!(boundary_insert_allowed(&root, &consumer, table));
+    }
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    files.extend([
+        boundary.join("producer/mod.rs"),
+        boundary.join("producer/derive.rs"),
+        boundary.join("producer/evidence.rs"),
+        boundary.join("consume.rs"),
+        boundary.join("nested/producer/consume.rs"),
+    ]);
+    for path in files {
+        if path != consumer {
+            assert!(!boundary_insert_allowed(
+                &root,
+                &path,
+                "WATCHLIST_PRODUCER_STATE"
+            ));
+        }
+    }
+    for table in [
+        "MARKET_EVENT_REPLAY_STATE",
+        "MARKET_EVENT_RETENTION_CONTROL",
+        "WATCHLIST_TARGETS",
+        "ORDERBOOK_ORDERS",
+        "TRADES",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &consumer, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &consumer, table));
+    }
+}
+
+#[test]
+fn inventory_inserts_have_one_named_source() {
+    let root = repository_root();
+    let inventory = root.join("rs/read/src/order_write/inventory.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &inventory,
+        "ORDERBOOK_ORDERS"
+    ));
+    for file in ["transaction.rs", "outbox.rs", "nested/inventory.rs"] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &root.join("rs/read/src/order_write").join(file),
+            "ORDERBOOK_ORDERS"
+        ));
+    }
+    assert!(!boundary_insert_allowed(&root, &inventory, "TRADES"));
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("inventory.rs"),
+        "INVENTORY_ITEMS"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/inventory.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "INVENTORY_ITEMS"
+        ));
+    }
+    for table in [
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "LIVE_SLICE_BENCHMARKS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("inventory.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn support_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("support.rs"),
+        "STAFF_CAPABILITY_ASSIGNMENTS"
+    ));
+    for file in [
+        "effects.rs",
+        "transaction.rs",
+        "inventory.rs",
+        "nested/support.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "STAFF_CAPABILITY_ASSIGNMENTS"
+        ));
+    }
+    for table in [
+        "MARKET_SUPPORT_CONTEXTS",
+        "AUDIT_LOGS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("support.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn context_insert_authority_is_scoped_to_the_exact_source_file() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let context = boundary.join("support/contexts.rs");
+    assert!(boundary_insert_allowed(
+        &root,
+        &context,
+        "MARKET_SUPPORT_CONTEXTS"
+    ));
+    for file in ["support.rs", "effects.rs", "nested/contexts.rs"] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "MARKET_SUPPORT_CONTEXTS"
+        ));
+    }
+    for table in [
+        "STAFF_CAPABILITY_ASSIGNMENTS",
+        "AUDIT_LOGS",
+        "USERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &context, table));
+    }
+}
+
+#[test]
+fn direct_take_insert_authority_is_scoped_to_its_source() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    assert!(boundary_insert_allowed(
+        &root,
+        &boundary.join("trades.rs"),
+        "TRADES"
+    ));
+    for file in [
+        "transaction.rs",
+        "outbox.rs",
+        "command.rs",
+        "nested/trades.rs",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join(file),
+            "TRADES"
+        ));
+    }
+    for table in [
+        "USERS",
+        "ORDERBOOK_ORDERS",
+        "INVENTORY_ITEMS",
+        "NOTIFICATIONS",
+        "AUDIT_LOGS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(
+            &root,
+            &boundary.join("trades.rs"),
+            table
+        ));
+    }
+}
+
+#[test]
+fn freeze_insert_belongs_only_to_the_administration_port() {
+    let root = repository_root();
+    let boundary = root.join("rs/read/src/order_write");
+    let freeze = boundary.join("freeze.rs");
+    assert!(boundary_insert_allowed(&root, &freeze, "TRADE_FREEZES"));
+    let mut files = Vec::new();
+    collect(&boundary, "rs", &mut files);
+    for path in files {
+        if path != freeze {
+            assert!(!boundary_insert_allowed(&root, &path, "TRADE_FREEZES"));
+        }
+    }
+    for table in [
+        "TRADES",
+        "USERS",
+        "AUDIT_LOGS",
+        "NOTIFICATIONS",
+        "ORDERBOOK_ORDERS",
+        "UNLISTED_TABLE",
+    ] {
+        assert!(!boundary_insert_allowed(&root, &freeze, table));
+    }
+    for table in WRITE_TABLES {
+        assert!(boundary_insert_allowed(&root, &freeze, table));
+    }
 }
