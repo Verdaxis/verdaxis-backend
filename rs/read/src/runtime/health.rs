@@ -18,7 +18,8 @@ pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (Status
         ),
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
-            serde_json::json!({"status":"error","db":"unavailable","environment":environment,"release_sha":sha}),
+            // A failed probe sends no deployment provenance out of the process.
+            serde_json::json!({"status":"error","db":"unavailable"}),
         ),
     }
 }
@@ -31,8 +32,10 @@ pub async fn ready(State(state): State<AppState>) -> Response {
     )
     .await;
     if !crate::streams::runtime::ready(&state) {
+        // A stream failure is a 503 like any other: `db` stays truthful and no
+        // deployment provenance leaves the process.
         status = StatusCode::SERVICE_UNAVAILABLE;
-        body["status"] = "error".into();
+        body = serde_json::json!({"status":"error","db":body["db"]});
     }
     (status, axum::Json(body)).into_response()
 }
