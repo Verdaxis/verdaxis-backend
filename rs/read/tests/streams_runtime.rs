@@ -245,10 +245,7 @@ async fn stream_runtime_database_lifecycle() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        body,
-        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
-    );
+    assert_eq!(body, serde_json::json!({"status":"error","db":"ok"}));
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )
@@ -332,10 +329,7 @@ async fn stream_runtime_database_lifecycle() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        body,
-        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
-    );
+    assert_eq!(body, serde_json::json!({"status":"error","db":"ok"}));
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )

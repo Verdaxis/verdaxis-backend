@@ -48,7 +48,10 @@ fn config(database_url: &str) -> Config {
 /// Application state on lazy pools. The returned pools are clones of the
 /// state's, so a test can see whether a request opened a connection.
 fn state_for(database_url: &str) -> (AppState, sqlx::PgPool, sqlx::PgPool) {
-    let config = config(database_url);
+    state_with(config(database_url))
+}
+
+fn state_with(config: Config) -> (AppState, sqlx::PgPool, sqlx::PgPool) {
     let read = PgPoolOptions::new()
         .max_connections(READ_SLOTS)
         .acquire_timeout(Duration::from_secs(30))
@@ -218,6 +221,37 @@ async fn health_routes_keep_the_exact_four_key_body() {
     assert_eq!(body_text(live).await, r#"{"status":"ok"}"#);
 }
 
+/// A stream subsystem that is down while the database answers: the 503 keeps
+/// `db` truthful and, like every failure body, carries no provenance.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn stream_down_503_has_no_provenance() {
+    let url =
+        std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable test URL required");
+    let mut config = config(&url);
+    config.prepared_budget = Some(
+        serde_json::json!({"version":1,"release_sha":config.release_sha,
+            "environment_digest":"a".repeat(64), "services":2,"workers":4,
+            "pool":2,"overflow":1,"reserve":20,"rust_pool":config.pool_max,
+            "python_budget":52,"cache_listener":0,"stream_listener":1,
+            "total":52+config.pool_max+1,
+            "configured_max_connections":config.configured_max_connections})
+        .to_string(),
+    );
+    let (state, _read, _health) = state_with(config);
+    assert!(!verdaxis_read::streams::runtime::ready(&state));
+    let app = verdaxis_read::router(state);
+    for path in ["/health", "/health/ready"] {
+        let response = send(&app, "GET", path).await;
+        assert_eq!(response.status(), 503, "{path}");
+        assert_eq!(
+            body_text(response).await,
+            r#"{"status":"error","db":"ok"}"#,
+            "{path}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn health_503_body_has_no_provenance() {
     let app = closed_port_app();
@@ -317,12 +351,27 @@ async fn root_health_snippet_has_one_argument_and_exact_paths() {
     paths.sort_unstable();
     assert_eq!(paths, ["/", "/health", "/health/live", "/health/ready"]);
 
-    // The transport settings equal the existing read groups'.
+    // One upstream and no fallback: a remembered dial failure would leave the
+    // group with nothing to select, so there is no passive health check. The
+    // bounded retry bridges a restart; the other lines match the read groups.
+    assert!(!text.contains("fail_duration"), "{text}");
+    assert!(!text.contains("max_fails"), "{text}");
+    let ours = transport_lines(&lines, "reverse_proxy {args[0]} {");
+    assert_eq!(
+        ours,
+        [
+            "lb_policy first",
+            "lb_try_duration 10s",
+            "lb_try_interval 250ms",
+            "flush_interval -1",
+            "transport http {",
+            "keepalive off",
+            "}",
+        ]
+    );
     let existing = snippet_lines("deploy/caddy/rust-public-staging.caddy");
     let reference = transport_lines(&existing, "reverse_proxy {args[0]} {args[5]} {");
-    let ours = transport_lines(&lines, "reverse_proxy {args[0]} {");
-    assert!(!ours.is_empty());
-    assert_eq!(ours, reference);
+    assert!(ours.iter().all(|line| reference.contains(line)));
 
     // Each named path is served by this binary: mounted, never the 404 that
     // would send a caller to a fallback owner.
