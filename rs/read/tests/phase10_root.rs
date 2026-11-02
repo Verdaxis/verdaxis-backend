@@ -305,12 +305,15 @@ async fn root_health_snippet_has_one_argument_and_exact_paths() {
     // The only handle is the one named matcher: no catch-all.
     let handles: Vec<&String> = lines.iter().filter(|l| l.starts_with("handle")).collect();
     assert_eq!(handles.len(), 1, "{handles:?}");
-    assert!(handles[0].starts_with("handle @"), "{handles:?}");
+    assert_eq!(handles[0], "handle @root_health {");
 
     // Exactly the four paths, each once.
-    let matchers: Vec<&String> = lines.iter().filter(|l| l.starts_with("path ")).collect();
+    let matchers: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.starts_with('@') && l.contains(" path "))
+        .collect();
     assert_eq!(matchers.len(), 1, "{matchers:?}");
-    let mut paths: Vec<&str> = matchers[0].split_whitespace().skip(1).collect();
+    let mut paths: Vec<&str> = matchers[0].split_whitespace().skip(2).collect();
     paths.sort_unstable();
     assert_eq!(paths, ["/", "/health", "/health/live", "/health/ready"]);
 

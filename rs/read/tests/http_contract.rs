@@ -215,6 +215,10 @@ async fn router_health_methods_and_empty_routes() {
                 );
             }
         }
+        // The root path has no slash variant: `//` is not a redirect source.
+        if path == "/" {
+            continue;
+        }
         let response = assembled
             .clone()
             .oneshot(
