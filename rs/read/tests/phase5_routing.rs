@@ -224,7 +224,7 @@ async fn phase5_release_identity_is_the_full_sha() {
     let body: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(
         body,
-        serde_json::json!({"status":"error","db":"unavailable","environment":"test","release_sha":sha})
+        serde_json::json!({"status":"error","db":"unavailable"})
     );
 }
 

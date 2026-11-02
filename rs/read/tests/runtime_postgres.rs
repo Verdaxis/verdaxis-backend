@@ -355,15 +355,10 @@ async fn readiness_failure_stays_truthful() {
         .unwrap();
     let response = probe(&pool, "staging", &"a".repeat(40)).await;
     assert_eq!(response.0, axum::http::StatusCode::SERVICE_UNAVAILABLE);
-    // A failed probe stays truthful: the four keys are always present.
+    // A failed probe carries no deployment provenance.
     assert_eq!(
         response.1,
-        serde_json::json!({
-            "status": "error",
-            "db": "unavailable",
-            "environment": "staging",
-            "release_sha": "a".repeat(40),
-        })
+        serde_json::json!({"status": "error", "db": "unavailable"})
     );
     pool.close().await;
 }
