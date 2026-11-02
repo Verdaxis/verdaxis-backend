@@ -140,6 +140,14 @@ fn subcommand_dispatch_is_exact() {
         vec!["monitor", "alert", "--release", "health"],
         vec![
             "monitor",
+            "alert",
+            "--repair",
+            "health:7",
+            "--reason",
+            "entry removed",
+        ],
+        vec![
+            "monitor",
             "outbox",
             "--dsn",
             "dbname=x",
@@ -207,6 +215,9 @@ fn subcommand_dispatch_is_exact() {
         vec!["monitor", "outbox", "--dsn", "dbname=x", "--remind", "all"],
         vec!["monitor", "onboarding", "--dsn", "dbname=x"],
         vec!["monitor", "health", "--rearm", "health:1"],
+        vec!["monitor", "alert", "--repair", "health:7"],
+        vec!["monitor", "alert", "--event", "health", "--reason", "x"],
+        vec!["monitor", "alert", "--repair", "health:7", "--reason", " "],
         vec!["guard", "health", "--hidden"],
         vec!["job", "news", "--environment", "test", "--release-sha", sha],
         vec![

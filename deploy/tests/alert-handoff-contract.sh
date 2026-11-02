@@ -70,12 +70,14 @@ static_unit_abi() {
     check "$cell" has_line "$unit" "ExecStart=$binary_path monitor alert --event %i"
     check "$cell" has_line "$unit" "RestartPreventExitStatus=2 3 5"
     check "$cell" has_line "$unit" "Restart=on-failure"
+    check "$cell" has_line "$unit" "RestartSec=60s"
+    check "$cell" has_line "$unit" "StartLimitBurst=16"
     unit="$policy/verdaxis-monitor-alert-reminder.service"
     check "$cell" has_line "$unit" "ExecStart=$binary_path monitor alert --remind all"
     for unit in "$policy/verdaxis-monitor-alert@.service" "$policy/verdaxis-monitor-alert-reminder.service"; do
         check "$cell" has_line "$unit" "User=verdaxis-monitor-alert"
         check "$cell" has_line "$unit" "EnvironmentFile=/etc/verdaxis-monitor/alert.env"
-        check "$cell" has_line "$unit" "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff"
+        check "$cell" has_line "$unit" "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status"
     done
     for unit in "$policy"/*.service; do
         check "$cell" lacks_text "$unit" "python"
@@ -102,10 +104,17 @@ static_sandbox_kept() {
 
 static_policy() {
     local cell=alert_handoff_policy_bytes before=$failures acl="$policy/verdaxis-monitor-handoff.acl.tmpfiles"
-    check "$cell" has_line "$policy/verdaxis-monitor.tmpfiles" \
+    # Handoff paths are created in the ACL file itself; the base file creates
+    # the producer state directories with the ACL mask mode (0710).
+    check "$cell" has_line "$acl" \
         "d /var/lib/verdaxis-health/alert-handoff 0700 verdaxis-health verdaxis-health -"
-    check "$cell" has_line "$policy/verdaxis-monitor.tmpfiles" \
+    check "$cell" has_line "$acl" \
         "d /var/lib/verdaxis-backup-verify/alert-handoff 0700 verdaxis-backup-reader verdaxis-backup-readers -"
+    check "$cell" lacks_text "$policy/verdaxis-monitor.tmpfiles" "alert-handoff"
+    check "$cell" has_line "$policy/verdaxis-monitor.tmpfiles" \
+        "d /var/lib/verdaxis-health 0710 verdaxis-health verdaxis-health -"
+    check "$cell" has_line "$policy/verdaxis-monitor.tmpfiles" \
+        "d /var/lib/verdaxis-monitor-alert-status 0755 verdaxis-monitor-alert verdaxis-monitor-alert -"
     check "$cell" test "$(grep -c '^a ' "$acl")" -eq 6
     check "$cell" lacks_text "$acl" "verdaxis-monitor-alert:rw-"
     check "$cell" lacks_text "$acl" "g::r"
@@ -141,7 +150,7 @@ cleanup_target() {
 write_fake_services() {
     cat > "$1" <<'PY'
 """Loopback fakes: two readiness endpoints and one alert destination."""
-import json, os, sys, threading
+import json, os, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATE = "/run/fake"
@@ -171,9 +180,13 @@ class Destination(BaseHTTPRequestHandler):
         text = json.loads(body).get("text", "") if body else ""
         try:
             with open(os.path.join(STATE, "dest-status")) as handle:
-                status = int(handle.read().strip())
+                mode = handle.read().strip()
         except OSError:
-            status = 200
+            mode = "200"
+        if mode == "hang":
+            time.sleep(15)
+            mode = "200"
+        status = int(mode)
         with open(os.path.join(STATE, "requests.log"), "a") as log:
             log.write(json.dumps({"path": self.path, "text": text, "status": status}) + "\n")
         reply = json.dumps({"ok": status == 200}).encode()
@@ -354,7 +367,11 @@ wait_settled() {
     for _ in $(seq 1 120); do
         state=$(systemctl show -p ActiveState --value "$unit")
         sub=$(systemctl show -p SubState --value "$unit")
-        if [ "$state" != activating ] && [ "$sub" != auto-restart ] \
+        # A unit waiting for its restart has finished this run.
+        if [ "$sub" = auto-restart ]; then
+            return 0
+        fi
+        if [ "$state" != activating ] \
             && ! systemctl list-jobs --no-legend 2>/dev/null | grep -Fq "$unit"; then
             return 0
         fi
@@ -440,8 +457,9 @@ setup_target() {
     install -d -m 0755 /etc/verdaxis-monitor
     printf 'TELEGRAM_BOT_TOKEN=fake-token-0042\nTELEGRAM_CHAT_ID=fake-chat-0042\nTELEGRAM_API_BASE=http://127.0.0.1:18080\nHEALTHCHECKS_HEALTH_URL=http://127.0.0.1:18080/hc-health\nHEALTHCHECKS_BACKUP_URL=http://127.0.0.1:18080/hc-backup\n' \
         > /etc/verdaxis-monitor/alert.env
-    check "$cell" systemd-tmpfiles --create /usr/lib/tmpfiles.d/verdaxis-monitor.conf
-    check "$cell" systemd-tmpfiles --create /usr/lib/tmpfiles.d/verdaxis-monitor-handoff-acl.conf
+    check "$cell" systemd-tmpfiles --create /usr/lib/tmpfiles.d/verdaxis-monitor.conf \
+        /usr/lib/tmpfiles.d/verdaxis-monitor-handoff-acl.conf
+    check "$cell" test "$(stat -c '%U %a' /var/lib/verdaxis-monitor-alert-status)" = "verdaxis-monitor-alert 755"
     for environment in production staging; do
         printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\n' "$environment" "$sha" \
             > "/etc/verdaxis-monitor/runtime-identities/$environment.identity"
@@ -571,9 +589,10 @@ cell_acl_modes() {
         as_user "$(stat -c %U "$dir")" touch "$dir/alert-handoff/scratch-remove"
         allowed "$cell" verdaxis-monitor-alert rm -f "$dir/alert-handoff/scratch-remove"
     done
-    # The retained heads exhausted their three persisted attempts.
-    check "$cell" grep -Fq '"blocked":"exhausted"' "$alert_dir/health.delivery.json"
-    check "$cell" grep -Fq '"attempts":3' "$alert_dir/health.delivery.json"
+    # The retained heads are spaced, not exhausted: a minute between the first
+    # two attempts.
+    check "$cell" grep -Fq '"blocked":null' "$alert_dir/health.delivery.json"
+    check "$cell" grep -Fq '"attempts":1' "$alert_dir/health.delivery.json"
     if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
@@ -680,6 +699,65 @@ cell_acknowledged_crash() {
     ready_ok
     check "$cell" test "$(run_producer verdaxis-health.service health)" = 0
     check "$cell" test -z "$(pending "$health_dir")"
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
+}
+
+# A blocked head stays visible: the alert units stay failed after later
+# wakeups and reminders, the fixed-code handoff status says so to any reader,
+# and the run line is logged at error level. Only the operator clears it.
+cell_blocked_head_visible() {
+    local cell=alert_blocked_head_leaves_alert_units_failed_until_resolved before=$failures
+    local sequence status_file=/var/lib/verdaxis-monitor-alert-status/health.json
+    destination_status hang
+    ready_fail
+    systemctl start verdaxis-health.service >/dev/null 2>&1 || true
+    wait_settled verdaxis-monitor-alert@health.service
+    sequence=$(pending "$health_dir" | head -n 1)
+    sequence=${sequence%.json}
+    check "$cell" test -n "$sequence"
+    check "$cell" test "$(systemctl show -p ExecMainStatus --value verdaxis-monitor-alert@health.service)" = 5
+    check "$cell" systemctl is-failed --quiet verdaxis-monitor-alert@health.service
+    check "$cell" grep -Fq '"code":"handoff_uncertain"' "$status_file"
+    allowed "$cell" nobody cat "$status_file"
+    check "$cell" test "$(stat -c %a "$status_file")" = 644
+    check "$cell" sh -c "journalctl --no-pager -o cat -p err -u verdaxis-monitor-alert@health.service | grep -Fq '\"command\":\"monitor alert\"'"
+    # A later producer run and its wakeup, then the reminder: still failed.
+    destination_status 200
+    ready_ok
+    systemctl start verdaxis-health.service >/dev/null 2>&1 || true
+    wait_settled verdaxis-monitor-alert@health.service
+    check "$cell" test "$(systemctl show -p ExecMainStatus --value verdaxis-monitor-alert@health.service)" = 5
+    systemctl start verdaxis-monitor-alert-reminder.service >/dev/null 2>&1 || true
+    check "$cell" test "$(systemctl show -p ExecMainStatus --value verdaxis-monitor-alert-reminder.service)" = 5
+    check "$cell" systemctl is-failed --quiet verdaxis-monitor-alert-reminder.service
+    check "$cell" grep -Fq '"code":"handoff_uncertain"' "$status_file"
+    # The operator reconciles both destinations; the queue drains in order.
+    for destination in healthchecks telegram; do
+        check "$cell" as_user verdaxis-monitor-alert "$binary_path" monitor alert \
+            --reconcile "health:$sequence:$destination:not-delivered"
+    done
+    drain_all
+    check "$cell" test -z "$(pending "$health_dir")"
+    check "$cell" grep -Fq '"code":"ok"' "$status_file"
+    systemctl reset-failed verdaxis-monitor-alert-reminder.service >/dev/null 2>&1 || true
+    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
+}
+
+# Sandbox directives systemd could not apply in this rootless target must be
+# on the list carried to the Task 31 root-VM rehearsal; any other fails.
+cell_sandbox_directives() {
+    local cell=alert_handoff_sandbox_directives_applied_or_listed before=$failures directive
+    local allowed_list=" PrivateNetwork ProtectHostname IPAddressDeny DevicePolicy "
+    while IFS= read -r directive; do
+        [ -n "$directive" ] || continue
+        case "$allowed_list" in
+            *" $directive "*) printf 'IGNORED_DIRECTIVE %s (carried to the Task 31 root-VM check)\n' "$directive" ;;
+            *) fail "$cell" "systemd ignored $directive" ;;
+        esac
+    done < <(journalctl --no-pager -o cat 2>/dev/null \
+        | grep -E 'verdaxis-(health|backup-verify|monitor-alert)' \
+        | sed -n -E 's/.*: ([A-Za-z]+)=[^ ]* is configured, but.*/\1/p; s/.*configures an IP firewall, but.*/IPAddressDeny/p; s/.*([A-Za-z]+Policy)=.*not supported.*/\1/p' \
+        | sort -u)
     if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
 
@@ -806,11 +884,14 @@ inside_target() {
             cell_acl_modes
             cell_failed_enqueue
             cell_acknowledged_crash
+            cell_blocked_head_visible
+            cell_sandbox_directives
             prepare_reboot
             ;;
         --after-reboot)
             cell_after_reboot
             cell_revert
+            cell_sandbox_directives
             ;;
         *)
             echo "unknown phase $1" >&2

@@ -9,9 +9,9 @@ EnvironmentFile=/etc/verdaxis-monitor/alert.env
 ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --remind all
 StateDirectory=verdaxis-monitor-alert
 StateDirectoryMode=0700
-ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff
+ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status
 UMask=0077
-TimeoutStartSec=150s
+TimeoutStartSec=180s
 MemoryMax=64M
 TasksMax=16
 

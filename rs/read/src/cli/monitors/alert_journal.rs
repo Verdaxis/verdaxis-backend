@@ -196,6 +196,12 @@ impl JournalPaths {
             .join(format!(".{}.journal.lock", self.check.as_str()))
     }
 
+    /// The producer lock, held across observation, admission and publication.
+    pub fn producer_lock(&self) -> PathBuf {
+        self.state_directory
+            .join(format!(".{}.producer.lock", self.check.as_str()))
+    }
+
     pub fn quarantine_directory(&self) -> PathBuf {
         self.state_directory.join(QUARANTINE_DIRECTORY)
     }

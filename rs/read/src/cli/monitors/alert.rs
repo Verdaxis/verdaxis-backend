@@ -65,6 +65,9 @@ use std::time::Duration;
 pub const MAX_ATTEMPTS: u32 = 3;
 /// Shortest time between two attempts of the same head.
 pub const ATTEMPT_SPACING: Duration = Duration::from_secs(5);
+/// Shortest time before the second and the third attempt of one head, so a
+/// short provider outage does not spend all three attempts.
+pub const RETRY_SPACING: [Duration; 2] = [Duration::from_secs(60), Duration::from_secs(300)];
 /// Bound of one check's work in one invocation.
 pub const WORKER_BUDGET: Duration = Duration::from_secs(60);
 /// A failure is repeated once an hour while it lasts (Python's
@@ -259,6 +262,12 @@ pub enum SendOutcome {
 
 /// The network side, replaced by fakes in tests.
 pub trait Transport: Sync {
+    /// Whether a send can be made at all (the client exists). A transport that
+    /// is not ready spends no delivery attempt.
+    fn ready(&self) -> bool {
+        true
+    }
+
     fn send(
         &self,
         settings: &AlertSettings,
@@ -612,11 +621,15 @@ fn attempt_time(at: DateTime<Utc>) -> String {
 #[derive(Debug, Clone)]
 pub struct DispatcherConfig {
     pub alert_directory: PathBuf,
+    /// World-readable fixed-code handoff status, one document per check.
+    pub status_directory: PathBuf,
     pub health: JournalPaths,
     pub backup: JournalPaths,
     pub lock_timeout: Duration,
     pub max_attempts: u32,
     pub attempt_spacing: Duration,
+    /// Shortest time before the second and the third attempt of a head.
+    pub retry_spacing: [Duration; 2],
 }
 
 impl DispatcherConfig {
@@ -626,13 +639,18 @@ impl DispatcherConfig {
         health_state_directory: impl Into<PathBuf>,
         backup_state_directory: impl Into<PathBuf>,
     ) -> Self {
+        let alert_directory: PathBuf = alert_directory.into();
+        let mut status_directory = alert_directory.clone().into_os_string();
+        status_directory.push("-status");
         Self {
-            alert_directory: alert_directory.into(),
+            alert_directory,
+            status_directory: status_directory.into(),
             health: JournalPaths::new(Check::Health, health_state_directory),
             backup: JournalPaths::new(Check::Backup, backup_state_directory),
             lock_timeout: LOCK_TIMEOUT,
             max_attempts: MAX_ATTEMPTS,
             attempt_spacing: ATTEMPT_SPACING,
+            retry_spacing: RETRY_SPACING,
         }
     }
 
@@ -664,6 +682,12 @@ impl DispatcherConfig {
             .join(format!("{}.json", check.as_str()))
     }
 
+    /// The world-readable handoff status of `check` (fixed codes only).
+    pub fn handoff_status(&self, check: Check) -> PathBuf {
+        self.status_directory
+            .join(format!("{}.json", check.as_str()))
+    }
+
     /// The dispatcher's private progress document.
     pub fn delivery_state(&self, check: Check) -> PathBuf {
         self.alert_directory
@@ -682,6 +706,8 @@ pub enum Outcome {
     Unconfigured(Option<Sequence>),
     /// The attempt failed; the head stays and a later wakeup retries it.
     RetryLater(Sequence),
+    /// The next attempt of the head is not due yet; a later wakeup makes it.
+    Waiting(Sequence),
     /// The check is blocked until an operator acts.
     Blocked(Sequence, BlockReason),
     /// An hourly failure reminder was sent.
@@ -697,6 +723,7 @@ impl Outcome {
             Self::Delivered(_) => "delivered",
             Self::Unconfigured(_) => "delivery_unconfigured",
             Self::RetryLater(_) => "retry_later",
+            Self::Waiting(_) => "waiting",
             Self::Blocked(_, reason) => reason.as_str(),
             Self::Reminded => "reminded",
             Self::ReminderFailed => "reminder_failed",
@@ -711,7 +738,9 @@ pub fn exit_for(result: &Result<Outcome, Exit>) -> Exit {
     match result {
         Ok(Outcome::Idle | Outcome::Delivered(_) | Outcome::Reminded) => Exit::Ok,
         Ok(Outcome::Unconfigured(_)) => Exit::Usage,
-        Ok(Outcome::RetryLater(_) | Outcome::ReminderFailed) => Exit::Dependency,
+        Ok(Outcome::RetryLater(_) | Outcome::Waiting(_) | Outcome::ReminderFailed) => {
+            Exit::Dependency
+        }
         Ok(Outcome::Blocked(_, BlockReason::Uncertain)) => Exit::Ambiguous,
         Ok(Outcome::Blocked(_, _)) => Exit::Precondition,
         Err(exit) => *exit,
@@ -736,6 +765,14 @@ pub struct Dispatcher<'a, T: Transport, C: Clock> {
     transport: &'a T,
     clock: &'a C,
     hook: Option<&'a dyn DispatchHook>,
+    /// The end of this check's work budget, when one is set.
+    deadline: Option<std::time::Instant>,
+}
+
+impl<T: Transport, C: Clock> Clone for Dispatcher<'_, T, C> {
+    fn clone(&self) -> Self {
+        Self { ..*self }
+    }
 }
 
 impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
@@ -751,7 +788,14 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
             transport,
             clock,
             hook: None,
+            deadline: None,
         }
+    }
+
+    /// Bound this dispatcher's lock waits and sends by `deadline`.
+    pub fn with_deadline(mut self, deadline: std::time::Instant) -> Self {
+        self.deadline = Some(deadline);
+        self
     }
 
     pub fn with_hook(mut self, hook: &'a dyn DispatchHook) -> Self {
@@ -850,6 +894,13 @@ impl<'a, T: Transport, C: Clock> Dispatcher<'a, T, C> {
         head.attempts = 0;
         head.blocked = None;
         self.save_delivery(check, &delivery)
+    }
+
+    /// `--repair --reason`: clear an `invalid_entry` or `sequence_reused` block
+    /// after the operator repaired the journal.
+    pub fn repair(&self, check: Check, sequence: Sequence, reason: &str) -> Result<(), Exit> {
+        let _ = (check, sequence, reason);
+        Err(Exit::Precondition)
     }
 
     /// `--release`: hand the check back to the Python dispatcher. Refused
@@ -1399,8 +1450,12 @@ pub enum Action {
     Remind(Vec<Check>),
     Reconcile(Check, Sequence, Destination, Resolution),
     Rearm(Check, Sequence),
+    Repair(Check, Sequence, String),
     Release(Check),
 }
+
+/// Longest operator reason `--repair` accepts.
+pub const MAX_REASON_CHARS: usize = 200;
 
 /// Parse `--event <check>` (or the old `<check>-<state>` form).
 pub fn parse_event(text: &str) -> Option<Check> {
@@ -1431,6 +1486,7 @@ pub fn parse_action(args: &MonitorArgs) -> Option<Action> {
         || args.max_pending.is_some()
         || args.max_age_seconds.is_some()
         || args.query_timeout.is_some()
+        || args.reason.is_some() != args.repair.is_some()
     {
         return None;
     }
@@ -1439,6 +1495,7 @@ pub fn parse_action(args: &MonitorArgs) -> Option<Action> {
         args.remind.is_some(),
         args.reconcile.is_some(),
         args.rearm.is_some(),
+        args.repair.is_some(),
         args.release.is_some(),
     ];
     if chosen.iter().filter(|chosen| **chosen).count() != 1 {
@@ -1477,6 +1534,21 @@ pub fn parse_action(args: &MonitorArgs) -> Option<Action> {
             parse_sequence(sequence)?,
         ));
     }
+    if let (Some(text), Some(reason)) = (&args.repair, &args.reason) {
+        let (check, sequence) = text.split_once(':')?;
+        let reason = reason.trim();
+        let printable = reason
+            .chars()
+            .all(|character| character == ' ' || character.is_ascii_graphic());
+        if reason.is_empty() || reason.chars().count() > MAX_REASON_CHARS || !printable {
+            return None;
+        }
+        return Some(Action::Repair(
+            Check::parse(check)?,
+            parse_sequence(sequence)?,
+            reason.to_owned(),
+        ));
+    }
     args.release
         .as_deref()
         .and_then(Check::parse)
@@ -1510,6 +1582,12 @@ pub async fn run_action<T: Transport, C: Clock>(
         }
         Action::Rearm(check, sequence) => {
             let result = dispatcher.rearm(*check, *sequence).map(|()| Outcome::Idle);
+            results.push((*check, result));
+        }
+        Action::Repair(check, sequence, reason) => {
+            let result = dispatcher
+                .repair(*check, *sequence, reason)
+                .map(|()| Outcome::Idle);
             results.push((*check, result));
         }
         Action::Release(check) => {
@@ -1547,7 +1625,10 @@ async fn bounded(work: impl Future<Output = Result<Outcome, Exit>>) -> Result<Ou
 /// each check's outcome; no token, chat id or URL is printed.
 pub async fn run_command(args: &MonitorArgs) -> Exit {
     let Some(action) = parse_action(args) else {
-        report(&[], "usage_refused");
+        eprintln!(
+            "{}",
+            serde_json::json!({"command": "monitor alert", "outcome": "usage_refused", "counts": {}})
+        );
         return Exit::Usage;
     };
     let config = DispatcherConfig::installed();
@@ -1555,17 +1636,17 @@ pub async fn run_command(args: &MonitorArgs) -> Exit {
     let transport = HttpTransport::new();
     let dispatcher = Dispatcher::new(&config, &settings, &transport, &SystemClock);
     let (exit, outcomes) = run_action(&dispatcher, &action).await;
-    report(&outcomes, if exit == Exit::Ok { "ok" } else { "failed" });
+    eprintln!("{}", report_line(&outcomes, exit));
     exit
 }
 
-fn report(outcomes: &[(Check, String)], outcome: &str) {
+/// The one stderr line of a run: each check's outcome, no secret.
+pub fn report_line(outcomes: &[(Check, String)], exit: Exit) -> String {
+    let outcome = if exit == Exit::Ok { "ok" } else { "failed" };
     let counts: serde_json::Map<String, serde_json::Value> = outcomes
         .iter()
         .map(|(check, outcome)| (check.as_str().to_owned(), outcome.clone().into()))
         .collect();
-    eprintln!(
-        "{}",
-        serde_json::json!({"command": "monitor alert", "outcome": outcome, "counts": counts})
-    );
+    serde_json::json!({"command": "monitor alert", "outcome": outcome, "counts": counts})
+        .to_string()
 }

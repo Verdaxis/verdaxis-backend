@@ -35,13 +35,14 @@ use verdaxis_read::cli::Exit;
 use verdaxis_read::cli::monitors::alert::{
     AlertSettings, BlockReason, Clock, Delivery, Destination, DispatchHook, DispatchStage,
     Dispatcher, DispatcherConfig, HttpTransport, Kind, Outcome, Resolution, SendOutcome, Transport,
-    exit_for,
+    exit_for, report_line,
 };
 use verdaxis_read::cli::monitors::alert_journal::{
     AdmissionHook, AdmissionStage, Admitted, AlertObservation, AlertState, Check, EntryAccess,
     JournalAdmission, JournalLimits, JournalPaths, Producer, Refusal, Sequence, enqueue,
 };
 use verdaxis_read::cli::monitors::backup::{BackupConfig, run_at};
+use verdaxis_read::cli::monitors::status::{Admission, Status, valid_monitor_status};
 
 const SHORT_LOCK: Duration = Duration::from_millis(300);
 const TOKEN: &str = "fake-bot-token-73a1c9";
@@ -216,6 +217,7 @@ fn variables_settings(pairs: &[(&str, &str)]) -> AlertSettings {
 /// A clock that only moves when told to, or when a delivery waits.
 struct FakeClock {
     now: Mutex<DateTime<Utc>>,
+    /// Every wait the dispatcher asked for, for inspection when debugging.
     slept: Mutex<Vec<Duration>>,
 }
 
@@ -235,10 +237,6 @@ impl FakeClock {
 
     fn advance(&self, by: Span) {
         *self.now.lock().unwrap() += by;
-    }
-
-    fn slept(&self) -> Vec<Duration> {
-        self.slept.lock().unwrap().clone()
     }
 }
 
@@ -274,6 +272,8 @@ struct FakeTransport {
     sends: Mutex<Vec<Sent>>,
     gate: Option<Arc<Gate>>,
     log: Option<PathBuf>,
+    /// A transport whose client could not be built.
+    not_ready: bool,
 }
 
 #[derive(Default)]
@@ -314,6 +314,10 @@ impl FakeTransport {
 }
 
 impl Transport for FakeTransport {
+    fn ready(&self) -> bool {
+        !self.not_ready
+    }
+
     async fn send(&self, _settings: &AlertSettings, delivery: &Delivery) -> SendOutcome {
         if let Some(gate) = &self.gate
             && gate.armed.swap(false, Ordering::SeqCst)
@@ -521,6 +525,21 @@ fn child_process_entry() {
             );
             std::process::exit(exit as i32);
         }
+        // A backup monitor that stops between its observation and its
+        // admission until the parent releases it.
+        "produce-backup-barrier" => {
+            let admission = BarrierAdmission {
+                inner: JournalAdmission::new(
+                    Producer::new(layout.journal(Check::Backup)).with_limits(JournalLimits {
+                        lock_timeout: SHORT_LOCK,
+                        ..JournalLimits::default()
+                    }),
+                ),
+                directory: layout.base.clone(),
+            };
+            let exit = run_at(&layout.backup_config(), &admission, fixed_now());
+            std::process::exit(exit as i32);
+        }
         // A bare admission of one observation.
         "produce-observation" => {
             let state = match std::env::var(CHILD_STATE).unwrap().as_str() {
@@ -559,8 +578,47 @@ fn child_process_entry() {
     }
 }
 
+/// An admission that waits at a barrier after the observation.
+struct BarrierAdmission {
+    inner: JournalAdmission,
+    directory: PathBuf,
+}
+
+impl Admission for BarrierAdmission {
+    fn serialize(&self) -> Result<Option<Box<dyn std::any::Any>>, Exit> {
+        self.inner.serialize()
+    }
+
+    fn admit(&self, status: &Status) -> Result<(), Exit> {
+        std::fs::write(self.directory.join("barrier-waiting"), b"").unwrap();
+        let release = self.directory.join("barrier-release");
+        let started = std::time::Instant::now();
+        while !release.exists() && started.elapsed() < Duration::from_secs(30) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.inner.admit(status)
+    }
+}
+
+fn wait_for_file(path: &Path) {
+    let started = std::time::Instant::now();
+    while !path.exists() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{path:?} never appeared"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// Run this test binary as a disposable child with `role` on `layout`.
 fn child(layout: &Layout, role: &str, extra: &[(&str, &str)]) -> Output {
+    child_command(layout, role, extra)
+        .output()
+        .expect("start the child process")
+}
+
+fn child_command(layout: &Layout, role: &str, extra: &[(&str, &str)]) -> Command {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
         .args([
@@ -577,7 +635,7 @@ fn child(layout: &Layout, role: &str, extra: &[(&str, &str)]) -> Output {
     for (name, value) in extra {
         command.env(name, value);
     }
-    command.output().expect("start the child process")
+    command
 }
 
 fn killed_by_abort(output: &Output) -> bool {
@@ -769,8 +827,9 @@ fn alert_dispatch_serializes_events() {
     assert_eq!(exit_for(&second), Exit::Dependency);
     assert_eq!(layout.pending(Check::Health), vec![failure.0, healthy.0]);
 
-    // During the restart delay the healthy wakeup runs first: it must attempt
-    // the failure (sequence N), never the later healthy entry.
+    // After the failure's restart delay the healthy wakeup runs first: it must
+    // attempt the failure (sequence N), never the later healthy entry.
+    clock.advance(Span::seconds(60));
     let third = runtime().block_on(dispatcher.wake(Check::Health));
     assert_eq!(third, Ok(Outcome::Delivered(failure)));
     assert!(
@@ -835,12 +894,20 @@ fn alert_healthy_wakeup_before_failure_retry_cannot_overtake() {
         rt.block_on(dispatcher.wake(Check::Backup)),
         Ok(Outcome::RetryLater(failure))
     );
-    // The `backup-healthy` wakeup runs before the failure's restart.
+    // The `backup-healthy` wakeup runs at once: the failure's next attempt is
+    // not due, and the healthy entry is not taken in its place.
+    let sends = transport.sends().len();
+    let early = rt.block_on(dispatcher.wake(Check::Backup));
+    assert_eq!(early, Ok(Outcome::Waiting(failure)));
+    assert_eq!(exit_for(&early), Exit::Dependency);
+    assert_eq!(transport.sends().len(), sends);
+    // A minute later the next wakeup retries the failure, sequence N.
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Backup)),
         Ok(Outcome::Delivered(failure))
     );
-    // The confirmed Healthchecks send is not repeated; the retry waited 5 s.
+    // The confirmed Healthchecks send is not repeated.
     let attempted: Vec<(Option<u64>, Destination)> = transport
         .sends()
         .iter()
@@ -854,7 +921,6 @@ fn alert_healthy_wakeup_before_failure_retry_cannot_overtake() {
             (Some(failure.0), Destination::Telegram),
         ]
     );
-    assert_eq!(clock.slept(), vec![Duration::from_secs(5)]);
     // The failure's own retry then reaches the healthy transition.
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Backup)),
@@ -1014,6 +1080,7 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
             Resolution::NotDelivered,
         )
         .unwrap();
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::Delivered(failure))
@@ -1055,7 +1122,7 @@ fn alert_crash_resume_retains_head_and_confirmed_destination_progress() {
 
 #[test]
 fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
-    // Exhaustion: three failed attempts, 5 s apart, then a block.
+    // Exhaustion: three failed attempts, at least 60 s and 300 s apart, then a block.
     let layout = Layout::new();
     let failure = layout
         .enqueue(Check::Health, AlertState::Failure)
@@ -1069,21 +1136,24 @@ fn alert_exhaustion_or_uncertain_send_blocks_later_sequence_until_reconciled() {
     let settings = settings();
     let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
     let rt = runtime();
+    let started = clock.now();
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::RetryLater(failure))
     );
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::RetryLater(failure))
     );
+    clock.advance(Span::seconds(300));
     let exhausted = rt.block_on(dispatcher.wake(Check::Health));
     assert_eq!(
         exhausted,
         Ok(Outcome::Blocked(failure, BlockReason::Exhausted))
     );
     assert_eq!(exit_for(&exhausted), Exit::Precondition);
-    assert_eq!(clock.slept(), vec![Duration::from_secs(5); 2]);
+    assert!(clock.now() - started >= Span::seconds(360));
     // Blocked: no send at all, and the healthy sequence never moves ahead.
     let before = transport.sends().len();
     assert_eq!(
@@ -1531,6 +1601,44 @@ fn alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping() {
             "{stage}"
         );
     }
+    // The dispatcher may deliver and remove an in-doubt entry before the
+    // producer recovers it. The producer then cannot know the admitted state
+    // and admits again; the receipts keep the second failure from being sent.
+    for stage in ["after_rename", "after_directory_sync"] {
+        let layout = Layout::new();
+        let died = child(
+            &layout,
+            "produce-observation",
+            &[(CHILD_STAGE, stage), (CHILD_STATE, "failure")],
+        );
+        assert!(killed_by_abort(&died), "{stage}: {died:?}");
+        let transport = FakeTransport::default();
+        let clock = FakeClock::real();
+        let settings = settings();
+        let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
+        let rt = runtime();
+        assert!(matches!(
+            rt.block_on(dispatcher.remind(Check::Health)),
+            Ok(Outcome::Delivered(_))
+        ));
+        assert!(layout.pending(Check::Health).is_empty());
+        let again = layout.enqueue(Check::Health, AlertState::Failure);
+        assert!(
+            matches!(again, Admitted::Committed(_)),
+            "{stage}: {again:?}"
+        );
+        clock.advance(Span::minutes(5));
+        while let Ok(Outcome::Delivered(_)) = rt.block_on(dispatcher.wake(Check::Health)) {}
+        layout.enqueue(Check::Health, AlertState::Healthy);
+        while let Ok(Outcome::Delivered(_)) = rt.block_on(dispatcher.wake(Check::Health)) {}
+        let kinds: Vec<Kind> = transport
+            .delivered()
+            .iter()
+            .filter(|(_, _, destination)| *destination == Destination::Telegram)
+            .map(|(_, kind, _)| *kind)
+            .collect();
+        assert_eq!(kinds, vec![Kind::Failure, Kind::Recovery], "{stage}");
+    }
 }
 
 #[test]
@@ -1637,6 +1745,30 @@ fn alert_handoff_real_identities_enqueue_and_dispatch() {
             runtime().block_on(dispatcher.wake(Check::Health)),
             Ok(Outcome::Delivered(sequence))
         );
+        // An entry with another named reader keeps mode 0640 but has the
+        // wrong ACL: it is refused before use, never delivered.
+        let widened = producer
+            .enqueue(&observation(Check::Health, AlertState::Healthy))
+            .unwrap()
+            .sequence();
+        let status = Command::new("setfacl")
+            .args(["-m", "u:65533:r--"])
+            .arg(paths.entry(widened))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            std::fs::metadata(paths.entry(widened))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o640
+        );
+        assert_eq!(
+            runtime().block_on(dispatcher.wake(Check::Health)),
+            Ok(Outcome::Blocked(widened, BlockReason::InvalidEntry))
+        );
     } else {
         // No POSIX ACLs on this platform: the installed access fails closed.
         assert_eq!(
@@ -1694,7 +1826,7 @@ fn alert_handoff_producers_cannot_read_other_check_receipts_or_credentials() {
         let text =
             std::fs::read_to_string(contract_fixture(&format!("alert-handoff/{unit}"))).unwrap();
         assert!(text.contains(
-            "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff\n"
+            "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status\n"
         ));
         assert!(text.contains("User=verdaxis-monitor-alert"));
     }
@@ -1709,7 +1841,7 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
     .unwrap();
     let rules: Vec<&str> = policy
         .lines()
-        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .filter(|line| line.starts_with("a "))
         .collect();
     let mut expected = Vec::new();
     for (directory, check) in [
@@ -1727,18 +1859,32 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
         ));
     }
     assert_eq!(rules, expected);
-    let tmpfiles =
-        std::fs::read_to_string(contract_fixture("alert-handoff/verdaxis-monitor.tmpfiles"))
-            .unwrap();
+    // The handoff paths are created and given their ACLs in the same file, so
+    // applying the base file alone never resets a dispatcher mask.
+    let acl_lines: Vec<&str> = policy.lines().collect();
     for line in [
         "d /var/lib/verdaxis-health/alert-handoff 0700 verdaxis-health verdaxis-health -",
         "d /var/lib/verdaxis-backup-verify/alert-handoff 0700 verdaxis-backup-reader verdaxis-backup-readers -",
         "f /var/lib/verdaxis-health/.health.journal.lock 0600 verdaxis-health verdaxis-health -",
         "f /var/lib/verdaxis-backup-verify/.backup.journal.lock 0600 verdaxis-backup-reader verdaxis-backup-readers -",
+    ] {
+        assert!(acl_lines.contains(&line), "{line}");
+    }
+    let tmpfiles =
+        std::fs::read_to_string(contract_fixture("alert-handoff/verdaxis-monitor.tmpfiles"))
+            .unwrap();
+    for line in [
+        "d /var/lib/verdaxis-health 0710 verdaxis-health verdaxis-health -",
+        "d /var/lib/verdaxis-backup-verify 0710 verdaxis-backup-reader verdaxis-backup-readers -",
         "d /var/lib/verdaxis-monitor-alert 0700 verdaxis-monitor-alert verdaxis-monitor-alert -",
+        "d /var/lib/verdaxis-monitor-alert-status 0755 verdaxis-monitor-alert verdaxis-monitor-alert -",
     ] {
         assert!(tmpfiles.lines().any(|found| found == line), "{line}");
     }
+    assert!(
+        !tmpfiles.contains("alert-handoff"),
+        "handoff paths live in the ACL file"
+    );
 
     // The dispatcher only reads an entry and removes it after acknowledgement:
     // an entry its owner made read-only is still delivered and removed, and
@@ -1763,6 +1909,7 @@ fn alert_handoff_acl_modes_and_dispatcher_read_remove_only() {
         Ok(Outcome::RetryLater(sequence))
     );
     assert_eq!(std::fs::read(&entry).unwrap(), entry_bytes);
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::Delivered(sequence))
@@ -1886,6 +2033,7 @@ fn alert_python_direct_invocation_is_fenced_until_native_journal_drained() {
     assert_eq!(layout.lock_mode(Check::Health), 0o400);
 
     // Drained, the check is released and Python follows the native receipts.
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::Delivered(failure))
@@ -1948,6 +2096,7 @@ fn alert_acknowledgement_before_remove_survives_restart_and_revert() {
     );
     assert_eq!(layout.lock_mode(Check::Health), 0o400);
     // Drained, the revert succeeds and Python accepts the projected state.
+    clock.advance(Span::seconds(60));
     assert_eq!(
         rt.block_on(dispatcher.wake(Check::Health)),
         Ok(Outcome::Delivered(healthy))
@@ -2114,6 +2263,7 @@ fn alert_telegram_and_healthchecks_failures_are_independent() {
             progress["head"]["destinations"][failing.as_str()]["status"],
             "pending"
         );
+        clock.advance(Span::seconds(60));
         assert_eq!(
             rt.block_on(dispatcher.wake(Check::Health)),
             Ok(Outcome::Delivered(failure))
@@ -2145,16 +2295,6 @@ fn alert_telegram_and_healthchecks_failures_are_independent() {
         Ok(Outcome::Delivered(failure))
     );
     assert_eq!(transport.sends().len(), 1);
-    // Nothing configured: acknowledged, and exit 2 as in Python.
-    let layout = Layout::new();
-    let failure = layout
-        .enqueue(Check::Backup, AlertState::Failure)
-        .sequence();
-    let none = AlertSettings::default();
-    let dispatcher = self::dispatcher(&layout, &none, &transport, &clock);
-    let result = runtime().block_on(dispatcher.wake(Check::Backup));
-    assert_eq!(result, Ok(Outcome::Unconfigured(Some(failure))));
-    assert_eq!(exit_for(&result), Exit::Usage);
 }
 
 // ---- documents and secrets ------------------------------------------------------------------
@@ -2326,4 +2466,416 @@ fn alert_never_prints_a_token_or_chat_id() {
         let text = std::fs::read_to_string(path).unwrap();
         assert!(!text.contains(TOKEN) && !text.contains(CHAT));
     }
+}
+
+// ---- fix round: visibility, serialization, repair, configuration ----------------------
+
+#[test]
+fn alert_short_destination_outage_does_not_exhaust_the_head() {
+    // Telegram refuses for ten seconds while wakeups keep coming every 5 s.
+    let layout = Layout::new();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let transport = FakeTransport::default();
+    transport.script(Destination::Telegram, &[SendOutcome::NotDelivered]);
+    let clock = FakeClock::real();
+    let settings = settings();
+    let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
+    let rt = runtime();
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::RetryLater(failure))
+    );
+    for _ in 0..2 {
+        clock.advance(Span::seconds(5));
+        assert_eq!(
+            rt.block_on(dispatcher.wake(Check::Health)),
+            Ok(Outcome::Waiting(failure)),
+            "a wakeup during the outage spends no attempt"
+        );
+    }
+    assert_eq!(transport.sends().len(), 2);
+    let progress = layout.delivery(Check::Health).unwrap();
+    assert_eq!(progress["head"]["attempts"], json!(1));
+    // The outage is over by the next due attempt.
+    clock.advance(Span::seconds(50));
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Delivered(failure))
+    );
+
+    // A destination that stays down: the three attempts take at least 360 s,
+    // however often the dispatcher is woken.
+    let healthy = layout
+        .enqueue(Check::Health, AlertState::Healthy)
+        .sequence();
+    transport.script(Destination::Telegram, &[SendOutcome::NotDelivered; 3]);
+    let started = clock.now();
+    loop {
+        let result = rt.block_on(dispatcher.wake(Check::Health));
+        if let Ok(Outcome::Blocked(sequence, reason)) = result {
+            assert_eq!((sequence, reason), (healthy, BlockReason::Exhausted));
+            break;
+        }
+        assert!(
+            matches!(result, Ok(Outcome::RetryLater(_)) | Ok(Outcome::Waiting(_))),
+            "{result:?}"
+        );
+        clock.advance(Span::seconds(5));
+        assert!(clock.now() - started < Span::hours(1), "never exhausted");
+    }
+    assert!(clock.now() - started >= Span::seconds(360));
+    assert_eq!(
+        transport
+            .sends()
+            .iter()
+            .filter(|sent| sent.sequence == Some(healthy.0)
+                && sent.destination == Destination::Telegram)
+            .count(),
+        3
+    );
+}
+
+fn read_handoff_status(layout: &Layout, check: Check) -> Value {
+    let path = layout.config.handoff_status(check);
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o644, "readable by the monitoring identity");
+    let value = read_json(&path).unwrap();
+    assert!(valid_monitor_status(&value), "{value}");
+    value
+}
+
+#[test]
+fn alert_blocked_head_publishes_a_failed_handoff_status() {
+    let layout = Layout::new();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let transport = FakeTransport::default();
+    transport.script(Destination::Telegram, &[SendOutcome::Uncertain]);
+    let clock = FakeClock::real();
+    let settings = settings();
+    let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
+    let rt = runtime();
+    let blocked = rt.block_on(dispatcher.wake(Check::Health));
+    assert_eq!(
+        blocked,
+        Ok(Outcome::Blocked(failure, BlockReason::Uncertain))
+    );
+    let status = read_handoff_status(&layout, Check::Health);
+    assert_eq!(status["category"], "failure");
+    assert_eq!(status["checks"][0]["name"], "alert_handoff");
+    assert_eq!(status["checks"][0]["code"], "handoff_uncertain");
+    assert_eq!(
+        std::fs::metadata(&layout.config.status_directory)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    let text = std::fs::read_to_string(layout.config.handoff_status(Check::Health)).unwrap();
+    assert!(!text.contains(TOKEN) && !text.contains(&failure.0.to_string()));
+    // Every later wakeup and reminder keeps the check failed and visible.
+    for _ in 0..2 {
+        assert_eq!(
+            exit_for(&rt.block_on(dispatcher.wake(Check::Health))),
+            Exit::Ambiguous
+        );
+        assert_eq!(
+            exit_for(&rt.block_on(dispatcher.remind(Check::Health))),
+            Exit::Ambiguous
+        );
+    }
+    assert_eq!(
+        read_handoff_status(&layout, Check::Health)["category"],
+        "failure"
+    );
+    // The run line of a blocked check is logged at error level.
+    let line = report_line(&[(Check::Health, "uncertain".to_owned())], Exit::Ambiguous);
+    assert!(line.starts_with("<3>"), "{line}");
+    assert!(!line.contains(TOKEN) && !line.contains(CHAT));
+    let line = report_line(&[(Check::Health, "delivered".to_owned())], Exit::Ok);
+    assert!(!line.starts_with('<'), "{line}");
+
+    // Resolved, the status turns healthy again.
+    dispatcher
+        .reconcile(
+            Check::Health,
+            failure,
+            Destination::Telegram,
+            Resolution::NotDelivered,
+        )
+        .unwrap();
+    clock.advance(Span::seconds(60));
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Delivered(failure))
+    );
+    let status = read_handoff_status(&layout, Check::Health);
+    assert_eq!(status["category"], "healthy");
+    assert_eq!(status["checks"][0]["code"], "ok");
+    assert!(status["checks"][0]["last_success_at"].is_string());
+
+    // Exhaustion is published the same way, for the other check.
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
+    transport.script(Destination::Healthchecks, &[SendOutcome::NotDelivered; 3]);
+    for wait in [0, 60, 300] {
+        clock.advance(Span::seconds(wait));
+        let _ = rt.block_on(dispatcher.wake(Check::Backup));
+    }
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Backup)),
+        Ok(Outcome::Blocked(failure, BlockReason::Exhausted))
+    );
+    let status = read_handoff_status(&layout, Check::Backup);
+    assert_eq!(status["checks"][0]["code"], "handoff_exhausted");
+    assert_eq!(
+        read_handoff_status(&layout, Check::Health)["category"],
+        "healthy"
+    );
+}
+
+#[test]
+fn alert_concurrent_producers_cannot_admit_out_of_observation_order() {
+    let layout = Layout::new();
+    // Producer A observes a failure and stops before its admission.
+    let first = child_command(&layout, "produce-backup-barrier", &[])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    wait_for_file(&layout.base.join("barrier-waiting"));
+    // Meanwhile the backup is healthy, and a manual run starts beside A.
+    write_healthy_backup(&layout);
+    let manual = child(&layout, "produce-backup", &[]);
+    assert_eq!(manual.status.code(), Some(4), "{manual:?}");
+    assert!(String::from_utf8_lossy(&manual.stderr).contains("publish_refused"));
+    assert!(layout.pending(Check::Backup).is_empty());
+    assert!(layout.status_bytes().is_none());
+    // A finishes with its own observation.
+    std::fs::write(layout.base.join("barrier-release"), b"").unwrap();
+    let first = first.wait_with_output().unwrap();
+    assert_eq!(first.status.code(), Some(2), "{first:?}");
+    // The next run observes healthy; the order is failure, then healthy.
+    assert_eq!(child(&layout, "produce-backup", &[]).status.code(), Some(0));
+    let transport = FakeTransport::default();
+    let clock = FakeClock::real();
+    let settings = settings();
+    let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
+    let rt = runtime();
+    while let Ok(Outcome::Delivered(_)) = rt.block_on(dispatcher.wake(Check::Backup)) {}
+    let kinds: Vec<Kind> = transport
+        .delivered()
+        .iter()
+        .map(|(_, kind, _)| *kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![Kind::Failure, Kind::Failure, Kind::Recovery, Kind::Recovery]
+    );
+    assert_eq!(layout.legacy(Check::Backup).unwrap()["state"], "healthy");
+    let status: Value = serde_json::from_slice(&layout.status_bytes().unwrap()).unwrap();
+    assert_eq!(status["category"], "healthy");
+}
+
+#[test]
+fn alert_invalid_head_block_clears_only_by_operator_after_repair() {
+    let layout = Layout::new();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let entry = layout.journal(Check::Health).entry(failure);
+    let target = layout.base.join("elsewhere.json");
+    std::fs::rename(&entry, &target).unwrap();
+    std::os::unix::fs::symlink(&target, &entry).unwrap();
+    let transport = FakeTransport::default();
+    let clock = FakeClock::real();
+    let settings = settings();
+    let dispatcher = dispatcher(&layout, &settings, &transport, &clock);
+    let rt = runtime();
+    let blocked = Ok(Outcome::Blocked(failure, BlockReason::InvalidEntry));
+    assert_eq!(rt.block_on(dispatcher.wake(Check::Health)), blocked);
+    assert_eq!(
+        read_handoff_status(&layout, Check::Health)["checks"][0]["code"],
+        "handoff_invalid_entry"
+    );
+    // While the bad name is still the head, a repair is refused.
+    assert_eq!(
+        dispatcher.repair(Check::Health, failure, "link replaced"),
+        Err(Exit::Precondition)
+    );
+    // The producer quarantines the link on its next run; the block stays.
+    layout.enqueue(Check::Health, AlertState::Healthy);
+    assert!(!entry.exists() && std::fs::symlink_metadata(&entry).is_err());
+    assert_eq!(rt.block_on(dispatcher.wake(Check::Health)), blocked);
+    // Only the operator clears it: the right sequence and a reason.
+    assert_eq!(
+        dispatcher.repair(Check::Health, Sequence(failure.0 + 7), "wrong head"),
+        Err(Exit::Precondition)
+    );
+    assert_eq!(
+        dispatcher.repair(Check::Health, failure, "  "),
+        Err(Exit::Usage)
+    );
+    dispatcher
+        .repair(Check::Health, failure, "link quarantined by the producer")
+        .unwrap();
+    assert!(matches!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Delivered(_))
+    ));
+    assert!(layout.pending(Check::Health).is_empty());
+    assert_eq!(
+        read_handoff_status(&layout, Check::Health)["category"],
+        "healthy"
+    );
+
+    // A reused sequence below the acknowledged one blocks the same way.
+    let acknowledged = layout.delivery(Check::Health).unwrap()["acknowledged"].clone();
+    let reused = Sequence(acknowledged["sequence"].as_u64().unwrap() - 1);
+    let bytes = serde_json::to_vec(&json!({
+        "check": "health",
+        "observed_at": "2026-07-20T04:00:00Z",
+        "schema_version": 1,
+        "sequence": reused.0,
+        "state": "failure",
+    }))
+    .unwrap();
+    let path = layout.journal(Check::Health).entry(reused);
+    std::fs::write(&path, bytes).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Blocked(reused, BlockReason::SequenceReused))
+    );
+    assert_eq!(
+        dispatcher.repair(Check::Health, reused, "reused entry removed"),
+        Err(Exit::Precondition)
+    );
+    std::fs::remove_file(&path).unwrap();
+    dispatcher
+        .repair(Check::Health, reused, "reused entry removed")
+        .unwrap();
+    let progress = layout.delivery(Check::Health).unwrap();
+    assert_eq!(
+        progress["acknowledged"], acknowledged,
+        "acknowledgement kept"
+    );
+    assert_eq!(progress["head"], Value::Null);
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Idle)
+    );
+}
+
+#[test]
+fn alert_unconfigured_destinations_keep_the_head() {
+    let layout = Layout::new();
+    let failure = layout
+        .enqueue(Check::Backup, AlertState::Failure)
+        .sequence();
+    let transport = FakeTransport::default();
+    let clock = FakeClock::real();
+    let none = AlertSettings::default();
+    let unconfigured = dispatcher(&layout, &none, &transport, &clock);
+    let rt = runtime();
+    for result in [
+        rt.block_on(unconfigured.wake(Check::Backup)),
+        rt.block_on(unconfigured.remind(Check::Backup)),
+    ] {
+        assert_eq!(result, Ok(Outcome::Unconfigured(Some(failure))));
+        assert_eq!(exit_for(&result), Exit::Usage);
+    }
+    assert_eq!(layout.pending(Check::Backup), vec![failure.0]);
+    assert!(
+        layout.legacy(Check::Backup).is_none(),
+        "nothing acknowledged"
+    );
+    assert_eq!(
+        layout
+            .delivery(Check::Backup)
+            .map_or(Value::Null, |progress| progress["acknowledged"].clone()),
+        Value::Null
+    );
+    assert_eq!(
+        read_handoff_status(&layout, Check::Backup)["checks"][0]["code"],
+        "handoff_unconfigured"
+    );
+    // Configured again, the retained failure is delivered.
+    let settings = settings();
+    let configured = dispatcher(&layout, &settings, &transport, &clock);
+    assert_eq!(
+        rt.block_on(configured.wake(Check::Backup)),
+        Ok(Outcome::Delivered(failure))
+    );
+    assert_eq!(transport.sends().len(), 2);
+    assert_eq!(
+        read_handoff_status(&layout, Check::Backup)["category"],
+        "healthy"
+    );
+}
+
+#[test]
+fn alert_client_that_cannot_be_built_spends_no_attempt() {
+    let layout = Layout::new();
+    let failure = layout
+        .enqueue(Check::Health, AlertState::Failure)
+        .sequence();
+    let broken = FakeTransport {
+        not_ready: true,
+        ..FakeTransport::default()
+    };
+    let clock = FakeClock::real();
+    let settings = settings();
+    let rt = runtime();
+    for _ in 0..4 {
+        let dispatcher = dispatcher(&layout, &settings, &broken, &clock);
+        assert_eq!(
+            rt.block_on(dispatcher.wake(Check::Health)),
+            Err(Exit::Dependency)
+        );
+    }
+    assert!(broken.sends().is_empty());
+    let attempts = layout
+        .delivery(Check::Health)
+        .map_or(json!(0), |progress| progress["head"]["attempts"].clone());
+    assert_eq!(attempts, json!(0));
+    let working = FakeTransport::default();
+    let dispatcher = dispatcher(&layout, &settings, &working, &clock);
+    assert_eq!(
+        rt.block_on(dispatcher.wake(Check::Health)),
+        Ok(Outcome::Delivered(failure))
+    );
+}
+
+#[test]
+fn alert_worker_budget_bounds_lock_waits() {
+    let layout = Layout::new();
+    layout.enqueue(Check::Health, AlertState::Failure);
+    let mut config = layout.config.clone();
+    config.lock_timeout = Duration::from_secs(20);
+    let transport = FakeTransport::default();
+    let clock = FakeClock::real();
+    let settings = settings();
+    let rt = runtime();
+    for path in [
+        config.delivery_lock(Check::Health),
+        layout.journal(Check::Health).journal_lock(),
+    ] {
+        let held = hold_lock(&path);
+        let started = std::time::Instant::now();
+        let dispatcher = Dispatcher::new(&config, &settings, &transport, &clock)
+            .with_deadline(started + Duration::from_millis(500));
+        assert_eq!(
+            rt.block_on(dispatcher.wake(Check::Health)),
+            Err(Exit::Dependency)
+        );
+        assert!(started.elapsed() < Duration::from_secs(3), "{path:?}");
+        drop(held);
+    }
+    assert!(transport.sends().is_empty());
 }

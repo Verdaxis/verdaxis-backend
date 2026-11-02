@@ -1,8 +1,16 @@
-# Alert handoff ACLs (plan section 6.4). Apply after verdaxis-monitor.tmpfiles.
+# Alert handoff paths and ACLs (plan section 6.4). Apply after
+# verdaxis-monitor.tmpfiles, which creates the two producer state directories
+# with mode 0710 (the same mask as their ACLs, so applying it alone keeps the
+# dispatcher's traversal entry effective). The handoff paths are created here,
+# in the same file as their ACLs, so their masks are always set in one pass.
 # The dispatcher identity may traverse each producer state directory (no
 # listing), lock each stable journal lock read-only, and read and remove
 # committed entries. Owning-group and other entries stay empty. A new entry
 # inherits the default ACL; the producer also sets its access ACL explicitly.
+d /var/lib/verdaxis-health/alert-handoff 0700 verdaxis-health verdaxis-health -
+d /var/lib/verdaxis-backup-verify/alert-handoff 0700 verdaxis-backup-reader verdaxis-backup-readers -
+f /var/lib/verdaxis-health/.health.journal.lock 0600 verdaxis-health verdaxis-health -
+f /var/lib/verdaxis-backup-verify/.backup.journal.lock 0600 verdaxis-backup-reader verdaxis-backup-readers -
 a /var/lib/verdaxis-health - - - - u::rwx,u:verdaxis-monitor-alert:--x,g::---,m::--x,o::---
 a /var/lib/verdaxis-health/.health.journal.lock - - - - u::rw-,u:verdaxis-monitor-alert:r--,g::---,m::r--,o::---
 a /var/lib/verdaxis-health/alert-handoff - - - - u::rwx,u:verdaxis-monitor-alert:rwx,g::---,m::rwx,o::---,d:u::rwx,d:u:verdaxis-monitor-alert:r--,d:g::---,d:m::r--,d:o::---

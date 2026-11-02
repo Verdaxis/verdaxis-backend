@@ -346,3 +346,18 @@ fn outbox_query_is_bounded_read_only_and_times_out() {
     assert!(started.elapsed() < Duration::from_secs(5));
     drop(silent);
 }
+
+#[test]
+fn outbox_keyword_dsn_without_host_uses_the_local_default() {
+    // libpq connects through its default (PGHOST, else the local socket) when
+    // the DSN names no host; the probe must not force a TCP localhost.
+    // SAFETY: the other tests in this binary name their host explicitly, so the
+    // short-lived PGHOST cannot change their targets.
+    unsafe { std::env::set_var("PGHOST", "/run/postgresql-probe-default") };
+    let target = Target::from_dsn("dbname=verdaxis_prod user=verdaxis_backup").unwrap();
+    let named =
+        Target::from_dsn("host=127.0.0.1 dbname=verdaxis_prod user=verdaxis_backup").unwrap();
+    unsafe { std::env::remove_var("PGHOST") };
+    assert_eq!(target.host(), "/run/postgresql-probe-default");
+    assert_eq!(named.host(), "127.0.0.1");
+}

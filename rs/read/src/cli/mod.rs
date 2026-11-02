@@ -207,6 +207,13 @@ pub struct MonitorArgs {
     /// `monitor alert`: new attempts for an exhausted head, `<check>:<sequence>`.
     #[arg(long)]
     pub rearm: Option<String>,
+    /// `monitor alert`: clear an invalid or reused head after a journal repair,
+    /// `<check>:<sequence>`; needs `--reason`.
+    #[arg(long)]
+    pub repair: Option<String>,
+    /// `monitor alert --repair`: the operator's reason, logged with the repair.
+    #[arg(long)]
+    pub reason: Option<String>,
     /// `monitor alert`: hand a drained check back to the Python dispatcher.
     #[arg(long)]
     pub release: Option<String>,
@@ -477,6 +484,8 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
                     || args.remind.is_some()
                     || args.reconcile.is_some()
                     || args.rearm.is_some()
+                    || args.repair.is_some()
+                    || args.reason.is_some()
                     || args.release.is_some()
                     || args.dsn.is_some()
                     || args.max_pending.is_some()

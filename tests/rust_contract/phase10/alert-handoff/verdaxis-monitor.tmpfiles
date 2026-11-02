@@ -4,11 +4,8 @@ d /etc/verdaxis-monitor/demo 0711 root root -
 z /etc/verdaxis-monitor/alert.env 0600 root root -
 z /etc/verdaxis-monitor/demo/production.env 0600 verdaxis-demo-production verdaxis-demo-production -
 z /etc/verdaxis-monitor/demo/staging.env 0600 verdaxis-demo-staging verdaxis-demo-staging -
-d /var/lib/verdaxis-health 0700 verdaxis-health verdaxis-health -
-d /var/lib/verdaxis-backup-verify 0700 verdaxis-backup-reader verdaxis-backup-readers -
-d /var/lib/verdaxis-health/alert-handoff 0700 verdaxis-health verdaxis-health -
-d /var/lib/verdaxis-backup-verify/alert-handoff 0700 verdaxis-backup-reader verdaxis-backup-readers -
-f /var/lib/verdaxis-health/.health.journal.lock 0600 verdaxis-health verdaxis-health -
-f /var/lib/verdaxis-backup-verify/.backup.journal.lock 0600 verdaxis-backup-reader verdaxis-backup-readers -
+d /var/lib/verdaxis-health 0710 verdaxis-health verdaxis-health -
+d /var/lib/verdaxis-backup-verify 0710 verdaxis-backup-reader verdaxis-backup-readers -
 d /var/lib/verdaxis-monitor-alert 0700 verdaxis-monitor-alert verdaxis-monitor-alert -
+d /var/lib/verdaxis-monitor-alert-status 0755 verdaxis-monitor-alert verdaxis-monitor-alert -
 d /var/lib/verdaxis-monitor 0700 root root -

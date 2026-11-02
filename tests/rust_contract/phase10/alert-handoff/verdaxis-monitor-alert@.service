@@ -1,7 +1,8 @@
 [Unit]
 Description=Deliver the oldest Verdaxis local monitor transition of check %i
 StartLimitIntervalSec=10min
-StartLimitBurst=3
+# Two producer wakeups per check and the 60 s restarts of one head fit.
+StartLimitBurst=16
 
 [Service]
 Type=oneshot
@@ -11,13 +12,14 @@ EnvironmentFile=/etc/verdaxis-monitor/alert.env
 ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --event %i
 StateDirectory=verdaxis-monitor-alert
 StateDirectoryMode=0700
-ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff
+ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status
 UMask=0077
 TimeoutStartSec=90s
-# Exit 4 (retry later) restarts; the persisted attempt count, not this
-# restart count, ends delivery after three attempts.
+# Exit 4 (retry later) restarts after a minute; the persisted attempt count
+# and spacing (60 s, then 300 s), not this restart count, end delivery after
+# three attempts.
 Restart=on-failure
-RestartSec=5s
+RestartSec=60s
 RestartPreventExitStatus=2 3 5
 MemoryMax=64M
 TasksMax=16

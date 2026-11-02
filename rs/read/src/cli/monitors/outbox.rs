@@ -153,6 +153,12 @@ impl Target {
         Ok(Self { options })
     }
 
+    /// The host the probe connects to (a socket directory when the DSN names
+    /// no host).
+    pub fn host(&self) -> &str {
+        self.options.get_host()
+    }
+
     /// The session settings: read-only by default and a server-side statement
     /// timeout equal to the probe's deadline.
     fn session(&self, timeout: Duration) -> PgConnectOptions {
@@ -337,6 +343,8 @@ pub fn parse_args(args: &MonitorArgs) -> Option<ProbeArgs> {
         || args.remind.is_some()
         || args.reconcile.is_some()
         || args.rearm.is_some()
+        || args.repair.is_some()
+        || args.reason.is_some()
         || args.release.is_some()
         || args.telegram_disabled
         || args.state_file.is_some()
