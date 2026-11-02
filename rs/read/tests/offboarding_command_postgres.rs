@@ -528,6 +528,7 @@ impl OffboardingMarketHook for RecordingHook {
                 withdrawn_orders: vec![Uuid::from_u128(1), Uuid::from_u128(2)],
                 cancelled_trades: vec![Uuid::from_u128(3)],
                 outbox_ids: vec![],
+                released_quantity_mt: "4.500".parse().unwrap(),
             })
         })
     }
@@ -1135,6 +1136,7 @@ async fn audit_contains_only_opaque_case_reference() {
     assert_eq!(
         keys,
         [
+            "cancelled_trade_ids",
             "cancelled_trades",
             "evidence_case_ref",
             "join_requests_closed",
@@ -1145,12 +1147,14 @@ async fn audit_contains_only_opaque_case_reference() {
             "organization_id",
             "reason_code",
             "refresh_families_revoked",
+            "released_quantity_mt",
             "reset_tokens_removed",
             "staff_capabilities_revoked",
             "status",
             "support_authorizations_revoked",
             "support_contexts_closed",
             "urgent",
+            "withdrawn_order_ids",
             "withdrawn_orders",
         ]
     );
@@ -1174,6 +1178,14 @@ async fn audit_contains_only_opaque_case_reference() {
     assert_eq!(changes["staff_capabilities_revoked"], 1);
     assert_eq!(changes["withdrawn_orders"], 2);
     assert_eq!(changes["cancelled_trades"], 1);
+    // The record links to the rows the market work changed and states the
+    // tonnes it released.
+    assert_eq!(
+        changes["withdrawn_order_ids"],
+        json!([Uuid::from_u128(1), Uuid::from_u128(2)])
+    );
+    assert_eq!(changes["cancelled_trade_ids"], json!([Uuid::from_u128(3)]));
+    assert_eq!(changes["released_quantity_mt"], "4.5");
     // Only counts, identifiers and the opaque reference: every string value is
     // one of the known identifiers or codes, never an email, hash or secret.
     let email = format!("offboarding-{}@example.com", seed.subject);

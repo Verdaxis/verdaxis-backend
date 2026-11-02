@@ -65,6 +65,12 @@ const DELIVERED: Uuid = Uuid::from_u128(0xa012);
 /// The colleague's own open ASK and pending trade: outside the scope.
 const COLLEAGUE_ASK: Uuid = Uuid::from_u128(0xa020);
 const COLLEAGUE_PENDING: Uuid = Uuid::from_u128(0xa021);
+/// A fully taken ASK, 1 t, whose whole quantity is in a second pending trade:
+/// filled, not open, yet withdrawn when that trade is cancelled.
+const ASK_TAKEN: Uuid = Uuid::from_u128(0xa005);
+/// The counterparty BID filled by the second pending trade.
+const BID_TAKEN: Uuid = Uuid::from_u128(0xa006);
+const PENDING_TAKEN: Uuid = Uuid::from_u128(0xa013);
 
 fn d(value: i64) -> Decimal {
     Decimal::from(value)
@@ -229,11 +235,12 @@ impl World {
     }
 
     /// The seller's market: a partly filled ASK whose filled tonne is in a
-    /// pending trade, an open ASK, a confirmed and a delivered trade, and the
-    /// colleague's ASK and pending trade. The item reserves the 8 t the two
-    /// ASKs and the pending tonne hold.
+    /// pending trade, a fully taken ASK whose tonne is in a second pending
+    /// trade, an open ASK, a confirmed and a delivered trade, and the
+    /// colleague's ASK and pending trade. The item reserves the 9 t the three
+    /// ASKs and the two pending tonnes hold.
     async fn standard_market(&mut self) {
-        sqlx::query("SELECT offboarding_market_inventory($1,$2,2,8)")
+        sqlx::query("SELECT offboarding_market_inventory($1,$2,2,9)")
             .bind(ITEM)
             .bind(SUBJECT)
             .execute(&mut self.admin)
@@ -250,7 +257,9 @@ impl World {
                 Some(ITEM),
             ),
             (ASK_OPEN, SUBJECT, "ASK", 3, 3, "OPEN", Some(ITEM)),
+            (ASK_TAKEN, SUBJECT, "ASK", 1, 0, "FILLED", Some(ITEM)),
             (BID_FILLED, COUNTERPARTY, "BID", 1, 0, "FILLED", None),
+            (BID_TAKEN, COUNTERPARTY, "BID", 1, 0, "FILLED", None),
             (COLLEAGUE_ASK, COLLEAGUE, "ASK", 1, 1, "OPEN", None),
         ] {
             self.order(order, owner, side, quantity, remaining, status, item)
@@ -261,6 +270,15 @@ impl World {
                 PENDING,
                 Some(BID_FILLED),
                 Some(ASK_PARTLY),
+                COUNTERPARTY,
+                SUBJECT,
+                1,
+                "PENDING_CONFIRMATION",
+            ),
+            (
+                PENDING_TAKEN,
+                Some(BID_TAKEN),
+                Some(ASK_TAKEN),
                 COUNTERPARTY,
                 SUBJECT,
                 1,
@@ -438,31 +456,6 @@ fn decimal(value: &Value) -> Decimal {
     }
 }
 
-/// Wait until another session waits on a lock held by `holder`, and return
-/// that session's wait event.
-async fn await_blocked_by(observer: &mut PgConnection, holder: i32) -> String {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        let waiting: Option<String> = sqlx::query_scalar(
-            "SELECT wait_event_type || ':' || wait_event FROM pg_stat_activity \
-             WHERE datname=current_database() AND pid<>pg_backend_pid() \
-             AND $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
-        )
-        .bind(holder)
-        .fetch_optional(&mut *observer)
-        .await
-        .unwrap();
-        if let Some(event) = waiting {
-            return event;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "no session waited behind backend {holder}"
-        );
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-}
-
 /// The backend of the one runtime transaction that is idle while open: the
 /// command paused before its commit.
 async fn paused_transaction(observer: &mut PgConnection, role: &str) -> i32 {
@@ -489,9 +482,11 @@ async fn paused_transaction(observer: &mut PgConnection, role: &str) -> i32 {
 // ---------------------------------------------------------------------------
 
 /// One served command ends the account and the market scope together. The
-/// preview, read first, counts exactly the rows the market work changes. Every
-/// row the command wrote carries the same transaction ID, and every market
-/// row records the marker's database time.
+/// preview, read first, counts exactly the orders the command withdraws (the
+/// fully taken ASK of a pending trade included) and the trades it cancels.
+/// The offboarding record links to those rows and states the released
+/// tonnes. Every row the command wrote carries the same transaction ID, and
+/// every market row records the marker's database time.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn commit_contains_all_account_market_audit_and_outbox_changes() {
@@ -501,8 +496,8 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
 
     let (status, preview) = world.preview().await;
     assert_eq!(status, StatusCode::OK, "{preview}");
-    assert_eq!(preview["open_owned_orders"], 2);
-    assert_eq!(preview["pending_trades"], 1);
+    assert_eq!(preview["open_owned_orders"], 3);
+    assert_eq!(preview["pending_trades"], 2);
     assert_eq!(preview["frozen_pending_trades"], 0);
     assert_eq!(preview["confirmed_trades"], 1);
     assert_eq!(preview["delivered_trades"], 1);
@@ -542,27 +537,35 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
     assert_eq!(after["joins"][0]["status"], "REJECTED");
     assert_eq!(after["records"], 1);
 
-    // Market scope: both ASKs withdrawn, the pending trade cancelled, its
-    // counterparty BID restored, the item released once; everything else as
-    // it was.
-    for order in [ASK_PARTLY, ASK_OPEN] {
+    // Market scope: the three ASKs withdrawn, both pending trades cancelled,
+    // their counterparty BIDs restored, the item released once; everything
+    // else as it was.
+    for order in [ASK_PARTLY, ASK_OPEN, ASK_TAKEN] {
         assert_eq!(row(&after, "orders", order)["status"], "CANCELLED");
     }
     assert_eq!(
         decimal(&row(&after, "orders", ASK_PARTLY)["remaining_quantity_mt"]),
         d(5)
     );
-    let bid = row(&after, "orders", BID_FILLED);
     assert_eq!(
-        (
-            bid["status"].as_str(),
-            decimal(&bid["remaining_quantity_mt"])
-        ),
-        (Some("OPEN"), d(1))
+        decimal(&row(&after, "orders", ASK_TAKEN)["remaining_quantity_mt"]),
+        d(1)
     );
-    assert_eq!(row(&after, "trades", PENDING)["status"], "CANCELLED");
+    for bid in [BID_FILLED, BID_TAKEN] {
+        let bid = row(&after, "orders", bid);
+        assert_eq!(
+            (
+                bid["status"].as_str(),
+                decimal(&bid["remaining_quantity_mt"])
+            ),
+            (Some("OPEN"), d(1))
+        );
+    }
+    for trade in [PENDING, PENDING_TAKEN] {
+        assert_eq!(row(&after, "trades", trade)["status"], "CANCELLED");
+    }
     let item = row(&after, "inventory", ITEM);
-    assert_eq!(decimal(&item["current_stock_mt"]), d(10));
+    assert_eq!(decimal(&item["current_stock_mt"]), d(11));
     assert_eq!(decimal(&item["reserved_stock_mt"]), Decimal::ZERO);
     for (table, id) in [
         ("trades", CONFIRMED),
@@ -576,7 +579,7 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
             "{table} {id}"
         );
     }
-    for order in [ASK_PARTLY, ASK_OPEN, BID_FILLED] {
+    for order in [ASK_PARTLY, ASK_OPEN, ASK_TAKEN, BID_FILLED, BID_TAKEN] {
         let updated: DateTime<Utc> =
             sqlx::query_scalar("SELECT updated_at FROM orderbook_orders WHERE id=$1")
                 .bind(order)
@@ -586,7 +589,8 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
         assert_eq!(updated, marked, "market rows record the marker time");
     }
 
-    // Audit: the offboarding record counts the market work it committed.
+    // Audit: the offboarding record counts the market work it committed,
+    // links to the changed rows and states the released tonnes.
     let record: Value = sqlx::query_scalar(
         "SELECT changes FROM audit_logs WHERE action='admin.user_offboarded' AND resource_id=$1",
     )
@@ -595,8 +599,28 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
     .await
     .unwrap();
     assert_eq!(record["operation_id"], operation.to_string());
-    assert_eq!(record["withdrawn_orders"], 2);
-    assert_eq!(record["cancelled_trades"], 1);
+    assert_eq!(record["withdrawn_orders"], 3);
+    assert_eq!(record["cancelled_trades"], 2);
+    let ids = |key: &str| -> BTreeSet<String> {
+        record[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} is a list"))
+            .iter()
+            .map(|id| id.as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        ids("withdrawn_order_ids"),
+        BTreeSet::from([ASK_PARTLY, ASK_OPEN, ASK_TAKEN].map(|id| id.to_string()))
+    );
+    assert_eq!(
+        ids("cancelled_trade_ids"),
+        BTreeSet::from([PENDING, PENDING_TAKEN].map(|id| id.to_string()))
+    );
+    assert_eq!(record["released_quantity_mt"], "9", "2/9 t becomes 11/0 t");
+    // The preview counted the same rows.
+    assert_eq!(preview["open_owned_orders"], record["withdrawn_orders"]);
+    assert_eq!(preview["pending_trades"], record["cancelled_trades"]);
     assert!(record["market_events"].as_u64().unwrap() >= 1);
     assert!(
         after["audit"].as_array().unwrap().len() >= 2,
@@ -637,15 +661,15 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
            UNION ALL SELECT xmin::text FROM user_status_transitions WHERE user_id=$1 \
            UNION ALL SELECT xmin::text FROM individual_offboardings \
            UNION ALL SELECT xmin::text FROM orderbook_orders WHERE id=ANY($2) \
-           UNION ALL SELECT xmin::text FROM trades WHERE id=$3 \
+           UNION ALL SELECT xmin::text FROM trades WHERE id=ANY($3) \
            UNION ALL SELECT xmin::text FROM inventory_items WHERE id=$4 \
            UNION ALL SELECT xmin::text FROM market_event_outbox \
            UNION ALL SELECT xmin::text FROM audit_logs \
          ) AS written",
     )
     .bind(SUBJECT)
-    .bind(vec![ASK_PARTLY, ASK_OPEN, BID_FILLED])
-    .bind(PENDING)
+    .bind(vec![ASK_PARTLY, ASK_OPEN, ASK_TAKEN, BID_FILLED, BID_TAKEN])
+    .bind(vec![PENDING, PENDING_TAKEN])
     .bind(ITEM)
     .fetch_all(&mut world.admin)
     .await
@@ -656,7 +680,7 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
 
     // The preview after the commit shows the marked account and an empty scope.
     let (status, preview) = world.preview().await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::OK, "{preview}");
     assert!(!preview["offboarded_at"].is_null());
     assert_eq!(preview["open_owned_orders"], 0);
     assert_eq!(preview["pending_trades"], 0);
@@ -670,7 +694,9 @@ async fn commit_contains_all_account_market_audit_and_outbox_changes() {
 /// membership changes: a frozen pending trade, a scope over the bound, a busy
 /// trade row, an injected failure inside the market writes and one after
 /// them. Each answer comes after a full rollback: every row is as before, so
-/// the person keeps the membership, the sessions and the reset token.
+/// the person keeps the membership, the sessions and the reset token. After
+/// the busy answer the administrator repeats the command once the row is
+/// free: it takes effect exactly once, and a further repeat changes nothing.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn market_failure_rolls_back_credentials_and_membership() {
@@ -772,212 +798,329 @@ async fn market_failure_rolls_back_credentials_and_membership() {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{case}: {body}");
+        if case == "busy" {
+            repeat_after_busy(&mut world).await;
+        }
     }
+}
+
+/// The repeat after a busy answer: one offboarding, one record, each pending
+/// trade cancelled once and the item released once.
+async fn repeat_after_busy(world: &mut World) {
+    let (status, body) = world.offboard(&world.served.clone()).await;
+    assert_eq!(status, StatusCode::OK, "the repeat takes effect: {body}");
+    let committed = world.snapshot().await;
+    assert_eq!(committed["records"], 1);
+    assert!(!committed["user"]["offboarded_at"].is_null());
+    for trade in [PENDING, PENDING_TAKEN] {
+        assert_eq!(row(&committed, "trades", trade)["status"], "CANCELLED");
+    }
+    let item = row(&committed, "inventory", ITEM);
+    assert_eq!(decimal(&item["current_stock_mt"]), d(11));
+    assert_eq!(decimal(&item["reserved_stock_mt"]), Decimal::ZERO);
+    let records: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action='admin.user_offboarded'")
+            .fetch_one(&mut world.admin)
+            .await
+            .unwrap();
+    assert_eq!(records, 1);
+    let (status, body) = world.offboard(&world.served.clone()).await;
+    assert_eq!(
+        (status, code(&body)),
+        (StatusCode::CONFLICT, "OFFBOARD_ALREADY_COMPLETED"),
+        "{body}"
+    );
+    assert_eq!(
+        world.snapshot().await,
+        committed,
+        "a further repeat changes nothing"
+    );
 }
 
 // ---------------------------------------------------------------------------
 // Concurrency.
 // ---------------------------------------------------------------------------
 
+/// The owner's organization lock, the first lock the offboarding command
+/// waits for. It differs from every market command's organization lock, so a
+/// waiting backend running it is the offboarding.
+const OFFBOARDING_ORGANIZATION_LOCK: &str =
+    "SELECT id FROM organizations WHERE id = ANY($1) ORDER BY id FOR UPDATE";
+
+/// One backend waiting for a row lock held by another.
+struct Waiter {
+    pid: i32,
+    relation: String,
+    query: String,
+}
+
+/// Wait until a backend other than `holder` waits for a row lock that
+/// `holder` holds, and return it. A row-lock waiter holds the tuple lock of
+/// the row it waits for, which names the relation.
+async fn await_row_waiter(observer: &mut PgConnection, holder: i32) -> Waiter {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let waiter: Option<(i32, String, String)> = sqlx::query_as(
+            "SELECT a.pid, c.relname::text, a.query FROM pg_stat_activity a \
+             JOIN pg_locks l ON l.pid=a.pid AND l.locktype='tuple' \
+             JOIN pg_class c ON c.oid=l.relation \
+             WHERE a.datname=current_database() AND a.pid<>pg_backend_pid() AND a.pid<>$1 \
+             AND a.wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(a.pid)) LIMIT 1",
+        )
+        .bind(holder)
+        .fetch_optional(&mut *observer)
+        .await
+        .unwrap();
+        if let Some((pid, relation, query)) = waiter {
+            return Waiter {
+                pid,
+                relation,
+                query,
+            };
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no backend waited for a row held by backend {holder}"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
 /// A counterparty takes the departing seller's ASK while the offboarding runs.
-/// Whichever transaction holds the shared rows first commits first, and the
-/// other is ordered after it: no pending trade on the person's order survives
-/// the offboarding. Afterwards the person's own command, and a repeat of a
-/// command already committed with the same idempotency key, are refused
-/// instead of taking effect or replaying the stored receipt.
+/// The two transactions overlap: the test observes the second one, by its
+/// backend, waiting for an organization row the first one holds, so it cannot
+/// pass with the two run one after the other. Whichever holds the rows first
+/// commits first, and the other is ordered after it: no pending trade on the
+/// person's order survives the offboarding. Afterwards the person's own
+/// command, and a repeat of a command already committed with the same
+/// idempotency key, are refused instead of taking effect or replaying the
+/// stored receipt.
+///
+/// With the take first, the offboarding waits under its 500 ms lock bound. A
+/// host too slow to commit the take inside it gets `MARKET_BUSY`; that attempt
+/// must have kept nothing, and the whole case runs again on a fresh database
+/// (at most three attempts). A passing attempt never repeats the command.
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn concurrent_offboard_and_mutation_has_one_ordered_winner() {
+    for offboarding_first in [true, false] {
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            if ordered_race(offboarding_first, attempts).await {
+                break;
+            }
+            assert!(
+                attempts < 3,
+                "offboarding first {offboarding_first}: busy three times"
+            );
+        }
+        eprintln!("offboarding first {offboarding_first}: passed on attempt {attempts}");
+    }
+}
+
+/// One attempt of the race. False when the waiting offboarding answered
+/// `MARKET_BUSY` and kept nothing.
+async fn ordered_race(offboarding_first: bool, attempt: u32) -> bool {
     const TAKEN: Uuid = Uuid::from_u128(0xb001);
     const CANCELLED_BEFORE: Uuid = Uuid::from_u128(0xb002);
     const STOCK: Uuid = Uuid::from_u128(0xb003);
-    for offboarding_first in [true, false] {
-        let case = format!("offboarding first {offboarding_first}");
-        let mut world = World::new().await;
-        sqlx::query("SELECT offboarding_market_inventory($1,$2,0,3)")
-            .bind(STOCK)
-            .bind(SUBJECT)
-            .execute(&mut world.admin)
+    let case = format!("offboarding first {offboarding_first}, attempt {attempt}");
+    let mut world = World::new().await;
+    sqlx::query("SELECT offboarding_market_inventory($1,$2,0,3)")
+        .bind(STOCK)
+        .bind(SUBJECT)
+        .execute(&mut world.admin)
+        .await
+        .unwrap();
+    world
+        .order(TAKEN, SUBJECT, "ASK", 2, 2, "OPEN", Some(STOCK))
+        .await;
+    world
+        .order(CANCELLED_BEFORE, SUBJECT, "ASK", 1, 1, "OPEN", Some(STOCK))
+        .await;
+    // The person's own committed command, with a stored receipt.
+    let cancel = format!("/api/orderbook/{CANCELLED_BEFORE}");
+    let key = [("Idempotency-Key", "cancel-before-offboarding")];
+    let (status, body) = send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{case}: {body}");
+    let (status, _) = send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "{case}: the receipt replays before"
+    );
+    sqlx::query("SELECT offboarding_market_install_gate()")
+        .execute(&mut world.admin)
+        .await
+        .unwrap();
+    let mut observer = world.observer().await;
+    let take_body = take_request(&mut world.admin, TAKEN).await;
+
+    let (take, waiter, holder) = if offboarding_first {
+        // The command holds every lock and pauses before its commit.
+        let control = CompletionControl::new(CompletionPoint::BeforeCommit, false);
+        let command = tokio::spawn(run_controlled_write(
+            world.pool.clone(),
+            Arc::new(Semaphore::new(4)),
+            world.access(ADMIN),
+            world.command(UnusablePasswordHash::prepare().await.unwrap()),
+            control.clone(),
+        ));
+        control.reached().await;
+        let role = url::Url::parse(&world.database.runtime_url)
+            .unwrap()
+            .username()
+            .to_owned();
+        let holder = paused_transaction(&mut observer, &role).await;
+        let served = world.served.clone();
+        let taker = tokio::spawn(async move {
+            send(
+                &served,
+                "POST",
+                "/api/trades/",
+                Some(COUNTERPARTY),
+                Some(take_body),
+                &[],
+            )
             .await
-            .unwrap();
-        world
-            .order(TAKEN, SUBJECT, "ASK", 2, 2, "OPEN", Some(STOCK))
-            .await;
-        world
-            .order(CANCELLED_BEFORE, SUBJECT, "ASK", 1, 1, "OPEN", Some(STOCK))
-            .await;
-        // The person's own committed command, with a stored receipt.
-        let cancel = format!("/api/orderbook/{CANCELLED_BEFORE}");
-        let key = [("Idempotency-Key", "cancel-before-offboarding")];
-        let (status, body) =
-            send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
-        assert_eq!(status, StatusCode::NO_CONTENT, "{case}: {body}");
-        let (status, _) = send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
-        assert_eq!(
-            status,
-            StatusCode::NO_CONTENT,
-            "{case}: the receipt replays before"
+        });
+        // The take waits for the organization row the paused command holds.
+        let waiter = await_row_waiter(&mut observer, holder).await;
+        assert_ne!(waiter.query, OFFBOARDING_ORGANIZATION_LOCK, "{case}");
+        control.release();
+        let offboarded = command.await.unwrap();
+        assert!(
+            offboarded.is_ok(),
+            "{case}: {:?}",
+            offboarded.err().map(|e| e.detail)
         );
-        sqlx::query("SELECT offboarding_market_install_gate()")
+        (taker.await.unwrap(), waiter, holder)
+    } else {
+        // The take holds its party rows and pauses at its slice lock; the
+        // offboarding waits for those rows, then runs after its commit.
+        let gated = runtime_pool(&world.database.runtime_url, true).await;
+        let taker_router = verdaxis_read::router(application(&world.database.runtime_url, gated));
+        let taker = tokio::spawn(async move {
+            send(
+                &taker_router,
+                "POST",
+                "/api/trades/",
+                Some(COUNTERPARTY),
+                Some(take_body),
+                &[],
+            )
+            .await
+        });
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let holder: i32 = loop {
+            let paused: Option<i32> = sqlx::query_scalar(
+                "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \
+                 AND wait_event='PgSleep' LIMIT 1",
+            )
+            .fetch_optional(&mut observer)
+            .await
+            .unwrap();
+            if let Some(pid) = paused {
+                break pid;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "{case}: the take did not pause"
+            );
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        };
+        let served = world.served.clone();
+        let offboarding = tokio::spawn(async move {
+            send(
+                &served,
+                "POST",
+                &format!("/api/auth/admin/users/{SUBJECT}/offboard"),
+                Some(ADMIN),
+                Some(offboard_body(Some(SUBJECT_ORGANIZATION))),
+                &[],
+            )
+            .await
+        });
+        // The offboarding, identified by its own lock statement, waits for
+        // the organization row the paused take holds.
+        let waiter = await_row_waiter(&mut observer, holder).await;
+        assert_eq!(waiter.query, OFFBOARDING_ORGANIZATION_LOCK, "{case}");
+        sqlx::query("SELECT offboarding_market_open_gate()")
             .execute(&mut world.admin)
             .await
             .unwrap();
-        let mut observer = world.observer().await;
-        let take_body = take_request(&mut world.admin, TAKEN).await;
-
-        let (take, offboarded, wait) = if offboarding_first {
-            // The command holds every lock and pauses before its commit.
-            let control = CompletionControl::new(CompletionPoint::BeforeCommit, false);
-            let command = tokio::spawn(run_controlled_write(
-                world.pool.clone(),
-                Arc::new(Semaphore::new(4)),
-                world.access(ADMIN),
-                world.command(UnusablePasswordHash::prepare().await.unwrap()),
-                control.clone(),
-            ));
-            control.reached().await;
-            let role = url::Url::parse(&world.database.runtime_url)
-                .unwrap()
-                .username()
-                .to_owned();
-            let holder = paused_transaction(&mut observer, &role).await;
-            let served = world.served.clone();
-            let taker = tokio::spawn(async move {
-                send(
-                    &served,
-                    "POST",
-                    "/api/trades/",
-                    Some(COUNTERPARTY),
-                    Some(take_body),
-                    &[],
-                )
-                .await
-            });
-            let wait = await_blocked_by(&mut observer, holder).await;
-            control.release();
-            let offboarded = command.await.unwrap();
-            assert!(
-                offboarded.is_ok(),
-                "{case}: {:?}",
-                offboarded.err().map(|e| e.detail)
-            );
-            (taker.await.unwrap(), (StatusCode::OK, Value::Null), wait)
-        } else {
-            // The take holds its party rows and pauses at its slice lock; the
-            // offboarding waits for those rows, then runs after its commit.
-            let gated = runtime_pool(&world.database.runtime_url, true).await;
-            let taker_router =
-                verdaxis_read::router(application(&world.database.runtime_url, gated));
-            let taker = tokio::spawn(async move {
-                send(
-                    &taker_router,
-                    "POST",
-                    "/api/trades/",
-                    Some(COUNTERPARTY),
-                    Some(take_body),
-                    &[],
-                )
-                .await
-            });
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-            let holder: i32 = loop {
-                let paused: Option<i32> = sqlx::query_scalar(
-                    "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \
-                     AND wait_event='PgSleep' LIMIT 1",
-                )
-                .fetch_optional(&mut observer)
-                .await
-                .unwrap();
-                if let Some(pid) = paused {
-                    break pid;
-                }
-                assert!(
-                    tokio::time::Instant::now() < deadline,
-                    "{case}: the take did not pause"
-                );
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            };
-            let served = world.served.clone();
-            let offboarding = tokio::spawn(async move {
-                send(
-                    &served,
-                    "POST",
-                    &format!("/api/auth/admin/users/{SUBJECT}/offboard"),
-                    Some(ADMIN),
-                    Some(offboard_body(Some(SUBJECT_ORGANIZATION))),
-                    &[],
-                )
-                .await
-            });
-            let wait = await_blocked_by(&mut observer, holder).await;
-            sqlx::query("SELECT offboarding_market_open_gate()")
-                .execute(&mut world.admin)
-                .await
-                .unwrap();
-            let take = taker.await.unwrap();
-            let mut offboarded = offboarding.await.unwrap();
-            // The command's own lock bound is 500 ms. A host too slow to let
-            // the take commit inside it gets a whole rollback; the
-            // administrator repeats the command, as the busy answer says.
-            if offboarded.0 == StatusCode::CONFLICT && code(&offboarded.1) == "MARKET_BUSY" {
-                eprintln!("{case}: busy while the take committed; repeating");
-                offboarded = world.offboard(&world.served.clone()).await;
-            }
-            (take, offboarded, wait)
-        };
-        eprintln!("{case}: the waiting side waited on {wait}");
-        assert_eq!(offboarded.0, StatusCode::OK, "{case}: {}", offboarded.1);
-
-        let after = world.snapshot().await;
-        let (status, body) = take;
-        if offboarding_first {
-            assert_ne!(status, StatusCode::OK, "{case}: {body}");
-            assert!(after["trades"].as_object().unwrap().is_empty(), "{case}");
-        } else {
-            assert_eq!(status, StatusCode::OK, "{case}: {body}");
-            let trade: Uuid = body["id"].as_str().unwrap().parse().unwrap();
-            assert_eq!(
-                row(&after, "trades", trade)["status"],
-                "CANCELLED",
-                "{case}"
-            );
+        let take = taker.await.unwrap();
+        let (status, body) = offboarding.await.unwrap();
+        if status == StatusCode::CONFLICT && code(&body) == "MARKET_BUSY" {
+            let kept = world.snapshot().await;
+            assert!(kept["user"]["offboarded_at"].is_null(), "{case}");
+            assert_eq!(kept["records"], 0, "{case}");
+            assert_eq!(kept["sessions"].as_array().unwrap().len(), 2, "{case}");
+            assert_eq!(kept["user"]["status"], "APPROVED", "{case}");
+            eprintln!("{case}: busy while the take committed; nothing kept");
+            return false;
         }
-        // Either order: the ASK is withdrawn with all 2 t and the stock is
-        // released once.
-        let order = row(&after, "orders", TAKEN);
-        assert_eq!(order["status"], "CANCELLED", "{case}");
-        assert_eq!(decimal(&order["remaining_quantity_mt"]), d(2), "{case}");
-        let stock = row(&after, "inventory", STOCK);
-        assert_eq!(decimal(&stock["current_stock_mt"]), d(3), "{case}");
+        assert_eq!(status, StatusCode::OK, "{case}: {body}");
+        (take, waiter, holder)
+    };
+    assert_eq!(waiter.relation, "organizations", "{case}");
+    eprintln!(
+        "{case}: backend {} waited for an organization row held by backend {holder}",
+        waiter.pid
+    );
+
+    let after = world.snapshot().await;
+    assert!(!after["user"]["offboarded_at"].is_null(), "{case}");
+    assert_eq!(after["records"], 1, "{case}");
+    let (status, body) = take;
+    if offboarding_first {
+        assert_ne!(status, StatusCode::OK, "{case}: {body}");
+        assert!(after["trades"].as_object().unwrap().is_empty(), "{case}");
+    } else {
+        assert_eq!(status, StatusCode::OK, "{case}: {body}");
+        let trade: Uuid = body["id"].as_str().unwrap().parse().unwrap();
         assert_eq!(
-            decimal(&stock["reserved_stock_mt"]),
-            Decimal::ZERO,
+            row(&after, "trades", trade)["status"],
+            "CANCELLED",
             "{case}"
         );
-
-        // After the commit: no effect and no replay for the person.
-        let (status, body) =
-            send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
-        assert!(
-            matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
-            "{case}: the stored receipt is not replayed: {status} {body}"
-        );
-        let fresh = [("Idempotency-Key", "cancel-after-offboarding")];
-        let (status, body) = send(
-            &world.served,
-            "DELETE",
-            &format!("/api/orderbook/{TAKEN}"),
-            Some(SUBJECT),
-            None,
-            &fresh,
-        )
-        .await;
-        assert!(
-            matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
-            "{case}: {status} {body}"
-        );
-        assert_eq!(world.snapshot().await, after, "{case}: no later effect");
     }
+    // Either order: the ASK is withdrawn with all 2 t and the stock is
+    // released once.
+    let order = row(&after, "orders", TAKEN);
+    assert_eq!(order["status"], "CANCELLED", "{case}");
+    assert_eq!(decimal(&order["remaining_quantity_mt"]), d(2), "{case}");
+    let stock = row(&after, "inventory", STOCK);
+    assert_eq!(decimal(&stock["current_stock_mt"]), d(3), "{case}");
+    assert_eq!(
+        decimal(&stock["reserved_stock_mt"]),
+        Decimal::ZERO,
+        "{case}"
+    );
+
+    // After the commit: no effect and no replay for the person.
+    let (status, body) = send(&world.served, "DELETE", &cancel, Some(SUBJECT), None, &key).await;
+    assert!(
+        matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+        "{case}: the stored receipt is not replayed: {status} {body}"
+    );
+    let fresh = [("Idempotency-Key", "cancel-after-offboarding")];
+    let (status, body) = send(
+        &world.served,
+        "DELETE",
+        &format!("/api/orderbook/{TAKEN}"),
+        Some(SUBJECT),
+        None,
+        &fresh,
+    )
+    .await;
+    assert!(
+        matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+        "{case}: {status} {body}"
+    );
+    assert_eq!(world.snapshot().await, after, "{case}: no later effect");
+    true
 }
 
 /// The body of one take of `order`, with the terms digest of its stored row.
@@ -1055,6 +1198,76 @@ async fn unknown_outcome_can_be_resolved_by_admin_user_read() {
         .filter(|(_, trade)| trade["status"] == "CANCELLED")
         .map(|(id, _)| id.clone())
         .collect();
-    assert_eq!(cancelled, BTreeSet::from([PENDING.to_string()]));
+    assert_eq!(
+        cancelled,
+        BTreeSet::from([PENDING, PENDING_TAKEN].map(|id| id.to_string()))
+    );
     let _ = IGNORE;
+}
+
+/// The command's connection is lost while it is about to commit, so nothing
+/// commits and the administrator gets no success answer. Reading the user
+/// through the preview shows the account not offboarded and the market scope
+/// as before; repeating the command then takes effect exactly once.
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn lost_reply_without_commit_reads_unmarked_and_repeats() {
+    let mut world = World::new().await;
+    world.standard_market().await;
+    let before = world.snapshot().await;
+    let control = CompletionControl::new(CompletionPoint::BeforeCommit, false);
+    let command = tokio::spawn(run_controlled_write(
+        world.pool.clone(),
+        Arc::new(Semaphore::new(4)),
+        world.access(ADMIN),
+        world.command(UnusablePasswordHash::prepare().await.unwrap()),
+        control.clone(),
+    ));
+    control.reached().await;
+    let role = url::Url::parse(&world.database.runtime_url)
+        .unwrap()
+        .username()
+        .to_owned();
+    let mut observer = world.observer().await;
+    let paused = paused_transaction(&mut observer, &role).await;
+    let terminated: bool = sqlx::query_scalar("SELECT pg_terminate_backend($1)")
+        .bind(paused)
+        .fetch_one(&mut observer)
+        .await
+        .unwrap();
+    assert!(terminated);
+    control.release();
+    let error = command.await.unwrap().unwrap_err();
+    let answer = (
+        error.status,
+        error.detail["code"].as_str().unwrap_or_default().to_owned(),
+    );
+    eprintln!("lost connection before the commit answered {answer:?}");
+    assert!(
+        matches!(
+            (answer.0, answer.1.as_str()),
+            (StatusCode::SERVICE_UNAVAILABLE, "COMMIT_OUTCOME_UNKNOWN")
+                | (StatusCode::INTERNAL_SERVER_ERROR, "DATABASE_ERROR")
+        ),
+        "{answer:?}"
+    );
+
+    let (status, preview) = world.preview().await;
+    assert_eq!(status, StatusCode::OK, "{preview}");
+    assert!(preview["offboarded_at"].is_null(), "not offboarded");
+    assert_eq!(preview["status"], "APPROVED");
+    assert_eq!(preview["organization_id"], SUBJECT_ORGANIZATION.to_string());
+    assert_eq!(preview["open_owned_orders"], 3);
+    assert_eq!(preview["pending_trades"], 2);
+    assert_eq!(world.snapshot().await, before, "nothing committed");
+
+    let (status, body) = world.offboard(&world.served.clone()).await;
+    assert_eq!(status, StatusCode::OK, "the repeat takes effect: {body}");
+    let committed = world.snapshot().await;
+    assert_eq!(committed["records"], 1);
+    for trade in [PENDING, PENDING_TAKEN] {
+        assert_eq!(row(&committed, "trades", trade)["status"], "CANCELLED");
+    }
+    let item = row(&committed, "inventory", ITEM);
+    assert_eq!(decimal(&item["current_stock_mt"]), d(11));
 }
