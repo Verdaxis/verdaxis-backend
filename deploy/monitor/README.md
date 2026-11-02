@@ -293,6 +293,11 @@ manifest-attested artifacts. This contract installs no prerequisite.
 
 ## Dual-run and retirement gate
 
+legacy_retirement.py is retired off-host. It is not in artifact-manifest.json, no unit
+or timer runs it, and no host installs it. Its source and the retirement evidence
+example stay in this directory for audit only; the reviewed copy is in the off-host
+tools record (`tests/rust_contract/phase10/offhost-tools.json`).
+
 legacy_retirement.py defaults to validation only. It derives the required
 delivery matrix from the presence of these key names without retaining or
 reporting values:

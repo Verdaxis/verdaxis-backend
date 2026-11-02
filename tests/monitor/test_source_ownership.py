@@ -56,10 +56,6 @@ EXPECTED_ARTIFACTS = {
         "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
         "0755",
     ),
-    "legacy_retirement.py": (
-        "/usr/local/libexec/verdaxis-monitor/legacy_retirement.py",
-        "0755",
-    ),
     "local_health_check.py": (
         "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
         "0755",
@@ -67,10 +63,6 @@ EXPECTED_ARTIFACTS = {
     "outbox_backlog_probe.py": (
         "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
         "0755",
-    ),
-    "retirement-evidence.example.json": (
-        "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
-        "0644",
     ),
     "runtime-identity.example": (
         "/usr/share/doc/verdaxis-monitor/runtime-identity.example",

@@ -20,12 +20,6 @@
       "sha256": "189feb352cd10fce1b98146f0748f39c17ca8220e4b4a09e3cd251611c58973e"
     },
     {
-      "source": "legacy_retirement.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/legacy_retirement.py",
-      "mode": "0755",
-      "sha256": "59d4b6b6e2437efd97bff1a8df11e31a18042bab05e134525c2a504ec654059c"
-    },
-    {
       "source": "local_health_check.py",
       "destination": "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
       "mode": "0755",
@@ -36,12 +30,6 @@
       "destination": "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
       "mode": "0755",
       "sha256": "2a8a2175625c8614875650c68c282bc147900006c01958062851ba8d75a21b3b"
-    },
-    {
-      "source": "retirement-evidence.example.json",
-      "destination": "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
-      "mode": "0644",
-      "sha256": "94ddcdbf206a9d373d55678778a28f64656ad0e07b782141f7f2604beee4d458"
     },
     {
       "source": "runtime-identity.example",
