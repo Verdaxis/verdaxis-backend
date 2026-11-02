@@ -1,10 +1,14 @@
 //! `GET /`: the API banner.
 //!
-//! Placeholder body until the handler is mounted; the tests in
-//! `tests/phase10_root.rs` fail against it.
+//! The handler reads no database, identity or configuration, so it answers
+//! while every pool is down. The body is the two fixed values the Python
+//! application returns, with `message` first.
 
 use axum::Json;
 use serde::Serialize;
+
+pub const MESSAGE: &str = "Verdaxis API is running";
+pub const VERSION: &str = "1.0.0";
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct RootBody {
@@ -14,7 +18,7 @@ pub struct RootBody {
 
 pub async fn root() -> Json<RootBody> {
     Json(RootBody {
-        message: "",
-        version: "",
+        message: MESSAGE,
+        version: VERSION,
     })
 }

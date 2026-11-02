@@ -1,1 +1,34 @@
-# Placeholder: the root and health group snippet is written with the handler.
+# Phase 10 Task 18: the root and health route group.
+#
+# Import this file inside the site's route block. Argument 0 is the one
+# upstream that serves GET /, GET /health, GET /health/live and
+# GET /health/ready. There is no second argument and no Python fallback in
+# this snippet: the group has exactly one owner at a time.
+#
+# The matcher names the four paths exactly and no method, so a wrong method
+# reaches the same owner and gets its shared 405. A trailing slash or a
+# longer path is not named here and stays with the site's own fallback.
+#
+# Rollback is one change: set argument 0 back to the Python upstream at the
+# import line. The transport settings are the ones the other read groups use.
+# lb_policy first keeps the reviewed order; a refused connection is a dial
+# error before any request bytes are sent, so it is retried until
+# lb_try_duration ends.
+#
+# The installed Caddy file is a separate review; this file is source only.
+(verdaxis_rust_root_health) {
+	@root_health path / /health /health/live /health/ready
+	handle @root_health {
+		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
+			fail_duration 30s
+			max_fails 1
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}

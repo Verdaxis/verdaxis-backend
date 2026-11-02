@@ -264,6 +264,7 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/",
     "/api/benchmarks",
     "/api/demand",
     "/api/fleet-intelligence",
@@ -609,6 +610,7 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     // group that provides its own state and a group that still needs it can
     // meet in one router. The one fallback below replaces any group fallback.
     let routes = Router::new()
+        .route("/", axum::routing::get(crate::routes::root::root))
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
@@ -663,6 +665,7 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
 pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
     // The dispatch boundary overrides axum's implicit HEAD handler.
     let routes = Router::new()
+        .route("/", axum::routing::get(crate::routes::root::root))
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))

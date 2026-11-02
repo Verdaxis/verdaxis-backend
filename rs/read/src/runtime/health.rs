@@ -18,7 +18,8 @@ pub async fn probe(pool: &sqlx::PgPool, environment: &str, sha: &str) -> (Status
         ),
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
-            serde_json::json!({"status":"error","db":"unavailable","environment":environment,"release_sha":sha}),
+            // A failed probe sends no deployment provenance out of the process.
+            serde_json::json!({"status":"error","db":"unavailable"}),
         ),
     }
 }
