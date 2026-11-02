@@ -855,8 +855,12 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     reject_unknown(object, &FAME_ASK_FIELDS)?;
     check_schema_version(object)?;
     literal_true(object, "neat_fame")?;
-    let nomination = optional_enum(object, "nomination_status", &FAME_NOMINATION)?
-        .unwrap_or_else(|| "PENDING".to_owned());
+    // `nomination_status: Literal["PENDING", "IDENTIFIED"] = "PENDING"` is not
+    // Optional: an explicit null fails the literal, not the default.
+    let nomination = match object.get("nomination_status") {
+        None => "PENDING".to_owned(),
+        Some(_) => required_enum(object, "nomination_status", &FAME_NOMINATION)?,
+    };
     let uco = required_decimal(object, "uco_mass_pct", None, None, None)?;
     if uco != 100 {
         return Err("uco_mass_pct must be 100".to_owned());
@@ -886,7 +890,7 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     required_date(object, "certificate_valid_until")?;
     optional_string(object, "certificate_scope", 1, 200)?;
     let evidence_status = required_enum(object, "evidence_status", &FAME_EVIDENCE_STATUS)?;
-    let documents = string_list(object, "document_references", 20)?;
+    let documents = defaulted_string_list(object, "document_references", 20)?;
     let evidence_due = required_enum(object, "evidence_due", &FAME_EVIDENCE_DUE)?;
     let quality = quality_evidence(object.get("quality_evidence"))?;
     let sustainability = sustainability_evidence(object.get("sustainability_evidence"))?;
@@ -934,18 +938,28 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
 }
 
 fn check_schema_version(object: &Map<String, Json>) -> Result<(), String> {
+    // `schema_version: Literal[1] = 1` applies its default only when the key
+    // is absent; an explicit null fails the literal, not the default.
     match object.get("schema_version") {
-        None | Some(Json::Null) => Ok(()),
+        None => Ok(()),
         Some(value) if decimal_of(value).is_some_and(|number| number == 1) => Ok(()),
         _ => Err("schema_version must be 1".to_owned()),
     }
 }
 
-fn string_list(object: &Map<String, Json>, key: &str, max: usize) -> Result<Vec<String>, String> {
-    let items = object
-        .get(key)
-        .and_then(Json::as_array)
-        .ok_or_else(|| format!("{key} must be a list"))?;
+/// A `list` field declared with `default_factory=list`: an absent key is the
+/// empty list, but an explicit null is still a type failure, as in pydantic.
+fn defaulted_string_list(
+    object: &Map<String, Json>,
+    key: &str,
+    max: usize,
+) -> Result<Vec<String>, String> {
+    let empty: Vec<Json> = Vec::new();
+    let items = match object.get(key) {
+        None => &empty,
+        Some(Json::Array(items)) => items,
+        Some(_) => return Err(format!("{key} must be a list")),
+    };
     if items.len() > max {
         return Err(format!("{key} holds too many values"));
     }
@@ -1151,10 +1165,16 @@ fn public_quality_evidence(value: Option<&Json>) -> Result<Json, String> {
     };
     let object = as_object(value)?;
     let status = public_fame_enum(object, "status", &["PENDING", "AVAILABLE"])?;
-    let results = object
-        .get("results")
-        .and_then(Json::as_array)
-        .ok_or_else(|| "results must be a list".to_owned())?;
+    // The response schema requires `results`, but its input is always the
+    // full declaration's dump, where an omitted list already became [].
+    let empty: &[Json] = &[];
+    let results = match object.get("results") {
+        None => empty,
+        Some(results) => results
+            .as_array()
+            .map(|items| items.as_slice())
+            .ok_or_else(|| "results must be a list".to_owned())?,
+    };
     let mut public_results = Vec::with_capacity(results.len());
     for result in results {
         public_results.push(public_quality_result(as_object(result)?)?);
@@ -1454,6 +1474,11 @@ fn owner_fame_ask_terms(object: &Map<String, Json>) -> Result<Json, String> {
             Json::String("PENDING".to_owned()),
         );
     }
+    // `document_references` defaults to [], so an omitted list is stored as
+    // an empty list, exactly like the schema's model dump.
+    if let Json::Null = owner["document_references"] {
+        owner.insert("document_references".to_owned(), Json::Array(Vec::new()));
+    }
     normalize_public_values(
         &mut owner,
         &["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"],
@@ -1482,12 +1507,15 @@ fn owner_quality_evidence(value: &Json) -> Result<Json, String> {
     }
     let mut evidence = select_fields(as_object(value)?, &FAME_QUALITY_FIELDS);
     normalize_public_values(&mut evidence, &[])?;
-    let results = evidence["results"]
-        .as_array()
-        .ok_or_else(|| "quality results must be a list".to_owned())?
-        .iter()
-        .map(|result| owner_nested_terms(result, &FAME_QUALITY_RESULT_FIELDS, &["value"]))
-        .collect::<Result<Vec<_>, _>>()?;
+    // `results` defaults to [], so an omitted list is stored as an empty one.
+    let results = match &evidence["results"] {
+        Json::Null => Vec::new(),
+        Json::Array(results) => results
+            .iter()
+            .map(|result| owner_nested_terms(result, &FAME_QUALITY_RESULT_FIELDS, &["value"]))
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Err("quality results must be a list".to_owned()),
+    };
     evidence.insert("results".to_owned(), Json::Array(results));
     Ok(Json::Object(evidence))
 }
