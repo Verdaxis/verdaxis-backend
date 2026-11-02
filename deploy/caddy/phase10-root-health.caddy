@@ -10,10 +10,15 @@
 # longer path is not named here and stays with the site's own fallback.
 #
 # Rollback is one change: set argument 0 back to the Python upstream at the
-# import line. The transport settings are the ones the other read groups use.
-# lb_policy first keeps the reviewed order; a refused connection is a dial
-# error before any request bytes are sent, so it is retried until
-# lb_try_duration ends.
+# import line.
+#
+# The transport settings are the read groups' without passive health
+# (fail_duration, max_fails). Those groups have a second upstream to fall
+# back to; this one has a single upstream and no fallback, so a remembered
+# failure would leave nothing to select until it expired, and the group would
+# keep answering 503 after its upstream was back. A refused connection is a
+# dial error before any request bytes are sent, so it is retried every
+# lb_try_interval until lb_try_duration ends, which bridges a restart.
 #
 # The installed Caddy file is a separate review; this file is source only.
 (verdaxis_rust_root_health) {
@@ -23,8 +28,6 @@
 			lb_policy first
 			lb_try_duration 10s
 			lb_try_interval 250ms
-			fail_duration 30s
-			max_fails 1
 			flush_interval -1
 			transport http {
 				keepalive off
