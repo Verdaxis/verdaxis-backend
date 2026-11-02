@@ -32,7 +32,8 @@ use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::market_reassignment::{AUDIT_ACTION, EVENT_TYPE};
-use verdaxis_read::routes::market_write::{freeze, reassignment, trade_lifecycle};
+use verdaxis_read::routes::market_write::{freeze, trade_lifecycle};
+use verdaxis_read::routes::reassignment;
 
 const KEY: &str = "synthetic-reassignment-signing-key-at-least-32";
 const REASSIGNMENT_ISSUER: &str = "reassignment-tests";
