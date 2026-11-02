@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Integrated offboarding acceptance across both stacks on disposable PostgreSQL databases.
+#
+# Starts one disposable container on a Docker-assigned loopback port, migrates
+# one template database to the Alembic head with the runtime ACL bundle, and
+# runs the ignored cases of `offboarding_acceptance_postgres`; each case
+# clones the template and starts the unchanged Python application against the
+# clone on loopback. Every named case must run. The container is removed on
+# exit. Never point this at a live host.
+#
+# Optional environment:
+#   DOCKER_RUN_EXTRA  extra `docker run` flags (for example a log driver)
+#   CARGO_RUNNER      command words placed before every cargo invocation
+#   RUST_TEST_PYTHON  interpreter with the application dependencies (default: python3)
+set -euo pipefail
+export SQLX_OFFLINE=true
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
+image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
+python="${RUST_TEST_PYTHON:-python3}"
+export RUST_TEST_PYTHON="$python"
+template=verdaxis_offboarding_acceptance_test
+cases=(
+  both_stack_cutoffs_constraints_and_streams_hold
+  reinstatement_requires_reviewed_marker_clear_new_invitation_password_and_kyc
+  unmarked_rejection_keeps_settlement
+  offboarded_detached_user_cannot_read_or_settle_rejected_org_trades
+  python_login_and_refresh_lock_holders_are_cut_off
+  python_approval_and_join_race_the_command
+  logout_recovery_and_invitation_race_the_command
+  python_settlement_races_reassignment
+)
+
+container=''
+log=''
+cleanup() {
+  # Keep the real exit status: the cleanup commands must not replace it.
+  local status=$?
+  if [ -n "$container" ]; then docker rm -f -v "$container" >/dev/null 2>&1 || true; fi
+  if [ -n "$log" ]; then rm -f "$log"; fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+# shellcheck disable=SC2086
+container=$(docker run --platform linux/amd64 -d ${DOCKER_RUN_EXTRA:-} \
+  -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
+ready=0
+for _ in $(seq 1 120); do
+  if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=1; break; fi
+  sleep 1
+done
+[ "$ready" = 1 ] || { echo "database did not become ready" >&2; exit 2; }
+port=$(docker port "$container" 5432/tcp | head -1)
+port=${port##*:}
+
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE rust_migrator LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
+CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
+CREATE ROLE rust_backup NOLOGIN;
+SQL
+docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
+  -c "CREATE DATABASE $template OWNER rust_migrator" >/dev/null
+docker exec "$container" psql -U postgres -d "$template" -v ON_ERROR_STOP=1 \
+  -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO rust_migrator; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
+
+export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
+export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_role_pw@127.0.0.1:$port/$template"
+export MIGRATOR_DATABASE_URL="$DATABASE_URL"
+"$python" -m alembic upgrade head
+PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" \
+  PGUSER=rust_migrator PGPASSWORD=disposable_role_pw \
+  psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
+  -v database_name="$template" -v app_role=rust_app \
+  -v migrator_role=rust_migrator -v backup_role=rust_backup \
+  -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
+printf 'GATE=migrate-%s EXIT=0\n' "$template"
+unset DATABASE_URL MIGRATOR_DATABASE_URL
+
+admin="postgresql://postgres:disposable_admin_pw@127.0.0.1:$port"
+export RUST_TEMPLATE_ADMIN_DATABASE_URL="$admin/postgres"
+export RUST_OFFBOARDING_ACCEPTANCE_ADMIN_DATABASE_URL="$admin/$template"
+export RUST_OFFBOARDING_ACCEPTANCE_DATABASE_URL="postgresql://rust_app:disposable_role_pw@127.0.0.1:$port/$template"
+export RUST_OFFBOARDING_ACCEPTANCE_TEMPLATE_DATABASE="$template"
+
+log=$(mktemp "${TMPDIR:-/tmp}/offboarding-acceptance.XXXXXX")
+set +e
+# shellcheck disable=SC2086
+${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test offboarding_acceptance_postgres \
+  -- --include-ignored --test-threads=1 --show-output 2>&1 | tee "$log"
+cargo_status=${PIPESTATUS[0]}
+set -e
+printf 'GATE=offboarding_acceptance_postgres EXIT=%s\n' "$cargo_status"
+if (( cargo_status != 0 )); then exit "$cargo_status"; fi
+# A green run that executed fewer cases is a false pass.
+grep -Eq "^test result: ok\. ${#cases[@]} passed; 0 failed; 0 ignored" "$log" \
+  || { echo "expected ${#cases[@]} executed cases" >&2; exit 1; }
+for case in "${cases[@]}"; do
+  grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
+done

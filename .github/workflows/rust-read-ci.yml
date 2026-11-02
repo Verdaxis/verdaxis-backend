@@ -383,6 +383,11 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_offboarding_composition.sh
+      - name: Integrated offboarding acceptance across both stacks
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_acceptance.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         if: matrix.check == 'phase2'
