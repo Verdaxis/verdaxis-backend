@@ -5,6 +5,5 @@ pub mod inventory;
 pub mod matchmaking;
 pub mod order_create;
 pub mod orders;
-pub mod reassignment;
 pub mod trade_lifecycle;
 pub mod trades;

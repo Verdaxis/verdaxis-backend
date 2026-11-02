@@ -24,9 +24,9 @@ use crate::auth::limits::SharedLimits;
 use crate::market_support::SupportSettings;
 use crate::providers::umami::{UmamiConfig, UmamiPolicy};
 use crate::routes::market_write::{
-    amend, freeze, inventory, matchmaking, order_create, orders, reassignment, trade_lifecycle,
-    trades,
+    amend, freeze, inventory, matchmaking, order_create, orders, trade_lifecycle, trades,
 };
+use crate::routes::reassignment;
 use crate::subscriptions::FeeConfig;
 use crate::{AppState, Config};
 

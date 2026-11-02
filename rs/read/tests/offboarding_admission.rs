@@ -493,10 +493,7 @@ const DELEGATES: [(&str, &[&str]); 13] = [
         &["order_write/order_create.rs"],
     ),
     ("routes/market_write/orders.rs", &["order_write/orders.rs"]),
-    (
-        "routes/market_write/reassignment.rs",
-        &["order_write/reassignment.rs"],
-    ),
+    ("routes/reassignment.rs", &["order_write/reassignment.rs"]),
     (
         "routes/market_write/support.rs",
         &["order_write/support.rs"],

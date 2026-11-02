@@ -2,7 +2,9 @@
 //!
 //! The serving composition does not mount this component: it stays unrouted
 //! until the offboarding release switch enables it (see
-//! `runtime::market_write::reassignment_routes`).
+//! `runtime::market_write::reassignment_routes`). It lives outside
+//! `routes/market_write/`, whose files are exactly the market-write switch
+//! routes.
 
 use crate::auth::{VerificationSettings, verify_authorization};
 use crate::market_reassignment::{
