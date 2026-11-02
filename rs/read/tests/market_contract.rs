@@ -368,12 +368,18 @@ fn public_response_still_requires_public_fields() {
             assert!(public_response_terms(profile, &terms).is_err(), "{field}");
         }
     }
+    // `FameQualitySummary` requires `results`, but the public response is
+    // always built from the full declaration's dump, where an omitted list
+    // already became []. Python accepts it and answers results: [].
     let mut fame = vector(FAME_VECTOR)["fame_terms"].clone();
     fame["quality_evidence"]
         .as_object_mut()
         .unwrap()
         .remove("results");
-    assert!(public_response_terms("fame_v1", &fame).is_err());
+    assert_eq!(
+        public_response_terms("fame_v1", &fame).unwrap()["quality_evidence"]["results"],
+        json!([])
+    );
 }
 
 #[test]
@@ -823,6 +829,87 @@ fn typed_validators_reject_a_side_mismatch_and_an_unassigned_country() {
         redact_terms("lng_v1", &lng_bid).unwrap()["require_union_database"],
         json!(true)
     );
+}
+
+// ---------------------------------------------------------------------------
+// Python schema defaults (app/schemas/fame.py, app/schemas/fame_order.py).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fame_ask_document_references_default_to_an_empty_list() {
+    // `document_references` is declared with `default_factory=list`, so a
+    // declaration may omit the key and the stored projection carries [].
+    let mut terms = valid_fame_ask();
+    terms.as_object_mut().unwrap().remove("document_references");
+    assert!(validate_fame_terms("ASK", Some(&terms), today()).is_ok());
+    let owner = verdaxis_read::market::terms::owner_response_terms("fame_v1", &terms).unwrap();
+    assert_eq!(owner["document_references"], json!([]));
+
+    // An explicit null is not the default; the field is not Optional.
+    let mut null_documents = valid_fame_ask();
+    null_documents["document_references"] = json!(null);
+    assert!(validate_fame_terms("ASK", Some(&null_documents), today()).is_err());
+
+    // The AVAILABLE rule still refuses the defaulted empty list, with the
+    // schema validator's own message.
+    let mut available = terms.clone();
+    available["evidence_status"] = json!("AVAILABLE");
+    assert_eq!(
+        validate_fame_terms("ASK", Some(&available), today()),
+        Err("document_references are required when evidence is AVAILABLE".to_owned())
+    );
+}
+
+#[test]
+fn fame_quality_results_default_to_an_empty_list() {
+    // FameQualityEvidence defaults `results` to [], so a pending record may
+    // omit it and both projections carry the empty list.
+    let mut terms = valid_fame_ask();
+    terms["quality_evidence"] = json!({"status": "PENDING"});
+    assert!(validate_fame_terms("ASK", Some(&terms), today()).is_ok());
+    let owner = verdaxis_read::market::terms::owner_response_terms("fame_v1", &terms).unwrap();
+    assert_eq!(owner["quality_evidence"]["results"], json!([]));
+    let public = verdaxis_read::market::terms::public_response_terms("fame_v1", &terms).unwrap();
+    assert_eq!(public["quality_evidence"]["results"], json!([]));
+
+    // An explicit null is not the default; the field is not Optional.
+    let mut null_results = valid_fame_ask();
+    null_results["quality_evidence"] = json!({"status": "PENDING", "results": null});
+    assert!(validate_fame_terms("ASK", Some(&null_results), today()).is_err());
+}
+
+#[test]
+fn fame_literal_defaults_reject_an_explicit_null() {
+    // `schema_version: Literal[1] = 1` and
+    // `nomination_status: Literal["PENDING", "IDENTIFIED"] = "PENDING"` are
+    // not Optional: the default applies only when the key is absent.
+    for field in ["schema_version", "nomination_status"] {
+        let mut ask = valid_fame_ask();
+        ask[field] = json!(null);
+        assert!(
+            validate_fame_terms("ASK", Some(&ask), today()).is_err(),
+            "{field}: an explicit null must be rejected"
+        );
+        let mut bid = json!({
+            "side": "BID",
+            "neat_fame": true,
+            "standard": "EN_14214",
+            "standard_edition": "EN 14214:2019",
+            "sustainability_scheme": "ISCC_EU"
+        });
+        bid[field] = json!(null);
+        assert!(
+            validate_fame_terms("BID", Some(&bid), today()).is_err(),
+            "{field}: an explicit null must be rejected on a BID"
+        );
+    }
+
+    // An omitted nomination_status still defaults to PENDING in storage.
+    let mut pending = valid_fame_ask();
+    pending.as_object_mut().unwrap().remove("nomination_status");
+    assert!(validate_fame_terms("ASK", Some(&pending), today()).is_ok());
+    let owner = verdaxis_read::market::terms::owner_response_terms("fame_v1", &pending).unwrap();
+    assert_eq!(owner["nomination_status"], json!("PENDING"));
 }
 
 // ---------------------------------------------------------------------------
