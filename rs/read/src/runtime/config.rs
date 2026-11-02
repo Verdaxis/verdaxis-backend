@@ -223,6 +223,7 @@ pub fn config_from_deployed_environment(
             // an absent key leaves the in-app Host check off.
             allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
             market_write,
+            offboarding_enabled: deployed_bool(environment, super::offboarding::SWITCH, false)?,
         },
     };
     // Refuse an unknown status or an over-long message before serving, like

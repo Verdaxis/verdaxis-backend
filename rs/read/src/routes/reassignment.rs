@@ -1,8 +1,8 @@
 //! Administrator obligation list and responsible-person reassignment component.
 //!
-//! The serving composition does not mount this component: it stays unrouted
-//! until the offboarding release switch enables it (see
-//! `runtime::market_write::reassignment_routes`). It lives outside
+//! The serving composition mounts this component only while the offboarding
+//! release switch is on, together with the offboarding command (see
+//! `runtime::offboarding`). It lives outside
 //! `routes/market_write/`, whose files are exactly the market-write switch
 //! routes.
 

@@ -168,25 +168,30 @@ struct Preview {
 
 const ORDER_COLUMNS: &str = "id,organization_id,owner_user_id,side::text AS side,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt,remaining_quantity_mt,version,inventory_item_id,price_per_mt_usd,provenance::text AS provenance,expires_at";
 
+// One person's market scope as predicates on `$1`. The invalidation selects
+// with them, and the offboarding preview counts with them
+// ([`count_user_scope`]), so the two cannot describe different rows.
+const USER_TRADES: &str = "(buyer_user_id=$1 OR seller_user_id=$1)";
+const USER_ORDERS: &str = "owner_user_id=$1";
+// The states either scope changes: pending trades and open order remainders.
+const PENDING_TRADE: &str = "status='PENDING_CONFIRMATION'";
+const OPEN_ORDER: &str = "status IN ('OPEN','PARTIALLY_FILLED')";
+
 async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, InvalidationError> {
     // One row past the bound proves overflow without reading the whole scope.
     let (trades_in_scope, orders_in_scope, subject) = match scope {
         Scope::Organization(id) => ("(buyer_id=$1 OR seller_id=$1)", "organization_id=$1", id),
-        Scope::User(id) => (
-            "(buyer_user_id=$1 OR seller_user_id=$1)",
-            "owner_user_id=$1",
-            id,
-        ),
+        Scope::User(id) => (USER_TRADES, USER_ORDERS, id),
     };
     let commitments = sqlx::query_as::<_, Commitment>(sqlx::AssertSqlSafe(format!(
-        "SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE {trades_in_scope} AND status='PENDING_CONFIRMATION' ORDER BY id LIMIT {}",
+        "SELECT id,buyer_id,seller_id,bid_order_id,ask_order_id,product_id,delivery_point_id,availability_window,status::text AS status,quantity_mt FROM trades WHERE {trades_in_scope} AND {PENDING_TRADE} ORDER BY id LIMIT {}",
         MAX_INVALIDATION_ROWS + 1
     )))
     .bind(subject)
     .fetch_all(&mut *conn)
     .await?;
     let mut orders = sqlx::query_as::<_, Order>(sqlx::AssertSqlSafe(format!(
-        "SELECT {ORDER_COLUMNS} FROM orderbook_orders WHERE {orders_in_scope} AND status IN ('OPEN','PARTIALLY_FILLED') ORDER BY id LIMIT {}",
+        "SELECT {ORDER_COLUMNS} FROM orderbook_orders WHERE {orders_in_scope} AND {OPEN_ORDER} ORDER BY id LIMIT {}",
         MAX_INVALIDATION_ROWS + 1
     )))
     .bind(subject)
@@ -220,6 +225,54 @@ async fn preview(conn: &mut PgConnection, scope: Scope) -> Result<Preview, Inval
     Ok(Preview {
         commitments,
         orders,
+    })
+}
+
+/// Advisory counts of one person's market scope. Each count stops one row
+/// past the bound, so a larger scope is reported without reading all of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UserScopeCounts {
+    /// Open order remainders the person owns: [`invalidate_user`] withdraws them.
+    pub open_orders: i64,
+    /// Pending trades that record the person: [`invalidate_user`] cancels them.
+    pub pending_trades: i64,
+    /// Those pending trades under an active freeze: each one makes
+    /// [`invalidate_user`] refuse the whole scope.
+    pub frozen_pending_trades: i64,
+}
+
+impl UserScopeCounts {
+    /// True when [`invalidate_user`] would refuse the scope as over its bound.
+    pub fn exceeds_bound(&self) -> bool {
+        let bound = MAX_INVALIDATION_ROWS as i64;
+        self.open_orders > bound || self.pending_trades > bound
+    }
+}
+
+/// Count the rows [`invalidate_user`] would change, with the same predicates
+/// and without any lock. The answer is advisory: rows can change before the
+/// invalidation locks and reads them again.
+pub async fn count_user_scope(
+    conn: &mut PgConnection,
+    subject_id: Uuid,
+) -> Result<UserScopeCounts, sqlx::Error> {
+    let past_bound = MAX_INVALIDATION_ROWS as i64 + 1;
+    let (open_orders, pending_trades, frozen_pending_trades) =
+        sqlx::query_as::<_, (i64, i64, i64)>(sqlx::AssertSqlSafe(format!(
+            "SELECT \
+             (SELECT count(*) FROM (SELECT 1 FROM orderbook_orders WHERE {USER_ORDERS} AND {OPEN_ORDER} LIMIT $2) AS rows),\
+             (SELECT count(*) FROM (SELECT 1 FROM trades WHERE {USER_TRADES} AND {PENDING_TRADE} LIMIT $2) AS rows),\
+             (SELECT count(*) FROM (SELECT 1 FROM trades t WHERE {USER_TRADES} AND {PENDING_TRADE} \
+              AND EXISTS(SELECT 1 FROM trade_freezes f WHERE f.trade_id=t.id AND f.status='ACTIVE') LIMIT $2) AS rows)"
+        )))
+        .bind(subject_id)
+        .bind(past_bound)
+        .fetch_one(&mut *conn)
+        .await?;
+    Ok(UserScopeCounts {
+        open_orders,
+        pending_trades,
+        frozen_pending_trades,
     })
 }
 

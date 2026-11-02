@@ -378,10 +378,10 @@ pub(crate) fn routes(app: &AppState, limits: SharedLimits) -> Option<Router> {
 
 /// The administrator obligation list and responsible-person reassignment.
 ///
-/// [`routes`] does not call this, so no served router reaches these paths.
-/// The composition owner mounts it only behind the offboarding release
-/// switch, after the account offboarding command is composed. `None` under
-/// the same condition as [`routes`].
+/// [`routes`] does not call this. The offboarding composition
+/// ([`super::offboarding::routes`]) mounts it together with the account
+/// offboarding command, only while the offboarding release switch is on.
+/// `None` under the same condition as [`routes`].
 pub fn reassignment_routes(app: &AppState) -> Option<Router> {
     let phase2 = app.phase2.as_ref()?;
     app.market_write.as_ref()?;

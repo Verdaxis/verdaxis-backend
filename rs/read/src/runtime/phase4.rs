@@ -179,11 +179,13 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
     )
 }
 /// The account offboarding command and preview, composed with the production
-/// admission event producer and the supplied market implementation.
+/// admission event producer and a supplied market implementation.
 ///
-/// [`routes`] does not call this: the routes stay unmounted until the
-/// composition owner supplies the real user-scoped market invalidation behind
-/// its release switch. `None` when this composition has no Phase 2 settings.
+/// Test-only: it lets a test replace the market work. The serving composition
+/// is [`super::offboarding::routes`], which always supplies the real
+/// user-scoped market invalidation and mounts only behind the release switch.
+/// `None` when this composition has no Phase 2 settings.
+#[cfg(feature = "contract-tests")]
 pub fn offboarding_routes<H: business::offboarding::OffboardingMarketHook>(
     app: &AppState,
     market: Arc<H>,

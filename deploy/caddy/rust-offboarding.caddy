@@ -1,0 +1,52 @@
+# Import inside the existing site's route block, before its Python fallback.
+# Argument 0 is the Rust upstream. Argument 1 is the environment's Python
+# upstream, used only to disable the matchers when both arguments are equal.
+# A stopped Rust service returns an upstream error; requests are never sent
+# to Python (no fallback, no lb_try). Python has no route on these paths.
+#
+# One switch with the Rust release switch OFFBOARDING_ENABLED: the two
+# matchers below own exactly the four individual offboarding operations.
+#   POST /api/auth/admin/users/{user_id}/offboard
+#   GET  /api/auth/admin/users/{user_id}/offboarding-preview
+#   GET  /api/auth/admin/users/{user_id}/offboarding-trades
+#   POST /api/auth/admin/trades/{trade_id}/reassign-responsible
+# Disabled is this import absent, or argument 0 set to the Python upstream:
+# no handle matches and the site's Python fallback answers 404. While the Rust
+# switch is off, the Rust service has none of these routes either and answers
+# 404. Enable the Rust switch and this import together.
+#
+# Matchers are exact method and path pairs and match case-sensitively. An
+# identifier matches any non-empty segment; a malformed identifier is the
+# route's own refusal. HEAD, OPTIONS, another method, a trailing slash and a
+# longer or shorter path stay on Python.
+#
+# The Rust routes charge the shared /api/admin/ client quota themselves, so
+# the client address is forwarded.
+(verdaxis_rust_offboarding) {
+	@rust_offboarding_get {
+		expression '{args[0]}' != '{args[1]}'
+		method GET
+		path_regexp ^/api/auth/admin/users/[^/]+/(offboarding-preview|offboarding-trades)$
+	}
+	handle @rust_offboarding_get {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_offboarding_post {
+		expression '{args[0]}' != '{args[1]}'
+		method POST
+		path_regexp ^/api/auth/admin/(users/[^/]+/offboard|trades/[^/]+/reassign-responsible)$
+	}
+	handle @rust_offboarding_post {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}

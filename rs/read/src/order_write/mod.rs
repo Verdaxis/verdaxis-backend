@@ -59,8 +59,8 @@ pub use decimal::{
 pub use error::{MarketErrorCode, MarketWriteError};
 pub use expiry::{ExpiryEffect, ExpirySlice, MAX_EXPIRY_ORDERS};
 pub use invalidation::{
-    InvalidateOrganization, InvalidateUser, InvalidationError, InvalidationResult,
-    invalidate_organization, invalidate_user,
+    InvalidateOrganization, InvalidateUser, InvalidationError, InvalidationResult, UserScopeCounts,
+    count_user_scope, invalidate_organization, invalidate_user,
 };
 pub use locks::{
     IDEMPOTENCY_KEY_BOUNDS, IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_MIN, IDEMPOTENCY_LOCK_TIMEOUT,

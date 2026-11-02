@@ -22,11 +22,11 @@
 //! commit outcome is answered with `COMMIT_OUTCOME_UNKNOWN`; the client then
 //! reads the user again instead of repeating the command.
 //!
-//! The market work is supplied through [`OffboardingMarketHook`]. No
-//! implementation of it exists in this crate's serving code, and
-//! [`crate::runtime::phase4::routes`] does not mount these routes; the
-//! composition owner mounts [`router`] only with the real market
-//! implementation.
+//! The market work is supplied through [`OffboardingMarketHook`]. The one
+//! serving implementation is [`UserMarketInvalidation`], the user-scoped
+//! market invalidation of [`crate::order_write`]. The serving composition
+//! ([`crate::runtime::offboarding`]) mounts [`router`] with it, and only
+//! while the offboarding release switch is on.
 
 use std::sync::Arc;
 
@@ -56,13 +56,14 @@ pub use crate::case_reference::{
     CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
 };
 use crate::{
-    ApiError, AppState,
+    ApiError, AppState, Config, MarketPolicy,
     auth::{
         AuthError, AuthenticatedError, AuthenticatedRequest, CurrentActor, VerificationSettings,
         VerifiedAccess,
         offboarding::{UnusablePasswordHash, revoke_account_credentials},
         run_authenticated, verify_authorization,
     },
+    order_write::{InvalidateUser, count_user_scope, invalidate_user},
 };
 
 /// The command route.
@@ -287,6 +288,56 @@ impl<H: OffboardingMarketHook> OffboardingMarketHook for Arc<H> {
         scope: &'a UserMarketScope,
     ) -> CommandFuture<'a, MarketInvalidationSummary, AttemptError> {
         self.as_ref().invalidate_user(conn, scope)
+    }
+}
+
+/// The serving market implementation: the user-scoped market invalidation,
+/// with the market policy and configuration of this process.
+///
+/// It runs on the command's transaction after the organization and user
+/// locks, takes the market locks only after them, and never commits. Its
+/// refusals (a frozen pending trade, a scope over the bound, an unknown
+/// subject) and a busy market lock (`55P03`, answered `409 MARKET_BUSY`) roll
+/// back the whole command; a market preview that changed after discovery is a
+/// `40001` that the owner retries with the whole attempt.
+pub struct UserMarketInvalidation {
+    policy: Arc<MarketPolicy>,
+    config: Arc<Config>,
+}
+
+impl UserMarketInvalidation {
+    pub fn for_app(app: &AppState) -> Self {
+        Self {
+            policy: app.policy.clone(),
+            config: app.config.clone(),
+        }
+    }
+}
+
+impl OffboardingMarketHook for UserMarketInvalidation {
+    fn invalidate_user<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+        scope: &'a UserMarketScope,
+    ) -> CommandFuture<'a, MarketInvalidationSummary, AttemptError> {
+        Box::pin(async move {
+            let result = invalidate_user(
+                conn,
+                &InvalidateUser {
+                    subject_id: scope.subject_id,
+                    actor_id: scope.actor_id,
+                    now: scope.now,
+                    policy: self.policy.clone(),
+                    config: self.config.clone(),
+                },
+            )
+            .await?;
+            Ok(MarketInvalidationSummary {
+                withdrawn_orders: result.withdrawn_orders,
+                cancelled_trades: result.cancelled_trade_ids,
+                outbox_ids: result.outbox_ids,
+            })
+        })
     }
 }
 
@@ -747,16 +798,20 @@ pub async fn preview(
     if row.get::<Option<String>, _>("role").as_deref() == Some("ADMIN") {
         return Err(not_manageable());
     }
-    // Each count stops one row past the bound.
+    // The rows the command withdraws or cancels, counted with the market
+    // scope's own predicates. Each count stops one row past the bound.
+    let scope = count_user_scope(conn, subject).await.map_err(database)?;
+    if scope.exceeds_bound() {
+        return Err(refusal(
+            StatusCode::CONFLICT,
+            "OFFBOARD_PREVIEW_LIMIT",
+            "The account has more open orders or pending trades than one offboarding can process.",
+        ));
+    }
+    // Confirmed and delivered trades stay for settlement and reassignment;
+    // their counts only inform the administrator.
     let counts = sqlx::query(
         "SELECT \
-         (SELECT count(*) FROM (SELECT 1 FROM orderbook_orders WHERE owner_user_id=$1 \
-          AND status IN ('OPEN','PARTIALLY_FILLED') LIMIT $2) AS rows) AS open_owned_orders,\
-         (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
-          AND status='PENDING_CONFIRMATION' LIMIT $2) AS rows) AS pending_trades,\
-         (SELECT count(*) FROM (SELECT 1 FROM trades t WHERE (t.buyer_user_id=$1 OR t.seller_user_id=$1) \
-          AND t.status='PENDING_CONFIRMATION' AND EXISTS(SELECT 1 FROM trade_freezes f \
-          WHERE f.trade_id=t.id AND f.status='ACTIVE') LIMIT $2) AS rows) AS frozen_pending_trades,\
          (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
           AND status='CONFIRMED' LIMIT $2) AS rows) AS confirmed_trades,\
          (SELECT count(*) FROM (SELECT 1 FROM trades WHERE (buyer_user_id=$1 OR seller_user_id=$1) \
@@ -767,15 +822,6 @@ pub async fn preview(
     .fetch_one(&mut *conn)
     .await
     .map_err(database)?;
-    let open_owned_orders: i64 = counts.get("open_owned_orders");
-    let pending_trades: i64 = counts.get("pending_trades");
-    if open_owned_orders > PREVIEW_COUNT_LIMIT || pending_trades > PREVIEW_COUNT_LIMIT {
-        return Err(refusal(
-            StatusCode::CONFLICT,
-            "OFFBOARD_PREVIEW_LIMIT",
-            "The account has more open orders or pending trades than one offboarding can process.",
-        ));
-    }
     let confirmed_trades: i64 = counts.get("confirmed_trades");
     let delivered_trades: i64 = counts.get("delivered_trades");
     Ok(OffboardingPreview {
@@ -785,9 +831,9 @@ pub async fn preview(
         organization_id: row.get("organization_id"),
         organization_name: row.get("organization_name"),
         offboarded_at: row.get("offboarded_at"),
-        open_owned_orders,
-        pending_trades,
-        frozen_pending_trades: counts.get("frozen_pending_trades"),
+        open_owned_orders: scope.open_orders,
+        pending_trades: scope.pending_trades,
+        frozen_pending_trades: scope.frozen_pending_trades,
         confirmed_trades: confirmed_trades.min(PREVIEW_COUNT_LIMIT),
         delivered_trades: delivered_trades.min(PREVIEW_COUNT_LIMIT),
         informational_counts_capped: confirmed_trades > PREVIEW_COUNT_LIMIT
@@ -830,8 +876,9 @@ impl<H, E> Clone for RouteState<H, E> {
     }
 }
 
-/// Component router only. Nothing mounts it until the composition owner
-/// supplies the real market implementation.
+/// Component router only. The serving composition mounts it with
+/// [`UserMarketInvalidation`] behind the offboarding release switch
+/// ([`crate::runtime::offboarding`]).
 pub fn router<H: OffboardingMarketHook, E: AdmissionEvents>(
     app: AppState,
     verification: VerificationSettings,

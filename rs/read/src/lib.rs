@@ -310,6 +310,11 @@ pub struct Phase2Options {
     /// `MARKET_SUPPORT_*` keys and the conversion collector). Absent keys keep
     /// Python's defaults.
     pub market_write: runtime::market_write::MarketWriteOptions,
+    /// `OFFBOARDING_ENABLED`: the release switch of the individual offboarding
+    /// command, its preview, the obligation list and the responsible-person
+    /// reassignment. Off unless the deployed environment turns it on; while
+    /// off, no router mounts any of these routes (see `runtime::offboarding`).
+    pub offboarding_enabled: bool,
 }
 
 fn read_admission_default() -> u32 {
