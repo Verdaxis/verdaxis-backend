@@ -869,7 +869,7 @@ ties only. The Phase 1 default and existing recording comparator stay unchanged.
 Phase 10 removes the Python application; `verdaxis-read` becomes the one
 binary. Task 1 pins the removal inventory under
 `tests/rust_contract/phase10/` (`removal-ledger`, `routes`, `units`,
-`scripts`, `evidence-manifest`) and `tests/rust_contract/test_phase10_inventory.py`,
+`scripts`, `evidence-manifest`, `offhost-tools`) and `tests/rust_contract/test_phase10_inventory.py`,
 a standalone harness that parses source as data (never imports the
 application) and keeps the 188-route/41-unit/41-script/14-helper snapshot with
 per-artifact end states. The integration owner re-pins source digests when an

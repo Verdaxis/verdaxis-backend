@@ -123,18 +123,20 @@
       "source": "deploy/monitor/legacy_retirement.py",
       "kind": "script",
       "end_state": "retired-offhost",
-      "owner": "Task 26 off-host retirement",
+      "owner": "Task 26 off-host tooling",
       "task": 26,
       "source_sha256": "59d4b6b6e2437efd97bff1a8df11e31a18042bab05e134525c2a504ec654059c",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "One-use gate that decides when the old shell monitor may be retired. It is not a scheduler or a runtime command, so it is removed from the release manifest and kept only for audit."
     },
     {
       "id": "artifact.deploy/monitor/local_health_check.py",
@@ -387,30 +389,36 @@
       "source_sha256": "4d305ce051ed3208bd00463b6941c152c3b2d5b17e973c53fdaa291fb3b1d13f",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Builds generated Caddy candidates for the staged read-route cutovers. Committed per-group snippets and a Caddy validate step replace generated candidates, so it stays only for CI and audit."
     },
     {
       "id": "helper.rust_passive_no_harm.py",
       "source": "scripts/rust_passive_no_harm.py",
       "kind": "helper",
-      "end_state": "gone",
-      "owner": "Task 32 retirement; monitor owns passive checks",
-      "task": 32,
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
       "source_sha256": "12d0b81c1290cac7df086d9746ae6f9aac51eedce1b88651699271c701140210",
       "status": "planned",
       "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
         "passive_harm_checks_are_clean_for_each_group"
       ],
-      "deleting_task": 32,
+      "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Passive harm observer used during the staged cutovers. At the final cutover the monitor's 5xx, error-class, restart and memory checks replace it, so it is kept only for audit."
     },
     {
       "id": "helper.validate_health_response.py",
@@ -4585,18 +4593,22 @@
       "id": "script.benchmark_product_analytics.py",
       "source": "scripts/benchmark_product_analytics.py",
       "kind": "script",
-      "end_state": "gone",
-      "owner": "Task 26 retirement (decision 110)",
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
       "task": 26,
       "source_sha256": "ac2cbcf486b97583c38d8541cd8bcd29cd92edcba2f07b33b51905afed9b36d3",
       "status": "planned",
       "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
         "phase0_and_benchmark_tools_are_ci_or_offhost_only"
       ],
-      "deleting_task": 26,
+      "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Latency benchmark for the product analytics tabs. The Phase 10 plan allows one measurement, after the final cutover, so this benchmark is kept only as audit evidence and is never run on a host."
     },
     {
       "id": "script.check_users.py",
@@ -4656,13 +4668,16 @@
       "source_sha256": "f0e3e5dd04033eae9c8264a86e98df49d621bc63cd9c03c84abc7b9c82f9f71f",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "phase0_and_benchmark_tools_are_ci_or_offhost_only"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Query-plan inspection helper for the product analytics statements. It reuses Python application code and runs only by hand against a database chosen off host."
     },
     {
       "id": "script.export_openapi.py",
@@ -4674,13 +4689,15 @@
       "source_sha256": "4e30195b6cf2c833c8294cc9d060a7a59c6f48d66aa87294d31ee1deab44b163",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Exports the OpenAPI document by importing the Python application, so it cannot survive the deletion of the application. It is run only off host."
     },
     {
       "id": "script.import_gena_csv.py",
@@ -4804,13 +4821,16 @@
       "source_sha256": "c1e74b6319aecb11d756fc0a7e5f19463de678a8ace244184495f15606389263",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Exact market-data remediation stays a reviewed one-off, run by a separate trusted role with its own target attestation. It is never an installed production command, and the Rust binary has no equivalent."
     },
     {
       "id": "script.run_demo_activity.py",
@@ -4838,13 +4858,16 @@
       "source_sha256": "1373d2bd3b74a008e320c16ded3610a3772fd6a40de5379d27bee93b4455475a",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "phase0_and_benchmark_tools_are_ci_or_offhost_only"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "CI runner for the Phase 0 PostgreSQL tests against a disposable database. It is not installed on any host."
     },
     {
       "id": "script.run_product_analytics_postgres_tests.sh",
@@ -4856,13 +4879,16 @@
       "source_sha256": "c5c333d005fb55dbf0cb0cf6d521c5d0563898a29cf39ac6ab117ea559033bf1",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "phase0_and_benchmark_tools_are_ci_or_offhost_only"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "CI runner for the product analytics PostgreSQL tests against a disposable database. It is not installed on any host."
     },
     {
       "id": "script.rust_cache_authority.py",
@@ -4890,30 +4916,36 @@
       "source_sha256": "4d305ce051ed3208bd00463b6941c152c3b2d5b17e973c53fdaa291fb3b1d13f",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Builds generated Caddy candidates for the staged read-route cutovers. Committed per-group snippets and a Caddy validate step replace generated candidates, so it stays only for CI and audit."
     },
     {
       "id": "script.rust_passive_no_harm.py",
       "source": "scripts/rust_passive_no_harm.py",
       "kind": "script",
-      "end_state": "gone",
-      "owner": "Task 32 retirement; monitor owns passive checks",
-      "task": 32,
+      "end_state": "retired-offhost",
+      "owner": "Task 26 off-host tooling",
+      "task": 26,
       "source_sha256": "12d0b81c1290cac7df086d9746ae6f9aac51eedce1b88651699271c701140210",
       "status": "planned",
       "evidence": [
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
         "passive_harm_checks_are_clean_for_each_group"
       ],
-      "deleting_task": 32,
+      "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "last_reference_change": "Task 32 removes Python units, upstreams and runtime references"
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Passive harm observer used during the staged cutovers. At the final cutover the monitor's 5xx, error-class, restart and memory checks replace it, so it is kept only for audit."
     },
     {
       "id": "script.rust_phase5_candidate.py",
@@ -4925,13 +4957,15 @@
       "source_sha256": "024fc4b11179fe2643f3d5227949af0d2b3c8eeca8e653d1123885d6b55ab868",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Builds generated Caddy candidates for the staged read-route cutovers. Committed per-group snippets and a Caddy validate step replace generated candidates, so it stays only for CI and audit."
     },
     {
       "id": "script.scrape_fleet_demand.py",
@@ -4978,13 +5012,16 @@
       "source_sha256": "b115d1a4495b14593cf2f14fe2d576f4a3da2c8d16584c2f04a63881d588f122",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_compliance_data.py",
@@ -4996,13 +5033,16 @@
       "source_sha256": "520d911e30d6e9f64a00d477d14008dcac3bf7ef22598898a1e9626c8d2ff3ca",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_forward_monitoring_demo.py",
@@ -5014,13 +5054,16 @@
       "source_sha256": "bdf06837fdf6d365878f13f713f2dd557084cc68e3e87ee065fe1d27c23f1422",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_maersk_vessels.py",
@@ -5032,13 +5075,16 @@
       "source_sha256": "4f991d82d4729188a9dfaa90aa299ab6b1a10def2935a4bac4bcac9b0f2d4416",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_port_inventory.py",
@@ -5050,13 +5096,16 @@
       "source_sha256": "d7336a9688f149519d357c148f79e0fba05f4c4d51bddfcb24194a4b9b4d1933",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_producer_projects.py",
@@ -5068,13 +5117,16 @@
       "source_sha256": "48ee95d09ddcd37b77115f0f03af9d238a327da8a2ed91e2a1efe985b4733f6a",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_realistic_orderbook.py",
@@ -5086,13 +5138,16 @@
       "source_sha256": "ae38e59fa8e8693c1feae3a0c11e02dfe6c4ed8071ec97ae924fd00c2236c858",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_user_activity.py",
@@ -5104,13 +5159,16 @@
       "source_sha256": "89f4a545d7da5e01e3ca828caa644b4255a7cbbabcd568f70ad28d68eb9c0ad2",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.seed_vessels_fleet.py",
@@ -5122,13 +5180,16 @@
       "source_sha256": "73d7847aff4800ea583f0931d7b79ffb96847999eec7b621b560467092258197",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "seed_and_remediation_tools_are_not_installed_by_any_script"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Disposable fixture seed that works only through the seed safety module, which refuses a target that is not a disposable database. It needs the Python application tree that Task 32 deletes, so no host installs or runs it."
     },
     {
       "id": "script.smoke_umami_product_analytics.py",
@@ -5140,13 +5201,16 @@
       "source_sha256": "9f089a96c8199b7fbce36db1d6cf9e5579dfa5d017f70d973c53de75a254791c",
       "status": "planned",
       "evidence": [
-        "offhost_rows_name_a_tool_a_reason_and_a_location"
+        "offhost_rows_name_a_tool_a_reason_and_a_location",
+        "no_unit_timer_cron_or_deploy_references_a_retired_tool",
+        "retired_tools_are_absent_from_the_release_artifact",
+        "phase0_and_benchmark_tools_are_ci_or_offhost_only"
       ],
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use."
+      "offhost_location": "private evidence root bundle named in offhost-tools.json; the repository copy is kept for audit and CI only and is excluded from the release artifact and every host",
+      "retirement_reason": "Smoke check for the separate Umami analytics service, which is outside the Verdaxis application scope. It is run by hand off host and is never scheduled."
     },
     {
       "id": "script.validate_health_response.py",

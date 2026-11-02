@@ -3,7 +3,11 @@
 import ast
 import copy
 import hashlib
+import importlib.util
+import io
 import json
+import re
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -769,3 +773,380 @@ def test_phase10_incidental_tokens_are_not_scenarios():
     incidental = {"db", "environment", "flock", "gone", "message", "release_sha",
                   "rust", "sent_at", "shell", "status", "version"}
     assert not incidental.intersection(document("evidence-manifest")["required_scenarios"])
+
+
+# ---------------------------------------------------------------------------
+# Task 26: seeds, remediation and diagnostics are retired off-host.
+#
+# `offhost-tools.json` holds one record per retired tool: its reason, owner,
+# storage location and the repository references that are still allowed. The
+# checks below read source as data and never import or run a retired tool.
+# ---------------------------------------------------------------------------
+
+OFFHOST_GROUPS = {
+    "seed": [
+        "scripts/seed.py", "scripts/seed_compliance_data.py",
+        "scripts/seed_forward_monitoring_demo.py", "scripts/seed_maersk_vessels.py",
+        "scripts/seed_port_inventory.py", "scripts/seed_producer_projects.py",
+        "scripts/seed_realistic_orderbook.py", "scripts/seed_user_activity.py",
+        "scripts/seed_vessels_fleet.py",
+    ],
+    "remediation": ["scripts/remediate_market_data.py"],
+    "phase0": [
+        "scripts/phase0/assert_host.py", "scripts/phase0/bootstrap.py",
+        "scripts/phase0/codecs.py", "scripts/phase0/copy.py",
+        "scripts/phase0/database_fence.py", "scripts/phase0/host_authority.py",
+        "scripts/phase0/manifest.py", "scripts/phase0/production.py",
+        "scripts/phase0/refusal.py", "scripts/phase0/scratch_business_smoke.py",
+        "scripts/phase0/start_fence.py", "scripts/phase0/verify.py",
+        "scripts/run_phase0_postgres_tests.sh",
+    ],
+    "benchmark": ["scripts/benchmark_product_analytics.py"],
+    "diagnostics": [
+        "scripts/explain_product_analytics.py",
+        "scripts/run_product_analytics_postgres_tests.sh",
+        "scripts/smoke_umami_product_analytics.py",
+    ],
+    "candidate": ["scripts/rust_caddy_candidate.py", "scripts/rust_phase5_candidate.py"],
+    "cutover-observation": ["scripts/rust_passive_no_harm.py"],
+    "legacy-monitor": ["deploy/monitor/legacy_retirement.py"],
+    "export": ["scripts/export_openapi.py"],
+}
+OFFHOST_LEDGER_TASK = 26
+PERMITTED_USES = {"ci", "disposable-fixture", "offhost-audit", "operator-one-off"}
+STORAGE_PREFIX = "private-evidence-root:"
+# A storage location is a name inside the private evidence root, never a path
+# under a repository deploy tree or on a host.
+FORBIDDEN_LOCATION_PREFIXES = ("/", "~", "deploy/", "scripts/", "etc/", "usr/", "var/", "home/")
+REFERENCE_ROOTS = ("app", "alembic", "deploy", "scripts", ".github")
+SKIPPED_DIRECTORIES = {"__pycache__", "node_modules", "target"}
+# Data that belongs to a retired tool and is not a runtime surface.
+DEPLOY_DATA_EXCLUSIONS = ("deploy/phase0/", "deploy/monitor/legacy_retirement.py",
+                          "deploy/monitor/artifact-manifest.json")
+HOST_DEPENDENCIES = "tests/rust_contract/phase10/host-dependencies.json"
+NEUTRAL_BINARY = b"#!/bin/sh\nexit 0\n"
+
+
+def offhost_records():
+    document_ = document("offhost-tools")
+    assert document_["schema_version"] == 1
+    return document_["tools"]
+
+
+def offhost_ledger_rows(ledger):
+    return [row for row in ledger["artifacts"]
+            if row["end_state"] == "retired-offhost" and row["task"] == OFFHOST_LEDGER_TASK]
+
+
+def reference_pattern(tool, generic_phase0=False):
+    """Match a tool by path, by module name or by a bare file name."""
+    base = Path(tool).name
+    stem = base.rsplit(".", 1)[0]
+    if tool.startswith("scripts/phase0/"):
+        module = rf"scripts\.phase0\.{re.escape(stem)}(?![A-Za-z0-9_])"
+        generic = r"|scripts[./]phase0(?![A-Za-z0-9_])" if generic_phase0 else ""
+        return re.compile(rf"{re.escape(tool)}|{module}{generic}")
+    return re.compile(
+        rf"{re.escape(tool)}"
+        rf"|scripts\.{re.escape(stem)}(?![A-Za-z0-9_])"
+        rf"|(?<![A-Za-z0-9_-]){re.escape(base)}(?![A-Za-z0-9_])"
+    )
+
+
+def walk_files(root, bases):
+    for base in bases:
+        top = root / base
+        if not top.is_dir():
+            continue
+        for path in sorted(top.rglob("*")):
+            relative = path.relative_to(root)
+            if path.is_file() and not SKIPPED_DIRECTORIES.intersection(relative.parts):
+                yield relative.as_posix(), path
+
+
+def references_in(root, relative_paths, tools, generic_phase0=False):
+    """Return (file, tool) pairs for every named tool referenced by the files."""
+    patterns = {tool: reference_pattern(tool, generic_phase0) for tool in tools}
+    found = []
+    for relative in relative_paths:
+        path = root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(errors="replace")
+        found.extend((relative, tool) for tool, pattern in patterns.items()
+                     if relative != tool and pattern.search(text))
+    return sorted(found)
+
+
+def retired_tool_paths(records):
+    paths = {record["tool"] for record in records}
+    for record in records:
+        paths.update(item["path"] for item in record.get("companions", []))
+    return paths
+
+
+def execution_surface(root):
+    """Units, timers, sudoers, Caddy and cron data, deploy scripts and installers."""
+    files = [relative for relative, path in walk_files(root, ["deploy"])
+             if not relative.endswith(".md")
+             and not relative.startswith(DEPLOY_DATA_EXCLUSIONS)]
+    files += [name for name in ("scripts/deploy.sh", "scripts/install_systemd_units.sh",
+                                HOST_DEPENDENCIES) if (root / name).is_file()]
+    return files
+
+
+def installer_surface(root):
+    """Every shell script that could copy, link or run a tool, plus unit files."""
+    shell = [relative for relative, _ in walk_files(root, ["scripts", "deploy", "rs"])
+             if relative.endswith(".sh")]
+    units = [relative for relative, _ in walk_files(root, ["deploy"])
+             if relative.endswith((".service", ".timer", ".tmpfiles", ".sysusers"))]
+    return sorted(set(shell + units))
+
+
+def check_offhost_records(records, ledger, root=ROOT):
+    """Each retired tool has a reason, an owner, a private location and a bound digest."""
+    seen = set()
+    manifest_lines = []
+    for record in records:
+        tool = record.get("tool", "")
+        assert tool and tool not in seen, f"missing or duplicate tool name: {tool!r}"
+        seen.add(tool)
+        assert record.get("group") in OFFHOST_GROUPS, f"unknown group: {tool}"
+        assert len(record.get("reason", "").split()) >= 8, f"no reason: {tool}"
+        assert record.get("owner", "").strip(), f"no owner: {tool}"
+        assert record.get("permitted_use") in PERMITTED_USES, f"unknown use: {tool}"
+        location = record.get("storage_location", "")
+        assert location.startswith(STORAGE_PREFIX), f"no private location: {tool}"
+        member = location[len(STORAGE_PREFIX):]
+        assert not member.startswith(FORBIDDEN_LOCATION_PREFIXES), f"location is a host path: {tool}"
+        assert member.endswith(f"#{tool}"), f"location does not name the tool: {tool}"
+        assert re.fullmatch(r"[0-9a-f]{64}", record.get("sha256", "")), f"no digest: {tool}"
+        manifest_lines.append(f"{record['sha256']}  {tool}")
+        for companion in record.get("companions", []):
+            assert re.fullmatch(r"[0-9a-f]{64}", companion["sha256"]), f"no companion digest: {tool}"
+            manifest_lines.append(f"{companion['sha256']}  {companion['path']}")
+    by_source = {}
+    for row in offhost_ledger_rows(ledger):
+        by_source.setdefault(row["source"], []).append(row)
+    for source, rows in by_source.items():
+        assert source in seen, f"retired-offhost row has no off-host record: {source}"
+        record = next(item for item in records if item["tool"] == source)
+        assert sorted(record["ledger_ids"]) == sorted(row["id"] for row in rows), (
+            f"record does not name its ledger rows: {source}"
+        )
+        for row in rows:
+            assert row["offhost_location"].strip() and row["retirement_reason"].strip()
+            assert row["source_sha256"] == record["sha256"], f"digest drift: {source}"
+    if ledger["phase"] == "pre-removal":
+        for record in records:
+            path = root / record["tool"]
+            assert path.is_file(), f"retired tool missing before removal: {record['tool']}"
+            assert digest(path) == record["sha256"], f"retired tool drifted: {record['tool']}"
+            for companion in record.get("companions", []):
+                assert digest(root / companion["path"]) == companion["sha256"], (
+                    f"companion drifted: {companion['path']}"
+                )
+    return "\n".join(sorted(manifest_lines)) + "\n"
+
+
+def test_offhost_rows_name_a_tool_a_reason_and_a_location():
+    document_ = document("offhost-tools")
+    records = document_["tools"]
+    ledger = document("removal-ledger")
+    assert {group: sorted(record["tool"] for record in records if record["group"] == group)
+            for group in OFFHOST_GROUPS} == {
+        group: sorted(tools) for group, tools in OFFHOST_GROUPS.items()
+    }, "off-host tool membership changed"
+    manifest = check_offhost_records(records, ledger)
+    storage = document_["storage"]
+    assert storage["location"] == STORAGE_PREFIX + storage["bundle"]
+    assert storage["member_count"] == len(manifest.splitlines())
+    assert storage["manifest_sha256"] == hashlib.sha256(manifest.encode()).hexdigest()
+    assert re.fullmatch(r"[0-9a-f]{64}", storage["bundle_sha256"])
+    for record in records:
+        assert record["storage_location"] == f"{storage['location']}#{record['tool']}"
+    # Every Phase 0 file in the tree is recorded, so a new one cannot slip through.
+    on_disk = sorted(f"scripts/phase0/{path.name}" for path in (ROOT / "scripts/phase0").glob("*.py"))
+    assert on_disk == sorted(tool for tool in OFFHOST_GROUPS["phase0"] if tool.endswith(".py"))
+    for row in offhost_ledger_rows(ledger):
+        assert row["owner"].strip() and row["evidence"]
+    for companion in (c for record in records for c in record.get("companions", [])):
+        assert (ROOT / companion["path"]).is_file(), f"companion missing: {companion['path']}"
+
+
+@pytest.mark.parametrize("field", ["tool", "reason", "owner", "storage_location", "sha256", "permitted_use"])
+def test_offhost_rows_name_a_tool_a_reason_and_a_location_rejects_a_missing_field(field):
+    records = copy.deepcopy(offhost_records())
+    assert records, "no off-host records to mutate"
+    records[0][field] = ""
+    with pytest.raises(AssertionError):
+        check_offhost_records(records, document("removal-ledger"))
+
+
+def test_offhost_rows_name_a_tool_a_reason_and_a_location_rejects_a_host_location():
+    records = copy.deepcopy(offhost_records())
+    assert records, "no off-host records to mutate"
+    records[0]["storage_location"] = "private-evidence-root:/usr/local/libexec/x#" + records[0]["tool"]
+    with pytest.raises(AssertionError, match="host path"):
+        check_offhost_records(records, document("removal-ledger"))
+
+
+def test_offhost_rows_name_a_tool_a_reason_and_a_location_rejects_an_unrecorded_ledger_row():
+    records = offhost_records()[1:]
+    with pytest.raises(AssertionError, match="no off-host record"):
+        check_offhost_records(records, document("removal-ledger"))
+
+
+def test_no_unit_timer_cron_or_deploy_references_a_retired_tool():
+    tools = retired_tool_paths(offhost_records())
+    assert tools, "no retired tools recorded"
+    surface = execution_surface(ROOT)
+    assert any(name.endswith(".timer") for name in surface), "timers are not scanned"
+    assert "scripts/deploy.sh" in surface and HOST_DEPENDENCIES in surface
+    found = references_in(ROOT, surface, sorted(tools), generic_phase0=True)
+    assert not found, f"retired tool referenced by a runtime surface: {found}"
+
+
+@pytest.mark.parametrize("name, text", [
+    ("deploy/systemd/x.service", "[Service]\nExecStart=/usr/bin/python3 scripts/seed.py\n"),
+    ("deploy/systemd/x.timer", "[Timer]\nUnit=seed_user_activity.py\n"),
+    ("deploy/cron.d/x", "0 3 * * * root /opt/verdaxis/scripts/remediate_market_data.py\n"),
+    ("scripts/deploy.sh", "python -m scripts.phase0.bootstrap\n"),
+])
+def test_no_unit_timer_cron_or_deploy_references_a_retired_tool_rejects_a_reference(tmp_path, name, text):
+    target = tmp_path / name
+    target.parent.mkdir(parents=True)
+    target.write_text(text)
+    tools = ["scripts/seed.py", "scripts/seed_user_activity.py", "scripts/remediate_market_data.py",
+             "scripts/phase0/bootstrap.py"]
+    assert references_in(tmp_path, execution_surface(tmp_path), tools, generic_phase0=True)
+
+
+def release_artifact_members(root, workdir):
+    """Package the real release inputs exactly as CI does and list what ships."""
+    spec = importlib.util.spec_from_file_location("verify_rust_artifact", root / "scripts/verify_rust_artifact.py")
+    packager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(packager)
+    binary = workdir / "verdaxis-read"
+    binary.write_bytes(NEUTRAL_BINARY)
+    archive = packager.build_archive(
+        binary=binary, data_dir=root / "deploy/rust", source_sha="a" * 40,
+        target=packager.DEFAULT_TARGET, toolchain="1.95.0", lockfile=root / "rs/Cargo.lock",
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+        return {member.name: bundle.extractfile(member).read().decode("utf-8", "replace")
+                for member in bundle if member.isfile()}
+
+
+def monitor_manifest_paths(root):
+    manifest = json.loads((root / "deploy/monitor/artifact-manifest.json").read_text())
+    return sorted(f"deploy/monitor/{item['source']}" for item in manifest["artifacts"])
+
+
+def manifest_hits(root, retired):
+    """Retired tools that the host-installed monitor manifest still lists."""
+    return [path for path in monitor_manifest_paths(root) if path in retired]
+
+
+def archive_hits(members, retired):
+    """Retired tools named by a release archive member name or by its bytes."""
+    return [f"{name} -> {tool}" for name, text in sorted(members.items()) for tool in sorted(retired)
+            if Path(name).name == Path(tool).name or reference_pattern(tool).search(text)]
+
+
+def test_retired_tools_are_absent_from_the_release_artifact(tmp_path):
+    retired = retired_tool_paths(offhost_records()) | {
+        row["source"] for row in offhost_ledger_rows(document("removal-ledger"))
+    }
+    members = release_artifact_members(ROOT, tmp_path)
+    assert {"verdaxis-read", "artifact-metadata.json", "SHA256SUMS"} <= set(members)
+    assert all(name.startswith("data/") or name in {"verdaxis-read", "artifact-metadata.json", "SHA256SUMS"}
+               for name in members), "unexpected release member"
+    shipped = manifest_hits(ROOT, retired) + archive_hits(members, retired)
+    assert not shipped, f"retired tool shipped in the release artifact: {shipped}"
+    assert len(retired) >= 32, "retired tool set is incomplete"
+
+
+def test_retired_tools_are_absent_from_the_release_artifact_rejects_a_manifest_entry(tmp_path):
+    (tmp_path / "deploy/monitor").mkdir(parents=True)
+    (tmp_path / "deploy/monitor/artifact-manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "artifacts": [{"source": "legacy_retirement.py", "destination": "/x", "mode": "0755", "sha256": "0" * 64}],
+    }))
+    assert manifest_hits(tmp_path, {"deploy/monitor/legacy_retirement.py"}) == [
+        "deploy/monitor/legacy_retirement.py"
+    ]
+
+
+@pytest.mark.parametrize("name", ["data/seed.py", "seed.py"])
+def test_retired_tools_are_absent_from_the_release_artifact_rejects_an_archive_member(name):
+    assert archive_hits({name: ""}, {"scripts/seed.py"}) == [f"{name} -> scripts/seed.py"]
+
+
+INSTALLER_GENERIC = re.compile(r"scripts/(seed[A-Za-z0-9_]*|remediate[A-Za-z0-9_]*)\.py|scripts/\*")
+
+
+def installer_hits(root, guarded):
+    """Installer files that name a guarded tool or copy the whole scripts directory."""
+    surface = installer_surface(root)
+    hits = [f"{path} -> {tool}" for path, tool in references_in(root, surface, guarded)]
+    hits += [f"{path} -> glob" for path in surface
+             if INSTALLER_GENERIC.search((root / path).read_text(errors="replace"))]
+    return hits
+
+
+def test_seed_and_remediation_tools_are_not_installed_by_any_script():
+    records = offhost_records()
+    guarded = [r["tool"] for r in records if r["group"] in {"seed", "remediation"}]
+    assert len(guarded) == 10, "seed and remediation membership changed"
+    for record in records:
+        if record["group"] == "seed":
+            assert record["permitted_use"] == "disposable-fixture"
+        if record["group"] == "remediation":
+            assert record["permitted_use"] == "operator-one-off"
+    surface = installer_surface(ROOT)
+    assert "scripts/install_systemd_units.sh" in surface and "scripts/deploy.sh" in surface
+    assert any(name.endswith(".service") for name in surface)
+    assert not installer_hits(ROOT, guarded), "a script or unit installs a seed or remediation tool"
+    # The seeds work only through the seed safety module, which refuses a target
+    # that is not a disposable database.
+    if document("removal-ledger")["phase"] == "pre-removal":
+        for tool in OFFHOST_GROUPS["seed"]:
+            assert "app.seeds.safety" in (ROOT / tool).read_text(), f"{tool} bypasses the seed guard"
+
+
+@pytest.mark.parametrize("text", [
+    "install -m 0755 scripts/seed_realistic_orderbook.py /usr/local/bin/\n",
+    "cp scripts/* /usr/local/libexec/\n",
+    "python3 scripts/remediate_market_data.py --apply\n",
+])
+def test_seed_and_remediation_tools_are_not_installed_by_any_script_rejects_an_installer(tmp_path, text):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/install_systemd_units.sh").write_text(text)
+    guarded = ["scripts/seed_realistic_orderbook.py", "scripts/remediate_market_data.py"]
+    assert installer_hits(tmp_path, guarded)
+
+
+def test_phase0_and_benchmark_tools_are_ci_or_offhost_only():
+    records = offhost_records()
+    recorded = {record["tool"] for record in records}
+    groups = ("phase0", "benchmark", "diagnostics")
+    selected = [record for record in records if record["group"] in groups]
+    assert len(selected) == 17, "phase0, benchmark and diagnostics membership changed"
+    for record in selected:
+        assert record["permitted_use"] in {"ci", "offhost-audit"}, record["tool"]
+    benchmark = next(record for record in records if record["group"] == "benchmark")
+    assert benchmark["permitted_use"] == "offhost-audit", "benchmarks are never run on a host"
+    candidates = [relative for relative, _ in walk_files(ROOT, REFERENCE_ROOTS) if relative not in recorded]
+    for group in groups:
+        members = [record for record in selected if record["group"] == group]
+        permitted = sorted({path for record in members for path in record["permitted_references"]})
+        assert not [path for path in permitted if path.startswith("deploy/")], group
+        observed = sorted({path for path, _ in references_in(
+            ROOT, candidates, [record["tool"] for record in members], generic_phase0=group == "phase0",
+        )})
+        assert observed == permitted, f"{group} references changed: {observed}"
+    ledger = {row["source"]: row for row in document("removal-ledger")["artifacts"]}
+    assert ledger["scripts/benchmark_product_analytics.py"]["end_state"] == "retired-offhost"
+    assert ledger["scripts/rust_passive_no_harm.py"]["end_state"] == "retired-offhost"
