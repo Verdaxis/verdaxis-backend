@@ -420,6 +420,12 @@ impl<H: OffboardingMarketHook, E: AdmissionEvents> BusinessCommand for OffboardA
     ) -> CommandFuture<'a, Self::Output, AttemptError> {
         Box::pin(async move { self.offboard(conn, actor).await })
     }
+
+    /// A session that ends while the COMMIT is in flight leaves the outcome
+    /// unknown: the administrator reads the user again before any repeat.
+    fn ended_commit_is_unknown(&self) -> bool {
+        true
+    }
 }
 
 /// The target as read under its row lock.

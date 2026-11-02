@@ -80,6 +80,13 @@ pub trait BusinessCommand: Send + Sync + 'static {
         conn: &'a mut PgConnection,
         actor: &'a CurrentActor,
     ) -> CommandFuture<'a, Self::Output, AttemptError>;
+    /// True when a connection that ends while the COMMIT is in flight (the
+    /// server's termination notice instead of the commit result) answers
+    /// `COMMIT_OUTCOME_UNKNOWN`, so the client re-reads before any repeat.
+    /// Off by default: such an ending is then a database error.
+    fn ended_commit_is_unknown(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
@@ -258,7 +265,7 @@ async fn attempt<C: BusinessCommand>(
             let committed = completion.acknowledgement(committed);
             if let Err(error) = committed {
                 let _ = connection.close().await;
-                return Err(commit_failure(error));
+                return Err(commit_failure(error, command.ended_commit_is_unknown()));
             }
             if connection.ping().await.is_err() {
                 let _ = connection.close().await;
@@ -365,11 +372,18 @@ pub async fn run_controlled_write<C: BusinessCommand>(
     .await
 }
 
-fn commit_failure(error: sqlx::Error) -> AttemptError {
+fn commit_failure(error: sqlx::Error, ended_commit_is_unknown: bool) -> AttemptError {
     // An ErrorResponse is a known server rejection. Preserve its SQLSTATE for
     // the existing whole-transaction retry classifier and database adapter.
-    if error.as_database_error().is_some() {
-        return AttemptError::Database(error);
+    // A command can opt out for the states that end the session: the COMMIT
+    // was in flight, so it may or may not have taken effect.
+    if let Some(rejection) = error.as_database_error() {
+        let session_ended = rejection
+            .code()
+            .is_some_and(|state| connection_ending_state(&state));
+        if !(session_ended && ended_commit_is_unknown) {
+            return AttemptError::Database(error);
+        }
     }
     refusal(
         axum::http::StatusCode::SERVICE_UNAVAILABLE,
@@ -377,4 +391,11 @@ fn commit_failure(error: sqlx::Error) -> AttemptError {
         "The transaction outcome must be checked before another command.",
     )
     .into()
+}
+
+/// The SQLSTATEs with which the server ends a session: administrator
+/// termination, crash and immediate shutdown (`57P01`-`57P03`), and the
+/// connection exception class `08`.
+fn connection_ending_state(state: &str) -> bool {
+    matches!(state, "57P01" | "57P02" | "57P03") || state.starts_with("08")
 }
