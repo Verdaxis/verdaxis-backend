@@ -76,6 +76,7 @@ fn phase2() -> Phase2Options {
         system_status_message: None,
         allowed_hosts: None,
         market_write: Default::default(),
+        offboarding_enabled: false,
     }
 }
 

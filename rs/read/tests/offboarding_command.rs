@@ -210,11 +210,12 @@ fn rust_sources(path: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// No serving code implements the market hook, so no deployed configuration
-/// can select a hook that skips the market work. The one implementation in
-/// the crate forwards through `Arc` to a caller-supplied hook.
+/// The serving code has exactly one market implementation: the user-scoped
+/// market invalidation. The only other implementation forwards through `Arc`
+/// to a caller-supplied hook, so no deployed configuration can select a hook
+/// that skips the market work.
 #[test]
-fn no_serving_code_supplies_a_market_hook() {
+fn the_only_serving_market_hook_is_the_user_scope() {
     let mut sources = Vec::new();
     rust_sources(&source_root(), &mut sources);
     let mut implementations = Vec::new();
@@ -229,17 +230,35 @@ fn no_serving_code_supplies_a_market_hook() {
             cursor = start + 1;
         }
     }
-    assert_eq!(implementations.len(), 1, "{implementations:#?}");
+    implementations.sort();
+    assert_eq!(implementations.len(), 2, "{implementations:#?}");
     assert!(
-        implementations[0].contains("business/offboarding.rs: OffboardingMarketHook for Arc<H>"),
+        implementations
+            .iter()
+            .any(|line| line.contains("business/offboarding.rs: OffboardingMarketHook for Arc<H>")),
         "{implementations:#?}"
+    );
+    assert!(
+        implementations.iter().any(|line| line
+            .contains("business/offboarding.rs: OffboardingMarketHook for UserMarketInvalidation")),
+        "{implementations:#?}"
+    );
+    let business = std::fs::read_to_string(source_root().join("business/offboarding.rs")).unwrap();
+    let adapter = function_body(
+        &business,
+        "impl OffboardingMarketHook for UserMarketInvalidation",
+    );
+    assert!(
+        adapter.contains("invalidate_user(") && adapter.contains("InvalidateUser {"),
+        "the serving hook runs the user-scoped market invalidation"
     );
 }
 
-/// The serving composition mounts neither route: `phase4::routes` never calls
-/// the offboarding composition, and no other source names the router.
+/// `phase4::routes` never mounts the offboarding routes. The one serving
+/// composer is `runtime::offboarding`, behind its release switch; the generic
+/// composer that accepts any market hook exists only in contract-test builds.
 #[test]
-fn serving_composition_leaves_offboarding_unmounted() {
+fn serving_composition_mounts_offboarding_only_behind_the_switch() {
     let phase4 = std::fs::read_to_string(source_root().join("runtime/phase4.rs")).unwrap();
     let start = phase4.find("pub fn routes(").unwrap();
     // The function ends at the first closing brace in column zero.
@@ -249,12 +268,25 @@ fn serving_composition_leaves_offboarding_unmounted() {
         !serving.contains("offboarding"),
         "phase4::routes mounts offboarding"
     );
+    let generic = phase4.find("pub fn offboarding_routes<").unwrap();
+    assert!(
+        phase4[..generic]
+            .trim_end()
+            .lines()
+            .rev()
+            .take(2)
+            .any(|line| line
+                .trim()
+                .starts_with("#[cfg(feature = \"contract-tests\")]")),
+        "the generic composer is test-only"
+    );
     let mut sources = Vec::new();
     rust_sources(&source_root(), &mut sources);
     for path in sources {
         let text = std::fs::read_to_string(&path).unwrap();
-        let owner =
-            path.ends_with("business/offboarding.rs") || path.ends_with("runtime/phase4.rs");
+        let owner = path.ends_with("business/offboarding.rs")
+            || path.ends_with("runtime/phase4.rs")
+            || path.ends_with("runtime/offboarding.rs");
         if !owner {
             assert!(
                 !text.contains("offboarding::router") && !text.contains("offboarding_routes"),
@@ -263,6 +295,13 @@ fn serving_composition_leaves_offboarding_unmounted() {
             );
         }
     }
+    let composer = std::fs::read_to_string(source_root().join("runtime/offboarding.rs")).unwrap();
+    let routes = function_body(&composer, "pub(crate) fn routes(");
+    let switch = routes
+        .find("if !mounts(app)")
+        .expect("the switch guards the group");
+    let mounted = routes.find("router(").expect("the command router");
+    assert!(switch < mounted, "nothing is built before the switch check");
 }
 
 /// The text of one function, from its signature to the next top-level item.

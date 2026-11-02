@@ -503,8 +503,14 @@ const BUSINESS_EXPORTS: &[&str] = &[
 ];
 
 // The individual market scope for account offboarding: the same borrowed,
-// completion-free contract as `invalidate_organization`, scoped to one person.
-const USER_SCOPE_EXPORTS: &[&str] = &["InvalidateUser", "invalidate_user"];
+// completion-free contract as `invalidate_organization`, scoped to one person,
+// and its lock-free count, which the offboarding preview reads.
+const USER_SCOPE_EXPORTS: &[&str] = &[
+    "InvalidateUser",
+    "invalidate_user",
+    "UserScopeCounts",
+    "count_user_scope",
+];
 
 fn business_export(name: &str) -> bool {
     BUSINESS_EXPORTS.contains(&name) || USER_SCOPE_EXPORTS.contains(&name)
@@ -694,6 +700,10 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
     ));
     assert!(boundary_reference_allowed(
         "use crate::order_write::{InvalidateUser, InvalidationError, invalidate_user};",
+        false
+    ));
+    assert!(boundary_reference_allowed(
+        "use crate::order_write::{UserScopeCounts, count_user_scope};",
         false
     ));
     assert!(!boundary_reference_allowed(
