@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verdaxis.exchange/schemas/phase10/alert-journal.schema.json",
+  "title": "Local monitor alert handoff journal",
+  "description": "One committed, immutable entry <state>/alert-handoff/<sequence>.json of a local monitor's alert journal (plan section 6.4). The file name is the decimal sequence without leading zeros. Compact JSON with sorted keys, at most 4096 bytes. A journal holds at most 256 entries and 1 MiB; the dispatcher delivers the lowest sequence first and removes an entry only after it has acknowledged it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["check", "observed_at", "schema_version", "sequence", "state"],
+  "properties": {
+    "check": {
+      "description": "The producing monitor; equal to the journal's check.",
+      "enum": ["backup", "health"]
+    },
+    "observed_at": {
+      "description": "UTC observation time, RFC 3339 with whole seconds and a Z suffix.",
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "sequence": {
+      "description": "Monotonic per-check sequence; equal to the file name. Gaps are valid, reuse is not.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 18446744073709551615
+    },
+    "state": {
+      "description": "The alert state: a warning status is a failure.",
+      "enum": ["failure", "healthy"]
+    }
+  },
+  "x-bounds": {
+    "max_entry_bytes": 4096,
+    "max_pending_entries": 256,
+    "max_pending_bytes": 1048576,
+    "journal_lock_timeout_seconds": 20
+  }
+}

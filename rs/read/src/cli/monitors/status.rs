@@ -133,6 +133,13 @@ pub struct Fault;
 /// means the observation was not admitted: the run fails with that exit code and
 /// the published document stays as it was.
 pub trait Admission {
+    /// Serialize this producer across observation, admission and publication.
+    /// The returned guard is held until the run ends; an error refuses the
+    /// run before anything is observed. The default serializes nothing.
+    fn serialize(&self) -> Result<Option<Box<dyn std::any::Any>>, Exit> {
+        Ok(None)
+    }
+
     fn admit(&self, status: &Status) -> Result<(), Exit>;
 }
 

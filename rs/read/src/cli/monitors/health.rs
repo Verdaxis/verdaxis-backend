@@ -8,10 +8,11 @@
 //! It needs no credentials and no external service, so it works while the
 //! services it watches are down. It reads exactly the files named in its
 //! configuration and makes only loopback connections.
+use super::alert_journal::{self, JournalAdmission};
 use super::status::{
-    Admission, AdmitAll, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status,
-    build_status, exit_for, failure_status, guarded, load_monitor_status, parse_strict_json,
-    publish, quarantine, report, report_refused,
+    Admission, Category, CheckResult, Fault, MAX_STATUS_BYTES, Previous, Status, build_status,
+    exit_for, failure_status, guarded, load_monitor_status, parse_strict_json, publish, quarantine,
+    report, report_refused,
 };
 use crate::cli::Exit;
 use chrono::{DateTime, Utc};
@@ -652,6 +653,14 @@ pub fn run(config: &HealthConfig, admission: &dyn Admission) -> Exit {
 
 /// [`run`] with the observation time given, for tests that use a fixed clock.
 pub fn run_at(config: &HealthConfig, admission: &dyn Admission, now: DateTime<Utc>) -> Exit {
+    // One producer at a time, from observation to publication.
+    let _serialized = match admission.serialize() {
+        Ok(guard) => guard,
+        Err(exit) => {
+            report_refused(COMMAND);
+            return exit;
+        }
+    };
     let status = guarded(MONITOR_NAME, now, || collect(config, now));
     match publish(&config.status_file, &status, admission) {
         Ok(()) => {
@@ -665,7 +674,11 @@ pub fn run_at(config: &HealthConfig, admission: &dyn Admission, now: DateTime<Ut
     }
 }
 
-/// The installed command: default layout, no journal yet.
+/// The installed command: default layout, admission into the installed
+/// alert journal before the status is published.
 pub fn run_default() -> Exit {
-    run(&HealthConfig::default(), &AdmitAll)
+    run(
+        &HealthConfig::default(),
+        &JournalAdmission::installed(alert_journal::Check::Health),
+    )
 }

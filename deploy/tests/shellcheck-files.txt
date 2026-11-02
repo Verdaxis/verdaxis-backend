@@ -8,3 +8,4 @@ deploy/tests/guard-contract.sh
 rs/read/tests/run_phase10_reminders.sh
 rs/read/tests/run_phase10_inspect.sh
 deploy/tests/phase7-acceptance.sh
+deploy/tests/alert-handoff-contract.sh
