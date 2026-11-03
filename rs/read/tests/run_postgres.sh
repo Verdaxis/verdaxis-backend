@@ -30,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
-for i in {1..90}; do
+for _ in {1..90}; do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
@@ -57,7 +57,8 @@ export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$
 export RUST_DEMAND_TEST_DATABASE_URL="$RUST_TEST_DATABASE_URL"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
-export RELEASE_SHA=$(git rev-parse HEAD)
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 # Settings import requirements for the alembic migration below.
 export ENVIRONMENT="${ENVIRONMENT:-test}"
 export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
