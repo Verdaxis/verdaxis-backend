@@ -15,6 +15,7 @@ pub mod curves_canonical;
 pub mod curves_legacy;
 pub mod listings;
 pub mod market_data_error;
+pub mod monitor_canary;
 pub mod news;
 pub mod orderbook_lists;
 pub mod orderbook_map;

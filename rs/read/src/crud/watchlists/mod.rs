@@ -12,6 +12,7 @@ pub use reads::{
     LegacyEntry, LegacyWatchlist, VisibleOrder, VisibleSnapshot, capture_visible, load_detail,
     load_legacy_list,
 };
+pub(crate) use validation::body_shape_error;
 
 pub use admission::EventAdmission;
 pub use events::{

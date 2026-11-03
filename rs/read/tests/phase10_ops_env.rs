@@ -496,6 +496,35 @@ fn serve_env_contains_only_reviewed_http_credentials() {
     );
 }
 
+/// Phase 10 Task 19: the signup-canary route reads `MONITOR_TOKEN` from the
+/// serve file. It is projected only when the deployed `.env` sets it to a
+/// nonblank value; no other purpose receives it.
+#[test]
+fn serve_env_carries_the_monitor_token_only_when_configured() {
+    let (_scratch, output) = prepared_staging_full();
+    let projected = read_environment_file(&output.join("runtime.env"));
+    assert_eq!(
+        projected.get("MONITOR_TOKEN").map(String::as_str),
+        Some(MONITOR_TOKEN)
+    );
+    for job in std::fs::read_dir(output.join("jobs")).unwrap() {
+        let job = read_environment_file(&job.unwrap().path());
+        assert!(!job.contains_key("MONITOR_TOKEN"));
+    }
+    for (label, file) in [
+        ("absent", EnvFile::staging()),
+        ("blank", EnvFile::staging().with(&["MONITOR_TOKEN="])),
+    ] {
+        let scratch = Scratch::new();
+        let environment_file = file.write(&scratch.path("be"));
+        let output = scratch.path("be/.runtime-rust");
+        let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
+        assert_ok(&result, label);
+        let projected = read_environment_file(&output.join("runtime.env"));
+        assert!(!projected.contains_key("MONITOR_TOKEN"), "{label}");
+    }
+}
+
 #[test]
 fn serve_env_has_no_migrator_or_job_only_key() {
     let (_scratch, output) = prepared_staging_full();

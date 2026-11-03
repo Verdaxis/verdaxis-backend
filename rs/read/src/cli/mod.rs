@@ -1,5 +1,6 @@
 //! Typed command boundary. Execution is registered by each command's owning task.
 pub mod acl;
+pub mod canary;
 pub mod context;
 pub mod gate;
 pub mod guard;
@@ -636,6 +637,7 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             }
         }
         Command::Migrate(args) => migrate::run(&args).await,
+        Command::Canary(args) => canary::command(&args).await,
         Command::Guard(args) => run_guard(&args),
         Command::Acl(args) => ops_outcome("acl converge", acl::run(&args)),
         Command::Ops(OpsArgs {

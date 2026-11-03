@@ -691,7 +691,12 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
         .with_state(state.clone())
-        .merge(extra.with_state(state.clone()));
+        .merge(extra.with_state(state.clone()))
+        // Always mounted, as in Python: without MONITOR_TOKEN it answers 404.
+        .merge(crate::routes::monitor_canary::routes(
+            state.config.phase2.monitor_token.clone(),
+            state.pools.read.clone(),
+        ));
     let routes = match phase2_routes(&state, limits.clone()) {
         Some(phase2) => routes.merge(phase2),
         None => routes,
