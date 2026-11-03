@@ -575,3 +575,125 @@ fn compiled_policy_parses_and_keeps_the_alembic_rows() {
         "an alias or upper case parsed"
     );
 }
+
+#[test]
+fn deploy_owned_requires_exact_state_nonce_sha_and_both_locks() {
+    use std::os::unix::fs::PermissionsExt;
+    use verdaxis_read::cli::migrate::{DeployOwnership, require_deploy_ownership};
+    use verdaxis_read::cli::state::StateLock;
+    use verdaxis_read::cli::{Environment, Exit};
+
+    let directory =
+        std::env::temp_dir().join(format!("verdaxis-deploy-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir(&directory).expect("deploy directory");
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).expect("private");
+    let sha = "a".repeat(40);
+    let nonce = "0123456789abcdef0123456789abcdef";
+    let state = |phase: &str, env: &str, sha: &str, nonce: &str| {
+        let path = directory.join("staging.state");
+        std::fs::write(&path, format!("DEPLOYMENT_STATE={phase}\nENVIRONMENT={env}\nRELEASE_SHA={sha}\nDEPLOY_NONCE={nonce}\n"))
+            .expect("write state");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .expect("state mode");
+    };
+    let owner = DeployOwnership {
+        deploy_directory: &directory,
+        environment: Environment::Staging,
+        release_sha: &sha,
+        nonce,
+    };
+
+    // Missing lock files: refused, and the check creates none.
+    state("blocked", "staging", &sha, nonce);
+    assert_eq!(require_deploy_ownership(&owner), Err(Exit::Precondition));
+    assert!(
+        !directory.join("staging.lock").exists(),
+        "the check created a lock file"
+    );
+
+    let main = StateLock::try_acquire(&directory.join("staging.lock"))
+        .expect("main")
+        .expect("free");
+    // Only the main lock held: refused.
+    {
+        let restart_path = directory.join("staging.restart.lock");
+        drop(
+            StateLock::try_acquire(&restart_path)
+                .expect("create")
+                .expect("free"),
+        );
+        assert_eq!(require_deploy_ownership(&owner), Err(Exit::Precondition));
+    }
+    let restart = StateLock::try_acquire(&directory.join("staging.restart.lock"))
+        .expect("restart")
+        .expect("free");
+    assert_eq!(
+        require_deploy_ownership(&owner),
+        Ok(()),
+        "exact state and both locks"
+    );
+
+    let other_sha = "b".repeat(40);
+    for (label, phase, env, state_sha, state_nonce) in [
+        (
+            "restart phase",
+            "restart-authorized",
+            "staging",
+            sha.as_str(),
+            nonce,
+        ),
+        (
+            "other environment",
+            "blocked",
+            "production",
+            sha.as_str(),
+            nonce,
+        ),
+        (
+            "other release",
+            "blocked",
+            "staging",
+            other_sha.as_str(),
+            nonce,
+        ),
+        (
+            "other nonce",
+            "blocked",
+            "staging",
+            sha.as_str(),
+            "ffffffffffffffffffffffffffffffff",
+        ),
+    ] {
+        state(phase, env, state_sha, state_nonce);
+        assert_eq!(
+            require_deploy_ownership(&owner),
+            Err(Exit::Precondition),
+            "{label}"
+        );
+    }
+    state("blocked", "staging", &sha, nonce);
+    let short = DeployOwnership {
+        nonce: "abc",
+        ..owner
+    };
+    assert_eq!(
+        require_deploy_ownership(&short),
+        Err(Exit::Usage),
+        "a short nonce"
+    );
+
+    drop(restart);
+    drop(main);
+    let owner = DeployOwnership {
+        deploy_directory: &directory,
+        environment: Environment::Staging,
+        release_sha: &sha,
+        nonce,
+    };
+    assert_eq!(
+        require_deploy_ownership(&owner),
+        Err(Exit::Precondition),
+        "no lock held"
+    );
+    std::fs::remove_dir_all(&directory).expect("clean up");
+}

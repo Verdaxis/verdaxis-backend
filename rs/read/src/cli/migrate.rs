@@ -454,3 +454,66 @@ pub async fn run_to_target(
     }
     Ok(RunOutcome::Applied(due))
 }
+
+/// What a deploy-owned `migrate baseline` or `migrate run --apply` must find:
+/// the deploy that runs it holds the deploy state and both deploy locks.
+pub struct DeployOwnership<'a> {
+    /// The private deploy directory (`.runtime-deploy`).
+    pub deploy_directory: &'a std::path::Path,
+    pub environment: super::Environment,
+    pub release_sha: &'a str,
+    /// The deploy run's nonce, passed to `migrate` and written in its state.
+    pub nonce: &'a str,
+}
+
+/// Bound for the deploy state text: four short lines.
+const MAX_DEPLOY_STATE_BYTES: u64 = 4 * 1024;
+
+fn valid_nonce(nonce: &str) -> bool {
+    (32..=128).contains(&nonce.len())
+        && nonce
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Refuse unless the deploy state is exactly the migration phase of this
+/// environment, release and nonce, and the deploy holds both its locks. The
+/// check never creates a lock file and never takes a lock it keeps.
+pub fn require_deploy_ownership(owner: &DeployOwnership<'_>) -> Result<(), super::Exit> {
+    use super::Exit;
+    use std::io::Read;
+    if !valid_nonce(owner.nonce) {
+        return Err(Exit::Usage);
+    }
+    let environment = owner.environment.as_str();
+    let state_path = owner.deploy_directory.join(format!("{environment}.state"));
+    let mut text = String::new();
+    super::state::open_regular(&state_path)?
+        .take(MAX_DEPLOY_STATE_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|_| Exit::Precondition)?;
+    let expected = format!(
+        "DEPLOYMENT_STATE=blocked\nENVIRONMENT={environment}\nRELEASE_SHA={}\nDEPLOY_NONCE={}\n",
+        owner.release_sha, owner.nonce
+    );
+    if text != expected {
+        return Err(Exit::Precondition);
+    }
+    for lock in [
+        format!("{environment}.lock"),
+        format!("{environment}.restart.lock"),
+    ] {
+        let path = owner.deploy_directory.join(lock);
+        let entry = std::fs::symlink_metadata(&path).map_err(|_| Exit::Precondition)?;
+        if !entry.file_type().is_file() {
+            return Err(Exit::Precondition);
+        }
+        // A lock this check can take is not held by the deploy: refuse (the
+        // lock is released again when `free` drops).
+        if let Some(free) = super::state::StateLock::try_acquire(&path)? {
+            drop(free);
+            return Err(Exit::Precondition);
+        }
+    }
+    Ok(())
+}
