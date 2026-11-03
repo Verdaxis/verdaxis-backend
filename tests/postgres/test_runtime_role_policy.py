@@ -916,6 +916,16 @@ async def test_raw_app_cannot_promote_rewrite_controls_set_role_or_delegate():
         } | {
             (table, column, app, "UPDATE", False)
             for table, columns in {
+                # The Rust freeze clear (order_write/freeze.rs) closes an
+                # ACTIVE row; trade_freezes_history_guard allows only that
+                # one complete clear and keeps the freeze facts immutable.
+                "trade_freezes": {
+                    "status",
+                    "cleared_at",
+                    "cleared_by_user_id",
+                    "clear_note",
+                    "version",
+                },
                 "market_support_contexts": {
                     "status",
                     "ended_at",

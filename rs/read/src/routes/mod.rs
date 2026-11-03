@@ -6,6 +6,8 @@ pub mod compliance_overlay;
 pub mod compliance_scores;
 pub mod demand;
 pub mod fleet_intelligence;
+#[path = "market_write/support.rs"]
+pub mod support;
 // Phase 2 Task 10: feedback route registration.
 pub use crate::crud::feedback::routes as feedback_routes;
 // Phase 2 Task 10: end feedback route registration.
@@ -42,6 +44,7 @@ pub use crate::crud::alerts::router as alerts_router;
 pub use crate::crud::referrals::routes as referral_routes;
 // Phase 2 Task 17: referral reads and public resolution (end)
 
+pub mod market_write;
 pub use crate::auth::logout::router as logout_router;
 pub use crate::auth::password_change::router as password_change_router;
 

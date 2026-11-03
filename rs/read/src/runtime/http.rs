@@ -44,6 +44,32 @@ struct HttpState {
     phase2_limits: crate::auth::limits::SharedLimits,
 }
 
+/// Audit identity uses the ingress correlation ID and trusted client-address policy.
+pub(crate) fn audit_identity(parts: &axum::http::request::Parts) -> (String, String) {
+    let peer = parts
+        .extensions
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0.ip());
+    let client = client_ip(
+        peer,
+        parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok()),
+    );
+    let correlation = parts
+        .extensions
+        .get::<String>()
+        .map(String::as_str)
+        .or_else(|| {
+            parts
+                .headers
+                .get("x-request-id")
+                .and_then(|value| value.to_str().ok())
+        });
+    (client, super::logging::request_id(correlation))
+}
+
 pub fn middleware(routes: Router, environment: &str) -> Router {
     compose(
         routes,
@@ -309,6 +335,45 @@ fn public_get_path(path: &str) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/'))
 }
 
+/// Python's deny-by-default classification of a request that carries a support
+/// context (`is_market_support_mutation_allowed`). Reads pass. Under a context
+/// only three mutations exist: order creation, assisted order cancellation and
+/// leaving the context. A path without the `/api/` prefix is classified as if
+/// it had one, as Python does.
+fn support_context_request_allowed(method: &str, path: &str) -> bool {
+    let method = method.to_ascii_uppercase();
+    if matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS") {
+        return true;
+    }
+    if method != "POST" {
+        return false;
+    }
+    let normalized = if path.starts_with("/api/") {
+        path.to_owned()
+    } else {
+        format!("/api/{}", path.trim_start_matches('/'))
+    };
+    normalized.trim_end_matches('/') == "/api/orderbook"
+        || identified_action(&normalized, "/api/orderbook/", "/cancel")
+        || identified_action(&normalized, "/api/admin/market-support/contexts/", "/exit")
+}
+
+/// `prefix`, a 36-character identifier of hex digits and dashes, then `action`
+/// with at most one trailing slash (Python's `_ORDER_ID` path patterns).
+fn identified_action(path: &str, prefix: &str, action: &str) -> bool {
+    let Some(rest) = path.strip_prefix(prefix) else {
+        return false;
+    };
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let Some(id) = rest.strip_suffix(action) else {
+        return false;
+    };
+    id.len() == 36
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+}
+
 /// The pre-auth 429. An auth route gets the auth envelope and the seconds until
 /// its window resets; the Phase 2 admin prefix keeps its existing response.
 fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
@@ -381,16 +446,12 @@ async fn dispatch_boundary(
     if let Some(response) = crate::auth::scope::known_get_refusal(request.method().as_str(), path) {
         return response;
     }
-    // Python's support-scope middleware classifies POST /api/orderbook as an
-    // allowed market-support mutation, so that one combination falls through
-    // to the route instead of the generic 403 other unclassified mutations get.
-    let orderbook_create = request.method() == "POST" && path == "/api/orderbook";
-    if !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
-        && !orderbook_create
-        && request
-            .headers()
-            .get("x-verdaxis-market-support-context")
-            .is_some_and(|value| !value.is_empty())
+    // Any non-empty context header is classified; the route checks its value.
+    if request
+        .headers()
+        .get("x-verdaxis-market-support-context")
+        .is_some_and(|value| !value.is_empty())
+        && !support_context_request_allowed(request.method().as_str(), path)
     {
         // Public reads never become private projections under a support context.
         return ApiError {
@@ -472,6 +533,21 @@ async fn dispatch_boundary(
 }
 
 pub fn public_routes() -> Router<crate::AppState> {
+    public_routes_with(crate::routes::orderbook_lists::routes())
+}
+
+/// The public routes a served router merges. When the market write
+/// composition mounts order entry on `POST /api/orderbook`, the read
+/// service's unauthenticated boundary on that path is left out.
+pub fn served_public_routes(state: &crate::AppState) -> Router<crate::AppState> {
+    if super::market_write::mounts(state) {
+        public_routes_with(crate::routes::orderbook_lists::read_routes())
+    } else {
+        public_routes()
+    }
+}
+
+fn public_routes_with(orderbook_lists: Router<crate::AppState>) -> Router<crate::AppState> {
     Router::new()
         .merge(crate::routes::benchmark_quotes::routes())
         .merge(crate::routes::ports::routes())
@@ -483,7 +559,7 @@ pub fn public_routes() -> Router<crate::AppState> {
         .merge(crate::routes::catalog::routes())
         .merge(crate::routes::news::routes())
         .merge(crate::routes::orderbook_snapshot::routes())
-        .merge(crate::routes::orderbook_lists::routes())
+        .merge(orderbook_lists)
         .merge(crate::routes::orderbook_map::routes())
         .merge(crate::routes::listings::routes())
         .merge(crate::routes::prices::routes())
@@ -531,13 +607,13 @@ pub fn usage_router(
     authority: crate::analytics::usage::UsageAuthority,
 ) -> Router {
     router_with(
-        public_routes().merge(crate::analytics::usage::routes(authority)),
+        served_public_routes(&state).merge(crate::analytics::usage::routes(authority)),
         state,
     )
 }
 
 pub fn public_router(state: crate::AppState) -> Router {
-    router_with(public_routes(), state)
+    router_with(served_public_routes(&state), state)
 }
 
 /// Phase 2 settings. Every group draws its endpoint quota from the same
@@ -646,6 +722,13 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     };
     let routes = match super::phase4::routes(&state, limits.clone()) {
         Some(business) => routes.merge(business),
+        None => routes,
+    };
+    // The market writes mount under the same condition as Phase 4. A caller
+    // that serves them passes `served_public_routes`, which leaves out the
+    // read service's `POST /api/orderbook` boundary.
+    let routes = match super::market_write::routes(&state, limits.clone()) {
+        Some(market) => routes.merge(market),
         None => routes,
     };
     let routes = routes

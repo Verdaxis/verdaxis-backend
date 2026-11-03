@@ -1,0 +1,95 @@
+# Import inside the existing site's route block, before its Python fallback,
+# after the import of the Phase 5 group.
+# Argument 0 is the one Rust upstream for every market operation. Argument 1
+# is the environment's Python upstream, used only to disable the matchers when
+# both arguments are equal. A stopped Rust service returns an upstream error;
+# requests are never automatically sent to Python (no fallback, no lb_try).
+#
+# One switch: the five matchers below move together and own exactly the 43
+# operations in tests/rust_contract/phase89/switch-routes.json. Rollback is
+# removing this import, or setting argument 0 to the Python upstream, which
+# stops every handle from matching so the site's Python fallback serves all of
+# them. No per-route argument exists.
+#
+# Matchers are exact method and path pairs, not prefixes, and match paths
+# case-sensitively:
+# - every operation takes its one method on the canonical path only; the one
+#   exception is order-taking, which takes POST on /api/trades/ (Python's
+#   canonical path) and on /api/trades (Python redirects it; Rust serves it);
+# - an identifier matches any non-empty segment, as Python's route converter
+#   does; a malformed identifier is the route's own refusal;
+# - HEAD, OPTIONS, a wrong method, a trailing slash, a longer or shorter path
+#   and every other route stay on Python.
+#
+(verdaxis_rust_market) {
+	@rust_market_get {
+		expression '{args[0]}' != '{args[1]}'
+		method GET
+		path_regexp ^/api/(orderbook/my|orderbook/my/latest-ask-template|inventory|listings/my|trades/my|trades/summary|admin/trades/frozen|orders/admin/commissions|orders/admin/commissions/summary|matchmaking/suggestions|admin/market-support/(capabilities|organizations|organizations/[^/]+/(entry|authorizations|listings|context)|contexts/active|contexts/[^/]+))$
+	}
+	handle @rust_market_get {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_market_post {
+		expression '{args[0]}' != '{args[1]}'
+		method POST
+		path_regexp ^/api/(orderbook|orderbook/[^/]+/cancel|inventory|inventory/[^/]+/publish|trades/?|trades/[^/]+/pay|admin/trades/[^/]+/(freeze|unfreeze)|admin/market-support/(capability-assignments|capability-assignments/[^/]+/revoke|contexts|contexts/[^/]+/exit|organizations/[^/]+/(authorizations|listings)|organizations/[^/]+/listings/[^/]+/cancel|organizations/[^/]+/authorizations/[^/]+/revoke))$
+	}
+	handle @rust_market_post {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_market_put {
+		expression '{args[0]}' != '{args[1]}'
+		method PUT
+		path_regexp ^/api/(orderbook/[^/]+|trades/[^/]+/(confirm|decline|deliver)|orders/admin/commissions/[^/]+)$
+	}
+	handle @rust_market_put {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_market_patch {
+		expression '{args[0]}' != '{args[1]}'
+		method PATCH
+		path_regexp ^/api/(inventory/[^/]+|matchmaking/suggestions/[^/]+/dismiss)$
+	}
+	handle @rust_market_patch {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+	@rust_market_delete {
+		expression '{args[0]}' != '{args[1]}'
+		method DELETE
+		path_regexp ^/api/(orderbook/[^/]+|inventory/[^/]+)$
+	}
+	handle @rust_market_delete {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			flush_interval -1
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}

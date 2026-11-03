@@ -443,6 +443,12 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         println!("{}", crate::version_json());
         return Exit::Ok;
     }
+    if args
+        .first()
+        .is_some_and(|arg| arg == crate::runtime::config::BOOTSTRAP_PRODUCER_FLAG)
+    {
+        return bootstrap_producer(&args).await;
+    }
     let command = match parse(args) {
         Ok(command) => command,
         Err(error) if !error.use_stderr() => {
@@ -611,6 +617,13 @@ async fn serve(args: &ServeArgs) -> Result<(), Exit> {
     let mut state = AppState::new(config, pools, policy).map_err(|_| Exit::Precondition)?;
     log_host_policy(&state.host_policy);
     let streams = start_streams(&mut state, CapacityConfig::default()).await;
+    // The trusted watchlist producer runs only when the release activates it.
+    let producer = crate::watchlist_producer::start(
+        &state,
+        streams
+            .as_ref()
+            .map(crate::streams::runtime::StreamRuntime::producer_wake),
+    );
     // Disabled caching starts no task; an enabled cache starts the authority
     // refresh and invalidation loop before the service accepts traffic.
     state.start_trading_cache();
@@ -623,12 +636,41 @@ async fn serve(args: &ServeArgs) -> Result<(), Exit> {
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
+        if let Some(producer) = producer {
+            producer.shutdown().await;
+        }
         if let Some(streams) = streams {
             streams.shutdown().await;
         }
     })
     .await
     .map_err(|_| Exit::Dependency)
+}
+
+/// The one-shot watchlist producer bootstrap that `deploy.sh` runs. It prints
+/// exactly one line: the outcome with the watermark, or the refusal reason.
+/// Exit 0 is created or already present, 1 a producer refusal and 2 an invalid
+/// configuration, the codes of the earlier service binary.
+async fn bootstrap_producer(args: &[OsString]) -> Exit {
+    let arguments: Option<Vec<String>> = args
+        .iter()
+        .map(|arg| arg.clone().into_string().ok())
+        .collect();
+    let Some(config) = arguments.and_then(|arguments| context::load_bootstrap_config(&arguments))
+    else {
+        println!("refused reason=configuration_invalid");
+        return Exit::Usage;
+    };
+    match crate::watchlist_producer::bootstrap_command(&config).await {
+        Ok(outcome) => {
+            println!("{}", outcome.report());
+            Exit::Ok
+        }
+        Err(reason) => {
+            println!("refused reason={reason}");
+            Exit::Breached
+        }
+    }
 }
 
 /// Say at startup whether the Host check is on, so a missing `ALLOWED_HOSTS`

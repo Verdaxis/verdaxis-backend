@@ -61,4 +61,4 @@ def test_phase5_checkpoint_cases():
 
 def test_phase5_runtime_accepts_both_read_checkpoints():
     allowlist = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert allowlist == ["kycg_20261014_staging", PRODUCTION, CACHE, CHANGES, AUTH, PARENT, REVISION]
+    assert allowlist == ["kycg_20261014_staging", PRODUCTION, CACHE, CHANGES, AUTH, PARENT, REVISION, "p89_20261022_watchlist_producer", "p89_20261022_trade_freeze"]

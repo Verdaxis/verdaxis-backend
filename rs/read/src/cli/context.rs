@@ -73,6 +73,19 @@ pub fn load_serve_config(args: &ServeArgs) -> Result<Config, Exit> {
     config_from_deployed_environment(&environment, bind, &budget).map_err(|_| Exit::Precondition)
 }
 
+/// The configuration of the one-shot producer bootstrap: the flag, then
+/// `--budget-file <absolute path>`. It binds no socket, so the bind address is
+/// a placeholder that is never used.
+pub fn load_bootstrap_config(arguments: &[String]) -> Option<Config> {
+    let budget_file = crate::runtime::config::bootstrap_arguments(arguments).ok()?;
+    let budget = read_prepared_budget(&budget_file).ok()?;
+    let environment: HashMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
+    config_from_deployed_environment(&environment, bind, &budget).ok()
+}
+
 fn read_prepared_budget(path: &Path) -> Result<String, Exit> {
     let metadata = std::fs::symlink_metadata(path).map_err(|_| Exit::Precondition)?;
     if !metadata.is_file() || metadata.len() > MAX_BUDGET_BYTES {

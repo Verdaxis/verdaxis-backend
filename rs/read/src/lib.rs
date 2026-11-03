@@ -22,6 +22,11 @@ pub mod subscriptions;
 // mounts no route. The integration owner merges this block into
 // `feat/rust-phase-2`; nothing else in this file belongs to Task 20.
 pub mod order_write;
+pub use order_write::{InventoryAction, InventoryInput, execute_inventory};
+
+pub use order_write::commission;
+#[path = "routes/market_write/commission.rs"]
+pub mod commission_routes;
 // ----------------------- end Task 20 registration block --------------------
 
 pub use market::cache_dependencies::{
@@ -55,7 +60,7 @@ pub use runtime::db::connect;
 pub use runtime::error::{busy, database_error};
 pub use runtime::health::{live, ready};
 pub fn router(state: AppState) -> axum::Router {
-    let routes = runtime::http::public_routes();
+    let routes = runtime::http::served_public_routes(&state);
     let streams = streams::http::routes().with_state(streams::http::StreamsState {
         state: std::sync::Arc::new(state.clone()),
     });
@@ -101,6 +106,9 @@ pub struct AppState {
     /// settings stream admission uses. `None` until the runtime starts it;
     /// stream routes then answer the terminal 503 while REST stays available.
     pub streams: Option<std::sync::Arc<streams::http::Streams>>,
+    /// Validated market write settings; `None` without the Phase 2 settings,
+    /// so the market operations are not mounted and Caddy keeps them on Python.
+    pub(crate) market_write: Option<runtime::market_write::MarketWriteSettings>,
     pub(crate) phase3: runtime::phase3::Phase3Settings,
     /// Every route family's trading cache, so an authority or listener change
     /// can clear them together.
@@ -135,6 +143,13 @@ impl AppState {
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
         let host_policy = runtime::host::HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
+        let market_write = if phase2.is_some() {
+            Some(runtime::market_write::MarketWriteSettings::from_config(
+                &config,
+            )?)
+        } else {
+            None
+        };
         let policy_identity = market::cache_dependencies::policy_identity(&config, &policy);
         let reference_cache = std::sync::Arc::new(runtime::cache::ReferenceCache::default());
         let trading_caches = std::sync::Arc::new(runtime::cache::TradingCaches::default());
@@ -157,6 +172,7 @@ impl AppState {
             reference_cache,
             phase2,
             streams: None,
+            market_write,
             phase3,
             trading_caches,
             trading_cache,
@@ -277,6 +293,10 @@ pub struct Phase2Options {
     /// The watchlist producer activation instant from the release metadata
     /// file (PD5), as written there. Absent until a release records one.
     pub watchlist_producer_activated_at: Option<String>,
+    /// The watchlist event producer selected in the same release metadata
+    /// file: [`order_write::producer::RUST_PRODUCER`] activates the trusted
+    /// producer, `legacy-python` pauses it. Absent until a release records one.
+    pub watchlist_event_producer: Option<String>,
     /// The status the stream heartbeat reports (`SYSTEM_STATUS`) and its
     /// optional message (`SYSTEM_STATUS_MESSAGE`), as configured. Both are
     /// validated at startup by `runtime::config`; absent means operational.
@@ -286,6 +306,10 @@ pub struct Phase2Options {
     /// loopback. Unset or blank turns the check off; a malformed value stops
     /// the start (see `runtime::host`).
     pub allowed_hosts: Option<String>,
+    /// The market write settings (`AUTO_MATCHING_ENABLED`, the six
+    /// `MARKET_SUPPORT_*` keys and the conversion collector). Absent keys keep
+    /// Python's defaults.
+    pub market_write: runtime::market_write::MarketWriteOptions,
 }
 
 fn read_admission_default() -> u32 {
@@ -340,4 +364,106 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
     } else {
         Err("release identity mismatch")
     }
+}
+
+pub use order_write::matching as market_matching;
+/// The trusted watchlist producer: release activation, the serving-process
+/// consumer and the operator watermark bootstrap.
+pub use order_write::producer as watchlist_producer;
+#[cfg(feature = "contract-tests")]
+pub use order_write::test_contract as market_contract;
+pub use order_write::{MarketErrorCode, MarketWriteError};
+
+/// Sealed market command entry points; no connection or authority constructor.
+pub mod market_commands {
+    pub use crate::order_write::dismiss_suggestion;
+}
+
+pub mod market_support {
+    pub use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::support::*;
+    pub use crate::routes::support::{SupportState, router};
+}
+
+/// Narrow component entry points; no serving route is mounted here.
+pub(crate) mod market_orders {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::orders::{OrderRequest, dispatch, refusal};
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Narrow trade component types; transaction and connection ownership stay sealed.
+pub mod market_trades {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    #[cfg(feature = "contract-tests")]
+    pub(crate) use crate::order_write::idempotency_lock_key as contract_key;
+    pub use crate::order_write::trades::{TradeCreate, TradePage, project_trade};
+    pub(crate) use crate::order_write::trades::{TradeRequest, dispatch};
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Administrator freeze types and sealed command entry point.
+pub mod market_freeze {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::freeze::{FreezeCommand, FreezeInput, execute_freeze};
+    pub use crate::order_write::freeze::{
+        FreezeRequest, FreezeResponse, FrozenPage, UnfreezeRequest,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Narrow lifecycle component interface; transaction ownership stays sealed.
+pub mod market_lifecycle {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::trade_lifecycle::{
+        Delivery, LifecycleAction, delivery_amounts, lifecycle_hash, settlement_hash,
+    };
+    pub(crate) use crate::order_write::trade_lifecycle::{
+        LifecycleRequest, authenticate_request, dispatch,
+    };
+    #[cfg(feature = "contract-tests")]
+    pub use crate::order_write::trade_lifecycle::{
+        ReceiptCollision, contract_authorize, contract_empty_notification_effect,
+        contract_invalid_benchmark, contract_terms_status,
+    };
+    pub(crate) use crate::order_write::trade_lifecycle::{
+        SettlementRequest, authenticate_settlement, dispatch_settlement,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Narrow amendment component types; the sealed owner keeps the transaction.
+pub(crate) mod market_amend {
+    pub(crate) use crate::order_write::amend::{AmendBody, AmendRequest, dispatch};
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Inventory publication's sealed component interface.
+pub(crate) mod market_publish {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub(crate) use crate::order_write::inventory::{PublishRequest, publish};
+    #[cfg(feature = "contract-tests")]
+    pub(crate) fn publication_hash(item: uuid::Uuid) -> String {
+        crate::order_write::idempotency_request_hash(
+            &crate::order_write::Canonical::from_json(
+                &serde_json::json!({"inventory_item_id":item}),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    pub(crate) use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Sealed order-entry component interface; no raw transaction is exported.
+pub(crate) mod market_create {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    #[cfg(feature = "contract-tests")]
+    pub(crate) use crate::order_write::idempotency_lock_key as contract_key;
+    pub(crate) use crate::order_write::order_create::{CreateRequest, dispatch};
+    pub(crate) use crate::order_write::{
+        Canonical, MarketErrorCode, MarketWriteError, OrderQuantity, Price, command_request_hash,
+        idempotency_request_hash,
+    };
 }

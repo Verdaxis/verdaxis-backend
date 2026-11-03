@@ -163,6 +163,30 @@ keys disable evidence storage/download without changing readiness. The exact
 method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
 The following component sections describe their local exports, not activation.
 
+## Rust market write serving composition
+
+`runtime/market_write.rs` mounts the 43 market operations (orders, inventory,
+trades and their lifecycle, freeze administration, commissions, match
+suggestions and market support) under the same condition as Phase 4: the Phase 2
+verification settings exist. One `MarketWriteSettings`, built at startup from
+`AUTO_MATCHING_ENABLED`, the six `MARKET_SUPPORT_*` keys (Python's defaults and
+bounds) and the Umami collector keys, configures every component; a malformed
+key stops the start. `PUT` (amend) and `DELETE` (cancel) on
+`/api/orderbook/{id}` come from two components that axum merges on one path.
+Without the composition, `POST /api/orderbook` keeps the read service's
+unauthenticated boundary answer. No pool or task is added. Mounting routes no
+traffic: `deploy/caddy/rust-market-write.caddy` owns exactly the operations of
+`tests/rust_contract/phase89/switch-routes.json`, and the market switch imports
+it together with the reviewed Phase 7 retirement snippet
+(`deploy/caddy/phase10-phase7-retire.caddy`). The market writes'
+outbox inserts (`order_write`: `append_market_effect`, `insert_outbox` and the
+organization invalidation in `events.rs`) also send Python's commit-time wake
+(`pg_notify('verdaxis_market_events', '')`), so live subscribers do not wait for
+the dispatchers' poll. Three other Rust outbox writers send no wake and rely on
+the poll: organization approval (`business/organizations.rs`), user admission
+(`runtime/phase4_adapters.rs`) and price alerts (`streams/price_alerts.rs`). See
+`docs/rust-phase89-switch.md`.
+
 ## Rust business transaction foundation
 
 `rs/read/src/business/` supplies caller-owned audit/status appenders and an
@@ -375,6 +399,149 @@ loopback adapters to prove twin state, rollback, replay, timeouts, observed
 PostgreSQL advisory-lock order, bounded retries, races and mixed dispatch. See
 `docs/rust-phase2/task20-write-boundary.md` for gate results and the resume point.
 
+## Ordered market transaction primitives
+
+`rs/read/src/order_write/admission.rs` constructs authority from verified access
+and locked party evidence. Operation plans close the preview before acquiring
+sorted organizations and users, then keys, slices and resources. The private
+ordered coordinator in `transaction.rs` rechecks preview identity and preserves
+retry classification through typed ports. It prepares responses before commit,
+recovers committed receipts after a named unique collision, and does not retry
+an unknown commit outcome.
+
+The stock port borrows that transaction and its declared resource set.
+`expiry.rs` selects a bounded slice batch and uses complete database aggregates
+for reservation and commitment checks without materializing historical rows.
+It returns before/after facts to the caller; it neither commits nor emits effects.
+Feature-gated adapters exercise the coordinator, stock, receipts and transport
+failure paths without mounting market routes for serving.
+
+`order_write/effects.rs` borrows the ordered transaction for audit, organization
+notifications, current PIN display and both-side live benchmark rebuilds. It
+captures explicit absent/new and existing order projections, pre-mutation slice
+aggregates, separate REAL/DEMO values and event-time target identities. A staged
+transaction effect set preserves each audit/event and finalizes benchmarks and
+PIN displays once. Bounded request metadata reaches the shared audit appender. `outbox.rs` writes that evidence only to the internal outbox
+column; participant fields are constructed through a separate explicit DTO. The
+shared lock evidence records the terminal PIN phase and refuses later economic
+acquisition. Receipt replays bypass fresh effects. The committed-evidence consumer
+and stream transport integration remain separate components.
+
+## Order creation component
+
+`order_write/order_create.rs` and `routes/market_write/order_create.rs` supply
+unmounted order entry. The sealed owner previews all parties, locks the
+organization-scoped create key and canonical slice, then allocates acceptance
+priority. Replay reads the current create projection from the order row before
+fresh execution admission. Ordinary entry composes inline match completion;
+assisted entry assesses post-only before inserting its consumed authorization.
+Both paths stage one terminal audit, benchmark, notification and outbox set.
+The component takes fee and consent configuration at composition; analytics
+sender wiring and serving activation remain separate integration work.
+
+## Ordered matching component
+
+`order_write/matching.rs` separates an exact-decimal, deterministic fill plan
+from caller-transaction application. Candidate selection previews at most 101
+crossing rows and locks at most 100 by price, acceptance ordinal and UUID under
+the declared slice and complete party prefix. A remaining aggressor beyond the
+cap refuses the entire command. Application inserts confirmed trades and updates
+both orders per fill; its outcome retains before/after orders, trades and both
+changed sides for transaction-level completion. Completion freezes validated typed
+terms and seller fee configuration, consumes declared reserved inventory, and calls
+`confirmed_effect.rs` for current-member referral activation. Its staged effect set
+adds per-trade audits and organization notifications, explicit participant payloads,
+and one final both-side benchmark/PIN pass. Receipt-owner replay skips completion.
+Order-entry and manual-confirmation callers still require route integration before
+any serving route can use these components.
+
+Execution eligibility is part of the plan. Stored provenance is coerced fail
+closed: REAL crosses only REAL, and DEMO crosses DEMO only between the two demo
+activity organizations and for the exact two orders an internal caller pairs; no
+request type carries a pair. Both orders must be execution-qualified on the
+Singapore date of the command clock and have compatible typed terms (the
+certification set, the B100 requirement rules and the eight Bio-LNG rules); the
+validated typed terms are returned for trade snapshots. Under the held party
+locks the port revalidates each concrete owner through the shared execution
+rule; an assisted row needs its recording administrator and one execution-eligible
+customer member from the locked user set. The bound counts the previewed set, and
+eligibility skips rows only within the first hundred. `order_write/post_only.rs`
+assesses an unsaved assisted order against the complete REAL crossing set: it locks
+the previewed rows by ascending UUID, evaluates them in priority order, and reports
+a crossing price, a resting order, or an indeterminate set of more than one hundred
+rows, without writing.
+
+
+The conservation tests in `rs/read/tests/market_write_properties.rs` and
+`rs/read/tests/market_write_pg_conservation.rs` use fixed reproducible seeds.
+Their writer labels distinguish Rust inventory, cancellation and expiry from
+fixture publication, bids, takes, fills, amendments and trade transitions.
+The SQL fixture models stock substeps in a disposable migrated database with
+a one-tonne catalog minimum and checks the fixed party and scalar-term domain.
+
+## Direct take and private trade components
+
+`order_write/trades.rs` inserts anonymous pending direct takes through the sealed
+organization-first owner. The trade freezes normalized typed terms, resting price
+and the seller fee, while only order remainder changes; inventory stays reserved
+until confirmation. Exact initiating-user/key replay returns the current trade
+projection before fresh execution admission. Trade reads use cleanup authentication,
+a distinct current-membership relation and a per-row authorized viewer, with stable descending
+created-time/UUID pages. Support-context reads reuse the locked context expiry
+transition and cannot grant settlement authority. `analytics/sender.rs` schedules
+bounded, failure-isolated Umami conversion delivery after a known commit; replay
+and rollback do not schedule it. The component routes remain unmounted for serving.
+
+## Trade confirmation and decline component
+
+`order_write/trade_lifecycle.rs` and its route component serialize confirmation
+and decline through the sealed party, receipt-key, slice, trade, order and
+inventory lock graph. Confirmation rechecks fresh execution admission, consumes
+only pending reserved stock and calls the shared referral activation helper.
+Decline uses recorded-party cleanup, restores live remainder or releases terminal
+commitments without reviving liquidity. Its clock is captured after row locks.
+Responses, actor-scoped receipts and typed participant effects commit together;
+only a changed decline order rebuilds its benchmark side and PIN evidence.
+These component routes remain unmounted until lifecycle enforcement is integrated.
+
+Delivery and payment use a separate settlement preview that retains the complete
+recorded-party and linked-order lock set even on receipt replay and recovery.
+Their sealed context derives its organization from the authorized trade side;
+ordinary recorded actors require current membership, except organization-less
+actors whose recorded organization is rejected. Assisted customers
+must remain current members. Final amounts use exact Decimal arithmetic and the
+frozen fee basis. State, private notifications, audit, participant event and the
+optional receipt commit together, without order, inventory or public-market
+changes. Serving activation remains gated on lifecycle freeze enforcement.
+
+## Administrator trade freeze component
+
+`order_write/freeze.rs` and its route component provide administrator-only freeze,
+clearance and bounded ACTIVE-history reads. The sealed owner locks the actor,
+then the trade and active freeze row; its organization-free audit bridge appends
+one transition on the same transaction. Replays retain the original row without
+new effects. Trade status, linked orders and inventory do not change. Serving
+activation remains separate integration work. Eligible fresh lifecycle transitions
+check ACTIVE history after authority and validation, under the sealed trade lock,
+immediately before mutation. The database status trigger remains an independent
+guard. Each current trade projection joins its safe reason/time block in one SQL
+statement; page selection is not a page-wide snapshot. Authorized command receipts
+retain their original historical body, including receipts without freeze fields.
+
+## Supplier inventory component
+
+`order_write/inventory.rs` implements supplier inventory records through the ordered
+market transaction. The owner's inventory list and compatibility listings run in an
+authenticated read transaction that locks only the user row. Inventory mutations recheck
+indicative admission under organization/user locks and reference history under the
+inventory lock. Responses and participant-only effects are prepared before commit. The
+inventory route component remains unmounted for serving. Publication uses the same
+sealed owner: it discovers expiry and crossing parties before the prefix, acquires
+one bounded order set before inventory, sweeps expiry, reserves all current stock
+and inserts a linked SPOT ASK. Principal-bound order-key replay precedes fresh
+admission. Inline match completion and expiry/publication effects share one terminal
+finish; conversion delivery is scheduled only after a known fresh commit. Order
+entry and publication take the same matching, KYC, fee and analytics inputs.
 ## Price-alert evaluation (stream runtime)
 
 `rs/read/src/streams/price_alerts.rs` fires price alerts from committed market
@@ -418,17 +585,22 @@ Coverage requirements are data in `tests/rust_contract/phase2/alerts-scenarios.j
 
 Task 15 adds `rs/read/src/crud/watchlists/events.rs` for W07 and W08. The feed
 pages by `(created_at DESC, id DESC)` with a cursor of RFC 3339 UTC plus the
-event id, and applies the PD4-G guard in SQL before `LIMIT`: best-price events
-and events whose payload names an order outside the full public order scope are
-hidden, and a PIN target must name a public order. Acknowledgement commits
-`is_read` only when the row is still unread and refuses a guarded event before
-any write. The feed, the read state and the container counts read a payload's
-source order through one SQL expression, and a response names only that order.
-Python remains the event producer; the trusted Rust producer is a design
-proposal in `docs/rust-phase2-task15-producer-design.md`. The serving router
-takes the producer activation (PD5) only from the release metadata key
-`WATCHLIST_PRODUCER_ACTIVATED_AT`; no Phase 2 release records one, and
-`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default there.
+event id. One SQL admission relation, `rs/read/src/crud/watchlists/admission.rs`,
+filters the feed before `LIMIT`, the acknowledgement read and its update, and the
+container counts before aggregation, so the three surfaces give one answer per
+row. A `SLICE_BEST_PRICE_MOVED` or `SLICE_WENT_QUIET` row is admitted only when
+the trusted producer (`producer = 'rust-market-v1'`) wrote it and attested its
+scope at or after the activation instant the release records in
+`WATCHLIST_PRODUCER_ACTIVATED_AT`; other producers' rows of these classes stay
+hidden, and with no recorded activation none is admitted. A PIN target must name
+a public order, and a row whose payload names an order is admitted only while
+that order is public, except a went-quiet row, which names the order that just
+ended. Acknowledgement commits `is_read` only for an admitted, unread row and
+answers 404 for any other row before a write. The relation never reads the
+producer switch, so a paused producer leaves its rows readable.
+`rs/read/tests/watchlist_activation_source.rs` refuses a clock or default
+activation. Rule details and the kept differences from Python are in
+`docs/rust-phase2-watchlists.md`.
 
 ## Rust Phase 2 referral routes
 
@@ -766,6 +938,61 @@ listings and tape surfaces are not wrapped by this step. See
 `docs/rust-phase1/cache-dependencies.md`.
 Exact `market/amount.rs` operations retain intermediate economic rounding while
 removing wire-spelling emulation. See `docs/rust-phase1/same-meaning-contract.md`.
+
+## Trusted watchlist producer schema
+
+Revision `p89_20261022_watchlist_producer` follows `p5_20261020_read_indexes`.
+It adds five producer identity columns, their all-or-none CHECK and replay
+identity index to `watchlist_events`, nullable internal JSONB evidence to
+`market_event_outbox`, and the singleton `watchlist_producer_state` watermark.
+Existing Python inserts retain legacy identity and NULL evidence. The app can
+read, insert and update the watermark but cannot delete it; shared outbox
+writer/sequencer grants stay unchanged. The consumer is not activated by this
+schema change. Downgrade refuses retained trusted rows or internal evidence.
+The applying production release requires this exact reviewed checkpoint.
+The chain is linear with one Alembic head: `prc_20261018_cache`,
+`prc_20261026_changes`, `p3_20261020_auth_tokens`, `sse_20261021_replay_floor`,
+`p5_20261020_read_indexes`, `p89_20261022_watchlist_producer`,
+`p89_20261022_trade_freeze`. A later-shipping phase reparents its own revision
+onto the earlier phase's head by changing `down_revision` only.
+
+## Trusted watchlist producer consumer
+
+`rs/read/src/order_write/producer/` consumes the internal evidence that
+`order_write/effects.rs` writes to `market_event_outbox.producer_evidence` in the
+economic transaction. `evidence.rs` decodes the version 1 envelope with size and
+count limits; `derive.rs` derives every PIN and SLICE event from the immutable
+before/after states, aggregates and captured targets (never from current rows or
+target snapshots); `consume.rs` is the only file with producer SQL. One READ
+COMMITTED transaction locks the watermark singleton, requires the retention fence
+`blocked` and the replay floor at or below the watermark, reads at most 100
+sequenced rows after it, locks the captured targets `FOR KEY SHARE` in id order,
+skips deleted or changed targets, reads the fence and floor again, inserts
+events with producer `rust-market-v1` on the identity index (`ON CONFLICT DO
+NOTHING`, at most 1,000 rows per statement) and moves the watermark. A PIN class
+is never derived from a non-public earlier state. A failed batch writes nothing
+and is retried with a bounded backoff (2 s doubling to 30 s). The
+source identity is the envelope's mutation id, because one mutation appends
+several outbox rows with the same envelope; `source_stream_seq` is the first of
+them. Rows without evidence are covered with no event; an invalid trusted
+envelope stops consumption at that row. Sequence gaps are passed; a floor above
+the watermark stops it. The consumer never writes the outbox, never sequences
+and never changes a target snapshot. Organization market-access invalidation
+keeps its synchronous legacy watchlist rows in `order_write/events.rs`.
+`bootstrap_watermark` is an explicit operator step that creates the watermark at
+the sequenced high-water barrier and refuses once any trusted evidence exists.
+The operator runs it once with `verdaxis-read --bootstrap-watchlist-producer
+--budget-file <path>` under the deployed environment; the command prints only
+`outcome=<created|already_present> watermark=<n>` or `refused reason=<reason>`.
+`scripts/deploy.sh` records the two activation keys in the release metadata,
+carries them forward unchanged on every later deploy, never changes a recorded
+instant and drops both keys below the producer checkpoint.
+The serving process starts the consumer only when `.runtime-release.env` names
+`WATCHLIST_EVENT_PRODUCER=rust-market-v1` beside a valid
+`WATCHLIST_PRODUCER_ACTIVATED_AT` and the verified `RELEASE_SHA`;
+`legacy-python` pauses it with the evidence retained after the watermark. It
+reuses the stream dispatcher's wake signal plus a 2 s poll on the existing read
+pool, so it adds no database connection.
 
 ## Rust Phase 2 shared route runner
 
@@ -1254,6 +1481,21 @@ and outbox. Runtime access is SELECT
 and INSERT only; receipts are retained. Migration `rcp_20261003_command_results`
 follows acceptance priority. Forward corrective releases must retain receipts.
 
+## Rust support capability component
+
+`order_write/support.rs` uses the ordered transaction owner for bootstrap-bound
+capability grants and revocations. Revocation locks the assignment before the
+actor's active contexts, stages the Python audit descriptors, and finalizes one
+effect set before commit. Bounded organization, authorization and assisted-listing
+reads retain their capability checks. Each request is checked in Python's
+order: account state, the feature switch, the administrator role, request
+validation, the bootstrap allowlist, then the capability. `routes/market_write/support.rs` exposes a
+component router; no serving route is mounted. `support/contexts.rs` owns actor-bound context creation, same-organization
+reuse, confirmed replacement, expiry on read and versioned exit. Commands lock
+the actor, both capabilities and declared contexts, prepare their responses and
+stage audit effects before commit. The composite organization view reuses the
+shared eligible-owner relation and the bounded authorization/listing projections.
+The component routes remain separate from serving composition.
 ## Rust login component
 
 `auth/login.rs` owns form login, device-bound issuance and the login-day upsert in one transaction. Its router remains unmounted. Shared ingress supplies one pre-auth charge and Unix-second quota time; component-only requests admit locally. State-free HTTP constructors require an explicit environment.

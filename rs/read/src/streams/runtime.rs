@@ -103,9 +103,17 @@ pub struct StreamRuntime {
     task: Option<JoinHandle<()>>,
     alerts: Option<JoinHandle<()>>,
     hub: StreamHub,
+    producer_wake: Arc<Notify>,
 }
 
 impl StreamRuntime {
+    /// A process-lifetime signal raised after each committed sequence
+    /// assignment wake, for the watchlist producer. It survives dispatch
+    /// cycle restarts; a stored permit means no wake is lost.
+    pub fn producer_wake(&self) -> Arc<Notify> {
+        self.producer_wake.clone()
+    }
+
     pub async fn shutdown(mut self) {
         self.hub.set_available(false, Terminal::Shutdown);
         self.stop.send_replace(true);
@@ -175,14 +183,26 @@ pub async fn start_streams(
     if initial.is_ok() {
         hub.set_available(true, Terminal::Unavailable);
     }
+    let producer_wake = Arc::new(Notify::new());
+    let cycle_producer_wake = producer_wake.clone();
     let task = tokio::spawn(async move {
-        supervise(config, read, task_hub, alert_feed, shutdown, initial).await;
+        supervise(
+            config,
+            read,
+            task_hub,
+            alert_feed,
+            shutdown,
+            initial,
+            cycle_producer_wake,
+        )
+        .await;
     });
     Some(StreamRuntime {
         stop,
         task: Some(task),
         alerts: Some(alerts),
         hub,
+        producer_wake,
     })
 }
 
@@ -240,6 +260,7 @@ async fn supervise(
     alert_feed: PriceAlertFeed,
     mut shutdown: watch::Receiver<bool>,
     initial: Initialized,
+    producer_wake: Arc<Notify>,
 ) {
     let mut initial = Some(initial);
     let _availability = AvailabilityGuard(hub.clone());
@@ -296,13 +317,17 @@ async fn supervise(
                 .await
         });
         let bridge_stop = cycle_stop.subscribe();
+        let bridge_producer_wake = producer_wake.clone();
         let bridge = tokio::spawn(async move {
             let mut stop = bridge_stop;
             loop {
                 tokio::select! {
                     biased;
                     () = stopping(&mut stop) => break,
-                    () = wake.notified() => { let _ = sender.try_send(()); }
+                    () = wake.notified() => {
+                        let _ = sender.try_send(());
+                        bridge_producer_wake.notify_one();
+                    }
                 }
             }
         });

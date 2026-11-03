@@ -95,12 +95,7 @@ async fn read_summary(
         )
         .await?;
         visible
-            .detail(
-                &mut *connection,
-                actor,
-                radar,
-                state.settings.best_price_cutoff(),
-            )
+            .detail(&mut *connection, actor, radar, state.settings.admission())
             .await
     }
     .await;

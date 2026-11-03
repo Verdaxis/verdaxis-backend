@@ -25,7 +25,7 @@ from sqlalchemy import text
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "streams_watchlist_guard"
 OFFLINE_TESTS = {
-    "no_producer_startup",
+    "watchlist_event_writers_are_the_two_reviewed_files",
     "no_default_activation_cutoff",
     "source_rules_reject_each_forbidden_form",
 }

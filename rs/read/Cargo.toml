@@ -126,6 +126,7 @@ contract-tests = []
 name = "phase4_analytics_policy"
 
 [dev-dependencies]
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 verdaxis-contract = { path = "../contract" }
 # Paused time lets the stream tests cross 30-second heartbeat intervals at once.
 tokio = { version = "1.53.3", features = ["full", "test-util"] }

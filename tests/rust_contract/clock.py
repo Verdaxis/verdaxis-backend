@@ -25,6 +25,10 @@ DATETIME_MODULES = (
     "app.services.forward_curve_market_slices",
     "app.services.forward_monitoring",
     "app.services.availability_windows",
+    # Seed-matrix benchmark prices add a premium per month between the current
+    # month and the requested window, so the board and slice prices move at
+    # every UTC month change unless this clock is frozen too.
+    "app.services.benchmarks",
     "app.schemas.curves",
     "app.routers.orderbook",
     "app.routers.curves",
