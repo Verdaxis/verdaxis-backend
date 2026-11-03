@@ -12,12 +12,13 @@ Type=oneshot
 User=verdaxis-prod
 Group=verdaxis-prod
 WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
-EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
-EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
-ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.env
-ExecStartPre=/usr/bin/test -r /home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
-ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.refresh_news
-TimeoutStartSec=300
+# Only this job's projected keys (ops prepare-runtime) reach the process;
+# the secret-rich .env is never loaded. The binary runs the identity,
+# deploy-state and target gates itself before any work.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/jobs/news.env
+Environment=DEPLOY_STATE_DIR=/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read job news --environment production --release-sha ${RELEASE_SHA} --apply
+TimeoutStartSec=900
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

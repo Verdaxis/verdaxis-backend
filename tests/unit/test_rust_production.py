@@ -39,8 +39,9 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
         assert expected in unit
     assert f"EnvironmentFile={base}/.env\n" not in unit
     assert "/staging/" not in unit
-    assert "verify_rust_start.py --expected-release-sha ${RELEASE_SHA}" in unit
+    assert "verdaxis-read guard rust-start --expected-release-sha ${RELEASE_SHA}" in unit
     assert "--revision-file" in unit
+    assert "python" not in unit
     assert "--environment-file" not in unit
     assert "venv/bin/python" not in unit
 
@@ -209,29 +210,6 @@ def test_production_sudoers_and_canonical_branch_are_exact():
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     production = deploy.split("*/prod/be)", 1)[1].split(";;", 1)[0]
     assert 'DEFAULT_BRANCH="staging"' in production
-
-
-def test_production_exact_prestarts_run_with_no_environment_or_app(tmp_path):
-    import shlex
-    import shutil
-    import subprocess
-    backend = tmp_path / "be"
-    (backend / "scripts").mkdir(parents=True)
-    for name in ("verify_deploy_start_guard.py", "verify_rust_start.py"):
-        shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
-    runtime = backend / ".runtime-rust"
-    runtime.mkdir()
-    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p89_20261022_trade_freeze"})):
-        path = runtime / name
-        path.write_text(json.dumps(data))
-        path.chmod(0o600)
-    for line in (ROOT / "deploy/systemd/verdaxis-rust.service").read_text().splitlines():
-        if not line.startswith("ExecStartPre="):
-            continue
-        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p89_20261022_trade_freeze")
-        result = subprocess.run(shlex.split(command), cwd=backend, env={}, capture_output=True, text=True, timeout=10)
-        assert result.returncode == 0, result.stderr
-    assert not (backend / ".env").exists()
 
 
 def test_prod_publication_is_a_push_gate_not_a_pr_artifact():

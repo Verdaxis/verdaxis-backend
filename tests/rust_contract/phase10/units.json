@@ -10,7 +10,7 @@
       "end_state": "rust",
       "owner": "job auth-maintenance",
       "task": 12,
-      "source_sha256": "9be48ffe5813751e52046f3c7a2b8bb7471c535fb6fefda4a21be869101f2bcd",
+      "source_sha256": "17fcaadaf5477c509826051d345d49f3ed3e7bf9efb94933faf47ffaacf3d418",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -44,7 +44,7 @@
       "end_state": "rust",
       "owner": "job auth-maintenance",
       "task": 12,
-      "source_sha256": "38a237ad3b206d0126ab147480cc36b91e798307d77b97f3a8132142929bdb6f",
+      "source_sha256": "31f2e5fd3840542a795ebee6e0bfd776b915e8ea742cad9dc3a571618cea586b",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -114,7 +114,7 @@
       "end_state": "rust",
       "owner": "job news",
       "task": 11,
-      "source_sha256": "1d4d8d4b2752df1b1b52749d2386c262b8bef2ab99befa3a4a6d2cfd29ead914",
+      "source_sha256": "e2f4456bd817a13adab3cb1095ddece50f2f12b5c0885cbc045ca2d833a2baf1",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -148,7 +148,7 @@
       "end_state": "rust",
       "owner": "job news",
       "task": 11,
-      "source_sha256": "65a353392fc5eed506bb438017534dbec060975f94eceb1881a301b8ef2ce654",
+      "source_sha256": "3ff0d95162b70dceb42579d5586addd6271cef2b9d56ec230c67b25bae62aab9",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -218,7 +218,7 @@
       "end_state": "rust",
       "owner": "job reminders",
       "task": 14,
-      "source_sha256": "9e672cfe11dc273f1b293417b401784cbb611cad9e7981f1f1eb79c20caeda13",
+      "source_sha256": "193916c8fe4b6fd1ca4013deaec3254f1f1ba00944da29e809405de0b941f410",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -252,7 +252,7 @@
       "end_state": "rust",
       "owner": "job prune-analytics",
       "task": 13,
-      "source_sha256": "da63bb4fa6a66c664ea89d7cb40eaa78cbdb7670c0a4c8a304262df15d425961",
+      "source_sha256": "849edc45c1ec04e441a6f05667ea7941ead4a056bdb3fd054f481942a6ab9c19",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -286,7 +286,7 @@
       "end_state": "rust",
       "owner": "job prune-analytics",
       "task": 13,
-      "source_sha256": "0b1ee498ec306de7067edf3e56d0c2353ccb386e88e3da97a40bf702b6541e38",
+      "source_sha256": "10cccc3706e01dc26def1aa6d24e5cf0b2f2af8f76105319082d03a9775865cc",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -320,7 +320,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "18b15b7ec1d448070d64abc4d07ab1c6f7eb26b0d049de914567de0e4c92a592",
+      "source_sha256": "e1fd4bd3f1099bf9b81932713f8189f75a28f0a623a37974a1c1f5914e8f2404",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -337,7 +337,7 @@
       "end_state": "rust",
       "owner": "serve",
       "task": 10,
-      "source_sha256": "8adb1319fa4a0bc28e3168e7139b2197584e17c270ffaacd34812510ceae1f74",
+      "source_sha256": "7b45d20cf77669743d58a22f5e6875350844dbb16dfa3cffbad8da010777a49c",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -354,7 +354,7 @@
       "end_state": "rust",
       "owner": "monitor backup-verify",
       "task": 27,
-      "source_sha256": "383b66d98a57062b6956861123c528283b6c1e56c689096832e891ead6dcef38",
+      "source_sha256": "89f009dc127b15e29ae94d02718ee35442f625e67b9d9ff3fae07334cc62474e",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -456,7 +456,7 @@
       "end_state": "rust",
       "owner": "monitor health",
       "task": 27,
-      "source_sha256": "73a51f924189c6a7ee773705755379fa909da97c2dabf812769d93873d48ae7c",
+      "source_sha256": "4bb7b661acf541aec94db8ea4b4b193bf9be1070d4bcd3da9873ec942bb62986",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -490,7 +490,7 @@
       "end_state": "rust",
       "owner": "monitor alert",
       "task": 28,
-      "source_sha256": "f090d6803eb97ee4ca065069088827edd8c703e21b7a6cc3d62db3827f50922d",
+      "source_sha256": "4b895eef3fb1b9905c958b18af51ae29497035db7171624490645f1433cfc6bf",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -524,7 +524,7 @@
       "end_state": "rust",
       "owner": "monitor alert",
       "task": 28,
-      "source_sha256": "8f3642f9a69ac375c120f627e8ef83f3a5379518c26cf534e1532d682b958f24",
+      "source_sha256": "9525ef17cc8795bc62d0bf7e1d5e48d0d8df88562d7f0f99c8e5d86fd4098cd7",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",

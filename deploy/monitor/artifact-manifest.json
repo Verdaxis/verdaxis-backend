@@ -53,7 +53,7 @@
       "source": "verdaxis-backup-verify.service",
       "destination": "/etc/systemd/system/verdaxis-backup-verify.service",
       "mode": "0644",
-      "sha256": "383b66d98a57062b6956861123c528283b6c1e56c689096832e891ead6dcef38"
+      "sha256": "89f009dc127b15e29ae94d02718ee35442f625e67b9d9ff3fae07334cc62474e"
     },
     {
       "source": "verdaxis-backup-verify.timer",
@@ -89,7 +89,7 @@
       "source": "verdaxis-health.service",
       "destination": "/etc/systemd/system/verdaxis-health.service",
       "mode": "0644",
-      "sha256": "73a51f924189c6a7ee773705755379fa909da97c2dabf812769d93873d48ae7c"
+      "sha256": "4bb7b661acf541aec94db8ea4b4b193bf9be1070d4bcd3da9873ec942bb62986"
     },
     {
       "source": "verdaxis-health.timer",
@@ -101,7 +101,7 @@
       "source": "verdaxis-monitor-alert-reminder.service",
       "destination": "/etc/systemd/system/verdaxis-monitor-alert-reminder.service",
       "mode": "0644",
-      "sha256": "f090d6803eb97ee4ca065069088827edd8c703e21b7a6cc3d62db3827f50922d"
+      "sha256": "4b895eef3fb1b9905c958b18af51ae29497035db7171624490645f1433cfc6bf"
     },
     {
       "source": "verdaxis-monitor-alert-reminder.timer",
@@ -113,7 +113,13 @@
       "source": "verdaxis-monitor-alert@.service",
       "destination": "/etc/systemd/system/verdaxis-monitor-alert@.service",
       "mode": "0644",
-      "sha256": "8f3642f9a69ac375c120f627e8ef83f3a5379518c26cf534e1532d682b958f24"
+      "sha256": "9525ef17cc8795bc62d0bf7e1d5e48d0d8df88562d7f0f99c8e5d86fd4098cd7"
+    },
+    {
+      "source": "verdaxis-monitor-handoff.acl.tmpfiles",
+      "destination": "/usr/lib/tmpfiles.d/verdaxis-monitor-handoff-acl.conf",
+      "mode": "0644",
+      "sha256": "eb8bae63945259239e3fc1c0696a09f534aa20e53d37fb4d758a981723ae1282"
     },
     {
       "source": "verdaxis-monitor.sysusers",
@@ -125,7 +131,7 @@
       "source": "verdaxis-monitor.tmpfiles",
       "destination": "/usr/lib/tmpfiles.d/verdaxis-monitor.conf",
       "mode": "0644",
-      "sha256": "95cfe784616814cd9686ba6f8e3cc2ae473bc476686088d2e55c201dec9b1f91"
+      "sha256": "8578c412650310049283d18ba3f60e0d33f8c957b3a01907dc2c7a1d15ac4b4c"
     },
     {
       "source": "verify_runtime_identity.py",

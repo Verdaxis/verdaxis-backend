@@ -21,11 +21,12 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
 # credentials stay out of this long-running process.
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
-ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_deploy_start_guard.py --environment staging --expected-release-sha ${RELEASE_SHA}
-ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/staging/be/scripts/verify_rust_start.py --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/revision.json
-# env exists before the first artifact, so policy-off bootstrap verification
-# needs no Rust binary. It preserves the environment and execs in the same PID.
-ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8011 --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
+# Both prestarts run without the runtime environment. The shell guard
+# needs no Rust artifact; env launches the binary in the same PID, so
+# unit verification passes before the first artifact exists.
+ExecStartPre=/usr/bin/env -i PATH=/usr/bin:/bin /bin/bash /home/verdaxis-prod/verdaxis/staging/be/deploy/scripts/verify-deploy-start-guard.sh --environment staging --expected-release-sha ${RELEASE_SHA}
+ExecStartPre=/usr/bin/env -i /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read guard rust-start --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/revision.json
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read serve --bind 127.0.0.1:8011 --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM

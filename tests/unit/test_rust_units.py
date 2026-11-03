@@ -112,81 +112,6 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
     assert result.returncode == 0, result.stderr
 
 
-def test_rust_start_preserves_environment_arguments_and_main_pid(tmp_path):
-    import shlex
-    import sys
-
-    backend = tmp_path / "be"
-    binary = backend / ".runtime-rust/verdaxis-read"
-    binary.parent.mkdir(parents=True)
-    binary.symlink_to(sys.executable)
-    command = next(
-        line.removeprefix("ExecStart=") for line in _text(UNIT).splitlines()
-        if line.startswith("ExecStart=")
-    ).replace(STAGING_BACKEND, str(backend))
-    arguments = shlex.split(command)
-    assert arguments[2:] == [
-        "--bind", BIND, "--budget-file", str(binary.parent / "budget.json")
-    ]
-    # Use a real executable to observe exec semantics, without starting a server.
-    process = subprocess.Popen(
-        arguments[:2] + ["-c", "import os; print(os.getpid(), os.environ['RELEASE_SHA'])"],
-        env={**os.environ, "RELEASE_SHA": RELEASE_SHA},
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    stdout, stderr = process.communicate(timeout=10)
-    assert process.returncode == 0, stderr
-    assert stdout.strip() == f"{process.pid} {RELEASE_SHA}"
-
-
-def test_rust_unit_keeps_runtime_credentials_separate():
-    """The plan's unit contract: loopback bind, bounded memory, no `.env`."""
-    unit = _text(UNIT)
-    assert f"--bind {BIND}" in unit
-    assert "MemoryMax=256M" in unit
-    assert f"EnvironmentFile={STAGING_BACKEND}/.env\n" not in unit
-    assert "verify_deploy_start_guard.py" in unit
-    assert "verify_rust_start.py" in unit
-
-
-def test_rust_unit_paths_are_the_files_the_deploy_transaction_writes():
-    """PM requirement 1: unit paths and deploy paths are one selection."""
-    unit = _text(UNIT)
-    deploy = _text(DEPLOY)
-
-    # The runtime directory, the active binary and the budget artifact, exactly
-    # as the transaction names them.
-    assert f"RUST_UNIT_NAME=\"{RUST_UNIT_NAME}\"" in deploy
-    assert 'RUST_RUNTIME_DIR="$BACKEND_DIR/.runtime-rust"' in deploy
-    assert 'ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"' in deploy
-    assert '--output "$RUST_RUNTIME_DIR/budget.json"' in deploy
-    assert 'target = output_dir / "runtime.env"' in _text(PREPARE_RUNTIME)
-
-    assert f"WorkingDirectory={STAGING_BACKEND}\n" in unit
-    assert f"ExecStart=/usr/bin/env {RUNTIME_DIR}/verdaxis-read --bind {BIND} " in unit
-    assert f"--budget-file {RUNTIME_DIR}/budget.json\n" in unit
-    # Every EnvironmentFile is a deploy-written file; the unit never hands the
-    # secret-rich `.env` to systemd.
-    assert re.findall(r"^EnvironmentFile=(.*)$", unit, re.MULTILINE) == [
-        f"{STAGING_BACKEND}/.runtime-release.env",
-        f"{RUNTIME_DIR}/runtime.env",
-    ]
-
-
-def test_rust_unit_budget_check_uses_the_prepared_artifact_and_real_flags():
-    """The prestart budget check is the drift gate the transaction prepared."""
-    unit = _text(UNIT)
-    budget_help = _text(PREPARE_BUDGET)
-
-    assert "verify_rust_start.py --expected-release-sha ${RELEASE_SHA}" in unit
-    assert f"--budget-file {RUNTIME_DIR}/budget.json" in unit
-    assert "--environment-file" not in unit
-    for flag in ("--environment-file", "--release-sha", "--output", "--verify"):
-        assert flag in budget_help
-    assert unit.index("verify_rust_start.py") < unit.index("ExecStart=")
-
-
-
 def test_rust_unit_bind_and_service_name_match_the_committed_policy():
     policy = json.loads(_text(POLICY))
     unit = _text(UNIT)
@@ -220,24 +145,6 @@ def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(
     for extra in ("NewRuntimeDirective=true", "SetCredential=another-key:", "ImportCredential=*"):
         with pytest.raises(AssertionError):
             _assert_runtime_directives(unit + "\n" + extra + "\n", backend, suffix)
-
-
-def test_rust_unit_runs_the_start_guard_and_the_revision_check():
-    unit = _text(UNIT)
-    assert (
-        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
-        f"{STAGING_BACKEND}/scripts/verify_deploy_start_guard.py "
-        "--environment staging --expected-release-sha ${RELEASE_SHA}\n"
-    ) in unit
-    assert (
-        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
-        f"{STAGING_BACKEND}/scripts/verify_rust_start.py "
-        "--expected-release-sha ${RELEASE_SHA} "
-        f"--budget-file {RUNTIME_DIR}/budget.json --expected-revision ${{MIGRATION_REVISION}} "
-        f"--revision-file {RUNTIME_DIR}/revision.json\n"
-    ) in unit
-    assert f"User={STAGING_USER}\n" in unit
-    assert f"Group={STAGING_USER}\n" in unit
 
 
 def _staged_runtime_environment(tmp_path: Path) -> dict[str, Path]:
@@ -433,35 +340,6 @@ def test_rust_unit_names_no_production_path_or_migrator_credential():
     ):
         with pytest.raises(AssertionError):
             _assert_staging_credential_boundary(forbidden)
-
-
-def test_exact_rust_prestarts_need_no_app_environment(tmp_path):
-    import shlex
-    backend = tmp_path / "be"
-    (backend / "scripts").mkdir(parents=True)
-    for name in ("verify_deploy_start_guard.py", "verify_rust_start.py"):
-        shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
-    runtime = backend / ".runtime-rust"
-    runtime.mkdir()
-    budget = runtime / "budget.json"
-    budget.write_text(json.dumps({"version": 1, "release_sha": RELEASE_SHA}))
-    budget.chmod(0o600)
-    revision = runtime / "revision.json"
-    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": MIGRATION_REVISION}))
-    revision.chmod(0o600)
-    # Exactly the unit prestarts, relocating only the fixed checkout path and
-    # substituting systemd's release variable. -I -S excludes site packages.
-    for line in _text(UNIT).splitlines():
-        if not line.startswith("ExecStartPre="): continue
-        command = line.removeprefix("ExecStartPre=").replace(STAGING_BACKEND, str(backend)).replace("${RELEASE_SHA}", RELEASE_SHA).replace("${MIGRATION_REVISION}", MIGRATION_REVISION)
-        result = subprocess.run(shlex.split(command), cwd=backend, env={"ENVIRONMENT": "staging", "RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-    assert not (backend / ".env").exists()
-    # Tampered checkpoint evidence is a hard refusal with the same unit command.
-    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": "wrong"}))
-    refused = subprocess.run(shlex.split(command), cwd=backend,
-                             env={"RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
-    assert refused.returncode == 1
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])

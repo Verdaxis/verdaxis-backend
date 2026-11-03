@@ -59,9 +59,11 @@ fi
 case "$DEPLOY_ENVIRONMENT" in
     production)
         SOURCE_ROOT="/home/verdaxis-prod/verdaxis/prod/be"
+        KYC_KEY_SOURCE="/etc/verdaxis/kyc-document-keys.json"
         ;;
     staging)
         SOURCE_ROOT="/home/verdaxis-prod/verdaxis/staging/be"
+        KYC_KEY_SOURCE="/etc/verdaxis/kyc-document-keys-staging.json"
         ;;
     *)
         usage
@@ -227,65 +229,59 @@ for unit_name in "${UNIT_NAMES[@]}"; do
 done
 sudo systemd-analyze verify "${UNIT_SOURCES[@]}"
 
+# BEGIN kyc-key-source-preflight (deploy/tests/units-contract.sh runs these lines)
 # Inspect metadata only, as root. Never read or execute candidate key contents.
 # Keep this in the installer: no candidate helper runs during release preflight.
-sudo /usr/bin/python3 -I -S -B - "$DEPLOY_ENVIRONMENT" <<'KYC_KEY_SOURCE_PREFLIGHT'
-import os
-import stat
-import sys
+# The serve unit loads the key source as a systemd credential; an absent file
+# fails the start with 243/CREDENTIALS on systemd 249 and 255. The approved
+# no-key-ring state is an EMPTY root:root 0400 placeholder, which the
+# application treats as absent. stat -c never follows a symlink here, so a
+# redirected directory or key is refused by its type.
+KYC_KEY_SOURCE_MISSING=3
+kyc_key_source_metadata() {
+    local source="$1" directory metadata type uid gid mode
+    # Writable or redirected ancestors are refused even when the key is absent.
+    for directory in / /etc /etc/verdaxis; do
+        if ! metadata="$(sudo stat -c '%F:%u:%a' -- "$directory" 2>/dev/null)"; then
+            if [[ "$directory" == /etc/verdaxis ]] \
+                && ! sudo test -e "$directory" && ! sudo test -L "$directory"; then
+                return "$KYC_KEY_SOURCE_MISSING"
+            fi
+            return 1
+        fi
+        IFS=: read -r type uid mode <<< "$metadata"
+        if [[ "$type" != directory || "$uid" != 0 || ! "$mode" =~ ^[0-7]{3,4}$ ]] \
+            || (( 8#$mode & 8#022 )); then
+            return 1
+        fi
+    done
+    if ! metadata="$(sudo stat -c '%F:%u:%g:%a' -- "$source" 2>/dev/null)"; then
+        if ! sudo test -e "$source" && ! sudo test -L "$source"; then
+            return "$KYC_KEY_SOURCE_MISSING"
+        fi
+        return 1
+    fi
+    IFS=: read -r type uid gid mode <<< "$metadata"
+    [[ ( "$type" == "regular file" || "$type" == "regular empty file" ) \
+        && "$uid" == 0 && "$gid" == 0 && "$mode" == 400 ]]
+}
 
-
-def check_source(environment):
-    if os.geteuid() != 0:
-        raise ValueError
-    sources = {
-        "production": "/etc/verdaxis/kyc-document-keys.json",
-        "staging": "/etc/verdaxis/kyc-document-keys-staging.json",
-    }
-    source = sources[environment]
-    # Reject writable or redirected ancestors even when the key is absent.
-    for directory in ("/", "/etc", "/etc/verdaxis"):
-        try:
-            info = os.lstat(directory)
-        except FileNotFoundError:
-            if directory == "/etc/verdaxis":
-                raise MissingPlaceholder(source)
-            raise
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-            raise ValueError
-    try:
-        info = os.lstat(source)
-    except FileNotFoundError:
-        raise MissingPlaceholder(source)
-    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
-            or stat.S_IMODE(info.st_mode) != 0o400):
-        raise ValueError
-
-
-class MissingPlaceholder(Exception):
-    """The unit's LoadCredential source must exist: an absent file fails the
-    service start with 243/CREDENTIALS on systemd 249 and 255. The approved
-    no-key-ring state is an EMPTY root:root 0400 placeholder file; the
-    application treats that empty credential as absent."""
-
-
-try:
-    check_source(sys.argv[1])
-except MissingPlaceholder as missing:
-    source = missing.args[0]
-    print(
-        f"KYC key source is absent: {source}\n"
-        "The backend unit loads that exact path, and a missing file fails the start\n"
-        "(243/CREDENTIALS). Create the approved empty placeholder, or install the real\n"
-        f"key ring, as root:\n"
-        f"  umask 077 && printf '' > {source} && chown root:root {source} && chmod 0400 {source}",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-except (OSError, ValueError, KeyError, IndexError):
-    print("KYC key source metadata is unsafe; require root:root 0400 and root-only writable parents", file=sys.stderr)
-    sys.exit(1)
-KYC_KEY_SOURCE_PREFLIGHT
+kyc_key_source_status=0
+kyc_key_source_metadata "$KYC_KEY_SOURCE" || kyc_key_source_status=$?
+if [[ "$kyc_key_source_status" == "$KYC_KEY_SOURCE_MISSING" ]]; then
+    cat >&2 <<KYC_KEY_SOURCE_MISSING_HELP
+KYC key source is absent: $KYC_KEY_SOURCE
+The serve unit loads that exact path, and a missing file fails the start
+(243/CREDENTIALS). Create the approved empty placeholder, or install the real
+key ring, as root:
+  umask 077 && printf '' > $KYC_KEY_SOURCE && chown root:root $KYC_KEY_SOURCE && chmod 0400 $KYC_KEY_SOURCE
+KYC_KEY_SOURCE_MISSING_HELP
+    exit 1
+elif [[ "$kyc_key_source_status" != 0 ]]; then
+    echo "KYC key source metadata is unsafe; require root:root 0400 and root-only writable parents" >&2
+    exit 1
+fi
+# END kyc-key-source-preflight
 
 echo "Verdaxis systemd unit installation mode: $MODE"
 echo "Environment: $DEPLOY_ENVIRONMENT"

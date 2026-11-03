@@ -41,7 +41,7 @@ RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "f16e0a24fc104288b1a68f2509e583e22af843b5",
+    "scripts/deploy.sh": "a8158c7de94a429080ad76e4cd1345df271a6d6d",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
@@ -120,6 +120,10 @@ EXPECTED_ARTIFACTS = {
     ),
     "verdaxis-monitor-alert@.service": (
         "/etc/systemd/system/verdaxis-monitor-alert@.service",
+        "0644",
+    ),
+    "verdaxis-monitor-handoff.acl.tmpfiles": (
+        "/usr/lib/tmpfiles.d/verdaxis-monitor-handoff-acl.conf",
         "0644",
     ),
     "verdaxis-monitor.sysusers": (

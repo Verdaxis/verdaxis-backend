@@ -53,6 +53,16 @@ pub fn require_deploy_state_absent(state: &Path) -> Result<(), Exit> {
     }
 }
 
+/// The deploy state of a job's environment must be absent. Its directory comes
+/// from `DEPLOY_STATE_DIR`, which every job unit sets; an unset, empty or
+/// relative directory gives a relative path and is refused.
+pub fn require_unit_deploy_state_absent(environment: Environment) -> Result<(), Exit> {
+    let directory = std::env::var_os("DEPLOY_STATE_DIR").unwrap_or_default();
+    require_deploy_state_absent(
+        &std::path::Path::new(&directory).join(format!("{}.state", environment.as_str())),
+    )
+}
+
 /// The preflight a job runs before it opens a pool or touches state.
 pub fn require_job_preflight(
     actual_env: &str,

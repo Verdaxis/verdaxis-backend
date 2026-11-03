@@ -5807,7 +5807,7 @@
     },
     {
       "path": "tests/unit/test_kyc_key_source_preflight.py",
-      "sha256": "97ee09380ff04ed0cb607b0aba9daf3d80d0d27556dd5630ca3d1adc7023f8bc",
+      "sha256": "6813371fd2a95aeabeffaa18b6c42656a430fd30375372c1dfd766e0f3e7a6f6",
       "definitions": [
         {
           "id": "P4_SRC_113",
@@ -6669,7 +6669,7 @@
     },
     {
       "path": "tests/unit/test_product_analytics_prune.py",
-      "sha256": "5cd9cd1b6e86d5f2f99e26b9945bef0a77641c8f063cdc5cef61c272a5561a11",
+      "sha256": "b0895c2bd235d7b1474ff6d4f257814e3896cd80482925888afd439f157b3632",
       "definitions": [
         {
           "id": "P4_SRC_202",

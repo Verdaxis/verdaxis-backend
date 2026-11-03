@@ -65,13 +65,12 @@ def test_health_service_is_dedicated_loopback_only_and_state_scoped():
     assert "IPAddressDeny=any" in text
     assert "IPAddressAllow=127.0.0.0/8" in text
     assert "RestrictAddressFamilies=AF_UNIX AF_INET" in text
-    assert "local_health_check.py" in text
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor health\n" in text
+    assert "python" not in text
     assert "ProtectHome=yes" in text
     assert "EnvironmentFile=" not in text
-    assert "--production-identity-file /etc/verdaxis-monitor/runtime-identities/production.identity" in text
-    assert "--staging-identity-file /etc/verdaxis-monitor/runtime-identities/staging.identity" in text
-    assert "OnFailure=verdaxis-monitor-alert@health-failure.service" in text
-    assert "OnSuccess=verdaxis-monitor-alert@health-healthy.service" in text
+    assert "OnFailure=verdaxis-monitor-alert@health.service" in text
+    assert "OnSuccess=verdaxis-monitor-alert@health.service" in text
 
 
 def test_backup_service_has_no_network_and_exposes_only_backup_directory():
@@ -84,10 +83,10 @@ def test_backup_service_has_no_network_and_exposes_only_backup_directory():
     assert "ProtectHome=tmpfs" in text
     assert "BindReadOnlyPaths=/home/verdaxis-prod/backups" in text
     assert "InaccessiblePaths=/home/verdaxis-prod/.backup-env" in text
-    assert "backup_verify.py" in text
-    assert "--attempt-directory /home/verdaxis-prod/backups/attempts" in text
-    assert "OnFailure=verdaxis-monitor-alert@backup-failure.service" in text
-    assert "OnSuccess=verdaxis-monitor-alert@backup-healthy.service" in text
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor backup-verify\n" in text
+    assert "python" not in text
+    assert "OnFailure=verdaxis-monitor-alert@backup.service" in text
+    assert "OnSuccess=verdaxis-monitor-alert@backup.service" in text
 
 
 def test_monitor_does_not_supply_a_backup_producer_service_or_timer():
@@ -243,8 +242,11 @@ def test_alert_consumer_is_separate_credential_bearing_identity_with_hourly_remi
             "DevicePolicy=closed",
         ):
             assert directive in alert_unit
-    assert "alert_dispatch.py --event %i" in service
-    assert "alert_dispatch.py --remind all" in reminder_service
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --event %i\n" in service
+    assert (
+        "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --remind all\n"
+        in reminder_service
+    )
     assert reminder_service.count("ExecStart=") == 1
     assert "OnCalendar=hourly" in reminder
     assert "Persistent=true" in reminder

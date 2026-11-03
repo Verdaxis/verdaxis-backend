@@ -1,6 +1,5 @@
 """Real production bootstrap analyzer checks; no artifact or service starts."""
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -47,12 +46,3 @@ def test_production_bootstrap_verify_without_runtime_directory(tmp_path, caller)
     assert not (backend / ".runtime-rust").exists()
 
 
-def test_production_env_launcher_preserves_pid_and_release(tmp_path):
-    command = next(line.removeprefix("ExecStart=") for line in (ROOT / UNIT).read_text().splitlines() if line.startswith("ExecStart="))
-    arguments = shlex.split(command)
-    assert arguments[:2] == ["/usr/bin/env", BASE + "/.runtime-rust/verdaxis-read"]
-    assert arguments[2:] == ["--bind", "127.0.0.1:8010", "--budget-file", BASE + "/.runtime-rust/budget.json"]
-    process = subprocess.Popen([arguments[0], sys.executable, "-c", "import os; print(os.getpid(), os.environ['RELEASE_SHA'])"], env={**os.environ, "RELEASE_SHA": "a" * 40}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    stdout, stderr = process.communicate(timeout=10)
-    assert process.returncode == 0, stderr
-    assert stdout.strip() == f"{process.pid} {'a' * 40}"

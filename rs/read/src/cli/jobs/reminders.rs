@@ -23,7 +23,7 @@
 //! The job runs in production only. Every other environment is refused before
 //! a pool is opened.
 use super::super::context::{self, Purpose, RunContext};
-use super::super::gate::require_apply;
+use super::super::gate::{require_apply, require_unit_deploy_state_absent};
 use super::super::mail::expiry::{
     self, Counts, EVENT, ExpiryMailConfig, ExpirySender, LEAD_TIME, MAX_BATCH, ProviderSender,
     RETRY_WINDOW, TRANSACTION_BOUNDS, classify, epoch_seconds, render_payload,
@@ -263,6 +263,9 @@ fn report(outcome: &str, counts: Option<RunCounts>) {
 /// The command entry point.
 pub async fn command(args: &JobArgs) -> Exit {
     command_with(args, |environment, release_sha| async move {
+        // Plan 6.3: an ordinary job refuses while a deploy is in progress. The
+        // unit's condition skips the start too; this check covers a manual run.
+        require_unit_deploy_state_absent(environment)?;
         context::open(Purpose::Job(JobKind::Reminders), environment, &release_sha).await
     })
     .await

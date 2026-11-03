@@ -42,13 +42,16 @@ def test_canonical_branch_and_canary_origin():
 
 def test_reminder_units_are_guarded_and_not_activated():
     manifest = (ROOT / "deploy/systemd/runtime-units.manifest").read_text()
-    for suffix in ("", "-staging"):
-        name = f"verdaxis-order-expiry-reminders{suffix}"
-        assert f"{name}.service" in manifest
-        assert f"{name}.timer" in manifest
-        service = (ROOT / f"deploy/systemd/{name}.service").read_text()
-        assert "test ! -e" in service and "test ! -L" in service
-        assert "OnCalendar=*:0/15" in (ROOT / f"deploy/systemd/{name}.timer").read_text()
+    name = "verdaxis-order-expiry-reminders"
+    assert f"production\t{name}.service" in manifest
+    assert f"production\t{name}.timer" in manifest
+    # D1: the staging pair is no longer installed.
+    assert f"{name}-staging" not in manifest
+    service = (ROOT / f"deploy/systemd/{name}.service").read_text()
+    deploy_state = "/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state"
+    assert f"ConditionPathExists=!{deploy_state}" in service
+    assert "Environment=DEPLOY_STATE_DIR=/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy\n" in service
+    assert "OnCalendar=*:0/15" in (ROOT / f"deploy/systemd/{name}.timer").read_text()
     assert "external-monitor" not in manifest
 
 

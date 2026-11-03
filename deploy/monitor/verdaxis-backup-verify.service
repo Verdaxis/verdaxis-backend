@@ -1,15 +1,15 @@
 [Unit]
 Description=Verify Verdaxis local backup artifacts without credentials
-OnFailure=verdaxis-monitor-alert@backup-failure.service
-OnSuccess=verdaxis-monitor-alert@backup-healthy.service
+OnFailure=verdaxis-monitor-alert@backup.service
+OnSuccess=verdaxis-monitor-alert@backup.service
 
 [Service]
 Type=oneshot
 User=verdaxis-backup-reader
 Group=verdaxis-backup-readers
-ExecStart=/usr/bin/python3 /usr/local/libexec/verdaxis-monitor/backup_verify.py --backup-status /home/verdaxis-prod/backups/status.json --backup-directory /home/verdaxis-prod/backups --attempt-directory /home/verdaxis-prod/backups/attempts --output /var/lib/verdaxis-backup-verify/status.json
+ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor backup-verify
 StateDirectory=verdaxis-backup-verify
-StateDirectoryMode=0700
+StateDirectoryMode=0710
 UMask=0077
 TimeoutStartSec=180s
 MemoryMax=128M

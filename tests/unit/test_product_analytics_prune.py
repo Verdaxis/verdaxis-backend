@@ -213,18 +213,16 @@ def test_systemd_service_artifact_matches_the_specified_unit(environment):
         "User=verdaxis-prod",
         "Group=verdaxis-prod",
         f"WorkingDirectory={backend_dir}",
-        f"EnvironmentFile={backend_dir}/.env",
-        f"EnvironmentFile={backend_dir}/.runtime-release.env",
-        f"ExecStartPre=/usr/bin/test -r {backend_dir}/.env",
-        f"ExecStartPre=/usr/bin/test -r {backend_dir}/.runtime-release.env",
+        f"EnvironmentFile={backend_dir}/.runtime-rust/jobs/prune-analytics.env\n",
+        f"Environment=DEPLOY_STATE_DIR={backend_dir}/.runtime-deploy\n",
         f"ConditionPathExists=!{backend_dir}/.runtime-deploy/{environment}.state",
         f"ConditionPathIsSymbolicLink=!{backend_dir}/.runtime-deploy/{environment}.state",
-        "ExecStartPre=/usr/bin/pg_isready --quiet --timeout=5",
         (
-            f"ExecStart={backend_dir}/venv/bin/python "
-            "scripts/prune_product_analytics.py "
-            f"--environment {environment} --release-sha ${{RELEASE_SHA}}"
+            f"ExecStart=/usr/bin/env {backend_dir}/.runtime-rust/verdaxis-read "
+            f"job prune-analytics --environment {environment} "
+            "--release-sha ${RELEASE_SHA} --apply\n"
         ),
+        "RestartPreventExitStatus=2 3",
         "Nice=10",
         "IOSchedulingClass=idle",
         "NoNewPrivileges=true",

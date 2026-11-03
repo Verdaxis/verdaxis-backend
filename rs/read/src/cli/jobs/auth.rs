@@ -16,7 +16,7 @@
 use crate::auth::store::sweep_expired_reset_tokens;
 use crate::business::approval_mail::{ApprovalMailBatchSize, FrozenApprovalPayload};
 use crate::cli::context::{self, Purpose};
-use crate::cli::gate::require_apply;
+use crate::cli::gate::{require_apply, require_unit_deploy_state_absent};
 use crate::cli::mail::approval::{ApprovalCounts, ApprovalMail, retry_due};
 use crate::cli::{Exit, JobArgs, JobKind, retry_bounded};
 use crate::crud::referrals::invite::MailClient;
@@ -240,6 +240,12 @@ where
 pub async fn execute(args: &JobArgs) -> Exit {
     if let Err(exit) = require_apply(args.apply) {
         report("usage_refused", None);
+        return exit;
+    }
+    // Plan 6.3: an ordinary job refuses while a deploy is in progress. The
+    // unit's condition skips the start too; this check covers a manual run.
+    if let Err(exit) = require_unit_deploy_state_absent(args.identity.environment) {
+        report("deploy_state_refused", None);
         return exit;
     }
     let ctx = match context::open(
