@@ -80,7 +80,6 @@ FIXTURE_FILES=(
     scripts/deploy.sh
     deploy/migration-checkpoints.tsv
     deploy/postgres/app_acl_policy.sql
-    deploy/postgres/operator_acl_policy.sql
     deploy/postgres/converge_runtime_object_acls.sql
     deploy/rust/staging-policy.json
     deploy/rust/production-policy.json

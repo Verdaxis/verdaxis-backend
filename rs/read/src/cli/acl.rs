@@ -16,11 +16,7 @@ use super::{AclArgs, Environment, Exit};
 /// The host's PostgreSQL client. A fixed path: `PATH` never chooses it.
 pub const PSQL: &str = "/usr/bin/psql";
 const CONVERGENCE_SQL: &str = "deploy/postgres/converge_runtime_object_acls.sql";
-const BUNDLE_FILES: [&str; 3] = [
-    "deploy/postgres/app_acl_policy.sql",
-    "deploy/postgres/operator_acl_policy.sql",
-    CONVERGENCE_SQL,
-];
+const BUNDLE_FILES: [&str; 2] = ["deploy/postgres/app_acl_policy.sql", CONVERGENCE_SQL];
 const DEFAULT_PORT: u16 = 5432;
 
 /// The roles of one deployed environment.

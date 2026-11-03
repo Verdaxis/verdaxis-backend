@@ -61,7 +61,6 @@ SELECT 1 / (
 )::integer;
 
 \ir app_acl_policy.sql
-\ir operator_acl_policy.sql
 
 -- One governed relation drives bootstrap and post-migration convergence.
 -- Extension members and migration-control objects are deliberately excluded.
