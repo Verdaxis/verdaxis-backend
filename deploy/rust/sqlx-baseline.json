@@ -2,7 +2,7 @@
   "alembic_head": "p89_20261022_trade_freeze",
   "alembic_revisions": 81,
   "baseline_version": 1,
-  "file_sha256": "ae53d23533afb7d666d6c87787bb95f5337c8b99dcedac4aeac6e44dd1d9f68e",
+  "file_sha256": "e9ffc94165af2ae8845784469fa592395ee21be3ec42f71901c1a6bb9e7bb09d",
   "fingerprint": "28f1c10dbe3b685de515bedcdbb1df64c4c8b839b432a6dd848aebbf0312ffb0",
   "postgres": "17.10",
   "reference_rows": {

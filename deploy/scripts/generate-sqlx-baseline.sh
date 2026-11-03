@@ -137,6 +137,13 @@ replacements = [
         r"^INSERT INTO public\.market_event_retention_control VALUES \(true, 'blocked', 0, NULL, NULL, NULL, NULL, now\(\)\);$",
         "INSERT INTO public.market_event_retention_control (singleton, mode, ownership_epoch) VALUES (true, 'blocked', 0);",
     ),
+    # pg_dump empties the session search path. sqlx runs the baseline and then
+    # records it in an unqualified _sqlx_migrations on the same session, so the
+    # reset must go; every dumped object is already qualified with public.
+    (
+        r"^SELECT pg_catalog\.set_config\('search_path', '', false\);\n",
+        "",
+    ),
 ]
 for pattern, statement in replacements:
     text, count = re.subn(pattern, statement, text, flags=re.M)
