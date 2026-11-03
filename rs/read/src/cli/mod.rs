@@ -145,6 +145,10 @@ pub struct MigrateArgs {
     pub target: Option<String>,
     #[arg(long)]
     pub apply: bool,
+    /// The nonce of the deploy that runs a writing `migrate`; it must match
+    /// the deploy state (see `migrate::require_deploy_ownership`).
+    #[arg(long)]
+    pub deploy_nonce: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -539,6 +543,7 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
                 }
             }
         }
+        Command::Migrate(args) => migrate::run(&args).await,
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.

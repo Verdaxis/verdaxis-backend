@@ -517,3 +517,150 @@ pub fn require_deploy_ownership(owner: &DeployOwnership<'_>) -> Result<(), super
     }
     Ok(())
 }
+
+fn report(command: &str, outcome: &str) {
+    println!(
+        "{}",
+        serde_json::json!({"command": format!("migrate {command}"), "outcome": outcome})
+    );
+}
+
+/// Entry point for `migrate`. The live connection comes from the purpose-bound
+/// context; until Task 9 projects the migrator credentials, it refuses.
+pub async fn run(args: &super::MigrateArgs) -> super::Exit {
+    let _ = tracing_subscriber::fmt()
+        .json()
+        .with_writer(std::io::stderr)
+        .try_init();
+    let vars: std::collections::HashMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    run_with(args, &vars, |environment, release_sha| async move {
+        super::context::open(super::context::Purpose::Migrate, environment, &release_sha).await
+    })
+    .await
+}
+
+/// [`run`] with an injected context opener. Every refusal that needs no
+/// database happens before `open` is called.
+pub async fn run_with<O, Fut>(
+    args: &super::MigrateArgs,
+    vars: &std::collections::HashMap<String, String>,
+    open: O,
+) -> super::Exit
+where
+    O: FnOnce(super::Environment, String) -> Fut,
+    Fut: std::future::Future<Output = Result<super::context::RunContext, super::Exit>>,
+{
+    use super::{Exit, MigrationAction};
+    let writes = match args.action {
+        MigrationAction::Status => false,
+        MigrationAction::Baseline => true,
+        MigrationAction::Run => args.apply,
+        MigrationAction::Verify => {
+            report("verify", "not_available");
+            return Exit::Precondition;
+        }
+    };
+    // `status` never writes; `baseline` always does and needs --apply.
+    if (args.action == MigrationAction::Status && args.apply)
+        || (args.action == MigrationAction::Baseline && !args.apply)
+    {
+        return Exit::Usage;
+    }
+    let needs_current = args.action != MigrationAction::Status;
+    if needs_current && args.expected_current.is_none()
+        || args.action == MigrationAction::Run && args.target.is_none()
+    {
+        return Exit::Usage;
+    }
+    if writes {
+        let Some(directory) = vars.get("DEPLOY_STATE_DIR").map(std::path::PathBuf::from) else {
+            return Exit::Precondition;
+        };
+        if !directory.is_absolute() {
+            return Exit::Precondition;
+        }
+        let owner = DeployOwnership {
+            deploy_directory: &directory,
+            environment: args.identity.environment,
+            release_sha: &args.identity.release_sha,
+            nonce: args.deploy_nonce.as_deref().unwrap_or(""),
+        };
+        if let Err(exit) = require_deploy_ownership(&owner) {
+            return exit;
+        }
+    }
+    let context = match open(args.identity.environment, args.identity.release_sha.clone()).await {
+        Ok(context) => context,
+        Err(exit) => {
+            report("connect", "not_available");
+            return exit;
+        }
+    };
+    // Migration control runs only as the migrator role, never on the app pool.
+    let Some(pool) = context.migrator.as_ref() else {
+        return Exit::Precondition;
+    };
+    let Ok(mut connection) = pool.acquire().await else {
+        return Exit::Dependency;
+    };
+    match args.action {
+        MigrationAction::Status => match status(&mut connection).await {
+            Ok(current) => {
+                println!("{}", current.report());
+                Exit::Ok
+            }
+            Err(_) => Exit::Dependency,
+        },
+        MigrationAction::Baseline => {
+            let expected = args.expected_current.as_deref().unwrap_or_default();
+            match adopt(&mut connection, expected, &compiled_baseline()).await {
+                Ok(Adoption::Adopted) => {
+                    report("baseline", "adopted");
+                    Exit::Ok
+                }
+                Ok(Adoption::AlreadyAdopted) => {
+                    report("baseline", "already_adopted");
+                    Exit::Ok
+                }
+                Err(AdoptionRefusal::Database) => Exit::Dependency,
+                Err(refusal) => {
+                    report("baseline", &format!("refused_{refusal:?}").to_lowercase());
+                    Exit::Precondition
+                }
+            }
+        }
+        MigrationAction::Run => {
+            let outcome = run_to_target(
+                &mut connection,
+                &MIGRATOR,
+                &TransitionPolicy::compiled(),
+                args.expected_current.as_deref().unwrap_or_default(),
+                args.target.as_deref().unwrap_or_default(),
+                args.apply,
+            )
+            .await;
+            match outcome {
+                Ok(RunOutcome::AtTarget) => {
+                    report("run", "at_target");
+                    Exit::Ok
+                }
+                Ok(RunOutcome::WouldApply(_)) => {
+                    report("run", "would_apply");
+                    Exit::Ok
+                }
+                Ok(RunOutcome::Applied(_)) => {
+                    report("run", "applied");
+                    Exit::Ok
+                }
+                Err(RunRefusal::Database) => Exit::Dependency,
+                Err(refusal) => {
+                    report("run", &format!("refused_{refusal:?}").to_lowercase());
+                    Exit::Precondition
+                }
+            }
+        }
+        MigrationAction::Verify => Exit::Precondition,
+    }
+}

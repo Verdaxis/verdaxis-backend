@@ -480,13 +480,22 @@ async fn run_to_exact_approved_target_is_idempotent() {
     drop_database(&database).await;
 }
 
+/// label, policy rows, expected current, target and the refusal it must give.
+type RefusalCase<'a> = (
+    &'a str,
+    &'a [(&'a str, &'a str)],
+    &'a str,
+    &'a str,
+    RunRefusal,
+);
+
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn unapproved_transition_or_pending_version_refuses_before_mutation() {
     let second = migrator_with_second_version().await;
     let database = adopted_database("refuse").await;
     let before = history_rows(&database).await;
-    let cases: [(&str, &[(&str, &str)], &str, &str, RunRefusal); 4] = [
+    let cases: [RefusalCase<'_>; 4] = [
         (
             "unlisted pair",
             &[("sqlx_1", "sqlx_1")],
@@ -842,4 +851,72 @@ async fn migrate_and_app_request_do_not_half_apply() {
     );
     drop(app);
     drop_database(&database).await;
+}
+
+#[tokio::test]
+async fn migrate_command_refuses_before_any_connection() {
+    use std::collections::HashMap;
+    use verdaxis_read::cli::migrate::run_with;
+    use verdaxis_read::cli::{Environment, Exit, IdentityArgs, MigrateArgs, MigrationAction};
+
+    let args = |action, apply: bool, current: Option<&str>, target: Option<&str>| MigrateArgs {
+        action,
+        identity: IdentityArgs {
+            environment: Environment::Staging,
+            release_sha: "a".repeat(40),
+        },
+        check: false,
+        expected_current: current.map(str::to_owned),
+        target: target.map(str::to_owned),
+        apply,
+        deploy_nonce: None,
+    };
+    let never_opened = |_: Environment, _: String| async {
+        panic!("a refused migrate command opened a connection")
+    };
+    let no_vars = HashMap::new();
+    let head = "p89_20261022_trade_freeze";
+    for (label, request, expected) in [
+        (
+            "status with --apply",
+            args(MigrationAction::Status, true, None, None),
+            Exit::Usage,
+        ),
+        (
+            "baseline without --apply",
+            args(MigrationAction::Baseline, false, Some(head), None),
+            Exit::Usage,
+        ),
+        (
+            "baseline without a current",
+            args(MigrationAction::Baseline, true, None, None),
+            Exit::Usage,
+        ),
+        (
+            "run without a target",
+            args(MigrationAction::Run, false, Some("sqlx_1"), None),
+            Exit::Usage,
+        ),
+        (
+            "baseline without deploy state",
+            args(MigrationAction::Baseline, true, Some(head), None),
+            Exit::Precondition,
+        ),
+        (
+            "run --apply without deploy state",
+            args(MigrationAction::Run, true, Some("sqlx_1"), Some("sqlx_1")),
+            Exit::Precondition,
+        ),
+        (
+            "verify",
+            args(MigrationAction::Verify, false, None, None),
+            Exit::Precondition,
+        ),
+    ] {
+        assert_eq!(
+            run_with(&request, &no_vars, never_opened).await,
+            expected,
+            "{label}"
+        );
+    }
 }
