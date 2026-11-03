@@ -4,11 +4,13 @@
 //! Each case clones `RUST_ADOPTION_TEMPLATE_DATABASE` (Alembic-built at the
 //! baseline head and owned by the production migrator name) or creates an empty
 //! database, works as the migrator through `SET ROLE`, and drops its database.
+use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Row};
 use std::str::FromStr;
 use verdaxis_read::cli::migrate::{
-    Adoption, AdoptionRefusal, MIGRATOR, adopt, compiled_baseline, fingerprint, status,
+    Adoption, AdoptionRefusal, MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, adopt,
+    compiled_baseline, fingerprint, run_to_target, status, status_with,
 };
 
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
@@ -345,4 +347,231 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
     assert!(report.pending.is_empty() && report.foreign.is_empty());
     assert_eq!(report.revision(), Some("sqlx_1".into()));
     drop_database(&database).await;
+}
+
+/// The embedded baseline plus a second migration, in a fresh folder.
+async fn migrator_with_second_version() -> Migrator {
+    let folder = std::env::temp_dir().join(format!(
+        "verdaxis-migrations-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&folder).expect("migration folder");
+    let baseline = MIGRATOR.iter().next().expect("the baseline migration");
+    std::fs::write(folder.join("1_baseline.sql"), baseline.sql.as_str())
+        .expect("copy the baseline");
+    std::fs::write(
+        folder.join("2_migrate_probe.sql"),
+        "CREATE TABLE public.migrate_probe (id integer);\n",
+    )
+    .expect("write the second migration");
+    let migrator = Migrator::new(folder.as_path())
+        .await
+        .expect("read the migration folder");
+    std::fs::remove_dir_all(&folder).expect("remove the migration folder");
+    migrator
+}
+
+fn policy(rows: &[(&str, &str)]) -> TransitionPolicy {
+    let text: String = rows
+        .iter()
+        .map(|(current, target)| format!("{current}\t{target}\n"))
+        .collect();
+    TransitionPolicy::parse(&text).expect("a test policy")
+}
+
+/// An Alembic-built database adopted at `sqlx_1`.
+async fn adopted_database(label: &str) -> String {
+    let database = alembic_database(label).await;
+    adopt(
+        &mut as_migrator(&database).await,
+        &adoption_head(),
+        &compiled_baseline(),
+    )
+    .await
+    .expect("adopt");
+    database
+}
+
+async fn probe_exists(database: &str) -> bool {
+    let mut connection = connect(database).await;
+    sqlx::query_scalar("SELECT to_regclass('public.migrate_probe') IS NOT NULL")
+        .fetch_one(&mut connection)
+        .await
+        .expect("probe lookup")
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn run_to_exact_approved_target_is_idempotent() {
+    let database = adopted_database("run").await;
+    let second = migrator_with_second_version().await;
+    let rules = policy(&[
+        ("sqlx_1", "sqlx_1"),
+        ("sqlx_1", "sqlx_2"),
+        ("sqlx_2", "sqlx_2"),
+    ]);
+
+    let at_baseline = run_to_target(
+        &mut as_migrator(&database).await,
+        &MIGRATOR,
+        &rules,
+        "sqlx_1",
+        "sqlx_1",
+        true,
+    )
+    .await;
+    assert_eq!(at_baseline, Ok(RunOutcome::AtTarget));
+
+    let before = history_rows(&database).await;
+    let dry = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_1",
+        "sqlx_2",
+        false,
+    )
+    .await;
+    assert_eq!(dry, Ok(RunOutcome::WouldApply(vec![2])));
+    assert_eq!(
+        history_rows(&database).await,
+        before,
+        "a dry run wrote history"
+    );
+    assert!(
+        !probe_exists(&database).await,
+        "a dry run applied the migration"
+    );
+
+    let applied = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_1",
+        "sqlx_2",
+        true,
+    )
+    .await;
+    assert_eq!(applied, Ok(RunOutcome::Applied(vec![2])));
+    assert!(probe_exists(&database).await);
+    let report = status_with(&mut connect(&database).await, &second)
+        .await
+        .expect("status");
+    assert_eq!(report.revision(), Some("sqlx_2".into()));
+    assert!(report.pending.is_empty() && report.foreign.is_empty());
+
+    let after = history_rows(&database).await;
+    let repeat = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_2",
+        "sqlx_2",
+        true,
+    )
+    .await;
+    assert_eq!(repeat, Ok(RunOutcome::AtTarget));
+    assert_eq!(
+        history_rows(&database).await,
+        after,
+        "a repeat changed the history"
+    );
+    drop_database(&database).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn unapproved_transition_or_pending_version_refuses_before_mutation() {
+    let second = migrator_with_second_version().await;
+    let database = adopted_database("refuse").await;
+    let before = history_rows(&database).await;
+    let cases: [(&str, &[(&str, &str)], &str, &str, RunRefusal); 4] = [
+        (
+            "unlisted pair",
+            &[("sqlx_1", "sqlx_1")],
+            "sqlx_1",
+            "sqlx_2",
+            RunRefusal::Transition,
+        ),
+        (
+            "wrong current",
+            &[("sqlx_2", "sqlx_2")],
+            "sqlx_2",
+            "sqlx_2",
+            RunRefusal::CurrentRevision,
+        ),
+        (
+            "unknown target",
+            &[("sqlx_1", "sqlx_3")],
+            "sqlx_1",
+            "sqlx_3",
+            RunRefusal::Target,
+        ),
+        (
+            "alembic current",
+            &[("p89_20261022_trade_freeze", "sqlx_1")],
+            "p89_20261022_trade_freeze",
+            "sqlx_1",
+            RunRefusal::Transition,
+        ),
+    ];
+    for (label, rows, current, target, refusal) in cases {
+        let outcome = run_to_target(
+            &mut as_migrator(&database).await,
+            &second,
+            &policy(rows),
+            current,
+            target,
+            true,
+        )
+        .await;
+        assert_eq!(outcome, Err(refusal), "{label}");
+        assert_eq!(
+            history_rows(&database).await,
+            before,
+            "{label}: history changed"
+        );
+        assert!(!probe_exists(&database).await, "{label}: a migration ran");
+    }
+    drop_database(&database).await;
+
+    // A failed row for a pending version makes the history foreign: refused.
+    let database = adopted_database("foreign_run").await;
+    sqlx::raw_sql(
+        "INSERT INTO public._sqlx_migrations (version, description, success, checksum, execution_time) \
+         VALUES (2, 'migrate probe', false, '\\x00', 0)",
+    )
+    .execute(&mut as_migrator(&database).await)
+    .await
+    .expect("seed a failed row");
+    let before = history_rows(&database).await;
+    let rules = policy(&[("sqlx_1", "sqlx_2")]);
+    let outcome = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_1",
+        "sqlx_2",
+        true,
+    )
+    .await;
+    assert_eq!(outcome, Err(RunRefusal::History));
+    assert_eq!(history_rows(&database).await, before);
+    assert!(!probe_exists(&database).await);
+    drop_database(&database).await;
+}
+
+#[test]
+fn compiled_policy_parses_and_keeps_the_alembic_rows() {
+    let compiled = TransitionPolicy::compiled();
+    assert!(compiled.allows(
+        "p5_20261020_read_indexes",
+        "p89_20261022_watchlist_producer"
+    ));
+    assert!(compiled.allows("p89_20261022_trade_freeze", "p89_20261022_trade_freeze"));
+    assert!(!compiled.allows("p89_20261022_trade_freeze", "head"));
+    assert!(
+        TransitionPolicy::parse("a\tHEAD\n").is_none(),
+        "an alias or upper case parsed"
+    );
 }

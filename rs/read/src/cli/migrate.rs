@@ -104,6 +104,14 @@ async fn table_exists(connection: &mut PgConnection, table: &str) -> Result<bool
 /// Read the Alembic and sqlx histories and compare the sqlx history with the
 /// embedded migrations. Read-only.
 pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error> {
+    status_with(connection, &MIGRATOR).await
+}
+
+/// [`status`] against another migrator (tests with an added migration).
+pub async fn status_with(
+    connection: &mut PgConnection,
+    migrator: &Migrator,
+) -> Result<Status, sqlx::Error> {
     let alembic = if table_exists(connection, "alembic_version").await? {
         sqlx::query_scalar("SELECT version_num FROM public.alembic_version ORDER BY version_num")
             .fetch_all(&mut *connection)
@@ -129,7 +137,7 @@ pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error
         Vec::new()
     };
     let embedded = |version: i64| {
-        MIGRATOR
+        migrator
             .iter()
             .find(|migration| migration.version == version)
     };
@@ -145,7 +153,7 @@ pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error
         })
         .map(|row| row.version)
         .collect();
-    let pending = MIGRATOR
+    let pending = migrator
         .iter()
         .filter(|migration| {
             !history
@@ -303,4 +311,146 @@ pub async fn adopt(
         [row] if exact_adoption(row) => Ok(Adoption::Adopted),
         _ => Err(AdoptionRefusal::History),
     }
+}
+
+/// The approved exact current -> target transitions (`deploy/migration-checkpoints.tsv`).
+const CHECKPOINTS: &str = include_str!("../../../../deploy/migration-checkpoints.tsv");
+
+/// Exact current -> target pairs. There is no "head" alias and no range: a
+/// transition runs only when its exact pair is listed, a no-change run included.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransitionPolicy {
+    rows: Vec<(String, String)>,
+}
+
+impl TransitionPolicy {
+    /// Parse tab-separated `current<TAB>target` rows; `#` lines are comments.
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut rows = Vec::new();
+        for line in text.lines() {
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (current, target) = line.split_once('\t')?;
+            let literal = |value: &str| {
+                !value.is_empty()
+                    && value.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+            };
+            if !literal(current) || !literal(target) {
+                return None;
+            }
+            rows.push((current.to_owned(), target.to_owned()));
+        }
+        Some(Self { rows })
+    }
+
+    /// The policy compiled into this binary.
+    pub fn compiled() -> Self {
+        Self::parse(CHECKPOINTS).expect("the compiled checkpoint policy parses")
+    }
+
+    pub fn allows(&self, current: &str, target: &str) -> bool {
+        self.rows
+            .iter()
+            .any(|(from, to)| from == current && to == target)
+    }
+}
+
+/// Why `run` refused. Every refusal happens before the first write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunRefusal {
+    /// The exact current -> target pair is not an approved transition.
+    Transition,
+    /// The database is not at the expected current revision.
+    CurrentRevision,
+    /// The target is not `sqlx_<version>` of an embedded migration.
+    Target,
+    /// The history holds a failed, unknown or changed version.
+    History,
+    Database,
+}
+
+impl From<sqlx::Error> for RunRefusal {
+    fn from(_: sqlx::Error) -> Self {
+        Self::Database
+    }
+}
+
+impl From<sqlx::migrate::MigrateError> for RunRefusal {
+    fn from(_: sqlx::migrate::MigrateError) -> Self {
+        Self::Database
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunOutcome {
+    /// The database is already at the target; nothing was written.
+    AtTarget,
+    /// Without `--apply`: the versions a real run would apply, in order.
+    WouldApply(Vec<i64>),
+    /// The versions this run applied, in order.
+    Applied(Vec<i64>),
+}
+
+fn sqlx_version(literal: &str) -> Option<i64> {
+    let digits = literal.strip_prefix("sqlx_")?;
+    if digits.is_empty()
+        || !digits.bytes().all(|byte| byte.is_ascii_digit())
+        || digits.starts_with('0')
+    {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// Move an adopted database from `expected_current` to `target` (both
+/// `sqlx_<version>` literals) through the exact approved transition. Adoption
+/// itself is the separate `baseline` action. Without `apply` nothing is written.
+pub async fn run_to_target(
+    connection: &mut PgConnection,
+    migrator: &Migrator,
+    policy: &TransitionPolicy,
+    expected_current: &str,
+    target: &str,
+    apply: bool,
+) -> Result<RunOutcome, RunRefusal> {
+    if !policy.allows(expected_current, target) {
+        return Err(RunRefusal::Transition);
+    }
+    let current_version = sqlx_version(expected_current).ok_or(RunRefusal::Transition)?;
+    let target_version = sqlx_version(target).ok_or(RunRefusal::Target)?;
+    if target_version < current_version
+        || !migrator
+            .iter()
+            .any(|migration| migration.version == target_version)
+    {
+        return Err(RunRefusal::Target);
+    }
+    let before = status_with(connection, migrator).await?;
+    if !before.foreign.is_empty() {
+        return Err(RunRefusal::History);
+    }
+    if before.revision().as_deref() != Some(expected_current) {
+        return Err(RunRefusal::CurrentRevision);
+    }
+    let due: Vec<i64> = before
+        .pending
+        .iter()
+        .copied()
+        .filter(|version| *version <= target_version)
+        .collect();
+    if due.is_empty() {
+        return Ok(RunOutcome::AtTarget);
+    }
+    if !apply {
+        return Ok(RunOutcome::WouldApply(due));
+    }
+    migrator.run_to(target_version, &mut *connection).await?;
+    let after = status_with(connection, migrator).await?;
+    if !after.foreign.is_empty() || after.revision().as_deref() != Some(target) {
+        return Err(RunRefusal::History);
+    }
+    Ok(RunOutcome::Applied(due))
 }
