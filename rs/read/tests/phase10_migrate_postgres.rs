@@ -10,7 +10,7 @@ use sqlx::{Connection, Row};
 use std::str::FromStr;
 use verdaxis_read::cli::migrate::{
     Adoption, AdoptionRefusal, MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, adopt,
-    compiled_baseline, fingerprint, run_to_target, status, status_with,
+    compiled_baseline, fingerprint, run_to_target, run_transition, status, status_with,
 };
 
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
@@ -346,6 +346,149 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
     let report = status(&mut connect(&database).await).await.expect("status");
     assert!(report.pending.is_empty() && report.foreign.is_empty());
     assert_eq!(report.revision(), Some("sqlx_1".into()));
+    drop_database(&database).await;
+}
+
+/// Task 7: the deploy runs one approved transition from any current literal.
+/// An Alembic literal to itself is a verify-only deploy; the baseline head to
+/// `sqlx_1` is adoption; any other Alembic upgrade is refused, because it
+/// needs the Python schema tool. Nothing is written by a refusal or a dry run.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn deploy_transitions_cover_alembic_no_change_and_adoption() {
+    let database = alembic_database("transition").await;
+    let head = adoption_head();
+    let older = "p5_20261020_read_indexes";
+    let rules = policy(&[
+        (head.as_str(), head.as_str()),
+        (head.as_str(), "sqlx_1"),
+        (older, older),
+        (older, head.as_str()),
+    ]);
+    let transition = |current: &str, target: &str, apply: bool| {
+        let (database, rules, current, target) = (
+            database.clone(),
+            &rules,
+            current.to_owned(),
+            target.to_owned(),
+        );
+        async move {
+            run_transition(
+                &mut as_migrator(&database).await,
+                &MIGRATOR,
+                rules,
+                &compiled_baseline(),
+                &current,
+                &target,
+                apply,
+            )
+            .await
+        }
+    };
+
+    assert_eq!(
+        transition(&head, &head, true).await,
+        Ok(RunOutcome::AtTarget)
+    );
+    assert_eq!(
+        transition(older, older, true).await,
+        Err(RunRefusal::CurrentRevision),
+        "a no-change deploy checks the exact current literal"
+    );
+    assert_eq!(
+        transition(older, &head, true).await,
+        Err(RunRefusal::Target),
+        "an Alembic upgrade needs the Python schema tool"
+    );
+    assert_eq!(
+        transition(&head, "sqlx_2", true).await,
+        Err(RunRefusal::Transition),
+        "an unlisted pair is refused before anything else"
+    );
+    assert_eq!(
+        transition(&head, "sqlx_1", false).await,
+        Ok(RunOutcome::WouldApply(vec![1]))
+    );
+    assert!(!history_exists(&database).await, "no write before adoption");
+
+    assert_eq!(
+        transition(&head, "sqlx_1", true).await,
+        Ok(RunOutcome::Applied(vec![1]))
+    );
+    assert_eq!(history_rows(&database).await.len(), 1);
+    drop_database(&database).await;
+}
+
+/// Carried from Task 6. Adoption has three publication boundaries: inside its
+/// one transaction (an interruption rolls everything back), after its commit
+/// (the deploy has not recorded success) and after the deploy published the
+/// new revision. A rerun with the same approval adopts once and then reports
+/// `AtTarget` without a write; a stale no-change approval is refused.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn adoption_commit_then_interruption_resumes_each_publication_boundary() {
+    let database = alembic_database("interrupt").await;
+    let head = adoption_head();
+    let rules = policy(&[(head.as_str(), head.as_str()), (head.as_str(), "sqlx_1")]);
+    let adopt_once = || {
+        let (database, rules, head) = (database.clone(), &rules, head.clone());
+        async move {
+            run_transition(
+                &mut as_migrator(&database).await,
+                &MIGRATOR,
+                rules,
+                &compiled_baseline(),
+                &head,
+                "sqlx_1",
+                true,
+            )
+            .await
+        }
+    };
+
+    // Boundary 1: the process dies inside the adoption transaction, after the
+    // history table and row exist but before COMMIT.
+    {
+        let mut connection = as_migrator(&database).await;
+        let mut transaction = connection.begin().await.expect("begin");
+        sqlx::raw_sql(
+            "CREATE TABLE public._sqlx_migrations (version BIGINT PRIMARY KEY, \
+             description TEXT NOT NULL, installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), \
+             success BOOLEAN NOT NULL, checksum BYTEA NOT NULL, execution_time BIGINT NOT NULL); \
+             INSERT INTO public._sqlx_migrations (version, description, success, checksum, execution_time) \
+             VALUES (1, 'baseline', true, '\\x00', 0);",
+        )
+        .execute(&mut *transaction)
+        .await
+        .expect("the interrupted adoption writes");
+        drop(transaction);
+        drop(connection);
+    }
+    assert!(
+        !history_exists(&database).await,
+        "an uncommitted adoption leaves nothing"
+    );
+    assert_eq!(adopt_once().await, Ok(RunOutcome::Applied(vec![1])));
+    let adopted = history_rows(&database).await;
+
+    // Boundaries 2 and 3: after COMMIT, and after the deploy published
+    // `sqlx_1`. The same approval resumes without a write.
+    for _ in 0..2 {
+        assert_eq!(adopt_once().await, Ok(RunOutcome::AtTarget));
+        assert_eq!(history_rows(&database).await, adopted, "a resume wrote");
+    }
+    // A stale no-change approval for the old head no longer matches.
+    let stale = run_transition(
+        &mut as_migrator(&database).await,
+        &MIGRATOR,
+        &rules,
+        &compiled_baseline(),
+        &head,
+        &head,
+        true,
+    )
+    .await;
+    assert_eq!(stale, Err(RunRefusal::CurrentRevision));
     drop_database(&database).await;
 }
 
@@ -870,6 +1013,7 @@ async fn migrate_command_refuses_before_any_connection() {
         target: target.map(str::to_owned),
         apply,
         deploy_nonce: None,
+        environment_file: None,
     };
     let never_opened = |_: Environment, _: String| async {
         panic!("a refused migrate command opened a connection")
@@ -911,6 +1055,22 @@ async fn migrate_command_refuses_before_any_connection() {
             "verify",
             args(MigrationAction::Verify, false, None, None),
             Exit::Precondition,
+        ),
+        (
+            "status --check without a literal",
+            MigrateArgs {
+                check: true,
+                ..args(MigrationAction::Status, false, None, None)
+            },
+            Exit::Usage,
+        ),
+        (
+            "--check on run",
+            MigrateArgs {
+                check: true,
+                ..args(MigrationAction::Run, false, Some("sqlx_1"), Some("sqlx_1"))
+            },
+            Exit::Usage,
         ),
     ] {
         assert_eq!(

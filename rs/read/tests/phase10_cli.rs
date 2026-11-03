@@ -45,7 +45,14 @@ fn subcommand_dispatch_is_exact() {
     let identity = ["--environment", "staging", "--release-sha", sha];
     for prefix in [
         vec!["migrate", "status"],
-        vec!["acl", "converge", "--env-file", "/tmp/job.env"],
+        vec![
+            "acl",
+            "converge",
+            "--env-file",
+            "/tmp/job.env",
+            "--bundle-root",
+            "/nonexistent/bundle",
+        ],
         vec!["job", "news", "--apply"],
         vec!["job", "auth-maintenance", "--apply"],
         vec!["job", "prune-analytics", "--apply"],

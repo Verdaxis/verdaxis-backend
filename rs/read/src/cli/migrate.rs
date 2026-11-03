@@ -455,6 +455,81 @@ pub async fn run_to_target(
     Ok(RunOutcome::Applied(due))
 }
 
+/// The revision literal adoption moves an Alembic-built database to.
+pub const ADOPTED_REVISION: &str = "sqlx_1";
+
+/// One approved deploy transition (plan section 8.5), from any current
+/// literal the checkpoint policy names:
+///
+/// - `sqlx_<a>` -> `sqlx_<b>`: [`run_to_target`];
+/// - an Alembic literal to itself: no schema change; the database must report
+///   exactly that literal;
+/// - the baseline's Alembic head -> `sqlx_1`: adoption ([`adopt`]). A rerun
+///   after adoption committed finds the exact adoption row and writes nothing,
+///   so an interrupted deploy resumes with the same approval.
+///
+/// Any other Alembic upgrade is refused: it needs the Python schema tool,
+/// which a Python-free deploy does not run.
+pub async fn run_transition(
+    connection: &mut PgConnection,
+    migrator: &Migrator,
+    policy: &TransitionPolicy,
+    baseline: &BaselineRecord,
+    expected_current: &str,
+    target: &str,
+    apply: bool,
+) -> Result<RunOutcome, RunRefusal> {
+    if !policy.allows(expected_current, target) {
+        return Err(RunRefusal::Transition);
+    }
+    match (sqlx_version(expected_current), sqlx_version(target)) {
+        (Some(_), Some(_)) => {
+            run_to_target(
+                connection,
+                migrator,
+                policy,
+                expected_current,
+                target,
+                apply,
+            )
+            .await
+        }
+        (None, None) if expected_current == target => {
+            let current = status_with(connection, migrator).await?;
+            if !current.foreign.is_empty() {
+                return Err(RunRefusal::History);
+            }
+            if current.revision().as_deref() == Some(expected_current) {
+                Ok(RunOutcome::AtTarget)
+            } else {
+                Err(RunRefusal::CurrentRevision)
+            }
+        }
+        (None, Some(_)) if target == ADOPTED_REVISION => {
+            if !apply {
+                let current = status_with(connection, migrator).await?;
+                return match current.revision().as_deref() {
+                    _ if !current.foreign.is_empty() => Err(RunRefusal::History),
+                    Some(revision) if revision == expected_current => {
+                        Ok(RunOutcome::WouldApply(vec![1]))
+                    }
+                    Some(revision) if revision == target => Ok(RunOutcome::AtTarget),
+                    _ => Err(RunRefusal::CurrentRevision),
+                };
+            }
+            match adopt(connection, expected_current, baseline).await {
+                Ok(Adoption::Adopted) => Ok(RunOutcome::Applied(vec![1])),
+                Ok(Adoption::AlreadyAdopted) => Ok(RunOutcome::AtTarget),
+                Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
+                Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
+                Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
+                Err(_) => Err(RunRefusal::History),
+            }
+        }
+        _ => Err(RunRefusal::Target),
+    }
+}
+
 /// What a deploy-owned `migrate baseline` or `migrate run --apply` must find:
 /// the deploy that runs it holds the deploy state and both deploy locks.
 pub struct DeployOwnership<'a> {
@@ -532,13 +607,42 @@ pub async fn run(args: &super::MigrateArgs) -> super::Exit {
         .json()
         .with_writer(std::io::stderr)
         .try_init();
-    let vars: std::collections::HashMap<String, String> = std::env::vars_os()
+    let mut vars: std::collections::HashMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
+    if let Some(path) = args.environment_file.as_deref() {
+        match deployed_migrator_values(path) {
+            Ok(values) => vars.extend(values),
+            Err(exit) => {
+                report("environment_file", "refused");
+                return exit;
+            }
+        }
+    }
+    let context_vars = vars.clone();
     run_with(args, &vars, |environment, release_sha| async move {
-        super::context::open(super::context::Purpose::Migrate, environment, &release_sha).await
+        super::context::RunContext::open_with(
+            super::context::Purpose::Migrate,
+            environment,
+            &release_sha,
+            &context_vars,
+        )
     })
     .await
+}
+
+/// The three keys `migrate` takes from the deployed `.env`: the identity and
+/// the migrator URL. The URL stays inside this process (the deploy never
+/// reads it); no other key of the file is used.
+fn deployed_migrator_values(path: &std::path::Path) -> Result<Vec<(String, String)>, super::Exit> {
+    let values = super::ops::runtime_env::read_environment_file(path)?;
+    ["ENVIRONMENT", "RELEASE_SHA", "MIGRATOR_DATABASE_URL"]
+        .into_iter()
+        .map(|key| match values.get(key) {
+            Some(Some(value)) => Ok((key.to_owned(), value.clone())),
+            _ => Err(super::Exit::Precondition),
+        })
+        .collect()
 }
 
 /// [`run`] with an injected context opener. Every refusal that needs no
@@ -566,6 +670,10 @@ where
     if (args.action == MigrationAction::Status && args.apply)
         || (args.action == MigrationAction::Baseline && !args.apply)
     {
+        return Exit::Usage;
+    }
+    // `--check` belongs to `status` and needs the literal it checks.
+    if args.check && (args.action != MigrationAction::Status || args.expected_current.is_none()) {
         return Exit::Usage;
     }
     let needs_current = args.action != MigrationAction::Status;
@@ -609,7 +717,21 @@ where
         MigrationAction::Status => match status(&mut connection).await {
             Ok(current) => {
                 println!("{}", current.report());
-                Exit::Ok
+                // `--check`: the deploy's exact-current gate. The database must
+                // report exactly the expected literal with a clean history.
+                match args.expected_current.as_deref() {
+                    Some(expected) if args.check => {
+                        if current.foreign.is_empty()
+                            && current.revision().as_deref() == Some(expected)
+                        {
+                            Exit::Ok
+                        } else {
+                            report("status", "unexpected_revision");
+                            Exit::Precondition
+                        }
+                    }
+                    _ => Exit::Ok,
+                }
             }
             Err(_) => Exit::Dependency,
         },
@@ -632,10 +754,11 @@ where
             }
         }
         MigrationAction::Run => {
-            let outcome = run_to_target(
+            let outcome = run_transition(
                 &mut connection,
                 &MIGRATOR,
                 &TransitionPolicy::compiled(),
+                &compiled_baseline(),
                 args.expected_current.as_deref().unwrap_or_default(),
                 args.target.as_deref().unwrap_or_default(),
                 args.apply,

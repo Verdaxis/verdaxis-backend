@@ -2,11 +2,9 @@
 //!
 //! The deploy-start guard is the shell helper that runs before the binary
 //! exists, so these cases execute that file directly. The start guard and the
-//! readiness guard are compiled from `cli/guard.rs` until the integration owner
-//! registers the module in `cli/mod.rs`.
+//! readiness guard are `cli::guard`.
 
-#[path = "../src/cli/guard.rs"]
-mod guard;
+use verdaxis_read::cli::guard;
 
 use std::fs;
 use std::io::Cursor;

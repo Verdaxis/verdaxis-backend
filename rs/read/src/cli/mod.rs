@@ -1,6 +1,8 @@
 //! Typed command boundary. Execution is registered by each command's owning task.
+pub mod acl;
 pub mod context;
 pub mod gate;
+pub mod guard;
 pub mod jobs;
 pub mod mail;
 pub mod migrate;
@@ -149,6 +151,10 @@ pub struct MigrateArgs {
     /// the deploy state (see `migrate::require_deploy_ownership`).
     #[arg(long)]
     pub deploy_nonce: Option<String>,
+    /// The deployed `.env`: its identity and migrator URL replace the process
+    /// environment's, so the deploy never handles the URL itself.
+    #[arg(long, value_parser = absolute_path)]
+    pub environment_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -163,6 +169,9 @@ pub struct AclArgs {
     pub identity: IdentityArgs,
     #[arg(long, value_parser = absolute_path)]
     pub env_file: PathBuf,
+    /// The verified ACL bundle (`deploy/postgres/*.sql` of the release).
+    #[arg(long, value_parser = absolute_path)]
+    pub bundle_root: PathBuf,
     #[arg(long)]
     pub apply: bool,
 }
@@ -410,6 +419,21 @@ pub enum GuardKind {
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
 pub struct GuardArgs {
     pub kind: GuardKind,
+    /// `health`: the environment the readiness body must name.
+    #[arg(long)]
+    pub environment: Option<String>,
+    /// `health`: the release the readiness body must name.
+    #[arg(long)]
+    pub release_sha: Option<String>,
+    /// `rust-start`: the release the prepared files must name.
+    #[arg(long)]
+    pub expected_release_sha: Option<String>,
+    #[arg(long, value_parser = absolute_path)]
+    pub budget_file: Option<PathBuf>,
+    #[arg(long)]
+    pub expected_revision: Option<String>,
+    #[arg(long, value_parser = absolute_path)]
+    pub revision_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -589,6 +613,8 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             }
         }
         Command::Migrate(args) => migrate::run(&args).await,
+        Command::Guard(args) => run_guard(&args),
+        Command::Acl(args) => ops_outcome("acl converge", acl::run(&args)),
         // Task 9: the deploy transaction's projections. Each reports one
         // outcome line naming the refused rule, never a value.
         Command::Ops(OpsArgs {
@@ -650,6 +676,49 @@ fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
         return Exit::Usage;
     }
     std::panic::catch_unwind(run).unwrap_or(Exit::Dependency)
+}
+
+/// `guard health` reads the readiness body on stdin; `guard rust-start` checks
+/// the prepared identity files. Both need every option (a missing one is a
+/// usage refusal) and print only the fixed refusal text, never file contents.
+/// The deploy-start guard is the shell helper, which runs before any binary.
+fn run_guard(args: &GuardArgs) -> Exit {
+    let outcome = match args.kind {
+        GuardKind::Health => match (&args.environment, &args.release_sha) {
+            (Some(environment), Some(release_sha)) => {
+                guard::health(Some(environment), Some(release_sha), &mut std::io::stdin())
+            }
+            _ => return Exit::Usage,
+        },
+        GuardKind::RustStart => match (
+            &args.expected_release_sha,
+            &args.budget_file,
+            &args.expected_revision,
+            &args.revision_file,
+        ) {
+            (Some(release_sha), Some(budget), Some(revision), Some(record)) => guard::rust_start(
+                Some(release_sha),
+                Some(budget),
+                Some(revision),
+                Some(record),
+            ),
+            _ => return Exit::Usage,
+        },
+        GuardKind::DeployStart => {
+            report("guard", "not_available");
+            return Exit::Precondition;
+        }
+    };
+    match outcome {
+        Ok(()) => Exit::Ok,
+        Err(reason) => {
+            eprintln!(
+                "{}",
+                serde_json::json!({"command": "guard", "outcome": "refused", "reason": reason})
+            );
+            Exit::Precondition
+        }
+    }
 }
 
 /// Report an `ops` projection's result and map it to the exit code.
