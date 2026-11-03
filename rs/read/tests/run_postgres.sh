@@ -234,3 +234,18 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test phase4_analytics_views --test phase4_analytics_legacy \
   --test phase4_admission --test phase4_organizations --test phase4_races \
   -- --include-ignored --test-threads=1
+# Phase 10 Task 5: the frozen sqlx baseline restores into fresh databases on
+# this server; each case creates and drops its own database.
+baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
+set +e
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test phase10_baseline_postgres -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
+baseline_status=${PIPESTATUS[0]}
+set -e
+if (( baseline_status != 0 )); then
+  exit "$baseline_status"
+fi
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
+  echo "no baseline test ran: refusing a green result" >&2
+  exit 1
+fi

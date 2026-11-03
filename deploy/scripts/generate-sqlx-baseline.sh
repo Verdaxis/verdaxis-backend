@@ -29,7 +29,7 @@ IMAGE=$(sed -n "s/^image='\(postgis\/postgis:[^']*\)'$/\1/p" rs/read/tests/run_p
 WORK=$(mktemp -d)
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$IMAGE")
 cleanup() {
-  docker rm -f "$container" > /dev/null 2>&1 || true
+  docker rm -f -v "$container" > /dev/null 2>&1 || true
   rm -rf -- "$WORK"
 }
 trap cleanup EXIT
