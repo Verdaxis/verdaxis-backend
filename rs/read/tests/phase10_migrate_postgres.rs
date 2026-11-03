@@ -351,6 +351,11 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
 
 /// The embedded baseline plus a second migration, in a fresh folder.
 async fn migrator_with_second_version() -> Migrator {
+    migrator_with_second_migration("CREATE TABLE public.migrate_probe (id integer);\n").await
+}
+
+/// The embedded baseline plus a second migration with `sql`, in a fresh folder.
+async fn migrator_with_second_migration(sql: &str) -> Migrator {
     let folder = std::env::temp_dir().join(format!(
         "verdaxis-migrations-{}",
         uuid::Uuid::new_v4().simple()
@@ -359,11 +364,7 @@ async fn migrator_with_second_version() -> Migrator {
     let baseline = MIGRATOR.iter().next().expect("the baseline migration");
     std::fs::write(folder.join("1_baseline.sql"), baseline.sql.as_str())
         .expect("copy the baseline");
-    std::fs::write(
-        folder.join("2_migrate_probe.sql"),
-        "CREATE TABLE public.migrate_probe (id integer);\n",
-    )
-    .expect("write the second migration");
+    std::fs::write(folder.join("2_migrate_probe.sql"), sql).expect("write the second migration");
     let migrator = Migrator::new(folder.as_path())
         .await
         .expect("read the migration folder");
@@ -738,4 +739,107 @@ fn production_literal_and_allowlist_move_together() {
             "{revision} names no embedded migration"
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn migrate_and_app_request_do_not_half_apply() {
+    let two_changes = "CREATE TABLE public.migrate_probe (id integer);\n\
+                       ALTER TABLE public.products ADD COLUMN migrate_probe_flag boolean;\n";
+    let second = migrator_with_second_migration(two_changes).await;
+    let rules = policy(&[("sqlx_1", "sqlx_2")]);
+    // Both changes, read by the application in one statement (one snapshot).
+    let observe = "SELECT to_regclass('public.migrate_probe') IS NOT NULL, \
+                   EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.products'::regclass \
+                           AND attname = 'migrate_probe_flag' AND NOT attisdropped)";
+
+    // 1. An application lock blocks the migration: it fails whole, with no
+    //    history row and neither change.
+    let database = adopted_database("blocked").await;
+    let mut app = connect(&database).await;
+    sqlx::raw_sql("BEGIN; SELECT count(*) FROM public.products;")
+        .execute(&mut app)
+        .await
+        .expect("the application holds a lock on products");
+    let mut migrator = as_migrator(&database).await;
+    sqlx::raw_sql("SET lock_timeout = '500ms'")
+        .execute(&mut migrator)
+        .await
+        .expect("a short lock wait");
+    let blocked = run_to_target(&mut migrator, &second, &rules, "sqlx_1", "sqlx_2", true).await;
+    assert_eq!(
+        blocked,
+        Err(RunRefusal::Database),
+        "the blocked migration must fail"
+    );
+    // sqlx keeps its session advisory lock after a failed run; the `migrate`
+    // command is one process per run, so its exit ends that session. Here the
+    // failed session is closed the same way before the retry.
+    drop(migrator);
+    sqlx::raw_sql("COMMIT")
+        .execute(&mut app)
+        .await
+        .expect("release");
+    let (table, column): (bool, bool) = sqlx::query_as(observe)
+        .fetch_one(&mut connect(&database).await)
+        .await
+        .expect("observe");
+    assert_eq!(
+        (table, column),
+        (false, false),
+        "a failed migration left part of its change"
+    );
+    let report = status_with(&mut connect(&database).await, &second)
+        .await
+        .expect("status");
+    assert_eq!(report.revision(), Some("sqlx_1".into()));
+    assert_eq!(report.pending, vec![2]);
+    assert!(report.foreign.is_empty(), "a failed run left a history row");
+
+    // 2. Once released, a retry applies both changes, and an application that
+    //    reads throughout sees neither or both, never one.
+    let watcher_database = database.clone();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher_stop = stop.clone();
+    let watcher = tokio::spawn(async move {
+        let mut app = connect(&watcher_database).await;
+        let mut seen = std::collections::BTreeSet::new();
+        while !watcher_stop.load(std::sync::atomic::Ordering::SeqCst) {
+            let pair: (bool, bool) = sqlx::query_as(observe)
+                .fetch_one(&mut app)
+                .await
+                .expect("observe");
+            seen.insert(pair);
+        }
+        let last: (bool, bool) = sqlx::query_as(observe)
+            .fetch_one(&mut app)
+            .await
+            .expect("observe");
+        seen.insert(last);
+        seen
+    });
+    let applied = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_1",
+        "sqlx_2",
+        true,
+    )
+    .await;
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let seen = watcher.await.expect("the application watcher");
+    assert_eq!(applied, Ok(RunOutcome::Applied(vec![2])));
+    for pair in &seen {
+        assert!(
+            pair.0 == pair.1,
+            "the application saw half of the migration: {pair:?}"
+        );
+    }
+    assert!(
+        seen.contains(&(true, true)),
+        "the application never saw the applied schema"
+    );
+    drop(app);
+    drop_database(&database).await;
 }
