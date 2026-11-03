@@ -571,6 +571,9 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             jobs::reminders::command(&args).await
         }
         Command::Job(job) if job.kind == JobKind::KycNotices => jobs::kyc::run(&job).await,
+        Command::Job(job) if job.kind == JobKind::PruneAnalytics => {
+            jobs::prune::command(&job).await
+        }
         Command::Monitor(args) if args.kind == MonitorKind::Onboarding => {
             jobs::onboarding::run_command(jobs::onboarding::Invocation {
                 environment: args.environment,

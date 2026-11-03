@@ -388,3 +388,70 @@ fn local_monitors_run_on_the_calling_thread() {
     assert!(!source.contains("spawn_blocking"));
     assert!(source.contains("fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit"));
 }
+
+/// `job prune-analytics` reaches its own gates through the dispatch, and every
+/// outcome prints the job's one JSON line. The app URL points at a closed
+/// loopback port, so only a run that passes every gate reaches the database
+/// (exit 4); exit 2 or 3 proves the refusal came first.
+#[test]
+fn prune_dispatch_runs_the_job_gates() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let state_dir = std::env::temp_dir().join(format!("verdaxis-p10-prune-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&state_dir);
+    std::fs::create_dir(&state_dir).unwrap();
+    let run = |apply: bool, state: Option<&std::path::Path>| {
+        let mut command = Process::new(env!("CARGO_BIN_EXE_verdaxis-read"));
+        command
+            .env_clear()
+            .env("ENVIRONMENT", "staging")
+            .env("RELEASE_SHA", sha)
+            .env(
+                "DATABASE_URL",
+                "postgresql://verdaxis_app_staging:pw@127.0.0.1:1/verdaxis_staging",
+            )
+            .args(["job", "prune-analytics"])
+            .args(["--environment", "staging", "--release-sha", sha]);
+        if apply {
+            command.arg("--apply");
+        }
+        if let Some(state) = state {
+            command.env("DEPLOY_STATE_DIR", state);
+        }
+        let output = command.output().expect("start the prune job");
+        let line: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap_or_else(|_| {
+            panic!("one JSON line: {}", String::from_utf8_lossy(&output.stderr))
+        });
+        assert_eq!(line["command"], "job prune-analytics");
+        assert_eq!(line["counts"]["deleted"], 0);
+        (
+            output.status.code(),
+            line["outcome"].as_str().unwrap().to_owned(),
+        )
+    };
+    assert_eq!(
+        run(true, Some(&state_dir)),
+        (Some(4), "dependency_unavailable".to_owned()),
+        "every gate passed; the closed port is the first failure"
+    );
+    assert_eq!(
+        run(false, Some(&state_dir)),
+        (Some(2), "usage_refused".to_owned())
+    );
+    assert_eq!(
+        run(true, None),
+        (Some(3), "precondition_refused".to_owned()),
+        "no deploy-state directory"
+    );
+    assert_eq!(
+        run(false, None),
+        (Some(2), "usage_refused".to_owned()),
+        "--apply is refused before the deploy-state path"
+    );
+    std::fs::write(state_dir.join("staging.state"), "blocked\n").unwrap();
+    assert_eq!(
+        run(true, Some(&state_dir)),
+        (Some(3), "precondition_refused".to_owned()),
+        "a present deploy state refuses before the database"
+    );
+    std::fs::remove_dir_all(&state_dir).unwrap();
+}

@@ -19,8 +19,9 @@
 //! configured environment and release against the command's, absent deploy
 //! state, then the attested database and role on the connection that deletes.
 use crate::analytics::retention::login_retention_cutoff;
-use crate::cli::context::RunContext;
+use crate::cli::context::{self, Purpose, RunContext};
 use crate::cli::gate::{require_apply, require_job_preflight, require_target};
+use crate::cli::jobs::news::{deploy_state_path, environment_from_os};
 use crate::cli::{Exit, JobArgs, JobKind, RETRY_DELAYS};
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{Connection, PgConnection, PgPool};
@@ -268,6 +269,12 @@ pub async fn run(
     limits: PruneLimits,
 ) -> Exit {
     let result = execute(job, runtime, pool, now, limits).await;
+    report(&result);
+    result.map_or_else(|exit| exit, |_| Exit::Ok)
+}
+
+/// The job's one JSON line on stderr: counts only, no row data.
+fn report(result: &Result<PruneReport, Exit>) {
     let (deleted, batches) = result
         .as_ref()
         .map_or((0, 0), |report| (report.deleted, report.batches));
@@ -275,14 +282,53 @@ pub async fn run(
         "{}",
         serde_json::json!({
             "command": "job prune-analytics",
-            "outcome": outcome(&result),
+            "outcome": outcome(result),
             "counts": {"deleted": deleted, "batches": batches},
         })
     );
-    result.map_or_else(|exit| exit, |_| Exit::Ok)
 }
 
-/// The entry the command dispatch uses once `RunContext::open` supplies a
+/// Entry point for `job prune-analytics`. The deploy-state path comes from
+/// `DEPLOY_STATE_DIR` and the pool from the job's purpose context, which
+/// connects lazily, so every refusal of [`execute`] still comes before the
+/// first statement. `--apply` is checked before the context so that its refusal
+/// keeps its place in the documented order; an absent or relative directory
+/// leaves an empty path, which `execute` refuses in its place. A refusal before
+/// the context exists prints the same JSON line.
+pub async fn command(job: &JobArgs) -> Exit {
+    let variables = environment_from_os(std::env::vars_os());
+    let deploy_state = deploy_state_path(&variables, job.identity.environment).unwrap_or_default();
+    let opened = match require_apply(job.apply) {
+        Ok(()) => {
+            context::open(
+                Purpose::Job(JobKind::PruneAnalytics),
+                job.identity.environment,
+                &job.identity.release_sha,
+            )
+            .await
+        }
+        Err(exit) => Err(exit),
+    };
+    let context = match opened {
+        Ok(context) => context,
+        Err(exit) => {
+            report(&Err(exit));
+            return exit;
+        }
+    };
+    let Some(database) = context
+        .pool
+        .connect_options()
+        .get_database()
+        .map(str::to_owned)
+    else {
+        report(&Err(Exit::Precondition));
+        return Exit::Precondition;
+    };
+    run_with_context(job, &context, &deploy_state, &database).await
+}
+
+/// The entry [`command`] uses once `RunContext::open` supplies a
 /// purpose-bound pool. The context's identity is the deployed runtime's.
 pub async fn run_with_context(
     job: &JobArgs,

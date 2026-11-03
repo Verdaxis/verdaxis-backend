@@ -5,19 +5,9 @@
 //! tables (`fixtures/prune_analytics.sql`) and drives the job through the same
 //! entry point the command uses. The deployed role names are real roles of the
 //! disposable server, so the identity and target refusals run for real.
-//!
-//! The job file is path-included until the integration owner registers
-//! `cli/jobs/prune.rs`; it reaches the library through the crate-root names
-//! below, which resolve the same way inside the library.
 #![cfg(feature = "contract-tests")]
 
-pub use verdaxis_read::{analytics, cli};
-
-#[path = "../src/cli/jobs/prune.rs"]
-mod prune;
-
 use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
-use prune::{Completion, PruneLimits, PruneReport, Runtime};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Connection, PgConnection, PgPool};
 use std::path::PathBuf;
@@ -25,6 +15,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use uuid::Uuid;
 use verdaxis_read::cli::context::RunContext;
+use verdaxis_read::cli::jobs::prune::{self, Completion, PruneLimits, PruneReport, Runtime};
 use verdaxis_read::cli::{Environment, Exit, IdentityArgs, JobArgs, JobKind};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
