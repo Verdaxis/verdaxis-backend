@@ -276,14 +276,59 @@ pub struct OpsArgs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum OpsAction {
-    Preflight(IdentityArgs),
-    PrepareBudget(IdentityArgs),
-    PrepareRuntime(IdentityArgs),
+    Preflight(PreflightArgs),
+    PrepareBudget(BudgetArgs),
+    PrepareRuntime(PrepareRuntimeArgs),
     Inspect(InspectArgs),
     Ingest(IngestArgs),
     Import(ImportArgs),
     CacheAuthority(CacheArgs),
     Fleet(IdentityArgs),
+}
+
+/// `ops preflight`: the deployed identity and database role, read-only.
+#[derive(Debug, Clone, PartialEq, Eq, Args)]
+pub struct PreflightArgs {
+    #[command(flatten)]
+    pub identity: IdentityArgs,
+    /// The deployed `.env`.
+    #[arg(long)]
+    pub environment_file: PathBuf,
+}
+
+/// `ops prepare-budget`: write (or `--verify`) the connection budget artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Args)]
+pub struct BudgetArgs {
+    #[command(flatten)]
+    pub identity: IdentityArgs,
+    #[arg(long)]
+    pub environment_file: PathBuf,
+    #[arg(long)]
+    pub output: PathBuf,
+    /// Check the existing artifact against the inputs instead of writing it.
+    #[arg(long)]
+    pub verify: bool,
+    /// Budget the dedicated cache listener connection (prepare only).
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=1))]
+    pub cache_listener: u8,
+    /// Budget the dedicated stream election connection (prepare only).
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=1))]
+    pub stream_listener: u8,
+}
+
+/// `ops prepare-runtime`: one private environment file per purpose.
+#[derive(Debug, Clone, PartialEq, Eq, Args)]
+pub struct PrepareRuntimeArgs {
+    #[command(flatten)]
+    pub identity: IdentityArgs,
+    #[arg(long)]
+    pub environment_file: PathBuf,
+    /// The private runtime directory (`.runtime-rust`), absolute.
+    #[arg(long)]
+    pub output_dir: PathBuf,
+    /// The literal migration revision this release starts at.
+    #[arg(long)]
+    pub migration_revision: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -544,6 +589,17 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             }
         }
         Command::Migrate(args) => migrate::run(&args).await,
+        // Task 9: the deploy transaction's projections. Each reports one
+        // outcome line naming the refused rule, never a value.
+        Command::Ops(OpsArgs {
+            action: OpsAction::PrepareRuntime(args),
+        }) => ops_outcome("ops prepare-runtime", ops::runtime_env::run(&args)),
+        Command::Ops(OpsArgs {
+            action: OpsAction::PrepareBudget(args),
+        }) => ops_outcome("ops prepare-budget", ops::budget::run(&args)),
+        Command::Ops(OpsArgs {
+            action: OpsAction::Preflight(args),
+        }) => ops_outcome("ops preflight", ops::preflight::run(&args).await),
         command => {
             // Parsing never grants execution authority. Until its owning task
             // supplies the implementation and gates, a command cannot open a pool.
@@ -594,6 +650,20 @@ fn run_local_monitor(args: &MonitorArgs, run: fn() -> Exit) -> Exit {
         return Exit::Usage;
     }
     std::panic::catch_unwind(run).unwrap_or(Exit::Dependency)
+}
+
+/// Report an `ops` projection's result and map it to the exit code.
+fn ops_outcome(command: &str, result: Result<(), (Exit, &'static str)>) -> Exit {
+    match result {
+        Ok(()) => {
+            report(command, "ok");
+            Exit::Ok
+        }
+        Err((exit, reason)) => {
+            report(command, &format!("refused_{reason}"));
+            exit
+        }
+    }
 }
 
 fn report(command: &str, outcome: &str) {

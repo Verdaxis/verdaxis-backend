@@ -3712,6 +3712,7 @@ dependencies = [
  "num-traits",
  "percent-encoding",
  "proptest",
+ "regex",
  "reqwest",
  "rmcp",
  "rust_decimal",

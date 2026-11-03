@@ -4,9 +4,11 @@ use crate::Config;
 use crate::runtime::config::{config_from_deployed_environment, deployed_arguments};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
+use std::str::FromStr;
 
 const MAX_BUDGET_BYTES: u64 = 64 * 1024;
 
@@ -27,16 +29,100 @@ pub struct RunContext {
     pub migrator: Option<PgPool>,
 }
 
+/// Connections one job or operator process may hold. Jobs are not part of the
+/// HTTP budget; they run inside the 20-connection maintenance reserve.
+const JOB_POOL_MAX_CONNECTIONS: u32 = 4;
+const JOB_ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl RunContext {
-    /// Task 3 supplies identity/target/deploy-state gates; Task 9 supplies the
-    /// credential projections. Never substitute the HTTP pool for those roles.
+    /// Open the purpose-bound context from this process's environment, which
+    /// the unit loads from the purpose's projected file (`ops prepare-runtime`).
+    ///
+    /// Each job runs its own deploy-state preflight and attests the target on
+    /// the connection it writes with (Task 3). This supplies the credentials:
+    /// `migrate` gets only the migrator URL of its invocation; every other
+    /// purpose gets only the app `DATABASE_URL`. Never substitute one role's
+    /// pool for another's. `serve` has its own configuration path.
     pub async fn open(
-        _purpose: Purpose,
-        _environment: Environment,
-        _release_sha: &str,
+        purpose: Purpose,
+        environment: Environment,
+        release_sha: &str,
     ) -> Result<Self, Exit> {
-        Err(Exit::Precondition)
+        let variables: HashMap<String, String> = std::env::vars_os()
+            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+            .collect();
+        Self::open_with(purpose, environment, release_sha, &variables)
     }
+
+    /// [`open`](Self::open) with an explicit environment. Every check runs
+    /// before the pool exists; the pool connects lazily, so an unreachable
+    /// database is reported by the first query as a dependency failure.
+    pub fn open_with(
+        purpose: Purpose,
+        environment: Environment,
+        release_sha: &str,
+        variables: &HashMap<String, String>,
+    ) -> Result<Self, Exit> {
+        let value = |key: &str| variables.get(key).map(String::as_str).unwrap_or("");
+        super::gate::require_identity(
+            value("ENVIRONMENT"),
+            value("RELEASE_SHA"),
+            environment,
+            release_sha,
+        )?;
+        let bindings: super::ops::dotenv::Bindings = variables
+            .iter()
+            .map(|(key, value)| (key.clone(), Some(value.clone())))
+            .collect();
+        let (url, is_migrator) = match purpose {
+            Purpose::Serve => return Err(Exit::Usage),
+            Purpose::Migrate => (migrator_url(variables, environment)?, true),
+            Purpose::Job(_) | Purpose::Monitor(_) | Purpose::Operator => (
+                super::ops::runtime_env::app_database_url(&bindings, environment)
+                    .map_err(|_| Exit::Precondition)?,
+                false,
+            ),
+        };
+        let options = PgConnectOptions::from_str(&url).map_err(|_| Exit::Precondition)?;
+        let pool = PgPoolOptions::new()
+            .max_connections(JOB_POOL_MAX_CONNECTIONS)
+            .acquire_timeout(JOB_ACQUIRE_TIMEOUT)
+            .connect_lazy_with(options);
+        Ok(Self {
+            environment,
+            release_sha: release_sha.to_owned(),
+            now: Utc::now(),
+            migrator: is_migrator.then(|| pool.clone()),
+            pool,
+        })
+    }
+}
+
+/// The migrator role of each deployed environment.
+fn migrator_role(environment: Environment) -> &'static str {
+    match environment {
+        Environment::Production => "verdaxis_migrator",
+        Environment::Staging => "verdaxis_migrator_staging",
+    }
+}
+
+/// `MIGRATOR_DATABASE_URL` of the `migrate` invocation, which must name this
+/// environment's migrator role and database.
+fn migrator_url(
+    variables: &HashMap<String, String>,
+    environment: Environment,
+) -> Result<String, Exit> {
+    let raw = variables
+        .get("MIGRATOR_DATABASE_URL")
+        .ok_or(Exit::Precondition)?;
+    let options = PgConnectOptions::from_str(raw).map_err(|_| Exit::Precondition)?;
+    let database = super::ops::runtime_env::identity(environment).database_name;
+    if options.get_username() != migrator_role(environment)
+        || options.get_database() != Some(database)
+    {
+        return Err(Exit::Precondition);
+    }
+    Ok(raw.clone())
 }
 
 pub async fn open(
@@ -100,4 +186,107 @@ fn read_prepared_budget(path: &Path) -> Result<String, Exit> {
         return Err(Exit::Precondition);
     }
     Ok(document)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn variables(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        let mut variables: HashMap<String, String> = [
+            ("ENVIRONMENT", "staging"),
+            ("RELEASE_SHA", SHA),
+            (
+                "DATABASE_URL",
+                "postgresql://verdaxis_app_staging:pw@127.0.0.1:1/verdaxis_staging",
+            ),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .collect();
+        for (key, value) in pairs {
+            variables.insert((*key).to_owned(), (*value).to_owned());
+        }
+        variables
+    }
+
+    fn open(purpose: Purpose, variables: &HashMap<String, String>) -> Result<RunContext, Exit> {
+        RunContext::open_with(purpose, Environment::Staging, SHA, variables)
+    }
+
+    #[tokio::test]
+    async fn a_job_gets_only_the_app_pool() {
+        let context = open(Purpose::Job(JobKind::News), &variables(&[])).unwrap();
+        assert_eq!(
+            context.pool.connect_options().get_username(),
+            "verdaxis_app_staging"
+        );
+        assert!(context.migrator.is_none());
+    }
+
+    #[tokio::test]
+    async fn migrate_gets_only_the_migrator_pool() {
+        let migrator = "postgresql://verdaxis_migrator_staging:pw@127.0.0.1:1/verdaxis_staging";
+        let context = open(
+            Purpose::Migrate,
+            &variables(&[("MIGRATOR_DATABASE_URL", migrator)]),
+        )
+        .unwrap();
+        let pool = context.migrator.as_ref().unwrap();
+        assert_eq!(
+            pool.connect_options().get_username(),
+            "verdaxis_migrator_staging"
+        );
+        assert_eq!(
+            context.pool.connect_options().get_username(),
+            "verdaxis_migrator_staging"
+        );
+    }
+
+    #[tokio::test]
+    async fn open_refuses_another_identity_or_role() {
+        let app_as_migrator = "postgresql://verdaxis_app_staging:pw@127.0.0.1:1/verdaxis_staging";
+        let production_migrator = "postgresql://verdaxis_migrator:pw@127.0.0.1:1/verdaxis_prod";
+        for (purpose, pairs) in [
+            (
+                Purpose::Job(JobKind::News),
+                vec![("ENVIRONMENT", "production")],
+            ),
+            (Purpose::Job(JobKind::News), vec![("RELEASE_SHA", "f")]),
+            (
+                Purpose::Job(JobKind::Reminders),
+                vec![(
+                    "DATABASE_URL",
+                    "postgresql://verdaxis_migrator_staging:pw@127.0.0.1:1/verdaxis_staging",
+                )],
+            ),
+            (
+                Purpose::Operator,
+                vec![(
+                    "DATABASE_URL",
+                    "postgresql://verdaxis_app:pw@127.0.0.1:1/verdaxis_prod",
+                )],
+            ),
+            (Purpose::Migrate, vec![]),
+            (
+                Purpose::Migrate,
+                vec![("MIGRATOR_DATABASE_URL", app_as_migrator)],
+            ),
+            (
+                Purpose::Migrate,
+                vec![("MIGRATOR_DATABASE_URL", production_migrator)],
+            ),
+        ] {
+            assert!(
+                open(purpose, &variables(&pairs)).is_err(),
+                "{purpose:?} {pairs:?}"
+            );
+        }
+        assert!(matches!(
+            open(Purpose::Serve, &variables(&[])),
+            Err(Exit::Usage)
+        ));
+    }
 }

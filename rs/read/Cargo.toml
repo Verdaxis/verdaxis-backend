@@ -24,6 +24,16 @@ required-features = ["contract-tests"]
 name = "phase10_news_postgres"
 required-features = ["contract-tests"]
 
+# Phase 10 Task 9: purpose-bound runtime environments; the parity cases run
+# the Python projection from RUST_TEST_PYTHON.
+[[test]]
+name = "phase10_ops_env"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase10_ops_preflight_postgres"
+required-features = ["contract-tests"]
+
 # Phase 4 Task 13: three offline cases run in every workspace test; the
 # PostgreSQL cases inside the file are feature-gated by contract-tests.
 [[test]]
@@ -170,6 +180,9 @@ rustix = { version = "=1.1.5", features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
 sha2 = "0.11.1"
+# Phase 10 Task 9: the python-dotenv grammar of the deployed .env reader
+# (already in Cargo.lock through sqlx).
+regex = "1.13.1"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json", "migrate"] }
 tokio = { version = "1.53.3", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }

@@ -24,7 +24,33 @@ const LOCK_POLL: Duration = Duration::from_millis(10);
 /// check runs on the opened file, and the bound is applied while reading, so a
 /// file that grows after the metadata check is still refused.
 pub fn read_bounded<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<T, Exit> {
-    let file = open_regular(path)?;
+    let document = read_limited(open_regular(path)?, max_bytes)?;
+    serde_json::from_slice(&document).map_err(|_| Exit::Precondition)
+}
+
+/// Read one bounded regular file that this identity does not own, such as the
+/// deployed `.env`: the path itself must not be a symlink and the opened
+/// descriptor must be a regular file. Ownership and link count are not
+/// checked, unlike a private state file.
+pub fn read_regular_bytes(path: &Path, max_bytes: u64) -> Result<Vec<u8>, Exit> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(NO_FOLLOW_FLAGS | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|_| Exit::Precondition)?;
+    if !file
+        .metadata()
+        .map_err(|_| Exit::Dependency)?
+        .file_type()
+        .is_file()
+    {
+        return Err(Exit::Precondition);
+    }
+    read_limited(file, max_bytes)
+}
+
+/// Read at most `max_bytes` from an open file; a longer file is refused.
+fn read_limited(file: File, max_bytes: u64) -> Result<Vec<u8>, Exit> {
     let size = file.metadata().map_err(|_| Exit::Dependency)?.len();
     if size > max_bytes {
         return Err(Exit::Precondition);
@@ -37,7 +63,7 @@ pub fn read_bounded<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<
     if document.len() as u64 > max_bytes {
         return Err(Exit::Precondition);
     }
-    serde_json::from_slice(&document).map_err(|_| Exit::Precondition)
+    Ok(document)
 }
 
 /// Publish `value` as one private regular file.
@@ -51,6 +77,13 @@ pub fn read_bounded<T: DeserializeOwned>(path: &Path, max_bytes: u64) -> Result<
 /// uses [`PendingWrite`].
 pub fn write_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), Exit> {
     let pending = PendingWrite::create(path, value)?;
+    pending.file().sync_all().map_err(|_| Exit::Dependency)?;
+    pending.commit()
+}
+
+/// [`write_atomic`] for a document that is already bytes.
+pub fn write_atomic_bytes(path: &Path, document: &[u8]) -> Result<(), Exit> {
+    let pending = PendingWrite::create_bytes(path, document)?;
     pending.file().sync_all().map_err(|_| Exit::Dependency)?;
     pending.commit()
 }
@@ -72,6 +105,14 @@ impl PendingWrite {
     /// `create_new` refuses an existing name, and the UUID keeps two writers
     /// from choosing the same name even after a crash left one behind.
     pub fn create<T: Serialize>(path: &Path, value: &T) -> Result<Self, Exit> {
+        // Serialize before creating the file: a refused value must leave no
+        // temp file behind.
+        let document = serde_json::to_vec(value).map_err(|_| Exit::Precondition)?;
+        Self::create_bytes(path, &document)
+    }
+
+    /// [`create`](Self::create) for a document that is already bytes.
+    pub fn create_bytes(path: &Path, document: &[u8]) -> Result<Self, Exit> {
         if !path.is_absolute() {
             return Err(Exit::Precondition);
         }
@@ -85,16 +126,13 @@ impl PendingWrite {
             std::process::id(),
             uuid::Uuid::new_v4().simple()
         ));
-        // Serialize before creating the file: a refused value must leave no
-        // temp file behind.
-        let document = serde_json::to_vec(value).map_err(|_| Exit::Precondition)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .open(&temporary)
             .map_err(|_| Exit::Dependency)?;
-        if file.write_all(&document).is_err() {
+        if file.write_all(document).is_err() {
             let _ = std::fs::remove_file(&temporary);
             return Err(Exit::Dependency);
         }

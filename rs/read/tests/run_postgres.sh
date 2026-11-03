@@ -256,11 +256,13 @@ export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
 
 # Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
 # databases, and adoption runs on clones of the template above; each case
-# creates and drops its own database.
+# creates and drops its own database. Task 9: `ops preflight` attests a
+# verdaxis_staging database that its case creates and drops.
 baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test phase10_baseline_postgres --test phase10_migrate_postgres \
+  --test phase10_ops_preflight_postgres \
   -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
 baseline_status=${PIPESTATUS[0]}
 set -e
