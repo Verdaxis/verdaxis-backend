@@ -271,3 +271,5 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
   echo "no baseline or migrate test ran: refusing a green result" >&2
   exit 1
 fi
+# Phase 10 Task 6: the sqlx history ACL on its own disposable server.
+bash deploy/tests/sqlx-control-acl.sh
