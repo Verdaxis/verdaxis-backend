@@ -4,6 +4,20 @@ use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
+/// The migration revisions a production service may start at, in migration
+/// order. Each must also be in the compiled allowlist
+/// (`deploy/rust/allowed-revisions.json`); the sqlx cutover adds `sqlx_1` to
+/// both in the same release (drift test `production_literal_and_allowlist_move_together`).
+pub const PRODUCTION_REVISIONS: &[&str] = &[
+    "p0_20261016_union",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
+    "p5_20261020_read_indexes",
+    "p89_20261022_watchlist_producer",
+    "p89_20261022_trade_freeze",
+];
+
 pub fn check_revision(actual: &str, allowed: &[String]) -> Result<(), String> {
     if allowed.iter().any(|value| value == actual) {
         Ok(())
@@ -631,16 +645,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
     .map_err(|_| "invalid compiled revision allowlist")?;
     check_revision(&config.migration_revision, &allowed)?;
     if config.environment == "production" {
-        if !matches!(
-            config.migration_revision.as_str(),
-            "p0_20261016_union"
-                | "prc_20261026_changes"
-                | "p3_20261020_auth_tokens"
-                | "sse_20261021_replay_floor"
-                | "p5_20261020_read_indexes"
-                | "p89_20261022_watchlist_producer"
-                | "p89_20261022_trade_freeze"
-        ) {
+        if !PRODUCTION_REVISIONS.contains(&config.migration_revision.as_str()) {
             return Err("production requires its reviewed union checkpoint".into());
         }
         if config.prepared_budget.is_none() {

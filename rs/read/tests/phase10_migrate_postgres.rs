@@ -697,3 +697,45 @@ fn deploy_owned_requires_exact_state_nonce_sha_and_both_locks() {
     );
     std::fs::remove_dir_all(&directory).expect("clean up");
 }
+
+#[test]
+fn production_literal_and_allowlist_move_together() {
+    use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
+    use verdaxis_read::runtime::config::PRODUCTION_REVISIONS;
+
+    let allowlist: Vec<String> =
+        serde_json::from_str(include_str!("../../../deploy/rust/allowed-revisions.json"))
+            .expect("the reviewed allowlist is a JSON list");
+    assert_eq!(
+        allowlist, ALLOWED_REVISIONS,
+        "the binary allowlist drifted from the file"
+    );
+    for revision in PRODUCTION_REVISIONS {
+        assert!(
+            allowlist.iter().any(|allowed| allowed == revision),
+            "{revision} is not allowed"
+        );
+    }
+    // The sqlx cutover moves the production literal and the allowlist together:
+    // a sqlx literal is in both or in neither, and names an embedded version.
+    let sqlx_production: Vec<&str> = PRODUCTION_REVISIONS
+        .iter()
+        .copied()
+        .filter(|revision| revision.starts_with("sqlx_"))
+        .collect();
+    let sqlx_allowed: Vec<&str> = allowlist
+        .iter()
+        .map(String::as_str)
+        .filter(|revision| revision.starts_with("sqlx_"))
+        .collect();
+    assert_eq!(sqlx_production, sqlx_allowed);
+    for revision in sqlx_allowed {
+        let version: i64 = revision["sqlx_".len()..].parse().expect("a sqlx version");
+        assert!(
+            MIGRATOR
+                .iter()
+                .any(|migration| migration.version == version),
+            "{revision} names no embedded migration"
+        );
+    }
+}
