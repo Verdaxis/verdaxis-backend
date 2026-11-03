@@ -104,8 +104,7 @@ postgres_version=$(admin -tA -c 'SHOW server_version')
   # \restrict/\unrestrict guard lines; any other psql command stops the run.
   # The extension comment is dropped too: only the extension owner (the
   # administrator who creates PostGIS before any migration) may set it.
-  cat "$WORK/dump.sql" \
-    | grep -v -E '^\\(restrict|unrestrict) ' \
+  grep -v -E '^\\(restrict|unrestrict) ' "$WORK/dump.sql" \
     | grep -v -E '^COMMENT ON EXTENSION '
 } > "$BASELINE_SQL"
 # Two migration rows hold values made at migration time: a database identity
