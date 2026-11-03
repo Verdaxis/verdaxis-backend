@@ -586,7 +586,7 @@ mod acl {
 
     fn decode(bytes: &[u8]) -> std::io::Result<Vec<(u16, u16, u32)>> {
         let invalid = || std::io::Error::from(std::io::ErrorKind::InvalidData);
-        if bytes.len() < 4 || (bytes.len() - 4) % 8 != 0 {
+        if bytes.len() < 4 || !(bytes.len() - 4).is_multiple_of(8) {
             return Err(invalid());
         }
         let version = u32::from_le_bytes(bytes[0..4].try_into().map_err(|_| invalid())?);
