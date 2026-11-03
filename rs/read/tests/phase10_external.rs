@@ -1231,4 +1231,11 @@ fn chromedriver_never_runs_as_root() {
     // The browser keeps its sandbox.
     let source = include_str!("../src/cli/monitors/external/webdriver.rs");
     assert!(!source.contains("\"--no-sandbox\""));
+    // A root monitor never touches the driver's area itself: no chown, and the
+    // profile and its parent are created and removed through the driver's account.
+    assert!(!source.contains("chown"));
+    assert!(source.contains("Some(identity) => as_driver("));
+    assert!(source.contains(
+        "as_driver(\n                    identity,\n                    REMOVE_PROGRAM,"
+    ));
 }

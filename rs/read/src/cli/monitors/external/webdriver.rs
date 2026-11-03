@@ -258,29 +258,108 @@ pub fn lookup_user(name: &str) -> Option<DriverIdentity> {
     })
 }
 
-/// A private profile directory under the parent, owned by the driver's
-/// account, removed on drop.
-struct Profile(PathBuf);
+/// Run one fixed program as the driver's account, bounded in time. A root
+/// monitor does every filesystem step in that account's area this way, so a
+/// link the account planted there gives it nothing it could not do itself.
+fn as_driver(identity: &DriverIdentity, program: &str, arguments: &[&std::ffi::OsStr]) -> bool {
+    use std::os::unix::process::CommandExt;
+    let Ok(mut child) = std::process::Command::new(program)
+        .args(arguments)
+        .env_clear()
+        .env("PATH", "/bin:/usr/bin")
+        .uid(identity.uid)
+        .gid(identity.gid)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
+/// Create `directory` and its missing parents with the driver's rights.
+fn create_parent(directory: &Path, identity: Option<&DriverIdentity>) -> bool {
+    match identity {
+        Some(identity) => as_driver(
+            identity,
+            "/bin/mkdir",
+            &["-p".as_ref(), "--".as_ref(), directory.as_os_str()],
+        ),
+        None => std::fs::create_dir_all(directory).is_ok(),
+    }
+}
+
+/// A private profile directory under the parent, created and removed with
+/// the driver's rights (never by root in the driver's area).
+struct Profile {
+    path: PathBuf,
+    identity: Option<DriverIdentity>,
+}
 
 impl Profile {
-    fn create(parent: &Path, owner: Option<&DriverIdentity>) -> Option<Self> {
-        use std::os::unix::fs::DirBuilderExt;
+    fn create(parent: &Path, identity: Option<&DriverIdentity>) -> Option<Self> {
         let path = parent.join(format!(
             "verdaxis-monitor-chrome-{}",
             uuid::Uuid::new_v4().simple()
         ));
-        std::fs::DirBuilder::new().mode(0o700).create(&path).ok()?;
-        let profile = Self(path);
-        if let Some(owner) = owner {
-            std::os::unix::fs::chown(&profile.0, Some(owner.uid), Some(owner.gid)).ok()?;
-        }
-        Some(profile)
+        let created = match identity {
+            Some(identity) => as_driver(
+                identity,
+                "/bin/mkdir",
+                &[
+                    "-m".as_ref(),
+                    "0700".as_ref(),
+                    "--".as_ref(),
+                    path.as_os_str(),
+                ],
+            ),
+            None => {
+                use std::os::unix::fs::DirBuilderExt;
+                std::fs::DirBuilder::new().mode(0o700).create(&path).is_ok()
+            }
+        };
+        created.then(|| Self {
+            path,
+            identity: identity.cloned(),
+        })
     }
 }
 
+/// The program that removes a profile as the driver's account.
+const REMOVE_PROGRAM: &str = "/bin/rm";
+
 impl Drop for Profile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        match &self.identity {
+            Some(identity) => {
+                let recursive: &std::ffi::OsStr = "-r".as_ref();
+                let force: &std::ffi::OsStr = "-f".as_ref();
+                as_driver(
+                    identity,
+                    REMOVE_PROGRAM,
+                    &[recursive, force, "--".as_ref(), self.path.as_os_str()],
+                );
+            }
+            // The monitor's own area; std's removal does not follow links.
+            None => {
+                let _ = std::fs::remove_dir_all(&self.path);
+            }
+        }
     }
 }
 
@@ -377,7 +456,7 @@ pub async fn render_attempt(
         .env("LANG", settings.lang.as_deref().unwrap_or("C.UTF-8"))
         .env("LC_ALL", settings.lc_all.as_deref().unwrap_or("C.UTF-8"))
         .env("PATH", "/bin:/usr/bin")
-        .env("TMPDIR", &profile.0)
+        .env("TMPDIR", &profile.path)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -391,7 +470,7 @@ pub async fn render_attempt(
         port,
         settings,
         deadline,
-        &profile.0,
+        &profile.path,
         &mut child,
         &mut session,
     )
@@ -528,7 +607,7 @@ pub async fn check_rendered_pages(config: &ExternalConfig) -> Vec<String> {
             .map_or(&settings.home, |identity| &identity.home)
             .join("snap/chromium/common")
     });
-    if std::fs::create_dir_all(&profile_parent).is_err() {
+    if !create_parent(&profile_parent, identity.as_ref()) {
         return vec!["rendered page checks could not create the browser profile directory".into()];
     }
     let mut errors = Vec::new();
