@@ -5,6 +5,10 @@
 # not change deployed source/runtime state. It never executes candidate
 # application code or supplies candidate code with live secrets, home,
 # database, agent, or network access.
+#
+# The real run executes no interpreter of the release: every database, budget,
+# runtime-environment and readiness step runs the verified release binary
+# (staged until it is installed), and the ACL helper is reviewed shell.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
@@ -59,8 +63,7 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     export GIT_NO_REPLACE_OBJECTS=1
     unset DATABASE_URL MIGRATOR_DATABASE_URL DATABASE_HOST DATABASE_PORT \
         DATABASE_NAME DATABASE_USER DATABASE_PASSWORD
-    unset PYTHONHOME PYTHONPATH
-    PYTHON_ENV=(/usr/bin/env -i PATH="$PATH")
+    BINARY_ENV=(/usr/bin/env -i PATH="$PATH")
     GIT=(/usr/bin/git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
     DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"
     if [[ -n "${TARGET_BRANCH:-}" && "$TARGET_BRANCH" != "$DEFAULT_BRANCH" ]]; then
@@ -73,8 +76,14 @@ else
     GIT=(git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
     DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$BACKEND_DIR/.runtime-deploy}"
     TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
-    PYTHON_ENV=(/usr/bin/env)
+    BINARY_ENV=(/usr/bin/env)
 fi
+for required_tool in jq flock; do
+    command -v "$required_tool" > /dev/null || {
+        echo "The deploy requires $required_tool." >&2
+        exit 2
+    }
+done
 
 case "$DEPLOY_ENVIRONMENT" in
     production|staging) ;;
@@ -87,8 +96,8 @@ UNIT_MANIFEST_PATH="deploy/systemd/runtime-units.manifest"
 MIGRATION_POLICY_PATH="deploy/migration-checkpoints.tsv"
 ACL_POLICY_PATH="deploy/postgres/app_acl_policy.sql"
 ACL_CONVERGENCE_SQL_PATH="deploy/postgres/converge_runtime_object_acls.sql"
-ACL_CONVERGENCE_HELPER_PATH="scripts/converge_runtime_acls.py"
-DEPLOY_START_GUARD_HELPER_PATH="scripts/verify_deploy_start_guard.py"
+ACL_CONVERGENCE_HELPER_PATH="deploy/scripts/converge-acls.sh"
+DEPLOY_START_GUARD_HELPER_PATH="deploy/scripts/verify-deploy-start-guard.sh"
 RUST_STAGING_POLICY_PATH="deploy/rust/staging-policy.json"
 RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
 # Production deploys the staging tip and CI signs the artifact on the staging
@@ -96,8 +105,7 @@ RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
 # repository, workflow path, exact commit and attestation checks stay exact.
 RUST_WORKFLOW_REF="refs/heads/staging"
 RUST_PROVENANCE_KEY_PATH="deploy/rust/artifact-provenance.pub.pem"
-RUST_ARTIFACT_VERIFIER_PATH="scripts/verify_rust_artifact.py"
-RUST_RUNTIME_PREPARER_PATH="scripts/prepare_rust_runtime.py"
+RUST_ARTIFACT_VERIFIER_PATH="deploy/scripts/verify-artifact.sh"
 RUST_UNIT_NAME="verdaxis-rust-staging.service"
 if [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
     RUST_UNIT_NAME="verdaxis-rust.service"
@@ -131,6 +139,8 @@ WATCHLIST_PRODUCER_ACTIVATED_AT="${WATCHLIST_PRODUCER_ACTIVATED_AT:-}"
 RELEASE_WATCHLIST_EVENT_PRODUCER=""
 RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT=""
 DEPLOY_LOCK_FD=""
+DEPLOY_NONCE=""
+STAGED_BINARY=""
 RESTART_WINDOW_LOCK_FD=""
 DEPLOY_STARTED=0
 SERVICE_RESTART_ATTEMPTED=0
@@ -144,6 +154,7 @@ RUST_POLICY_PRESENT=0
 RUST_SELECTED=0
 RUST_EXTRACT_DIR=""
 RUST_RUNTIME_DIR="$BACKEND_DIR/.runtime-rust"
+ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"
 
 assert_clean_tree() {
     local phase="$1"
@@ -251,31 +262,24 @@ load_rust_staging_policy() {
     RUST_POLICY_PRESENT=0
     local policy_path="${RUST_POLICY_PATH:-$RUST_STAGING_POLICY_PATH}"
     if [[ ! -f "$staged/$policy_path" ]]; then
-        # Older trees without this environment's policy remain Python-only.
+        # Older trees without this environment's policy have no Rust side;
+        # the real run refuses them.
         RUST_ENABLED=0
         return 0
     fi
     RUST_POLICY_PRESENT=1
-    RUST_ENABLED="$(python3 - "$staged/$policy_path" \
-        "$staged/$UNIT_MANIFEST_PATH" "$RUST_UNIT_NAME" "$DEPLOY_ENVIRONMENT" <<'PY'
-import json, sys
-try:
-    policy = json.load(open(sys.argv[1], encoding="utf-8"))
-    enabled = policy.get("rust_enabled")
-except (OSError, ValueError):
-    sys.exit(3)
-if not isinstance(enabled, bool) or policy.get("environment") != sys.argv[4]:
-    sys.exit(3)
-if enabled:
-    manifest_lines = open(sys.argv[2], encoding="utf-8").read().splitlines()
-    environment, unit = sys.argv[4], sys.argv[3]
-    if not any(
-        line == f"{environment}\t{unit}" for line in manifest_lines
-    ):
-        sys.exit(4)
-print("1" if enabled else "0")
-PY
-)" || { echo "Invalid Rust staging policy or Rust unit is not manifest-selected." >&2; exit 1; }
+    if ! RUST_ENABLED="$(jq -e -r --arg environment "$DEPLOY_ENVIRONMENT" \
+        'if (.rust_enabled | type) == "boolean" and .environment == $environment
+         then (if .rust_enabled then "1" else "0" end) else error("unexpected policy") end' \
+        "$staged/$policy_path" 2> /dev/null)"; then
+        echo "Invalid Rust staging policy or Rust unit is not manifest-selected." >&2
+        exit 1
+    fi
+    if [[ "$RUST_ENABLED" == "1" ]] \
+        && ! grep -qxF "$DEPLOY_ENVIRONMENT"$'\t'"$RUST_UNIT_NAME" "$staged/$UNIT_MANIFEST_PATH"; then
+        echo "Invalid Rust staging policy or Rust unit is not manifest-selected." >&2
+        exit 1
+    fi
 }
 
 # Resolve which provenance public key to pass to the verifier. The reviewed
@@ -336,7 +340,7 @@ verify_rust_artifact_for_release() {
     done
     resolve_provenance_public_key "$source_sha"
     echo "+ verify the separately approved Rust artifact"
-    if ! "${PYTHON_ENV[@]}" ./venv/bin/python "$RUST_ARTIFACT_VERIFIER_PATH" \
+    if ! "${BINARY_ENV[@]}" bash "$RUST_ARTIFACT_VERIFIER_PATH" \
         --archive "$RUST_ARTIFACT_ARCHIVE" \
         --source-sha "$source_sha" \
         --workflow-ref "$RUST_WORKFLOW_REF" \
@@ -480,8 +484,8 @@ write_monitor_identity() {
 }
 
 # True when the revision is the watchlist producer checkpoint or a later one.
-# tests/unit/test_deploy_release_metadata.py keeps this list equal to that
-# part of deploy/rust/allowed-revisions.json.
+# The release metadata tests keep this list equal to that part of
+# deploy/rust/allowed-revisions.json.
 revision_has_watchlist_producer() {
     case "$1" in
         p89_20261022_watchlist_producer|p89_20261022_trade_freeze) return 0 ;;
@@ -611,6 +615,14 @@ write_deploy_state() {
         rm -f -- "$temporary_file"
         return 1
     fi
+    # `migrate` accepts only the blocked state of the deploy that runs it,
+    # named by this run's nonce. The restart phases keep the three-line form
+    # the start guards read.
+    if [[ "$phase" == "blocked" && -n "$DEPLOY_NONCE" ]] \
+        && ! printf 'DEPLOY_NONCE=%s\n' "$DEPLOY_NONCE" >> "$temporary_file"; then
+        rm -f -- "$temporary_file"
+        return 1
+    fi
     chmod 0644 "$temporary_file"
     mv -- "$temporary_file" "$DEPLOY_STATE_FILE"
 }
@@ -714,6 +726,23 @@ prepare_acl_convergence_bundle() {
     done
 }
 
+# Run a verified release binary with the release identity. Each command
+# names the deployed .env itself when it needs it and reads only its own keys.
+run_release_binary() {
+    local binary="$1"
+    shift
+    "${BINARY_ENV[@]}" DEPLOY_STATE_DIR="$DEPLOY_STATE_DIR" "$binary" "$@" \
+        --environment "$DEPLOY_ENVIRONMENT" --release-sha "$APPROVED_RELEASE_SHA"
+}
+
+# Exact readiness: the body must be exactly the four deployed keys with this
+# environment and release (`guard health`, stricter than the old extra-key rule).
+readiness_exact() {
+    local url="$1" payload
+    payload="$(curl --fail --silent --show-error --max-time 15 "$url")" || return 1
+    printf '%s' "$payload" | run_release_binary "$ACTIVE_BINARY" guard health
+}
+
 preserve_failed_release() {
     local status="$?"
     trap - EXIT
@@ -725,15 +754,12 @@ preserve_failed_release() {
     if [[ "$status" != "0" && "$DRY_RUN" == "0" && "$DEPLOY_STARTED" == "1" ]]; then
         if [[ "$RUST_PHASE_STARTED" == "1" ]] \
             && systemctl is-active --quiet "$SERVICE_NAME" \
-            && HEALTH_PAYLOAD="$(curl --fail --silent --show-error --max-time 15 "$HEALTH_URL")" \
-            && printf '%s' "$HEALTH_PAYLOAD" | "${PYTHON_ENV[@]}" ./venv/bin/python \
-                scripts/validate_health_response.py --environment "$DEPLOY_ENVIRONMENT" \
-                --release-sha "$CURRENT_SHA"; then
+            && readiness_exact "$HEALTH_URL"; then
             write_deploy_state "rust-failed" "$CURRENT_SHA" || \
                 echo "WARNING: could not record Rust failure state." >&2
             sudo -n systemctl stop "$RUST_UNIT_NAME" || echo "WARNING: Rust stop failed." >&2
             sudo -n systemctl disable "$RUST_UNIT_NAME" || echo "WARNING: Rust disable failed." >&2
-            echo "Rust activation failed; exact-ready Python remains serving. Canonical retry required." >&2
+            echo "Rust activation failed; the exact-ready backend service remains serving. Canonical retry required." >&2
             exit "$status"
         fi
         if ! write_deploy_state "blocked" "${CURRENT_SHA:-$APPROVED_RELEASE_SHA}"; then
@@ -870,13 +896,12 @@ if [[ "$DRY_RUN" == "1" ]]; then
     done
     if [[ "$RUST_POLICY_PRESENT" == "1" ]]; then
         echo "Rust staging policy rust_enabled=$RUST_ENABLED; a Rust-enabled deploy additionally requires RUST_ARTIFACT_ARCHIVE, RUST_PROVENANCE_RECORD and RUST_PROVENANCE_SIGNATURE."
-        echo "Artifact runtime compatibility remains untested: no Cargo, binary, or candidate Python was executed."
+        echo "Artifact runtime compatibility remains untested: no Cargo or binary was executed."
     fi
-    echo "Candidate Python code was not executed; live secrets, home, database, and network were not supplied to candidate code."
+    echo "No candidate code was executed; live secrets, home, database, and network were not supplied to candidate code."
     echo "Skipped mutations:"
     echo "  - source update (the exact SHA was inspected from an immutable Git archive)"
     echo "  - candidate application preflight (omitted; this dry-run does not execute candidate code)"
-    echo "  - dependency installation and resolver/build metadata"
     echo "  - migration upgrade or live database inspection"
     echo "  - release identity and deployment state publication"
     echo "  - service restart"
@@ -931,6 +956,18 @@ validate_migration_policy \
     "$MIGRATION_POLICY_TEMP/$MIGRATION_POLICY_PATH" \
     "$MIGRATION_EXPECTED_CURRENT_REVISION" "$MIGRATION_TARGET_REVISION"
 
+# The backend service keeps its installed dependencies: this deploy installs
+# none. A release that changes the dependency files is refused before any
+# state, so the service never starts against code its environment lacks.
+for dependency_file in requirements.txt constraints.txt; do
+    installed_blob="$("${GIT[@]}" rev-parse --verify --quiet "HEAD:$dependency_file" || true)"
+    release_blob="$("${GIT[@]}" rev-parse --verify --quiet "$REMOTE_SHA:$dependency_file" || true)"
+    if [[ "$installed_blob" != "$release_blob" ]]; then
+        echo "The release changes $dependency_file, and this deploy installs no dependency; refusing before any state." >&2
+        exit 1
+    fi
+done
+
 # Rust selection is read from the archived policy before the deploy lock. The
 # artifact itself is verified under the main lock (the extraction directory is
 # per-SHA), so a re-deploy of the same release replaces a stale staging and a
@@ -949,6 +986,12 @@ if "${GIT[@]}" cat-file -e "$REMOTE_SHA:$RUST_POLICY_PATH" 2>/dev/null; then
             "$RUST_POLICY_TEMP/$relative"
     done
     load_rust_staging_policy "$REMOTE_SHA" "$RUST_POLICY_TEMP"
+fi
+# Every database step below runs the verified release binary, so a release
+# without an enabled Rust side cannot be deployed by this transaction.
+if [[ "$RUST_ENABLED" != "1" ]]; then
+    echo "The release policy does not enable the Rust service; this deploy needs its verified binary. Refusing before any state." >&2
+    exit 1
 fi
 
 # A first activation must not reach a joint restart before the root-owned
@@ -1008,14 +1051,46 @@ if [[ "$RUST_ENABLED" == "1" ]]; then
     fi
 fi
 CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
-"${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
-    ./venv/bin/python scripts/verify_migration_revision.py \
-    --expected "$MIGRATION_EXPECTED_CURRENT_REVISION"
+STAGED_BINARY="$RUST_EXTRACT_DIR/verdaxis-read"
+if [[ ! -f "$STAGED_BINARY" || -L "$STAGED_BINARY" ]]; then
+    echo "The staged Rust binary must be a regular file." >&2
+    exit 1
+fi
+# An interrupted deploy of this same release left its durable state, and its
+# migration may already have reached the approved target. Only then is the
+# target accepted as the current revision; `migrate run` reports it at target.
+RESUMING=0
+if [[ -f "$DEPLOY_STATE_FILE" && ! -L "$DEPLOY_STATE_FILE" ]] \
+    && grep -qxF "ENVIRONMENT=$DEPLOY_ENVIRONMENT" "$DEPLOY_STATE_FILE" \
+    && grep -qxF "RELEASE_SHA=$APPROVED_RELEASE_SHA" "$DEPLOY_STATE_FILE"; then
+    RESUMING=1
+fi
+if ! run_release_binary "$STAGED_BINARY" migrate status --check \
+    --expected-current "$MIGRATION_EXPECTED_CURRENT_REVISION" \
+    --environment-file "$BACKEND_DIR/.env"; then
+    if [[ "$RESUMING" != "1" ]] || ! run_release_binary "$STAGED_BINARY" migrate status --check \
+        --expected-current "$MIGRATION_TARGET_REVISION" \
+        --environment-file "$BACKEND_DIR/.env"; then
+        echo "The database is not at the approved current revision; refusing before any state." >&2
+        exit 1
+    fi
+    echo "Resuming the interrupted deploy of $APPROVED_RELEASE_SHA; the database is at the approved target."
+fi
 cleanup_migration_policy_bundle
 cleanup_rust_policy_bundle
 
+# This run's nonce names its blocked state; `migrate` accepts only that state
+# while both deploy locks are held. It is an ownership token, not a secret.
+DEPLOY_NONCE="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+if [[ ! "$DEPLOY_NONCE" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Could not create the deploy nonce." >&2
+    exit 1
+fi
 DEPLOY_STARTED=1
 write_deploy_state "blocked" "$APPROVED_RELEASE_SHA"
+# The restart window is held from here: the deploy-owned migration needs both
+# locks, and the start guard still denies every start while state is blocked.
+acquire_restart_window_lock
 
 "${GIT[@]}" fetch origin "refs/heads/$TARGET_BRANCH"
 REMOTE_SHA="$("${GIT[@]}" rev-parse 'FETCH_HEAD^{commit}')"
@@ -1047,23 +1122,9 @@ prepare_acl_convergence_bundle "$CURRENT_SHA"
 # transition and through any restart/readiness failure.
 write_release_artifact "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION"
 
-"${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
-    ./venv/bin/python scripts/preflight_runtime.py \
-    --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"
-
-if [[ -f requirements.txt ]]; then
-    if [[ ! -f constraints.txt ]]; then
-        echo "constraints.txt is required for reproducible deployed dependency installation." >&2
-        exit 1
-    fi
-    umask 022
-    "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
-        ./venv/bin/python -m pip install -r requirements.txt -c constraints.txt
-    "${PYTHON_ENV[@]}" PIP_CONFIG_FILE=/dev/null \
-        ./venv/bin/python -m pip check
-    find venv -type d ! -perm -0005 -exec chmod o+rx {} +
-    find venv -type f ! -perm -0004 -exec chmod o+r {} +
-fi
+# The deployed identity and the app database role, attested by the staged
+# release binary on one connection (it replaces the runtime preflight).
+run_release_binary "$STAGED_BINARY" ops preflight --environment-file "$BACKEND_DIR/.env"
 
 # The effective Task 2 connection budget is prepared whenever a Rust unit is
 # selected, before any schema change; a refused budget leaves the blocked state
@@ -1074,10 +1135,9 @@ fi
 if [[ "$RUST_SELECTED" == "1" ]]; then
     RUST_CACHE_LISTENER="0"
     while IFS= read -r env_line || [[ -n "$env_line" ]]; do
-        # Only a dotenv definition of this key counts (the same forms the
-        # Python helper's dotenv reader parses: optional leading whitespace
-        # and `export`); a value or comment that merely contains the text is
-        # another key's business.
+        # Only a dotenv definition of this key counts (optional leading
+        # whitespace and `export`, as the dotenv readers parse it); a value or
+        # comment that merely contains the text is another key's business.
         [[ "$env_line" =~ ^([[:space:]]*)(export[[:space:]]+)?RUST_CACHE_LISTENER= ]] || continue
         listener_value="${env_line#*RUST_CACHE_LISTENER=}"
         # One layer of matching quotes, as the dotenv readers unquote it.
@@ -1091,36 +1151,37 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         RUST_CACHE_LISTENER="$listener_value"
     done < "$BACKEND_DIR/.env"
     # The stream tables exist from the stream checkpoint on, and every later
-    # checkpoint keeps them. tests/unit/test_stream_listener_checkpoints.py
-    # keeps this list equal to that part of deploy/rust/allowed-revisions.json.
+    # checkpoint keeps them. The stream listener checkpoint test keeps this
+    # list equal to that part of deploy/rust/allowed-revisions.json.
     RUST_STREAM_LISTENER="0"
     case "$MIGRATION_TARGET_REVISION" in
         sse_20261021_replay_floor|p5_20261020_read_indexes|p89_20261022_watchlist_producer|p89_20261022_trade_freeze) RUST_STREAM_LISTENER="1" ;;
     esac
-    if ! "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py \
+    if ! run_release_binary "$STAGED_BINARY" ops prepare-budget \
         --cache-listener "$RUST_CACHE_LISTENER" \
         --stream-listener "$RUST_STREAM_LISTENER" \
         --environment-file "$BACKEND_DIR/.env" \
-        --release-sha "$CURRENT_SHA" \
         --output "$RUST_RUNTIME_DIR/budget.json"; then
         echo "Rust runtime budget preparation refused." >&2
         exit 1
     fi
 fi
 
-"${PYTHON_ENV[@]}" ENVIRONMENT="$DEPLOY_ENVIRONMENT" RELEASE_SHA="$CURRENT_SHA" \
-    ./venv/bin/python scripts/apply_migration_checkpoint.py \
-    --source-root "$BACKEND_DIR" \
-    --environment-file "$BACKEND_DIR/.env" \
-    --source-sha "$CURRENT_SHA" \
-    --approved-source-sha "$MIGRATION_APPROVED_SOURCE_SHA" \
+# The one approved transition, as the migrator, owned by this deploy's
+# blocked state and both locks. The migrator URL stays inside the binary.
+run_release_binary "$STAGED_BINARY" migrate run \
     --expected-current "$MIGRATION_EXPECTED_CURRENT_REVISION" \
-    --target "$MIGRATION_TARGET_REVISION"
+    --target "$MIGRATION_TARGET_REVISION" --apply \
+    --deploy-nonce "$DEPLOY_NONCE" --environment-file "$BACKEND_DIR/.env"
+# Exact postcheck: the database reports the approved target and nothing else.
+run_release_binary "$STAGED_BINARY" migrate status --check \
+    --expected-current "$MIGRATION_TARGET_REVISION" --environment-file "$BACKEND_DIR/.env"
 
-"${PYTHON_ENV[@]}" ./venv/bin/python \
-    "$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH" \
+"${BINARY_ENV[@]}" bash "$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH" \
+    --binary "$STAGED_BINARY" \
     --environment "$DEPLOY_ENVIRONMENT" \
-    --environment-file "$BACKEND_DIR/.env" \
+    --release-sha "$CURRENT_SHA" \
+    --env-file "$BACKEND_DIR/.env" \
     --bundle-root "$ACL_CONVERGENCE_TEMP"
 cleanup_acl_convergence_bundle
 
@@ -1142,13 +1203,9 @@ assert_clean_tree "Deploy steps"
 # database settings, runtime identity and the Phase 2 verification/invite
 # settings (Task 23), never the migrator URL.
 if [[ "$RUST_SELECTED" == "1" ]]; then
-    if ! "${PYTHON_ENV[@]}" ./venv/bin/python \
-        "$RUST_RUNTIME_PREPARER_PATH" \
-        --environment "$DEPLOY_ENVIRONMENT" \
+    if ! run_release_binary "$STAGED_BINARY" ops prepare-runtime \
         --environment-file "$BACKEND_DIR/.env" \
-        --release-sha "$CURRENT_SHA" \
         --output-dir "$RUST_RUNTIME_DIR" \
-        --source-root "$BACKEND_DIR" \
         --migration-revision "$MIGRATION_TARGET_REVISION"; then
         echo "Rust runtime environment preparation refused." >&2
         exit 1
@@ -1159,12 +1216,6 @@ fi
 # binary installed by atomic rename from the verified staged release, never a
 # source-tree symlink. The Rust unit's ExecStart resolves this path.
 if [[ "$RUST_SELECTED" == "1" ]]; then
-    STAGED_BINARY="$RUST_EXTRACT_DIR/verdaxis-read"
-    ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"
-    if [[ ! -f "$STAGED_BINARY" || -L "$STAGED_BINARY" ]]; then
-        echo "The staged Rust binary must be a regular file." >&2
-        exit 1
-    fi
     if [[ -e "$ACTIVE_BINARY" && ! -f "$ACTIVE_BINARY" ]]; then
         echo "The active Rust binary path is not a regular file." >&2
         exit 1
@@ -1178,13 +1229,12 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
 fi
 
 # Recheck drift under the same deploy lock without giving the Rust unit .env.
+# From here the installed binary runs; the staged copy is no longer used.
 if [[ "$RUST_SELECTED" == "1" ]]; then
-    "${PYTHON_ENV[@]}" ./venv/bin/python scripts/prepare_rust_budget.py --verify \
-        --environment-file "$BACKEND_DIR/.env" --release-sha "$CURRENT_SHA" \
-        --output "$RUST_RUNTIME_DIR/budget.json"
+    run_release_binary "$ACTIVE_BINARY" ops prepare-budget --verify \
+        --environment-file "$BACKEND_DIR/.env" --output "$RUST_RUNTIME_DIR/budget.json"
 fi
 
-acquire_restart_window_lock
 DEPLOY_PHASE="restart-authorized"
 write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 SERVICE_RESTART_ATTEMPTED=1
@@ -1194,12 +1244,8 @@ write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
 
 systemctl is-active --quiet "$SERVICE_NAME"
 for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
-    if HEALTH_PAYLOAD="$(curl --fail --silent --show-error --max-time 15 "$HEALTH_URL")"; then
-        if printf '%s' "$HEALTH_PAYLOAD" | "${PYTHON_ENV[@]}" ./venv/bin/python \
-            scripts/validate_health_response.py \
-            --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"; then
-            break
-        fi
+    if readiness_exact "$HEALTH_URL"; then
+        break
     fi
     if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
         echo "Backend health check failed after ${HEALTH_ATTEMPTS} attempts: ${HEALTH_URL}" >&2
@@ -1214,17 +1260,13 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     RUST_PHASE_STARTED=1
     write_deploy_state "restart-authorized" "$CURRENT_SHA"
     sudo -n systemctl restart "$RUST_UNIT_NAME"
-    RUST_HEALTH_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["health_url"])' \
+    RUST_HEALTH_URL="$(jq -e -r '.health_url | strings' \
         "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json")" \
         || { echo "The staged Rust policy does not name a health URL." >&2; exit 1; }
     systemctl is-active --quiet "$RUST_UNIT_NAME"
     for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
-        if RUST_PAYLOAD="$(curl --fail --silent --show-error --max-time 15 "$RUST_HEALTH_URL")"; then
-            if printf '%s' "$RUST_PAYLOAD" | "${PYTHON_ENV[@]}" ./venv/bin/python \
-                scripts/validate_health_response.py \
-                --environment "$DEPLOY_ENVIRONMENT" --release-sha "$CURRENT_SHA"; then
-                break
-            fi
+        if readiness_exact "$RUST_HEALTH_URL"; then
+            break
         fi
         if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
             echo "Rust health check failed after ${HEALTH_ATTEMPTS} attempts: $RUST_HEALTH_URL" >&2

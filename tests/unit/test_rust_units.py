@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_rust_release import RustReleaseFixture
-
 ROOT = Path(__file__).resolve().parents[2]
 UNIT = "deploy/systemd/verdaxis-rust-staging.service"
 BACKEND_STAGING_UNIT = "deploy/systemd/verdaxis-backend-staging.service"
@@ -363,54 +361,6 @@ def test_rust_unit_manifest_entries_are_environment_specific():
     assert len({name for _environment, name in entries}) == len(entries)
     assert RUST_UNIT_NAME.endswith("-staging.service")
     assert (ROOT / UNIT).is_file()
-
-
-def test_bootstrap_release_deploys_without_the_rust_unit_or_an_artifact(tmp_path):
-    """Release one: helper and artifact support land with Rust inactive."""
-    fixture = RustReleaseFixture(tmp_path)
-    result = fixture.deploy(fixture.old_sha)
-
-    assert result.returncode == 0, result.stderr
-    executed = fixture.ledger
-    assert not any("rust" in entry.lower() for entry in executed)
-    assert [e for e in executed if e.startswith("sudo:systemctl restart")] == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service"
-    ]
-    # No artifact was offered and none was required.
-    assert "RUST_ARTIFACT_ARCHIVE" not in fixture.deploy_environment(fixture.old_sha)
-    assert not (fixture.checkout / ".runtime-rust").exists()
-
-
-def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path):
-    """Release two: both committed records plus a verified artifact."""
-    fixture = RustReleaseFixture(tmp_path)
-    enabled_sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(enabled_sha)
-
-    # Without the artifact the transaction refuses before any service stops.
-    without_artifact = fixture.deploy_environment(enabled_sha)
-    without_artifact["RUST_ARTIFACT_ARCHIVE"] = ""
-    refused = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=fixture.checkout,
-        env=without_artifact,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert refused.returncode != 0
-    assert not fixture.stopped_services()
-
-    activated = fixture.deploy(enabled_sha)
-    assert activated.returncode == 0, activated.stderr
-    assert [
-        e for e in fixture.ledger if e.startswith("sudo:systemctl restart")
-    ] == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service",
-        f"sudo:systemctl restart {RUST_UNIT_NAME}"
-    ]
-    assert (fixture.checkout / ".runtime-rust/verdaxis-read").is_file()
-    assert fixture.state_text() == ""
 
 
 @pytest.mark.parametrize(

@@ -5,8 +5,8 @@
     "kind": "private evidence root, outside this repository; never under deploy/ and never on a host",
     "bundle": "offhost-tools/offhost-tools-bundle.tar",
     "location": "private-evidence-root:offhost-tools/offhost-tools-bundle.tar",
-    "bundle_sha256": "206b05e96a1c9e9b14018c3b9820e8eb3b6971b630d62303e73646b7af258961",
-    "manifest_sha256": "67cdde23c4f6f1b76c971d944778b072b71344dccd7507cbfcb177c45d85e279",
+    "bundle_sha256": "7ee9aa8196a70d772e6a944d3ec2c1094092ebf7998b344675646250f2b32b8c",
+    "manifest_sha256": "fd647ee4eb3140a20ec87ef58ce97226eed5787de689c32f47f8ca59e00c4d87",
     "member_count": 33
   },
   "tools": [
@@ -72,7 +72,7 @@
       "tool": "scripts/phase0/assert_host.py",
       "group": "phase0",
       "ledger_ids": [],
-      "sha256": "041be6c63496c7381c6ebc1bb1768d82800277bbcebebe58fad45f416e8582b4",
+      "sha256": "f00dffe58d5cbf57453affe77df404714266eaad76c45b0f0079e4a2d4f383e9",
       "reason": "Phase 0 bootstrap, copy and verification tooling for the Python and Alembic era. It is kept for audit and CI and is not an application entry point or a production command.",
       "owner": "backend maintainers (CI and audit)",
       "permitted_use": "ci",

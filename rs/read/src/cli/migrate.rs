@@ -432,6 +432,11 @@ pub async fn run_to_target(
     if !before.foreign.is_empty() {
         return Err(RunRefusal::History);
     }
+    // A deploy interrupted after this approved migration committed reruns
+    // with the same approval: the database is already at the target.
+    if before.revision().as_deref() == Some(target) {
+        return Ok(RunOutcome::AtTarget);
+    }
     if before.revision().as_deref() != Some(expected_current) {
         return Err(RunRefusal::CurrentRevision);
     }

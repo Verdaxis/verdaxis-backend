@@ -72,6 +72,9 @@ jobs:
           "$RUNNER_TEMP/artifact-test-venv/bin/pip" install cryptography==50.0.0 PyYAML==6.0.3 jsonschema==4.25.1
           ARTIFACT_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/artifact-contract.sh
           HOST_INVENTORY_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/host-inventory-contract.sh
+      - name: Run the Python-free deploy transaction harness
+        shell: bash -euo pipefail {0}
+        run: bash deploy/tests/deploy-transaction.sh
 
   # Pure tests plus the release build, the glibc floor check, and the archivable
   # release artifact. No database, no container, no secrets.

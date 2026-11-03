@@ -620,6 +620,24 @@ async fn run_to_exact_approved_target_is_idempotent() {
         after,
         "a repeat changed the history"
     );
+    // Task 7: a deploy interrupted after the migration committed reruns with
+    // the same approval (sqlx_1 -> sqlx_2). The database is at the target, so
+    // the rerun reports it without a write.
+    let resumed = run_to_target(
+        &mut as_migrator(&database).await,
+        &second,
+        &rules,
+        "sqlx_1",
+        "sqlx_2",
+        true,
+    )
+    .await;
+    assert_eq!(resumed, Ok(RunOutcome::AtTarget));
+    assert_eq!(
+        history_rows(&database).await,
+        after,
+        "a resume changed the history"
+    );
     drop_database(&database).await;
 }
 
