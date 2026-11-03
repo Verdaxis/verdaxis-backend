@@ -1,0 +1,13 @@
+{
+  "counts": {
+    "disposable": 8014,
+    "public": 4778
+  },
+  "file": "deploy/rust/auth-domain-datasets.json",
+  "form": "compact JSON {\"public\": sorted whitelist, \"disposable\": sorted blocklist}, as scripts/prepare_rust_runtime.py::phase3_settings projects AUTH_DOMAIN_DATASETS",
+  "sha256": "d66d7a9c3901f17c72f6c43a226dc79055b861f1082b67ad7a3d1acecc55f416",
+  "source": {
+    "disposable-email-domains": "0.0.225",
+    "free-email-domains": "1.0.2"
+  }
+}
