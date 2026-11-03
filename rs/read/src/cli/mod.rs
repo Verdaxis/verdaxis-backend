@@ -3,6 +3,7 @@ pub mod context;
 pub mod gate;
 pub mod jobs;
 pub mod mail;
+pub mod migrate;
 pub mod monitors;
 pub mod ops;
 pub mod state;

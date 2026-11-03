@@ -170,7 +170,7 @@ rustix = { version = "=1.1.5", features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
 sha2 = "0.11.1"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json", "migrate"] }
 tokio = { version = "1.53.3", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["cors"] }
