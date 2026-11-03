@@ -1038,7 +1038,7 @@ fn render_config(scratch: &Scratch, driver: &Path, timeout: u64) -> ExternalConf
     config.rendered_checks_enabled = true;
     config.rendered_pages = external::default_rendered_pages();
     config.render.chromedriver = Some(driver.to_path_buf());
-    config.render.profile_parent = scratch.path("profiles");
+    config.render.profile_parent = Some(scratch.path("profiles"));
     config.render.timeout_seconds = timeout;
     config.render.retries = 1;
     config
@@ -1185,4 +1185,50 @@ async fn rendered_page_outcomes_match_the_python_monitor() {
             None
         );
     }
+}
+
+#[test]
+fn chromedriver_never_runs_as_root() {
+    use verdaxis_read::cli::monitors::external::webdriver::{DriverIdentity, driver_identity};
+    let worker = DriverIdentity {
+        uid: 1500,
+        gid: 1500,
+        home: "/home/render".into(),
+    };
+    let found = |name: &str| (name == "render").then(|| worker.clone());
+    // A root monitor without RENDER_USER refuses the check.
+    assert_eq!(
+        driver_identity(0, None, found),
+        Err("rendered page checks refuse to run ChromeDriver as root; set RENDER_USER".to_owned())
+    );
+    assert_eq!(
+        driver_identity(0, Some("render"), found),
+        Ok(Some(worker.clone()))
+    );
+    assert_eq!(
+        driver_identity(0, Some("missing"), found),
+        Err("rendered page checks could not find RENDER_USER".to_owned())
+    );
+    // RENDER_USER=root is still root.
+    let root = |_: &str| {
+        Some(DriverIdentity {
+            uid: 0,
+            gid: 0,
+            home: "/root".into(),
+        })
+    };
+    assert!(driver_identity(0, Some("root"), root).is_err());
+    // The real passwd lookup: root exists everywhere, a made-up name nowhere.
+    let root_entry =
+        verdaxis_read::cli::monitors::external::webdriver::lookup_user("root").unwrap();
+    assert_eq!((root_entry.uid, root_entry.gid), (0, 0));
+    assert!(
+        verdaxis_read::cli::monitors::external::webdriver::lookup_user("verdaxis-no-such-user")
+            .is_none()
+    );
+    // A monitor that is not root runs the driver as itself.
+    assert_eq!(driver_identity(1000, None, found), Ok(None));
+    // The browser keeps its sandbox.
+    let source = include_str!("../src/cli/monitors/external/webdriver.rs");
+    assert!(!source.contains("\"--no-sandbox\""));
 }

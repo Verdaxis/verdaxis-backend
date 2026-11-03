@@ -10,6 +10,13 @@
 //!
 //! The control channel is loopback only and never uses a proxy. No page
 //! content leaves the check: failures name the missing control or text.
+//!
+//! ChromeDriver and the browser never run as root. The monitor itself runs as
+//! root (it validates Caddy as the `caddy` user), so it starts the driver as
+//! `RENDER_USER`, an unprivileged account, and refuses the check when none is
+//! set. The browser keeps its own sandbox (no `--no-sandbox`). A local process
+//! that takes the free port first can only forge this check's result.
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -62,8 +69,11 @@ return {
 #[derive(Debug, Clone)]
 pub struct RenderSettings {
     pub chromedriver: Option<PathBuf>,
-    pub profile_parent: PathBuf,
+    /// `CHROMIUM_PROFILE_PARENT`; when unset, `<driver home>/snap/chromium/common`.
+    pub profile_parent: Option<PathBuf>,
     pub home: PathBuf,
+    /// `RENDER_USER`: the account ChromeDriver runs as when the monitor is root.
+    pub render_user: Option<String>,
     pub lang: Option<String>,
     pub lc_all: Option<String>,
     pub timeout_seconds: u64,
@@ -189,18 +199,82 @@ async fn stop_driver(child: &mut tokio::process::Child) {
     let _ = tokio::time::timeout(STOP_WAIT, child.wait()).await;
 }
 
-/// A private profile directory under the configured parent, removed on drop.
+/// The account ChromeDriver runs as.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriverIdentity {
+    pub uid: u32,
+    pub gid: u32,
+    pub home: PathBuf,
+}
+
+const ROOT_REFUSED: &str =
+    "rendered page checks refuse to run ChromeDriver as root; set RENDER_USER";
+
+/// Who runs ChromeDriver. A monitor that is not root runs it as itself
+/// (`None`). A root monitor must name an unprivileged `RENDER_USER`.
+pub fn driver_identity(
+    euid: u32,
+    render_user: Option<&str>,
+    lookup: impl Fn(&str) -> Option<DriverIdentity>,
+) -> Result<Option<DriverIdentity>, String> {
+    if euid != 0 {
+        return Ok(None);
+    }
+    let name = render_user.ok_or_else(|| ROOT_REFUSED.to_owned())?;
+    let identity =
+        lookup(name).ok_or_else(|| "rendered page checks could not find RENDER_USER".to_owned())?;
+    if identity.uid == 0 {
+        return Err(ROOT_REFUSED.to_owned());
+    }
+    Ok(Some(identity))
+}
+
+/// The passwd entry of `name`.
+pub fn lookup_user(name: &str) -> Option<DriverIdentity> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
+    let mut found: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: every pointer is valid for the call; the result is read only
+    // when `found` points at `entry`.
+    let status = unsafe {
+        libc::getpwnam_r(
+            name.as_ptr(),
+            &mut entry,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut found,
+        )
+    };
+    if status != 0 || found.is_null() || entry.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: getpwnam_r filled `pw_dir` with a NUL-terminated string in `buffer`.
+    let home = unsafe { std::ffi::CStr::from_ptr(entry.pw_dir) };
+    Some(DriverIdentity {
+        uid: entry.pw_uid,
+        gid: entry.pw_gid,
+        home: PathBuf::from(std::ffi::OsStr::from_bytes(home.to_bytes())),
+    })
+}
+
+/// A private profile directory under the parent, owned by the driver's
+/// account, removed on drop.
 struct Profile(PathBuf);
 
 impl Profile {
-    fn create(parent: &Path) -> Option<Self> {
+    fn create(parent: &Path, owner: Option<&DriverIdentity>) -> Option<Self> {
         use std::os::unix::fs::DirBuilderExt;
         let path = parent.join(format!(
             "verdaxis-monitor-chrome-{}",
             uuid::Uuid::new_v4().simple()
         ));
         std::fs::DirBuilder::new().mode(0o700).create(&path).ok()?;
-        Some(Self(path))
+        let profile = Self(path);
+        if let Some(owner) = owner {
+            std::os::unix::fs::chown(&profile.0, Some(owner.uid), Some(owner.gid)).ok()?;
+        }
+        Some(profile)
     }
 }
 
@@ -217,7 +291,6 @@ fn session_capabilities(user_data: &Path, timeout_seconds: u64) -> Value {
         "timeouts": {"implicit": 0, "pageLoad": timeout_seconds * 1_000, "script": 5_000},
         "goog:chromeOptions": {"args": [
             "--headless",
-            "--no-sandbox",
             "--disable-gpu",
             "--disable-dev-shm-usage",
             "--disable-background-networking",
@@ -283,16 +356,24 @@ pub async fn render_attempt(
     check: &PageCheck,
     chromedriver: &Path,
     settings: &RenderSettings,
+    profile_parent: &Path,
+    identity: Option<&DriverIdentity>,
 ) -> Result<Outcome, AttemptError> {
     let deadline = Instant::now() + Duration::from_secs(settings.timeout_seconds);
     let port = unused_loopback_port().ok_or_else(|| failure("ChromeDriver could not start"))?;
-    let profile = Profile::create(&settings.profile_parent)
+    let profile = Profile::create(profile_parent, identity)
         .ok_or_else(|| failure("ChromeDriver could not start"))?;
-    let mut child = tokio::process::Command::new(chromedriver)
+    let mut command = tokio::process::Command::new(chromedriver);
+    if let Some(identity) = identity {
+        // std drops the supplementary groups when a root parent sets the uid.
+        command.uid(identity.uid).gid(identity.gid);
+    }
+    let home = identity.map_or(&settings.home, |identity| &identity.home);
+    let mut child = command
         .arg(format!("--port={port}"))
         .arg("--allowed-ips=127.0.0.1")
         .env_clear()
-        .env("HOME", &settings.home)
+        .env("HOME", home)
         .env("LANG", settings.lang.as_deref().unwrap_or("C.UTF-8"))
         .env("LC_ALL", settings.lc_all.as_deref().unwrap_or("C.UTF-8"))
         .env("PATH", "/bin:/usr/bin")
@@ -435,14 +516,34 @@ pub async fn check_rendered_pages(config: &ExternalConfig) -> Vec<String> {
     let Some(chromedriver) = find_chromedriver(settings, path.as_deref()) else {
         return vec!["rendered page checks enabled but no ChromeDriver binary was found".into()];
     };
-    if std::fs::create_dir_all(&settings.profile_parent).is_err() {
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    let identity = match driver_identity(euid, settings.render_user.as_deref(), lookup_user) {
+        Ok(identity) => identity,
+        Err(refusal) => return vec![refusal],
+    };
+    let profile_parent = settings.profile_parent.clone().unwrap_or_else(|| {
+        identity
+            .as_ref()
+            .map_or(&settings.home, |identity| &identity.home)
+            .join("snap/chromium/common")
+    });
+    if std::fs::create_dir_all(&profile_parent).is_err() {
         return vec!["rendered page checks could not create the browser profile directory".into()];
     }
     let mut errors = Vec::new();
     for check in &config.rendered_pages {
         let mut final_error: Option<String> = None;
         for attempt in 1..=settings.retries {
-            final_error = match render_attempt(check, &chromedriver, settings).await {
+            final_error = match render_attempt(
+                check,
+                &chromedriver,
+                settings,
+                &profile_parent,
+                identity.as_ref(),
+            )
+            .await
+            {
                 Err(AttemptError::TimedOut) => Some(format!(
                     "{} render timed out after {}s",
                     check.name, settings.timeout_seconds

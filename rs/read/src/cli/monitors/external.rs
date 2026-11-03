@@ -434,9 +434,8 @@ impl ExternalConfig {
             rendered_pages: default_rendered_pages(),
             render: webdriver::RenderSettings {
                 chromedriver: nonempty(vars, "CHROMEDRIVER_BIN").map(PathBuf::from),
-                profile_parent: vars
-                    .get("CHROMIUM_PROFILE_PARENT")
-                    .map_or_else(|| home.join("snap/chromium/common"), PathBuf::from),
+                profile_parent: vars.get("CHROMIUM_PROFILE_PARENT").map(PathBuf::from),
+                render_user: nonempty(vars, "RENDER_USER"),
                 home: home.to_path_buf(),
                 lang: vars.get("LANG").cloned(),
                 lc_all: vars.get("LC_ALL").cloned(),
