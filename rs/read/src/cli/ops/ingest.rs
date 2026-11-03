@@ -23,8 +23,8 @@ use std::str::FromStr;
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde_json::json;
-use sqlx::postgres::{PgConnectOptions, PgConnection};
-use sqlx::{Connection, Row};
+use sqlx::Connection;
+use sqlx::postgres::PgConnection;
 use uuid::Uuid;
 
 use super::csv::{self, Record};
@@ -43,18 +43,6 @@ const MAX_QUANTITY_EXCLUSIVE: i64 = 10_000_000_000;
 /// Column widths of the text the rows carry.
 const MAX_EVENT_ID_CHARS: usize = 128;
 const MAX_MODEL_CHARS: usize = 64;
-
-/// The operator role and database of each environment.
-pub fn operator_role(environment: Environment) -> &'static str {
-    match environment {
-        Environment::Production => "verdaxis_operator",
-        Environment::Staging => "verdaxis_operator_staging",
-    }
-}
-
-fn database_name(environment: Environment) -> &'static str {
-    super::runtime_env::identity(environment).database_name
-}
 
 impl SignalFamily {
     /// `market_signal_ingestion_runs.signal_family`.
@@ -709,43 +697,10 @@ pub async fn run_with(
         Ok(policy) => policy,
         Err(_) => return refuse(Exit::Precondition, "the market policy is not attested"),
     };
-    // The operator URL must name this environment's operator role and database.
-    let options = match PgConnectOptions::from_str(value("OPERATOR_DATABASE_URL")) {
-        Ok(options)
-            if options.get_username() == operator_role(environment)
-                && options.get_database() == Some(database_name(environment)) =>
-        {
-            options
-        }
-        _ => {
-            return refuse(
-                Exit::Precondition,
-                "OPERATOR_DATABASE_URL is not this environment's operator",
-            );
-        }
-    };
-    let mut connection = match PgConnection::connect_with(&options).await {
+    let mut connection = match super::operator::connect(environment, variables).await {
         Ok(connection) => connection,
-        Err(_) => return refuse(Exit::Dependency, "the database is unreachable"),
+        Err((exit, reason)) => return refuse(exit, reason),
     };
-    // Attest the connection that writes: the exact database and role.
-    let attested = sqlx::query("SELECT current_database(), current_user::text")
-        .fetch_one(&mut connection)
-        .await
-        .map(|row| {
-            row.get::<String, _>(0) == database_name(environment)
-                && row.get::<String, _>(1) == operator_role(environment)
-        });
-    match attested {
-        Ok(true) => {}
-        Ok(false) => {
-            return refuse(
-                Exit::Precondition,
-                "the connection is not the operator on this database",
-            );
-        }
-        Err(_) => return refuse(Exit::Dependency, "the database is unreachable"),
-    }
     let outcome = ingest(
         &mut connection,
         args.family,

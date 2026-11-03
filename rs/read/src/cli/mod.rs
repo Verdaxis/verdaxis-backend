@@ -404,6 +404,9 @@ pub enum SignalFamily {
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
 pub struct ImportArgs {
     pub kind: ImportKind,
+    /// The fuel type of every project in the file (Methanol, Ethanol, ...).
+    #[arg(long)]
+    pub fuel_type: String,
     #[command(flatten)]
     pub input: FileArgs,
     #[arg(long)]
@@ -635,6 +638,9 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         Command::Ops(OpsArgs {
             action: OpsAction::Ingest(args),
         }) => ops::ingest::run(&args).await,
+        Command::Ops(OpsArgs {
+            action: OpsAction::Import(args),
+        }) => ops::gena::run(&args).await,
         // Task 9: the deploy transaction's projections. Each reports one
         // outcome line naming the refused rule, never a value.
         Command::Ops(OpsArgs {

@@ -261,8 +261,10 @@ INSERT INTO app_sequence_policy (sequence_name, privileges) VALUES
 
 -- Operator-role policy (Phase 10 Task 21), after every app row.
 -- The operator role runs trusted market-signal ingestion (`ops ingest signals`)
--- and nothing else. It reads the catalog it resolves against, owns the
--- ingestion run records, and appends signal rows. Every other table, and every
+-- and the GENA producer-project import (`ops import gena`), and nothing else.
+-- It reads the catalog it resolves against, owns the ingestion run records,
+-- appends signal rows, and inserts producer projects (an import never
+-- updates one, so there is no UPDATE grant). Every other table, and every
 -- column grant, stays denied; it never receives an app, migrator or backup
 -- privilege. Signal tables have UUID keys, so there is no sequence grant.
 
@@ -279,4 +281,5 @@ INSERT INTO operator_table_policy (table_name, privileges) VALUES
     ('market_signal_ingestion_runs', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
     ('physical_stems', ARRAY['SELECT', 'INSERT']),
     ('ports', ARRAY['SELECT']),
+    ('producer_projects', ARRAY['SELECT', 'INSERT']),
     ('products', ARRAY['SELECT']);

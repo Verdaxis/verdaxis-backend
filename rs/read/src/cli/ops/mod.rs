@@ -5,7 +5,9 @@
 pub mod budget;
 pub mod csv;
 pub mod dotenv;
+pub mod gena;
 pub mod ingest;
 pub mod inspect;
+pub mod operator;
 pub mod preflight;
 pub mod runtime_env;

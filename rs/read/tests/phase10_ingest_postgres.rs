@@ -351,6 +351,8 @@ async fn operator_acl_grants_only_ingestion_objects() {
         ),
         ("physical_stems", "INSERT,SELECT"),
         ("ports", "SELECT"),
+        // Task 22: the GENA producer-project import.
+        ("producer_projects", "INSERT,SELECT"),
         ("products", "SELECT"),
     ];
     let grants = || async {
