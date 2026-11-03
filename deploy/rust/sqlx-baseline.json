@@ -1,0 +1,17 @@
+{
+  "alembic_head": "p89_20261022_trade_freeze",
+  "alembic_revisions": 81,
+  "baseline_version": 1,
+  "file_sha256": "ae53d23533afb7d666d6c87787bb95f5337c8b99dcedac4aeac6e44dd1d9f68e",
+  "fingerprint": "28f1c10dbe3b685de515bedcdbb1df64c4c8b839b432a6dd848aebbf0312ffb0",
+  "postgres": "17.10",
+  "reference_rows": {
+    "delivery_points": 8,
+    "market_event_replay_state": 1,
+    "market_event_retention_control": 1,
+    "products": 8,
+    "public_read_cache_generations": 1,
+    "public_read_cache_incarnation": 1
+  },
+  "restored_fingerprint": "bd978ca4563032f9b2cec0bcaf4064af09cab772d067fc229feb332dcf47101e"
+}

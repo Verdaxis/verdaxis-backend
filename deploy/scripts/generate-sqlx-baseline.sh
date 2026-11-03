@@ -1,0 +1,255 @@
+#!/bin/bash
+# Generate the sqlx baseline from the reviewed Alembic history (Phase 10 plan
+# section 8.2). Disposable only: it starts its own PostgreSQL container and never
+# reads a deployed database.
+#
+# Usage: deploy/scripts/generate-sqlx-baseline.sh --head <literal Alembic revision>
+#   RUST_TEST_PYTHON  the Python that runs Alembic (default: python3)
+#
+# Writes rs/read/migrations/1_baseline.sql and deploy/rust/sqlx-baseline.json,
+# then proves that a restore into a second empty database gives the same catalog
+# fingerprint and row counts, and that a second restore over it is refused.
+set -euo pipefail
+
+[[ $# == 2 && $1 == --head && $2 =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127}$ ]] \
+  || { echo "usage: $0 --head <literal Alembic revision>" >&2; exit 2; }
+HEAD_REVISION=$2
+case ${HEAD_REVISION,,} in base | head | heads) echo "a literal revision is required, not $HEAD_REVISION" >&2; exit 2 ;; esac
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+cd "$ROOT"
+PYTHON=${RUST_TEST_PYTHON:-python3}
+BASELINE_SQL=rs/read/migrations/1_baseline.sql
+BASELINE_JSON=deploy/rust/sqlx-baseline.json
+FINGERPRINT_SQL=deploy/rust/catalog-fingerprint.sql
+# One image pin for every disposable PostgreSQL in this repository.
+IMAGE=$(sed -n "s/^image='\(postgis\/postgis:[^']*\)'$/\1/p" rs/read/tests/run_postgres.sh)
+[[ -n $IMAGE ]] || { echo "the pinned PostGIS image was not found in run_postgres.sh" >&2; exit 1; }
+
+WORK=$(mktemp -d)
+container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$IMAGE")
+cleanup() {
+  docker rm -f "$container" > /dev/null 2>&1 || true
+  rm -rf -- "$WORK"
+}
+trap cleanup EXIT
+port=$(docker port "$container" 5432/tcp | sed -n 's/^127\.0\.0\.1://p' | head -n 1)
+ready=0
+for _ in $(seq 1 120); do
+  # TCP, not the socket: the image's first-start server listens on the socket
+  # only and stops again after initialization.
+  if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres -q 2> /dev/null \
+    && python3 -c 'import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2).close()' "$port" 2> /dev/null; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+[[ $ready == 1 ]] || { echo "the disposable PostgreSQL did not start" >&2; exit 1; }
+
+admin() { docker exec -i "$container" psql -U postgres -X -q -v ON_ERROR_STOP=1 "$@"; }
+# The production role names, so the owner projection of the fingerprint matches.
+admin <<'SQL'
+CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
+CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
+SQL
+for database in verdaxis_baseline verdaxis_baseline_restore; do
+  admin <<SQL
+CREATE DATABASE $database OWNER verdaxis_migrator;
+\connect $database
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator;
+SQL
+done
+
+# Alembic runs on this Mac and reaches the container through the mapped port.
+migrator_url() { printf 'postgresql+asyncpg://verdaxis_migrator:disposable_migrator_pw@127.0.0.1:%s/%s' "$port" "$1"; }
+# psql runs inside the container: its client matches the server and pg_dump.
+as_migrator() {
+  local database=$1
+  shift
+  docker exec -i "$container" psql -U verdaxis_migrator -d "$database" -X -q -v ON_ERROR_STOP=1 "$@"
+}
+
+echo "== alembic upgrade $HEAD_REVISION"
+migration_started=$(date -u +%s)
+ENVIRONMENT=test RELEASE_SHA=$(git rev-parse HEAD) JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  DATABASE_URL=$(migrator_url verdaxis_baseline) MIGRATOR_DATABASE_URL=$(migrator_url verdaxis_baseline) \
+  "$PYTHON" -m alembic upgrade "$HEAD_REVISION" > "$WORK/alembic.log" 2>&1 \
+  || { tail -20 "$WORK/alembic.log" >&2; exit 1; }
+migration_ended=$(( $(date -u +%s) + 1 ))
+live=$(as_migrator verdaxis_baseline -tA -c 'SELECT string_agg(version_num, $$,$$) FROM alembic_version')
+[[ $live == "$HEAD_REVISION" ]] || { echo "alembic_version is '$live', not $HEAD_REVISION" >&2; exit 1; }
+revision_count=$(ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
+  "$PYTHON" -m alembic history -r "base:$HEAD_REVISION" 2> /dev/null | grep -c -- ' -> ' || true)
+
+echo "== dump"
+# One full dump, not a schema dump followed by a data-only dump: pg_dump then
+# writes the reference rows before the post-data section (constraints, indexes,
+# triggers), so loading them fires no trigger and needs no foreign-key order.
+docker exec "$container" pg_dump -U postgres --no-owner --no-privileges --inserts \
+  --exclude-table=alembic_version verdaxis_baseline > "$WORK/dump.sql"
+postgres_version=$(admin -tA -c 'SHOW server_version')
+{
+  printf -- '-- Verdaxis sqlx baseline (Phase 10 plan section 8.2). Frozen: never edit; a\n'
+  printf -- '-- change needs a new migration.\n'
+  printf -- '-- Source Alembic head: %s (%s revisions)\n' "$HEAD_REVISION" "$revision_count"
+  printf -- '-- PostgreSQL: %s, image %s\n' "$postgres_version" "$IMAGE"
+  printf -- '-- Generated by deploy/scripts/generate-sqlx-baseline.sh with pg_dump\n'
+  printf -- '-- --no-owner --no-privileges --inserts --exclude-table=alembic_version.\n'
+  printf -- '-- ACL convergence remains the only grant source.\n\n'
+  grep -q -E '^CREATE EXTENSION (IF NOT EXISTS )?postgis' "$WORK/dump.sql" \
+    || printf 'CREATE EXTENSION IF NOT EXISTS postgis;\n\n'
+  # sqlx executes this file as plain SQL: drop pg_dump's psql-only
+  # \restrict/\unrestrict guard lines; any other psql command stops the run.
+  # The extension comment is dropped too: only the extension owner (the
+  # administrator who creates PostGIS before any migration) may set it.
+  cat "$WORK/dump.sql" \
+    | grep -v -E '^\\(restrict|unrestrict) ' \
+    | grep -v -E '^COMMENT ON EXTENSION '
+} > "$BASELINE_SQL"
+# Two migration rows hold values made at migration time: a database identity
+# from gen_random_uuid() and an updated_at from now(). Frozen, every database
+# created from the baseline would share them, so the baseline carries the
+# migrations' own statements instead. Each original row must match exactly once.
+python3 - "$BASELINE_SQL" "$migration_started" "$migration_ended" <<'PY' || { echo "a migration-time row has an unexpected form" >&2; exit 1; }
+import datetime, re, sys
+path, started, ended = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+text = open(path).read()
+
+# A timestamp literal inside the migration run came from the clock (now() or a
+# column default): it becomes now() again, so the file does not depend on when
+# it was generated.
+stamp = re.compile(r"'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\+00'")
+
+def clock_value(match):
+    moment = datetime.datetime.fromisoformat(match.group(1)).replace(tzinfo=datetime.timezone.utc).timestamp()
+    return "now()" if started - 1 <= moment <= ended else match.group(0)
+
+text = "\n".join(stamp.sub(clock_value, line) if line.startswith("INSERT INTO ") else line
+                 for line in text.split("\n"))
+replacements = [
+    (
+        r"^INSERT INTO public\.public_read_cache_incarnation VALUES \(true, '[0-9a-f-]{36}', '[0-9a-f-]{36}', 0, false\);$",
+        "INSERT INTO public.public_read_cache_incarnation (singleton, database_epoch, primary_identity) "
+        "VALUES (true, gen_random_uuid()::text, gen_random_uuid()::text);",
+    ),
+    (
+        r"^INSERT INTO public\.market_event_retention_control VALUES \(true, 'blocked', 0, NULL, NULL, NULL, NULL, now\(\)\);$",
+        "INSERT INTO public.market_event_retention_control (singleton, mode, ownership_epoch) VALUES (true, 'blocked', 0);",
+    ),
+]
+for pattern, statement in replacements:
+    text, count = re.subn(pattern, statement, text, flags=re.M)
+    if count != 1:
+        sys.exit(f"expected one row for {pattern!r}, found {count}")
+open(path, "w").write(text)
+PY
+if grep -n -E '^[\]' "$BASELINE_SQL" > "$WORK/meta.txt"; then
+  echo "the dump holds psql commands that sqlx cannot run:" >&2
+  head -5 "$WORK/meta.txt" >&2
+  exit 1
+fi
+
+fingerprint() {
+  local database=$1
+  { printf 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n'; cat "$FINGERPRINT_SQL"; printf 'COMMIT;\n'; } \
+    | as_migrator "$database" -tA > "$WORK/projection-$database.txt"
+  python3 -c 'import hashlib, sys; lines = open(sys.argv[1]).read().rstrip("\n"); print(hashlib.sha256(lines.encode()).hexdigest())' \
+    "$WORK/projection-$database.txt"
+}
+# Rows present in an empty database after the migrations are reference data.
+row_counts() {
+  as_migrator "$1" -tA -F ' ' <<'SQL'
+SELECT c.relname,
+       (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %I.%I', n.nspname, c.relname), false, true, '')))[1]::text
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+  AND c.relname NOT IN ('alembic_version', '_sqlx_migrations')
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.deptype = 'e' AND d.classid = 'pg_class'::regclass AND d.objid = c.oid)
+ORDER BY c.relname COLLATE "C";
+SQL
+}
+
+source_fingerprint=$(fingerprint verdaxis_baseline)
+row_counts verdaxis_baseline > "$WORK/rows-source.txt"
+
+echo "== restore into an empty database"
+as_migrator verdaxis_baseline_restore < "$BASELINE_SQL" > /dev/null
+restored_fingerprint=$(fingerprint verdaxis_baseline_restore)
+row_counts verdaxis_baseline_restore > "$WORK/rows-restored.txt"
+# A dump and restore prints varchar IN-lists in CHECK constraints and index
+# predicates differently with the same meaning: `'x'::character varying, ...]::text[]`
+# comes back as `'x'::character varying::text, ...]` (or with parenthesized casts). An Alembic-built database (production)
+# keeps the first form; a database created from this baseline gets the second.
+# Both fingerprints are recorded. The only accepted difference is that cast
+# rendering, on CHECK constraint and index lines; anything else stops the run.
+python3 - "$WORK/projection-verdaxis_baseline.txt" "$WORK/projection-verdaxis_baseline_restore.txt" <<'PY' \
+  || { echo "the restored catalog differs from the migrated one beyond CHECK cast rendering" >&2; exit 1; }
+import re, sys
+migrated = open(sys.argv[1]).read().splitlines()
+restored = open(sys.argv[2]).read().splitlines()
+
+def cast_rendering(line):
+    """The IN-list of varchar literals without its redundant text casts, in
+    each of the three ways PostgreSQL prints it."""
+    line = re.sub(r"\('((?:[^']|'')*)'::character varying\)::text", r"'\1'::character varying", line)
+    line = line.replace("::character varying::text", "::character varying")
+    line = re.sub(r"\(\(ARRAY\[(.*?)\]\)::text\[\]\)", r"(ARRAY[\1])", line)
+    return line.replace("]::text[]", "]")
+
+if len(migrated) != len(restored):
+    sys.exit(f"line counts differ: {len(migrated)} migrated, {len(restored)} restored")
+changed = 0
+for before, after in zip(migrated, restored):
+    if before == after:
+        continue
+    check_or_index = (before.startswith("constraint|") and "|type=c|" in before) or before.startswith("index|")
+    if not (check_or_index and cast_rendering(before) == cast_rendering(after)):
+        sys.exit(f"unexplained difference:\n- {before}\n+ {after}")
+    changed += 1
+print(f"varchar IN-list cast rendering differs on {changed} CHECK constraint or index lines; nothing else differs")
+PY
+cmp -s "$WORK/rows-source.txt" "$WORK/rows-restored.txt" \
+  || { echo "the restored row counts differ from the migrated ones" >&2; exit 1; }
+admin <<'SQL'
+CREATE DATABASE verdaxis_baseline_second OWNER verdaxis_migrator;
+\connect verdaxis_baseline_second
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator;
+SQL
+as_migrator verdaxis_baseline_second < "$BASELINE_SQL" > /dev/null
+[[ $(fingerprint verdaxis_baseline_second) == "$restored_fingerprint" ]] \
+  || { echo "a second restore of the baseline gives another fingerprint" >&2; exit 1; }
+if as_migrator verdaxis_baseline_restore < "$BASELINE_SQL" > /dev/null 2>&1; then
+  echo "a second restore over the baseline was accepted; the dump must not be re-runnable" >&2
+  exit 1
+fi
+
+file_sha256=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$BASELINE_SQL")
+python3 - "$BASELINE_JSON" "$HEAD_REVISION" "$revision_count" "$postgres_version" "$source_fingerprint" "$restored_fingerprint" "$file_sha256" "$WORK/rows-source.txt" <<'PY'
+import json, sys
+path, head, count, postgres, fingerprint, restored, file_sha, rows_path = sys.argv[1:]
+rows = {}
+for line in open(rows_path):
+    name, value = line.split()
+    if int(value) > 0:
+        rows[name] = int(value)
+document = {
+    "baseline_version": 1,
+    "alembic_head": head,
+    "alembic_revisions": int(count),
+    "postgres": postgres,
+    # The Alembic-built form (production, staging) and the form a database
+    # created from 1_baseline.sql has; they differ only in CHECK cast rendering.
+    "fingerprint": fingerprint,
+    "restored_fingerprint": restored,
+    "file_sha256": file_sha,
+    "reference_rows": rows,
+}
+with open(path, "w") as handle:
+    json.dump(document, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
+echo "BASELINE=ok head=$HEAD_REVISION revisions=$revision_count fingerprint=$source_fingerprint restored_fingerprint=$restored_fingerprint file_sha256=$file_sha256"
