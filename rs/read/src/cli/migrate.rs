@@ -128,7 +128,11 @@ pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error
     } else {
         Vec::new()
     };
-    let embedded = |version: i64| MIGRATOR.iter().find(|migration| migration.version == version);
+    let embedded = |version: i64| {
+        MIGRATOR
+            .iter()
+            .find(|migration| migration.version == version)
+    };
     let foreign = history
         .iter()
         .filter(|row| match embedded(row.version) {
@@ -156,4 +160,147 @@ pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error
         pending,
         foreign,
     })
+}
+
+/// The compiled baseline manifest (`deploy/rust/sqlx-baseline.json`).
+const BASELINE_MANIFEST: &str = include_str!("../../../../deploy/rust/sqlx-baseline.json");
+
+/// The fields of the baseline manifest that adoption checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaselineRecord {
+    pub alembic_head: String,
+    /// The catalog of an Alembic-built database (production, staging).
+    pub fingerprint: String,
+    pub file_sha256: String,
+}
+
+/// The manifest compiled into this binary.
+pub fn compiled_baseline() -> BaselineRecord {
+    let document: serde_json::Value =
+        serde_json::from_str(BASELINE_MANIFEST).expect("the compiled baseline manifest is JSON");
+    let text = |key: &str| {
+        document[key]
+            .as_str()
+            .unwrap_or_else(|| panic!("the compiled baseline manifest has no {key}"))
+            .to_owned()
+    };
+    BaselineRecord {
+        alembic_head: text("alembic_head"),
+        fingerprint: text("fingerprint"),
+        file_sha256: text("file_sha256"),
+    }
+}
+
+/// Why adoption refused. Every refusal happens before the first write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdoptionRefusal {
+    /// `alembic_version` is not exactly one row equal to the expected literal.
+    AlembicRevision,
+    /// The expected literal is not the head the baseline was cut from.
+    BaselineHead,
+    /// The sqlx history holds anything but the exact adoption row.
+    History,
+    /// The live catalog differs from the baseline's Alembic-built catalog.
+    Fingerprint,
+    /// The embedded baseline file or migration list differs from the manifest.
+    EmbeddedBaseline,
+    Database,
+}
+
+impl From<sqlx::Error> for AdoptionRefusal {
+    fn from(_: sqlx::Error) -> Self {
+        Self::Database
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Adoption {
+    /// This run created the history with the version 1 row.
+    Adopted,
+    /// The exact adoption row was already there; nothing was written.
+    AlreadyAdopted,
+}
+
+/// The table definition sqlx itself creates for its history.
+const HISTORY_DDL: &str = "CREATE TABLE public._sqlx_migrations (\
+    version BIGINT PRIMARY KEY, \
+    description TEXT NOT NULL, \
+    installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), \
+    success BOOLEAN NOT NULL, \
+    checksum BYTEA NOT NULL, \
+    execution_time BIGINT NOT NULL)";
+
+fn baseline_migration() -> Result<&'static sqlx::migrate::Migration, AdoptionRefusal> {
+    let mut migrations = MIGRATOR.iter();
+    match (migrations.next(), migrations.next()) {
+        (Some(first), None) if first.version == 1 => Ok(first),
+        _ => Err(AdoptionRefusal::EmbeddedBaseline),
+    }
+}
+
+/// Adopt an Alembic-built database into the sqlx history (plan section 8.4):
+/// every check runs before the first write, then one transaction creates the
+/// history table with sqlx's own definition and records version 1 with the
+/// embedded checksum. An exact earlier adoption is reported without a write.
+pub async fn adopt(
+    connection: &mut PgConnection,
+    expected_current: &str,
+    baseline: &BaselineRecord,
+) -> Result<Adoption, AdoptionRefusal> {
+    let migration = baseline_migration()?;
+    let embedded_digest: String = Sha256::digest(migration.sql.as_str().as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    if embedded_digest != baseline.file_sha256 {
+        return Err(AdoptionRefusal::EmbeddedBaseline);
+    }
+    if expected_current != baseline.alembic_head {
+        return Err(AdoptionRefusal::BaselineHead);
+    }
+    let current = status(connection).await?;
+    if current.alembic.as_slice() != [expected_current.to_owned()] {
+        return Err(AdoptionRefusal::AlembicRevision);
+    }
+    let exact_adoption = |row: &HistoryRow| {
+        row.version == migration.version
+            && row.success
+            && row.checksum.as_slice() == &*migration.checksum
+            && row.description == migration.description
+    };
+    match current.history.as_slice() {
+        [] => {}
+        [row] if exact_adoption(row) => {
+            // A resume checks the catalog again and writes nothing.
+            if fingerprint(connection).await? != baseline.fingerprint {
+                return Err(AdoptionRefusal::Fingerprint);
+            }
+            return Ok(Adoption::AlreadyAdopted);
+        }
+        _ => return Err(AdoptionRefusal::History),
+    }
+    if fingerprint(connection).await? != baseline.fingerprint {
+        return Err(AdoptionRefusal::Fingerprint);
+    }
+    let history_exists = table_exists(connection, HISTORY_TABLE).await?;
+    let mut transaction = connection.begin().await?;
+    if !history_exists {
+        sqlx::query(HISTORY_DDL).execute(&mut *transaction).await?;
+    }
+    sqlx::query(
+        "INSERT INTO public._sqlx_migrations \
+           (version, description, installed_on, success, checksum, execution_time) \
+         VALUES ($1, $2, now(), true, $3, 0)",
+    )
+    .bind(migration.version)
+    .bind(&*migration.description)
+    .bind(&*migration.checksum)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    // Read the row back: the commit must have recorded exactly what sqlx expects.
+    match status(connection).await?.history.as_slice() {
+        [row] if exact_adoption(row) => Ok(Adoption::Adopted),
+        _ => Err(AdoptionRefusal::History),
+    }
 }

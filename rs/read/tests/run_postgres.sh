@@ -46,6 +46,9 @@ CREATE ROLE rust_backup NOLOGIN;
 -- Phase 10 Task 3 target-attestation accept cases need the deployed role names.
 CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
 CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_pw';
+-- Phase 10 Tasks 5 and 6: the production migrator name owns the baseline and
+-- adoption databases, so the catalog fingerprint's owner projection matches.
+CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_verdaxis_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 -- A second database proves the attestation refuses a correct role on the
 -- wrong database name.
@@ -234,18 +237,37 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test phase4_analytics_views --test phase4_analytics_legacy \
   --test phase4_admission --test phase4_organizations --test phase4_races \
   -- --include-ignored --test-threads=1
-# Phase 10 Task 5: the frozen sqlx baseline restores into fresh databases on
-# this server; each case creates and drops its own database.
+# Phase 10 Task 6: an Alembic-built database at the baseline head, owned by the
+# production migrator name, is the template every adoption case clones.
+adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
+\connect verdaxis_adoption_template
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator;
+SQL
+(
+  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template" \
+    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template"
+  "$RUST_TEST_PYTHON" -m alembic upgrade "$adoption_head"
+)
+export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
+export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
+
+# Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
+# databases, and adoption runs on clones of the template above; each case
+# creates and drops its own database.
 baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-  --test phase10_baseline_postgres -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
+  --test phase10_baseline_postgres --test phase10_migrate_postgres \
+  -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
 baseline_status=${PIPESTATUS[0]}
 set -e
 if (( baseline_status != 0 )); then
   exit "$baseline_status"
 fi
 if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
-  echo "no baseline test ran: refusing a green result" >&2
+  echo "no baseline or migrate test ran: refusing a green result" >&2
   exit 1
 fi
