@@ -380,8 +380,25 @@ pub struct FileArgs {
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
 pub struct IngestArgs {
     pub kind: IngestKind,
+    /// The signal family of the whole file.
+    #[arg(long, value_enum)]
+    pub family: SignalFamily,
+    /// The run's source id (`^[a-z0-9][a-z0-9_-]{1,63}$`).
+    #[arg(long)]
+    pub source: String,
     #[command(flatten)]
     pub input: FileArgs,
+}
+
+/// The three trusted signal families (`ops ingest signals --family`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SignalFamily {
+    #[value(name = "indications")]
+    Indications,
+    #[value(name = "fair_bands")]
+    FairBands,
+    #[value(name = "stems")]
+    Stems,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Args)]
@@ -615,6 +632,9 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         Command::Migrate(args) => migrate::run(&args).await,
         Command::Guard(args) => run_guard(&args),
         Command::Acl(args) => ops_outcome("acl converge", acl::run(&args)),
+        Command::Ops(OpsArgs {
+            action: OpsAction::Ingest(args),
+        }) => ops::ingest::run(&args).await,
         // Task 9: the deploy transaction's projections. Each reports one
         // outcome line naming the refused rule, never a value.
         Command::Ops(OpsArgs {

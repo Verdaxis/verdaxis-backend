@@ -95,6 +95,7 @@ esac
 UNIT_MANIFEST_PATH="deploy/systemd/runtime-units.manifest"
 MIGRATION_POLICY_PATH="deploy/migration-checkpoints.tsv"
 ACL_POLICY_PATH="deploy/postgres/app_acl_policy.sql"
+OPERATOR_ACL_POLICY_PATH="deploy/postgres/operator_acl_policy.sql"
 ACL_CONVERGENCE_SQL_PATH="deploy/postgres/converge_runtime_object_acls.sql"
 ACL_CONVERGENCE_HELPER_PATH="deploy/scripts/converge-acls.sh"
 DEPLOY_START_GUARD_HELPER_PATH="deploy/scripts/verify-deploy-start-guard.sh"
@@ -708,6 +709,7 @@ prepare_acl_convergence_bundle() {
     local source_sha="$1" relative
     local -a paths=(
         "$ACL_POLICY_PATH"
+        "$OPERATOR_ACL_POLICY_PATH"
         "$ACL_CONVERGENCE_SQL_PATH"
         "$ACL_CONVERGENCE_HELPER_PATH"
     )
@@ -831,12 +833,13 @@ if [[ "$DRY_RUN" == "1" ]]; then
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$UNIT_MANIFEST_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$MIGRATION_POLICY_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_POLICY_PATH"
+    "${GIT[@]}" cat-file -e "$REMOTE_SHA:$OPERATOR_ACL_POLICY_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_CONVERGENCE_SQL_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$ACL_CONVERGENCE_HELPER_PATH"
     "${GIT[@]}" cat-file -e "$REMOTE_SHA:$DEPLOY_START_GUARD_HELPER_PATH"
     "${GIT[@]}" archive --format=tar "$REMOTE_SHA" \
         "$UNIT_MANIFEST_PATH" "$MIGRATION_POLICY_PATH" "$ACL_POLICY_PATH" \
-        "$ACL_CONVERGENCE_SQL_PATH" "$ACL_CONVERGENCE_HELPER_PATH" \
+        "$OPERATOR_ACL_POLICY_PATH" "$ACL_CONVERGENCE_SQL_PATH" "$ACL_CONVERGENCE_HELPER_PATH" \
         "$DEPLOY_START_GUARD_HELPER_PATH" "${RUST_ATTEST_PATHS[@]}" \
         | tar --extract --file=- --directory="$DRY_RUN_TEMP/candidate-units"
     verify_archived_blob "$REMOTE_SHA" "$UNIT_MANIFEST_PATH" \
@@ -845,6 +848,8 @@ if [[ "$DRY_RUN" == "1" ]]; then
         "$DRY_RUN_TEMP/candidate-units/$MIGRATION_POLICY_PATH"
     verify_archived_blob "$REMOTE_SHA" "$ACL_POLICY_PATH" \
         "$DRY_RUN_TEMP/candidate-units/$ACL_POLICY_PATH"
+    verify_archived_blob "$REMOTE_SHA" "$OPERATOR_ACL_POLICY_PATH" \
+        "$DRY_RUN_TEMP/candidate-units/$OPERATOR_ACL_POLICY_PATH"
     verify_archived_blob "$REMOTE_SHA" "$ACL_CONVERGENCE_SQL_PATH" \
         "$DRY_RUN_TEMP/candidate-units/$ACL_CONVERGENCE_SQL_PATH"
     verify_archived_blob "$REMOTE_SHA" "$ACL_CONVERGENCE_HELPER_PATH" \
@@ -863,6 +868,7 @@ if [[ "$DRY_RUN" == "1" ]]; then
         "$UNIT_MANIFEST_PATH"
         "$MIGRATION_POLICY_PATH"
         "$ACL_POLICY_PATH"
+        "$OPERATOR_ACL_POLICY_PATH"
         "$ACL_CONVERGENCE_SQL_PATH"
         "$ACL_CONVERGENCE_HELPER_PATH"
     )

@@ -48,7 +48,8 @@ done
     || fail 'the deployed environment file must be a regular file'
 [[ -d "$bundle_root" && ! -L "$bundle_root" ]] \
     || fail 'the ACL bundle root must be a real directory'
-for relative in deploy/postgres/app_acl_policy.sql deploy/postgres/converge_runtime_object_acls.sql; do
+for relative in deploy/postgres/app_acl_policy.sql deploy/postgres/operator_acl_policy.sql \
+    deploy/postgres/converge_runtime_object_acls.sql; do
     [[ -f "$bundle_root/$relative" && ! -L "$bundle_root/$relative" ]] \
         || fail "the ACL bundle is missing a regular $relative"
 done

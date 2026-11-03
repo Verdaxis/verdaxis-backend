@@ -16,7 +16,11 @@ use super::{AclArgs, Environment, Exit};
 /// The host's PostgreSQL client. A fixed path: `PATH` never chooses it.
 pub const PSQL: &str = "/usr/bin/psql";
 const CONVERGENCE_SQL: &str = "deploy/postgres/converge_runtime_object_acls.sql";
-const BUNDLE_FILES: [&str; 2] = ["deploy/postgres/app_acl_policy.sql", CONVERGENCE_SQL];
+const BUNDLE_FILES: [&str; 3] = [
+    "deploy/postgres/app_acl_policy.sql",
+    "deploy/postgres/operator_acl_policy.sql",
+    CONVERGENCE_SQL,
+];
 const DEFAULT_PORT: u16 = 5432;
 
 /// The roles of one deployed environment.
@@ -26,6 +30,9 @@ pub struct Roles {
     pub app_role: &'static str,
     pub migrator_role: &'static str,
     pub backup_role: &'static str,
+    /// The trusted-ingestion operator (Task 21); convergence grants it only
+    /// once the role exists.
+    pub operator_role: &'static str,
 }
 
 pub fn roles(environment: Environment) -> Roles {
@@ -35,12 +42,14 @@ pub fn roles(environment: Environment) -> Roles {
             app_role: "verdaxis_app",
             migrator_role: "verdaxis_migrator",
             backup_role: "verdaxis_backup",
+            operator_role: "verdaxis_operator",
         },
         Environment::Staging => Roles {
             database_name: "verdaxis_staging",
             app_role: "verdaxis_app_staging",
             migrator_role: "verdaxis_migrator_staging",
             backup_role: "verdaxis_backup_staging",
+            operator_role: "verdaxis_operator_staging",
         },
     }
 }
@@ -175,6 +184,10 @@ pub fn psql_command(psql: &Path, bundle_root: &Path, target: &Target) -> Command
         .args([
             "--set",
             &format!("backup_role={}", target.roles.backup_role),
+        ])
+        .args([
+            "--set",
+            &format!("operator_role={}", target.roles.operator_role),
         ])
         .arg("--file")
         .arg(bundle_root.join(CONVERGENCE_SQL))

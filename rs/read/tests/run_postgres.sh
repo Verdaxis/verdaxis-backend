@@ -254,6 +254,30 @@ SQL
 export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
 export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
 
+# Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
+# the baseline applied by the staging migrator, then the real ACL convergence
+# with the operator role. Each ingestion case clones it as verdaxis_staging.
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_migrator_pw';
+CREATE ROLE verdaxis_backup_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_backup_pw';
+CREATE ROLE verdaxis_operator_staging LOGIN NOINHERIT PASSWORD 'disposable_operator_pw';
+CREATE DATABASE verdaxis_ingest_template OWNER verdaxis_migrator_staging;
+\connect verdaxis_ingest_template
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
+SQL
+docker exec -i "$container" psql -U verdaxis_migrator_staging -d verdaxis_ingest_template \
+  -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
+docker exec "$container" mkdir -p /tmp/acl-bundle
+docker cp deploy/postgres/. "$container":/tmp/acl-bundle/
+docker exec "$container" psql -U postgres -d verdaxis_ingest_template -X -q --single-transaction \
+  -v ON_ERROR_STOP=1 -v database_name=verdaxis_ingest_template -v app_role=verdaxis_app_staging \
+  -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
+  -v operator_role=verdaxis_operator_staging -f /tmp/acl-bundle/converge_runtime_object_acls.sql > /dev/null
+export RUST_INGEST_TEMPLATE_DATABASE=verdaxis_ingest_template
+# The ingestion cases rerun the convergence through this container's psql.
+export RUST_POSTGRES_CONTAINER="$container"
+
 # Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
 # databases, and adoption runs on clones of the template above; each case
 # creates and drops its own database. Task 9: `ops preflight` attests a
@@ -262,7 +286,7 @@ baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test phase10_baseline_postgres --test phase10_migrate_postgres \
-  --test phase10_ops_preflight_postgres \
+  --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
   -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
 baseline_status=${PIPESTATUS[0]}
 set -e
