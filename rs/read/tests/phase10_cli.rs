@@ -58,7 +58,6 @@ fn subcommand_dispatch_is_exact() {
         vec!["job", "prune-analytics", "--apply"],
         vec!["job", "kyc-notices", "--apply"],
         vec!["job", "demo", "--apply"],
-        vec!["monitor", "external"],
         vec!["monitor", "external-checks"],
         vec!["recover", "--dry-run"],
         vec![
@@ -454,4 +453,22 @@ fn prune_dispatch_runs_the_job_gates() {
         "a present deploy state refuses before the database"
     );
     std::fs::remove_dir_all(&state_dir).unwrap();
+}
+
+/// `monitor external` runs real checks, so this case only proves it is
+/// dispatched: a setting that does not parse refuses (exit 3) before any
+/// file, program or network is touched.
+#[test]
+fn external_monitor_refuses_an_invalid_setting_before_any_check() {
+    let output = Process::new(env!("CARGO_BIN_EXE_verdaxis-read"))
+        .args(["monitor", "external", "--telegram-disabled"])
+        .env_clear()
+        .env("HTTP_RETRIES", "three")
+        .env("STATE_FILE", "/nonexistent/state.json")
+        .output()
+        .expect("start the monitor");
+    assert_eq!(output.status.code(), Some(3));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("HTTP_RETRIES is not a valid setting")
+    );
 }

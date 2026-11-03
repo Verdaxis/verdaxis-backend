@@ -5347,35 +5347,37 @@
       "id": "unit.deploy/external_monitor/systemd/verdaxis-external-monitor.service",
       "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.service",
       "kind": "unit",
-      "end_state": "rust",
-      "owner": "monitor external-checks",
-      "task": 29,
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
       "source_sha256": "a2a3afa0e48b424d48f4f62539c59ee2578b75e8cbf23c367d2533ed8c53c9e1",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
         "no_unit_contains_python_or_a_venv_path"
       ],
-      "deleting_task": null,
+      "deleting_task": 32,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
-      "installed_check": "systemctl cat verdaxis-external-monitor.service"
+      "installed_check": "systemctl cat verdaxis-external-monitor.service",
+      "last_reference_change": "Task 29: no installed unit on either host and no implementation in source or on a host (4 Nov read-only check); retired, not ported; Task 32 removes the unit files"
     },
     {
       "id": "unit.deploy/external_monitor/systemd/verdaxis-external-monitor.timer",
       "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.timer",
       "kind": "timer",
-      "end_state": "rust",
-      "owner": "monitor external-checks",
-      "task": 29,
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
       "source_sha256": "f31a806543711dc7a7193bfad0b491cf018f679a6645cea6a48baa374d981f8c",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
         "no_unit_contains_python_or_a_venv_path"
       ],
-      "deleting_task": null,
+      "deleting_task": 32,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
-      "installed_check": "systemctl cat verdaxis-external-monitor.timer"
+      "installed_check": "systemctl cat verdaxis-external-monitor.timer",
+      "last_reference_change": "Task 29: no installed unit on either host and no implementation in source or on a host (4 Nov read-only check); retired, not ported; Task 32 removes the unit files"
     },
     {
       "id": "unit.deploy/external_monitor/systemd/verdaxis-external-recover.service",

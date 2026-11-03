@@ -610,6 +610,9 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         Command::Monitor(args) if args.kind == MonitorKind::Alert => {
             monitors::alert::run_command(&args).await
         }
+        Command::Monitor(args) if args.kind == MonitorKind::External => {
+            monitors::external::run(args.telegram_disabled).await
+        }
         Command::Monitor(args) if args.kind == MonitorKind::Outbox => {
             monitors::outbox::run_command(&args).await
         }

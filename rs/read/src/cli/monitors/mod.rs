@@ -5,6 +5,7 @@
 pub mod alert;
 pub mod alert_journal;
 pub mod backup;
+pub mod external;
 pub mod health;
 pub mod outbox;
 pub mod status;
