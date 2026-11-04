@@ -172,6 +172,7 @@ fn lock_plan_matches_the_declared_operation_graph() {
             vec![User, LockClass::Commission],
         ),
         (Freeze, vec![User, Trade, FreezeRow]),
+        (Reassign, vec![Organization, User, Trade]),
     ] {
         assert_eq!(op.graph(), graph, "{op:?}");
     }

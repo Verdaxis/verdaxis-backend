@@ -21,6 +21,8 @@ from tests.postgres.test_supplier_offer_migration_roundtrip import (
 ROOT = Path(__file__).resolve().parents[2]
 PARENT = "p89_20261022_watchlist_producer"
 REVISION = "p89_20261022_trade_freeze"
+# The single migration head; the account state marker revision follows the freeze.
+HEAD = "ob_20261031_offboarding"
 MIGRATION = ROOT / f"alembic/versions/{REVISION}.py"
 ACTOR = "88888888-9999-0000-0000-000000000001"
 BUYER = "88888888-9999-0000-0000-000000000002"
@@ -75,7 +77,9 @@ def test_rust_owned_freeze_declaration_is_exact():
 def test_unlisted_column_still_reports_schema_drift(freeze_database, relation):
     import sys
 
-    sql, _ = freeze_database
+    sql, migrate = freeze_database
+    # The drift check compares against the single head.
+    migrate("upgrade", HEAD)
     sql(f"ALTER TABLE {relation} ADD COLUMN unlisted_extra text")
     url = make_url(database_url(sql, "MARKET_INTEGRITY_TEST_DATABASE_URL")).set(
         drivername="postgresql+asyncpg"
@@ -266,13 +270,13 @@ def test_migration_creates_exactly_the_freeze_objects(supplier_scratch_database)
 def test_alembic_heads_is_one_before_and_after(supplier_scratch_database):
     sql, migrate = supplier_scratch_database
     graph = migration_graph()
-    assert graph.get_heads() == [REVISION]
+    assert graph.get_heads() == [HEAD]
     parents = {
         parent
-        for item in graph.walk_revisions() if item.revision != REVISION
+        for item in graph.walk_revisions() if item.revision not in {REVISION, HEAD}
         for parent in (item.down_revision if isinstance(item.down_revision, tuple) else (item.down_revision,))
     }
-    previous = {item.revision for item in graph.walk_revisions() if item.revision != REVISION} - parents
+    previous = {item.revision for item in graph.walk_revisions() if item.revision not in {REVISION, HEAD}} - parents
     assert previous == {PARENT}
     migrate("upgrade", PARENT)
     assert sql("SELECT version_num FROM alembic_version") == PARENT
@@ -280,7 +284,7 @@ def test_alembic_heads_is_one_before_and_after(supplier_scratch_database):
     assert sql("SELECT version_num FROM alembic_version") == REVISION
     migrate("downgrade", PARENT)
     assert sql("SELECT version_num FROM alembic_version") == PARENT
-    assert graph.get_heads() == [REVISION]
+    assert graph.get_heads() == [HEAD]
 
 
 def test_downgrade_refuses_when_rows_exist(freeze_database):
@@ -358,7 +362,7 @@ def test_preparer_accepts_reviewed_production_checkpoints(tmp_path):
 
 def test_release_pin_lists_the_new_head():
     revisions = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION]
+    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION, HEAD]
     checkpoints = {tuple(line.split()) for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
                    if line and not line.startswith("#")}
     assert (PARENT, REVISION) in checkpoints
@@ -522,11 +526,11 @@ LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 RELEASE_ALLOWLIST = [
     "kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache",
     "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor",
-    READ_INDEXES, PARENT, REVISION,
+    READ_INDEXES, PARENT, REVISION, HEAD,
 ]
 PRODUCTION_CHECKPOINTS = {
     "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens",
-    "sse_20261021_replay_floor", READ_INDEXES, PARENT, REVISION,
+    "sse_20261021_replay_floor", READ_INDEXES, PARENT, REVISION, HEAD,
 }
 NON_LITERAL_REVISIONS = ("*", "head", "heads", "", "unlisted_revision", f"{REVISION}_next")
 FREEZE_FUNCTIONS = {"trades_freeze_guard", "trade_freezes_history_guard"}
@@ -855,7 +859,7 @@ def new_trade(release):
 def test_alembic_heads_is_one_after_both_checkpoints(staging_release):
     release = staging_release
     graph = migration_graph()
-    assert graph.get_heads() == [REVISION]
+    assert graph.get_heads() == [HEAD]
     assert [item.revision for item in graph.iterate_revisions(REVISION, READ_INDEXES)] == [REVISION, PARENT]
 
     def children(revision):
@@ -866,7 +870,7 @@ def test_alembic_heads_is_one_after_both_checkpoints(staging_release):
 
     assert children(READ_INDEXES) == [PARENT]
     assert children(PARENT) == [REVISION]
-    assert children(REVISION) == []
+    assert children(REVISION) == [HEAD]
 
     applied = [call for call in release.calls if call["refusal"] is None]
     assert [(call["expected"], call["target"]) for call in applied] == [
@@ -900,7 +904,7 @@ def test_alembic_heads_is_one_after_both_checkpoints(staging_release):
 
     assert release.revision() == REVISION
     assert release.sql("SELECT count(*) FROM alembic_version") == "1"
-    assert graph.get_heads() == [REVISION]
+    assert graph.get_heads() == [HEAD]
 
 
 def test_release_pin_is_an_exact_equality(tmp_path):
@@ -914,6 +918,7 @@ def test_release_pin_is_an_exact_equality(tmp_path):
     }
     assert {row for row in policy_rows if PARENT in row or REVISION in row} == {
         (READ_INDEXES, PARENT), (PARENT, PARENT), (PARENT, REVISION), (REVISION, REVISION),
+        (REVISION, HEAD),
     }
     assert {
         ("p3_20261020_auth_tokens", "sse_20261021_replay_floor"),

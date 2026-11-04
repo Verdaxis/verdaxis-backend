@@ -101,6 +101,11 @@ REVIEWED_EXCLUSIONS = {
         "legacy table that no Rust query reads; the scan matches the client "
         "error text 'Can only update orders' in order_write/amend.rs"
     ),
+    # Offboarding record. No public cached route reads this table.
+    "individual_offboardings": (
+        "append-only offboarding record written inside the offboarding "
+        "transaction; never a cached read dependency"
+    ),
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }
 

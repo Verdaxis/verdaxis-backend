@@ -75,7 +75,7 @@ impl Fixture {
             .fetch_one(&mut admin)
             .await
             .unwrap();
-        assert_eq!(revision, "p89_20261022_trade_freeze");
+        assert_eq!(revision, "ob_20261031_offboarding");
         sqlx::raw_sql(include_str!("fixtures/phase8_commission.sql"))
             .execute(&mut admin)
             .await

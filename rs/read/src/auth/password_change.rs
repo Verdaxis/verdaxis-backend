@@ -194,6 +194,7 @@ async fn replace(
         must_change_password: false,
         password_changed_at: user.password_changed_at.map(|v| v.timestamp_micros()),
         authentication_revoked_at: user.authentication_revoked_at.map(|v| v.timestamp_micros()),
+        offboarded: user.offboarded_at.is_some(),
     };
     validate_account(access, &account).map_err(|error| ChangeError::Refused(auth_error(error)))?;
     if !password::verify(&change.current_password, &user.password_hash).await {

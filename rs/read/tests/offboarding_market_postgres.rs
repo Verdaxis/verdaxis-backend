@@ -1,0 +1,1473 @@
+//! The individual market scope of account offboarding, on a migrated
+//! disposable database with the converged runtime grants.
+//!
+//! Each case clones a fresh database. The invalidation runs as the runtime
+//! role inside a transaction that first holds the caller's prefix: the
+//! organization rows, then the actor and subject user rows. Fixture rows are
+//! written by the administrator connection.
+#![cfg(feature = "contract-tests")]
+#[path = "support/market_database.rs"]
+mod market_database;
+
+use std::{sync::Arc, time::Duration};
+
+use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use serde_json::{Value, json};
+use sqlx::{Connection, PgConnection};
+use uuid::Uuid;
+use verdaxis_read::{
+    Config, MarketPolicy,
+    order_write::{
+        InvalidateOrganization, InvalidateUser, InvalidationError, InvalidationResult,
+        invalidate_organization, invalidate_user,
+    },
+};
+
+const SUBJECT_ORGANIZATION: Uuid = Uuid::from_u128(0x5000);
+const SUBJECT: Uuid = Uuid::from_u128(0x5001);
+const COLLEAGUE: Uuid = Uuid::from_u128(0x5002);
+const COUNTERPARTY_ORGANIZATION: Uuid = Uuid::from_u128(0x6000);
+const COUNTERPARTY: Uuid = Uuid::from_u128(0x6001);
+const ADMIN: Uuid = Uuid::from_u128(0x7001);
+
+fn now() -> DateTime<Utc> {
+    "2026-10-25T12:00:00Z".parse().unwrap()
+}
+
+fn d(value: i64) -> Decimal {
+    Decimal::from(value)
+}
+
+fn id(n: u128) -> Uuid {
+    Uuid::from_u128(0xa000 + n)
+}
+
+/// Which side of the market the departing person trades on.
+#[derive(Clone, Copy, Debug)]
+enum SubjectSide {
+    Seller,
+    Buyer,
+}
+
+impl SubjectSide {
+    fn own_order_side(self) -> &'static str {
+        match self {
+            Self::Seller => "ASK",
+            Self::Buyer => "BID",
+        }
+    }
+    fn counter_order_side(self) -> &'static str {
+        match self {
+            Self::Seller => "BID",
+            Self::Buyer => "ASK",
+        }
+    }
+    fn role(self) -> &'static str {
+        match self {
+            Self::Seller => "SUPPLIER",
+            Self::Buyer => "BUYER",
+        }
+    }
+    fn counter_role(self) -> &'static str {
+        match self {
+            Self::Seller => "BUYER",
+            Self::Buyer => "SUPPLIER",
+        }
+    }
+    fn organization_type(self) -> &'static str {
+        match self {
+            Self::Seller => "FUEL_SUPPLIER",
+            Self::Buyer => "SHIPOWNER",
+        }
+    }
+    fn counter_organization_type(self) -> &'static str {
+        match self {
+            Self::Seller => "SHIPOWNER",
+            Self::Buyer => "FUEL_SUPPLIER",
+        }
+    }
+}
+
+struct Fixture {
+    database: Arc<market_database::MarketDatabase>,
+    admin: PgConnection,
+    runtime: PgConnection,
+    policy: Arc<MarketPolicy>,
+    config: Arc<Config>,
+    side: SubjectSide,
+}
+
+impl Fixture {
+    /// The subject and a colleague in one organization, one counterparty
+    /// member and one administrator without an organization.
+    async fn new(side: SubjectSide) -> Self {
+        let database =
+            Arc::new(market_database::MarketDatabase::new("RUST_OFFBOARDING_MARKET").await);
+        let admin_target = url::Url::parse(&database.admin_url).unwrap();
+        let runtime_target = url::Url::parse(&database.runtime_url).unwrap();
+        assert_eq!(admin_target.host_str(), Some("127.0.0.1"));
+        assert!(admin_target.path().ends_with("_test"));
+        assert_eq!(admin_target.path(), runtime_target.path());
+        assert_ne!(admin_target.username(), runtime_target.username());
+        let mut admin = PgConnection::connect(&database.admin_url).await.unwrap();
+        sqlx::raw_sql(include_str!("fixtures/offboarding_market.sql"))
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        for (organization, kind, member, role) in [
+            (
+                Some(SUBJECT_ORGANIZATION),
+                side.organization_type(),
+                SUBJECT,
+                side.role(),
+            ),
+            (
+                Some(SUBJECT_ORGANIZATION),
+                side.organization_type(),
+                COLLEAGUE,
+                side.role(),
+            ),
+            (
+                Some(COUNTERPARTY_ORGANIZATION),
+                side.counter_organization_type(),
+                COUNTERPARTY,
+                side.counter_role(),
+            ),
+            (None, "", ADMIN, "ADMIN"),
+        ] {
+            sqlx::query("SELECT offboarding_market_member($1,$2,$3,$4)")
+                .bind(organization)
+                .bind(kind)
+                .bind(member)
+                .bind(role)
+                .execute(&mut admin)
+                .await
+                .unwrap();
+        }
+        let runtime = PgConnection::connect(&database.runtime_url).await.unwrap();
+        let policy: MarketPolicy =
+            serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
+        let config: Config = serde_json::from_value(json!({
+            "kyc_execution_gate_enabled":false,"environment":"test","release_sha":"test","migration_revision":"test","database_url":"unused","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":3,"python_budget":0,"configured_max_connections":100
+        }))
+        .unwrap();
+        Self {
+            database,
+            admin,
+            runtime,
+            policy: Arc::new(policy),
+            config: Arc::new(config),
+            side,
+        }
+    }
+
+    fn command(&self) -> InvalidateUser {
+        InvalidateUser {
+            subject_id: SUBJECT,
+            actor_id: ADMIN,
+            now: now(),
+            policy: Arc::clone(&self.policy),
+            config: Arc::clone(&self.config),
+        }
+    }
+
+    /// An order of `owner` on that person's side of the market.
+    async fn order(
+        &mut self,
+        order: Uuid,
+        owner: Uuid,
+        quantity: i64,
+        remaining: i64,
+        status: &str,
+        item: Option<Uuid>,
+    ) {
+        let side = if owner == COUNTERPARTY {
+            self.side.counter_order_side()
+        } else {
+            self.side.own_order_side()
+        };
+        sqlx::query("SELECT offboarding_market_order($1,$2,$3,$4,$5,$6,$7)")
+            .bind(order)
+            .bind(owner)
+            .bind(side)
+            .bind(d(quantity))
+            .bind(d(remaining))
+            .bind(status)
+            .bind(item)
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+
+    /// A trade between `member` of the subject's organization and the
+    /// counterparty, linked to the two orders where given.
+    async fn trade(
+        &mut self,
+        trade: Uuid,
+        member: Uuid,
+        member_order: Option<Uuid>,
+        counter_order: Option<Uuid>,
+        quantity: i64,
+        status: &str,
+    ) {
+        let (bid, ask, buyer, seller) = match self.side {
+            SubjectSide::Seller => (counter_order, member_order, COUNTERPARTY, member),
+            SubjectSide::Buyer => (member_order, counter_order, member, COUNTERPARTY),
+        };
+        sqlx::query("SELECT offboarding_market_trade($1,$2,$3,$4,$5,$6,$7)")
+            .bind(trade)
+            .bind(bid)
+            .bind(ask)
+            .bind(buyer)
+            .bind(seller)
+            .bind(d(quantity))
+            .bind(status)
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+
+    async fn inventory(&mut self, item: Uuid, owner: Uuid, current: i64, reserved: i64) {
+        sqlx::query("SELECT offboarding_market_inventory($1,$2,$3,$4)")
+            .bind(item)
+            .bind(owner)
+            .bind(d(current))
+            .bind(d(reserved))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+
+    async fn bulk(&mut self, kind: &str, n: i32) {
+        sqlx::query("SELECT offboarding_market_bulk($1,$2,$3,$4)")
+            .bind(SUBJECT)
+            .bind(COUNTERPARTY)
+            .bind(kind)
+            .bind(n)
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+
+    async fn snapshot(&mut self) -> Value {
+        sqlx::query_scalar("SELECT offboarding_market_snapshot()")
+            .fetch_one(&mut self.admin)
+            .await
+            .unwrap()
+    }
+
+    /// Run the user scope as the runtime role behind the caller's prefix.
+    /// The transaction is committed only when `commit` is set.
+    async fn invalidate(&mut self, commit: bool) -> Result<InvalidationResult, InvalidationError> {
+        let command = self.command();
+        let mut tx = self.runtime.begin().await.unwrap();
+        hold_prefix(&mut tx, &[SUBJECT_ORGANIZATION], &[ADMIN, SUBJECT]).await;
+        let result = invalidate_user(&mut tx, &command).await;
+        if commit && result.is_ok() {
+            tx.commit().await.unwrap();
+        } else {
+            tx.rollback().await.unwrap();
+        }
+        result
+    }
+}
+
+/// The business owner's canonical prefix: organizations, then users, each
+/// sorted, each `FOR UPDATE`.
+async fn hold_prefix(conn: &mut PgConnection, organizations: &[Uuid], users: &[Uuid]) {
+    let mut organizations = organizations.to_vec();
+    organizations.sort();
+    let mut users = users.to_vec();
+    users.sort();
+    for organization in organizations {
+        sqlx::query("SELECT id FROM organizations WHERE id=$1 FOR UPDATE")
+            .bind(organization)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+    }
+    for user in users {
+        sqlx::query("SELECT id FROM users WHERE id=$1 FOR UPDATE")
+            .bind(user)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+    }
+}
+
+/// The backend of one session, to name it as a lock holder.
+async fn backend_pid(conn: &mut PgConnection) -> i32 {
+    sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
+
+/// Wait until a session waits for a row of `table`, blocked by `holder`
+/// when one is named, and return its backend. A row-lock waiter holds the
+/// tuple lock of the row it waits for, which names the relation.
+async fn await_row_wait(observer: &mut PgConnection, holder: Option<i32>, table: &str) -> i32 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let waiter: Option<i32> = sqlx::query_scalar(
+            "SELECT a.pid FROM pg_stat_activity a WHERE a.datname=current_database() AND a.pid<>pg_backend_pid() AND a.wait_event_type='Lock' AND a.wait_event IN ('transactionid','tuple') AND cardinality(pg_blocking_pids(a.pid))>0 AND ($1::int IS NULL OR $1=ANY(pg_blocking_pids(a.pid))) AND EXISTS(SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid=l.relation WHERE l.pid=a.pid AND l.locktype='tuple' AND c.relname=$2) LIMIT 1",
+        )
+        .bind(holder)
+        .bind(table)
+        .fetch_optional(&mut *observer)
+        .await
+        .unwrap();
+        if let Some(pid) = waiter {
+            return pid;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no session waited on a {table} row"
+        );
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+fn row<'a>(snapshot: &'a Value, table: &str, id: Uuid) -> &'a Value {
+    let value = &snapshot[table][id.to_string()];
+    assert!(!value.is_null(), "{table} row {id} is missing");
+    value
+}
+
+fn decimal(value: &Value) -> Decimal {
+    match value {
+        Value::Number(number) => number.to_string().parse().unwrap(),
+        Value::String(text) => text.parse().unwrap(),
+        other => panic!("not a decimal: {other}"),
+    }
+}
+
+fn refusal_code(error: &InvalidationError) -> Option<String> {
+    match error {
+        InvalidationError::Application(error) if error.status == 409 => {
+            error.detail["code"].as_str().map(str::to_owned)
+        }
+        _ => None,
+    }
+}
+
+fn sqlstate(error: &InvalidationError) -> Option<String> {
+    match error {
+        InvalidationError::Database(error) => error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .map(|code| code.into_owned()),
+        InvalidationError::Application(_) => None,
+    }
+}
+
+/// Every row of `table` other than `changed` is byte-identical.
+fn others_unchanged(before: &Value, after: &Value, table: &str, changed: &[Uuid]) {
+    let before = before[table].as_object().unwrap();
+    let after = after[table].as_object().unwrap();
+    assert_eq!(
+        before.keys().collect::<Vec<_>>(),
+        after.keys().collect::<Vec<_>>(),
+        "{table} identities"
+    );
+    for (key, value) in before {
+        if changed.iter().any(|id| id.to_string() == *key) {
+            continue;
+        }
+        assert_eq!(&after[key], value, "{table} row {key} changed");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn only_subject_orders_and_pending_trades_are_invalidated() {
+    for side in [SubjectSide::Seller, SubjectSide::Buyer] {
+        let mut f = Fixture::new(side).await;
+        // The subject: one open order, one partly filled order with a pending
+        // trade, one filled order with a confirmed trade.
+        let (open, partial, filled) = (id(1), id(2), id(3));
+        f.order(open, SUBJECT, 10, 10, "OPEN", None).await;
+        f.order(partial, SUBJECT, 10, 6, "PARTIALLY_FILLED", None)
+            .await;
+        f.order(filled, SUBJECT, 5, 0, "FILLED", None).await;
+        // The counterparty order of the pending trade, and one unrelated.
+        let (counter, counter_open) = (id(4), id(5));
+        f.order(counter, COUNTERPARTY, 10, 6, "PARTIALLY_FILLED", None)
+            .await;
+        f.order(counter_open, COUNTERPARTY, 8, 8, "OPEN", None)
+            .await;
+        // The colleague's open order and pending trade stay with the company.
+        let (colleague_open, colleague_partial) = (id(6), id(7));
+        f.order(colleague_open, COLLEAGUE, 10, 10, "OPEN", None)
+            .await;
+        f.order(
+            colleague_partial,
+            COLLEAGUE,
+            10,
+            7,
+            "PARTIALLY_FILLED",
+            None,
+        )
+        .await;
+        let (pending, confirmed, colleague_pending) = (id(10), id(11), id(12));
+        f.trade(
+            pending,
+            SUBJECT,
+            Some(partial),
+            Some(counter),
+            4,
+            "PENDING_CONFIRMATION",
+        )
+        .await;
+        f.trade(confirmed, SUBJECT, Some(filled), None, 5, "CONFIRMED")
+            .await;
+        f.trade(
+            colleague_pending,
+            COLLEAGUE,
+            Some(colleague_partial),
+            None,
+            3,
+            "PENDING_CONFIRMATION",
+        )
+        .await;
+        let before = f.snapshot().await;
+
+        let result = f.invalidate(true).await.unwrap();
+        let mut withdrawn = vec![open, partial];
+        withdrawn.sort();
+        assert_eq!(result.withdrawn_orders, withdrawn, "{side:?}");
+        assert_eq!(result.cancelled_trade_ids, vec![pending], "{side:?}");
+        assert_eq!(result.released_uncommitted_quantity, Decimal::ZERO);
+        assert_eq!(result.outbox_ids.len(), 1);
+
+        let after = f.snapshot().await;
+        others_unchanged(&before, &after, "orders", &[open, partial, counter]);
+        others_unchanged(&before, &after, "trades", &[pending]);
+        for (order, status, remaining) in [
+            (open, "CANCELLED", 10),
+            (partial, "CANCELLED", 10),
+            (counter, "OPEN", 10),
+        ] {
+            let current = row(&after, "orders", order);
+            let previous = row(&before, "orders", order);
+            assert_eq!(current["status"], status, "{side:?} {order}");
+            assert_eq!(decimal(&current["remaining_quantity_mt"]), d(remaining));
+            assert_eq!(current["quantity_mt"], previous["quantity_mt"]);
+            assert_eq!(current["owner_user_id"], previous["owner_user_id"]);
+            assert_eq!(
+                current["version"].as_i64().unwrap(),
+                previous["version"].as_i64().unwrap() + 1
+            );
+        }
+        let cancelled = row(&after, "trades", pending);
+        let mut expected = row(&before, "trades", pending).clone();
+        expected["status"] = json!("CANCELLED");
+        assert_eq!(*cancelled, expected, "only the status of the trade changes");
+
+        let audits = after["audit"].as_array().unwrap();
+        let scope = audits
+            .iter()
+            .find(|a| a["action"] == "market.access_invalidated")
+            .unwrap();
+        assert_eq!(scope["resource_type"], "user");
+        assert_eq!(scope["resource_id"], SUBJECT.to_string());
+        assert_eq!(scope["user_id"], ADMIN.to_string());
+        assert_eq!(scope["changes"]["reason"], "account_offboarded");
+        assert_eq!(scope["changes"]["cancelled_trade_ids"], json!([pending]));
+        for audit in audits {
+            assert_ne!(audit["changes"]["reason"], "organization_rejected");
+        }
+        let cancelled_orders: Vec<_> = audits
+            .iter()
+            .filter(|a| a["action"] == "order.cancelled")
+            .map(|a| a["resource_id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(cancelled_orders.len(), 2);
+        assert!(cancelled_orders.contains(&open.to_string()));
+        assert!(cancelled_orders.contains(&partial.to_string()));
+
+        let outbox = &after["outbox"][0];
+        assert_eq!(outbox["id"], result.outbox_ids[0].to_string());
+        assert_eq!(outbox["event_type"], "market_access_invalidated");
+        assert_eq!(outbox["aggregate_type"], "user");
+        assert_eq!(
+            outbox["participant_org_ids"],
+            json!([SUBJECT_ORGANIZATION, COUNTERPARTY_ORGANIZATION])
+        );
+        assert_eq!(
+            outbox["payload"],
+            json!({"schema_version":1,"cancelled_trade_count":1,"affected_order_count":3,"_public_market_invalidation":true})
+        );
+        assert!(!outbox["payload"].to_string().contains(&SUBJECT.to_string()));
+        assert!(outbox["dispatched_at"].is_null());
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn pending_cancellation_releases_reservations_once() {
+    let mut f = Fixture::new(SubjectSide::Seller).await;
+    // One inventory item backs two subject ASKs: a 6 t remainder plus a 4 t
+    // pending trade, and a 3 t remainder, so 13 t are reserved.
+    let (item, partial, open) = (id(20), id(21), id(22));
+    f.inventory(item, SUBJECT, 50, 13).await;
+    f.order(partial, SUBJECT, 10, 6, "PARTIALLY_FILLED", Some(item))
+        .await;
+    f.order(open, SUBJECT, 3, 3, "OPEN", Some(item)).await;
+    let pending = id(23);
+    f.trade(
+        pending,
+        SUBJECT,
+        Some(partial),
+        None,
+        4,
+        "PENDING_CONFIRMATION",
+    )
+    .await;
+    // The subject as buyer of a colleague-free counterparty ASK: the
+    // counterparty keeps its 9 t reservation for its restored remainder.
+    let (counter_item, counter_ask) = (id(24), id(25));
+    f.inventory(counter_item, COUNTERPARTY, 20, 9).await;
+    sqlx::query("SELECT offboarding_market_order($1,$2,'ASK',10,5,'PARTIALLY_FILLED',$3)")
+        .bind(counter_ask)
+        .bind(COUNTERPARTY)
+        .bind(counter_item)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let bought = id(26);
+    sqlx::query("SELECT offboarding_market_trade($1,NULL,$2,$3,$4,4,'PENDING_CONFIRMATION')")
+        .bind(bought)
+        .bind(counter_ask)
+        .bind(SUBJECT)
+        .bind(COUNTERPARTY)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let before = f.snapshot().await;
+
+    let result = f.invalidate(true).await.unwrap();
+    let mut cancelled = vec![pending, bought];
+    cancelled.sort();
+    assert_eq!(result.cancelled_trade_ids, cancelled);
+    assert_eq!(result.released_uncommitted_quantity, d(13));
+    let after = f.snapshot().await;
+    let stock = row(&after, "inventory", item);
+    assert_eq!(decimal(&stock["current_stock_mt"]), d(63));
+    assert_eq!(decimal(&stock["reserved_stock_mt"]), Decimal::ZERO);
+    assert_eq!(
+        row(&after, "inventory", counter_item),
+        row(&before, "inventory", counter_item)
+    );
+    let counter = row(&after, "orders", counter_ask);
+    assert_eq!(counter["status"], "PARTIALLY_FILLED");
+    assert_eq!(decimal(&counter["remaining_quantity_mt"]), d(9));
+    for order in [partial, open] {
+        let withdrawn = row(&after, "orders", order);
+        assert_eq!(withdrawn["status"], "CANCELLED");
+        assert_eq!(
+            withdrawn["quantity_mt"],
+            row(&before, "orders", order)["quantity_mt"]
+        );
+    }
+
+    // A second run finds nothing to change: the stock is released once.
+    let settled = f.snapshot().await;
+    let again = f.invalidate(true).await.unwrap();
+    assert!(again.withdrawn_orders.is_empty());
+    assert!(again.cancelled_trade_ids.is_empty());
+    assert_eq!(again.released_uncommitted_quantity, Decimal::ZERO);
+    assert!(again.outbox_ids.is_empty());
+    let repeated = f.snapshot().await;
+    for table in ["orders", "trades", "inventory"] {
+        assert_eq!(repeated[table], settled[table], "{table}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn confirmed_and_delivered_obligations_unchanged() {
+    for side in [SubjectSide::Seller, SubjectSide::Buyer] {
+        let mut f = Fixture::new(side).await;
+        // A partly filled order whose filled part is a confirmed obligation,
+        // and a filled order with delivered and paid trades.
+        let (partial, filled) = (id(30), id(31));
+        f.order(partial, SUBJECT, 10, 4, "PARTIALLY_FILLED", None)
+            .await;
+        f.order(filled, SUBJECT, 6, 0, "FILLED", None).await;
+        let (confirmed, delivered, paid) = (id(32), id(33), id(34));
+        f.trade(confirmed, SUBJECT, Some(partial), None, 6, "CONFIRMED")
+            .await;
+        f.trade(delivered, SUBJECT, Some(filled), None, 4, "DELIVERED")
+            .await;
+        f.trade(paid, SUBJECT, Some(filled), None, 2, "PAID").await;
+        // Earlier evidence that names the subject as actor.
+        sqlx::query("INSERT INTO audit_logs(id,user_id,action,resource_type,resource_id,changes,timestamp) VALUES($1,$2,'trade.confirmed','trade',$3,'{}'::jsonb,'2026-10-20T00:00:00Z')")
+            .bind(id(35))
+            .bind(SUBJECT)
+            .bind(confirmed.to_string())
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+
+        let result = f.invalidate(true).await.unwrap();
+        assert_eq!(result.withdrawn_orders, vec![partial], "{side:?}");
+        assert!(result.cancelled_trade_ids.is_empty());
+        let after = f.snapshot().await;
+        // Status, quantity, price, commission and recorded people of every
+        // obligation stay exactly as they were.
+        assert_eq!(after["trades"], before["trades"], "{side:?}");
+        others_unchanged(&before, &after, "orders", &[partial]);
+        let withdrawn = row(&after, "orders", partial);
+        assert_eq!(withdrawn["status"], "CANCELLED");
+        assert_eq!(decimal(&withdrawn["remaining_quantity_mt"]), d(4));
+        assert_eq!(decimal(&withdrawn["quantity_mt"]), d(10));
+        let earlier = before["audit"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["id"] == id(35).to_string())
+            .unwrap();
+        assert!(after["audit"].as_array().unwrap().contains(earlier));
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn over_100_refuses_without_partial_effects() {
+    // (rows, kind, refused): the exact boundary is accepted, one more is not.
+    // Confirmed trades and the colleague's orders are outside the bound.
+    for (count, kind, refused) in [
+        (100, "pending", false),
+        (101, "pending", true),
+        (100, "orders", false),
+        (101, "orders", true),
+    ] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        f.bulk(kind, count).await;
+        f.bulk("confirmed", 101).await;
+        sqlx::query("SELECT offboarding_market_order(gen_random_uuid(),$1,'ASK',1,1,'OPEN',NULL)")
+            .bind(COLLEAGUE)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+        let result = f.invalidate(false).await;
+        if refused {
+            let error = result.unwrap_err();
+            assert_eq!(
+                refusal_code(&error).as_deref(),
+                Some("MARKET_INVALIDATION_LIMIT"),
+                "{count} {kind}: {error:?}"
+            );
+        } else {
+            let result = result.unwrap();
+            let changed = if kind == "pending" {
+                result.cancelled_trade_ids.len()
+            } else {
+                result.withdrawn_orders.len()
+            };
+            assert_eq!(changed, 100, "{count} {kind}");
+        }
+        assert_eq!(f.snapshot().await, before, "{count} {kind}");
+        // A refused scope is not truncated by a committed attempt either.
+        if refused {
+            assert!(f.invalidate(true).await.is_err());
+            assert_eq!(f.snapshot().await, before, "{count} {kind} committed");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn new_row_after_discovery_refuses_atomically() {
+    // 1 + 1 rows: the late row changes the scope, so the attempt aborts with a
+    // retryable conflict. 100 + 1 rows: the late row overflows the bound.
+    for (seeded, expected) in [(1, "40001"), (100, "MARKET_INVALIDATION_LIMIT")] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        f.bulk("pending", seeded).await;
+        // A subject ASK gives the scope a slice to lock.
+        f.order(id(40), SUBJECT, 2, 2, "OPEN", None).await;
+        sqlx::query("SELECT offboarding_market_install_late_row($1,$2)")
+            .bind(SUBJECT)
+            .bind(COUNTERPARTY)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let before = f.snapshot().await;
+        let command = f.command();
+        let mut tx = f.runtime.begin().await.unwrap();
+        hold_prefix(&mut tx, &[SUBJECT_ORGANIZATION], &[ADMIN, SUBJECT]).await;
+        sqlx::raw_sql("SET LOCAL search_path TO offboarding_late_row,public,pg_catalog")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let error = invalidate_user(&mut tx, &command).await.unwrap_err();
+        tx.rollback().await.unwrap();
+        let observed = sqlstate(&error).or_else(|| refusal_code(&error));
+        assert_eq!(observed.as_deref(), Some(expected), "{error:?}");
+        assert_eq!(f.snapshot().await, before, "{seeded}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn matching_race_cannot_recreate_exposure() {
+    use verdaxis_read::market_contract::matching::{
+        MatchPreviewBarrier, run_sealed_match, run_sealed_match_paused,
+    };
+    for offboarding_first in [true, false] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        // Three one-tonne subject ASKs at 100 and a 2 t counterparty BID at
+        // 110 that crosses them.
+        let asks = [id(50), id(51), id(52)];
+        for ask in asks {
+            f.order(ask, SUBJECT, 1, 1, "OPEN", None).await;
+        }
+        let bid = id(53);
+        f.order(bid, COUNTERPARTY, 2, 2, "OPEN", None).await;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(&f.database.runtime_url)
+            .await
+            .unwrap();
+        let mut observer = PgConnection::connect(&f.database.admin_url).await.unwrap();
+        let command = f.command();
+
+        if offboarding_first {
+            // The offboarding transaction holds the prefix and has withdrawn
+            // the ASKs; matching waits on the subject's organization row.
+            let mut tx = f.runtime.begin().await.unwrap();
+            hold_prefix(&mut tx, &[SUBJECT_ORGANIZATION], &[ADMIN, SUBJECT]).await;
+            let result = invalidate_user(&mut tx, &command).await.unwrap();
+            assert_eq!(result.withdrawn_orders, asks.to_vec());
+            let holder = backend_pid(&mut tx).await;
+            let matcher = pool.clone();
+            let pending = tokio::spawn(async move { run_sealed_match(&matcher, bid, now()).await });
+            await_row_wait(&mut observer, Some(holder), "organizations").await;
+            tx.commit().await.unwrap();
+            let matched = pending.await.unwrap().expect("matching after commit");
+            assert!(matched.outcome.trades.is_empty());
+        } else {
+            // Matching holds its prefix and slice; the offboarding prefix waits.
+            let barrier = Arc::new(MatchPreviewBarrier::default());
+            let pending = tokio::spawn(run_sealed_match_paused(
+                pool.clone(),
+                bid,
+                now(),
+                barrier.clone(),
+            ));
+            tokio::time::timeout(Duration::from_secs(10), barrier.previewed())
+                .await
+                .unwrap();
+            let runtime_url = f.database.runtime_url.clone();
+            let offboarding = tokio::spawn(async move {
+                let mut conn = PgConnection::connect(&runtime_url).await.unwrap();
+                let mut tx = conn.begin().await.unwrap();
+                hold_prefix(&mut tx, &[SUBJECT_ORGANIZATION], &[ADMIN, SUBJECT]).await;
+                let result = invalidate_user(&mut tx, &command).await.unwrap();
+                tx.commit().await.unwrap();
+                result
+            });
+            await_row_wait(&mut observer, None, "organizations").await;
+            barrier.resume();
+            let matched = pending.await.unwrap().expect("matching wins the lock");
+            assert_eq!(matched.outcome.trades.len(), 2);
+            let filled: Vec<_> = matched
+                .outcome
+                .trades
+                .iter()
+                .map(|trade| trade.ask_order_id)
+                .collect();
+            let result = offboarding.await.unwrap();
+            // Only the ASK that matching left open is withdrawn.
+            assert_eq!(result.withdrawn_orders.len(), 1);
+            assert!(asks.contains(&result.withdrawn_orders[0]));
+            assert!(!filled.contains(&result.withdrawn_orders[0]));
+            assert!(result.cancelled_trade_ids.is_empty());
+        }
+
+        let after = f.snapshot().await;
+        // No live subject order and no pending subject trade remain, and
+        // every ASK tonne is either in a confirmed trade or withdrawn.
+        for ask in asks {
+            let order = row(&after, "orders", ask);
+            assert!(
+                matches!(order["status"].as_str(), Some("CANCELLED" | "FILLED")),
+                "{offboarding_first}: {order}"
+            );
+            let traded: Decimal = after["trades"]
+                .as_object()
+                .unwrap()
+                .values()
+                .filter(|t| t["ask_order_id"] == ask.to_string())
+                .map(|t| decimal(&t["quantity_mt"]))
+                .sum();
+            let withdrawn = if order["status"] == "CANCELLED" {
+                decimal(&order["remaining_quantity_mt"])
+            } else {
+                Decimal::ZERO
+            };
+            assert_eq!(traded + withdrawn, d(1), "{offboarding_first} {ask}");
+        }
+        let trades = after["trades"].as_object().unwrap();
+        for trade in trades.values() {
+            assert_eq!(trade["status"], "CONFIRMED");
+            assert_eq!(trade["seller_user_id"], SUBJECT.to_string());
+        }
+        assert_eq!(trades.len(), if offboarding_first { 0 } else { 2 });
+        let aggressor = row(&after, "orders", bid);
+        let expected = if offboarding_first { 2 } else { 0 };
+        assert_eq!(
+            decimal(&aggressor["remaining_quantity_mt"]),
+            d(expected),
+            "{offboarding_first}"
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn empty_scope_writes_no_event_and_unknown_subject_is_refused() {
+    let mut f = Fixture::new(SubjectSide::Seller).await;
+    // A subject with no market rows writes its scope audit and no event.
+    let before = f.snapshot().await;
+    let result = f.invalidate(true).await.unwrap();
+    assert!(result.withdrawn_orders.is_empty() && result.cancelled_trade_ids.is_empty());
+    assert!(result.outbox_ids.is_empty());
+    let after = f.snapshot().await;
+    assert_eq!(after["outbox"], before["outbox"]);
+    assert_eq!(
+        after["audit"].as_array().unwrap().len(),
+        before["audit"].as_array().unwrap().len() + 1
+    );
+    // An unknown subject is refused before any write.
+    let mut command = f.command();
+    command.subject_id = Uuid::from_u128(0xdead);
+    let mut tx = f.runtime.begin().await.unwrap();
+    let error = invalidate_user(&mut tx, &command).await.unwrap_err();
+    tx.rollback().await.unwrap();
+    assert_eq!(refusal_code(&error).as_deref(), Some("USER_NOT_FOUND"));
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn company_rejection_cancels_pending_trades_and_releases_reservations() {
+    let mut f = Fixture::new(SubjectSide::Seller).await;
+    // Both members of the rejected company have an inventory-backed ASK with
+    // a pending trade; one ASK also carries a confirmed obligation.
+    let item = id(60);
+    f.inventory(item, SUBJECT, 30, 17).await;
+    let (subject_ask, colleague_ask) = (id(61), id(62));
+    f.order(subject_ask, SUBJECT, 10, 5, "PARTIALLY_FILLED", Some(item))
+        .await;
+    f.order(
+        colleague_ask,
+        COLLEAGUE,
+        10,
+        6,
+        "PARTIALLY_FILLED",
+        Some(item),
+    )
+    .await;
+    let counter_bid = id(63);
+    f.order(counter_bid, COUNTERPARTY, 10, 4, "PARTIALLY_FILLED", None)
+        .await;
+    let (subject_pending, colleague_pending, confirmed) = (id(64), id(65), id(66));
+    f.trade(
+        subject_pending,
+        SUBJECT,
+        Some(subject_ask),
+        Some(counter_bid),
+        2,
+        "PENDING_CONFIRMATION",
+    )
+    .await;
+    f.trade(
+        colleague_pending,
+        COLLEAGUE,
+        Some(colleague_ask),
+        Some(counter_bid),
+        4,
+        "PENDING_CONFIRMATION",
+    )
+    .await;
+    f.trade(confirmed, SUBJECT, Some(subject_ask), None, 3, "CONFIRMED")
+        .await;
+    let before = f.snapshot().await;
+
+    let command = InvalidateOrganization {
+        organization_id: SUBJECT_ORGANIZATION,
+        actor_id: ADMIN,
+        now: now(),
+        policy: Arc::clone(&f.policy),
+        config: Arc::clone(&f.config),
+    };
+    let mut tx = f.runtime.begin().await.unwrap();
+    hold_prefix(
+        &mut tx,
+        &[SUBJECT_ORGANIZATION],
+        &[ADMIN, SUBJECT, COLLEAGUE],
+    )
+    .await;
+    let result = invalidate_organization(&mut tx, &command).await.unwrap();
+    tx.commit().await.unwrap();
+
+    let mut cancelled = vec![subject_pending, colleague_pending];
+    cancelled.sort();
+    assert_eq!(result.cancelled_trade_ids, cancelled);
+    let mut withdrawn = vec![subject_ask, colleague_ask];
+    withdrawn.sort();
+    assert_eq!(result.withdrawn_orders, withdrawn);
+    // 5 + 2 and 6 + 4 tonnes return to stock, once.
+    assert_eq!(result.released_uncommitted_quantity, d(17));
+    let after = f.snapshot().await;
+    let stock = row(&after, "inventory", item);
+    assert_eq!(decimal(&stock["current_stock_mt"]), d(47));
+    assert_eq!(decimal(&stock["reserved_stock_mt"]), Decimal::ZERO);
+    for trade in [subject_pending, colleague_pending] {
+        assert_eq!(row(&after, "trades", trade)["status"], "CANCELLED");
+    }
+    // The confirmed obligation stays for settlement.
+    assert_eq!(
+        row(&after, "trades", confirmed),
+        row(&before, "trades", confirmed)
+    );
+    let counter = row(&after, "orders", counter_bid);
+    assert_eq!(counter["status"], "OPEN");
+    assert_eq!(decimal(&counter["remaining_quantity_mt"]), d(10));
+    let outbox = &after["outbox"][0];
+    assert_eq!(outbox["aggregate_type"], "organization");
+    assert_eq!(
+        outbox["payload"]["organization_id"],
+        SUBJECT_ORGANIZATION.to_string()
+    );
+    assert_eq!(outbox["payload"]["cancelled_trade_count"], 2);
+    let earlier = before["audit"].as_array().unwrap();
+    let written: Vec<_> = after["audit"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|a| !earlier.contains(a))
+        .collect();
+    assert!(!written.is_empty());
+    assert!(
+        written
+            .iter()
+            .all(|a| a["changes"]["reason"] == "organization_rejected")
+    );
+}
+
+/// The active freeze row of one trade.
+async fn freeze_row(conn: &mut PgConnection, freeze: Uuid) -> Value {
+    sqlx::query_scalar("SELECT to_jsonb(f) FROM trade_freezes f WHERE id=$1")
+        .bind(freeze)
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn frozen_pending_trade_follows_the_scope_rule() {
+    // The database refuses every status change of a frozen trade. Both scopes
+    // therefore refuse the whole transaction with a clear code, before any
+    // write: the trade, the stock and the freeze row stay as they were.
+    for company in [false, true] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        let (item, ask) = (id(80), id(81));
+        f.inventory(item, SUBJECT, 0, 10).await;
+        f.order(ask, SUBJECT, 10, 4, "PARTIALLY_FILLED", Some(item))
+            .await;
+        let (frozen, plain) = (id(82), id(83));
+        f.trade(frozen, SUBJECT, Some(ask), None, 4, "PENDING_CONFIRMATION")
+            .await;
+        f.trade(plain, SUBJECT, Some(ask), None, 2, "PENDING_CONFIRMATION")
+            .await;
+        let freeze: Uuid = sqlx::query_scalar("SELECT offboarding_market_freeze($1,$2)")
+            .bind(frozen)
+            .bind(ADMIN)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        let freeze_before = freeze_row(&mut f.admin, freeze).await;
+        let before = f.snapshot().await;
+
+        let error = if company {
+            let command = InvalidateOrganization {
+                organization_id: SUBJECT_ORGANIZATION,
+                actor_id: ADMIN,
+                now: now(),
+                policy: Arc::clone(&f.policy),
+                config: Arc::clone(&f.config),
+            };
+            let mut tx = f.runtime.begin().await.unwrap();
+            hold_prefix(
+                &mut tx,
+                &[SUBJECT_ORGANIZATION],
+                &[ADMIN, SUBJECT, COLLEAGUE],
+            )
+            .await;
+            let error = invalidate_organization(&mut tx, &command)
+                .await
+                .unwrap_err();
+            tx.rollback().await.unwrap();
+            error
+        } else {
+            f.invalidate(true).await.unwrap_err()
+        };
+        assert_eq!(
+            refusal_code(&error).as_deref(),
+            Some("MARKET_INVALIDATION_TRADE_FROZEN"),
+            "company {company}: {error:?}"
+        );
+        assert_eq!(f.snapshot().await, before, "company {company}");
+        assert_eq!(freeze_row(&mut f.admin, freeze).await, freeze_before);
+    }
+}
+
+/// One take of `order` by the counterparty through the sealed take command.
+async fn take(router: &axum::Router, admin: &mut PgConnection, order: Uuid) -> (u16, Value) {
+    use tower::ServiceExt;
+    let terms: Value = sqlx::query_scalar("SELECT to_jsonb(o) FROM orderbook_orders o WHERE id=$1")
+        .bind(order)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    let digest = verdaxis_read::canonical_terms_from_row(&terms)
+        .and_then(|value| verdaxis_read::digest_terms(&value))
+        .unwrap();
+    let issued = Utc::now().timestamp();
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &json!({"sub":COUNTERPARTY,"type":"access","iat":issued,"exp":issued+600,"iss":"trades-tests","aud":"trades-tests"}),
+        &jsonwebtoken::EncodingKey::from_secret(TAKE_KEY.as_bytes()),
+    )
+    .unwrap();
+    let request = axum::http::Request::builder()
+        .method("POST")
+        .uri("/api/trades/")
+        .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            json!({"order_id":order,"quantity_mt":"1","expected_terms_digest":digest}).to_string(),
+        ))
+        .unwrap();
+    let response = router.clone().oneshot(request).await.unwrap();
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+const TAKE_KEY: &str = "offboarding-take-signing-key-at-least-32";
+
+/// A runtime pool; with `gated`, every session pauses at its first advisory
+/// lock until the fixture gate opens.
+async fn runtime_pool(url: &str, gated: bool) -> sqlx::PgPool {
+    let mut options = sqlx::postgres::PgPoolOptions::new().max_connections(4);
+    if gated {
+        options = options.after_connect(|conn, _| {
+            Box::pin(async move {
+                sqlx::raw_sql("SET search_path TO offboarding_gate,public,pg_catalog")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        });
+    }
+    options.connect(url).await.unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn take_race_cannot_create_a_pending_subject_trade() {
+    use verdaxis_read::routes::market_write::trades::contract_router;
+    // An attached subject's command holds the organization prefix; a detached
+    // subject's command holds only user rows, and the take meets the subject
+    // user row instead.
+    for detached in [false, true] {
+        for offboarding_first in [true, false] {
+            let case = format!("detached {detached}, offboarding first {offboarding_first}");
+            let mut f = Fixture::new(SubjectSide::Seller).await;
+            let (item, ask) = (id(90), id(91));
+            f.inventory(item, SUBJECT, 0, 2).await;
+            f.order(ask, SUBJECT, 2, 2, "OPEN", Some(item)).await;
+            sqlx::query("SELECT offboarding_market_install_gate()")
+                .execute(&mut f.admin)
+                .await
+                .unwrap();
+            let (organizations, wait_table): (&[Uuid], &str) = if detached {
+                sqlx::query("SELECT offboarding_market_detach($1)")
+                    .bind(SUBJECT)
+                    .execute(&mut f.admin)
+                    .await
+                    .unwrap();
+                (&[], "users")
+            } else {
+                (&[SUBJECT_ORGANIZATION], "organizations")
+            };
+            let mut observer = PgConnection::connect(&f.database.admin_url).await.unwrap();
+            let pool = runtime_pool(&f.database.runtime_url, !offboarding_first).await;
+            let router = contract_router(pool.clone(), TAKE_KEY, true);
+            let command = f.command();
+
+            let (taken, result) = if offboarding_first {
+                let mut tx = f.runtime.begin().await.unwrap();
+                hold_prefix(&mut tx, organizations, &[ADMIN, SUBJECT]).await;
+                let result = invalidate_user(&mut tx, &command).await.unwrap();
+                let holder = backend_pid(&mut tx).await;
+                let mut admin = PgConnection::connect(&f.database.admin_url).await.unwrap();
+                let taker = router.clone();
+                let pending = tokio::spawn(async move { take(&taker, &mut admin, ask).await });
+                await_row_wait(&mut observer, Some(holder), wait_table).await;
+                tx.commit().await.unwrap();
+                (pending.await.unwrap(), result)
+            } else {
+                // The take holds its party rows and pauses at its slice lock.
+                let mut admin = PgConnection::connect(&f.database.admin_url).await.unwrap();
+                let taker = router.clone();
+                let pending = tokio::spawn(async move { take(&taker, &mut admin, ask).await });
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+                let holder: i32 = loop {
+                    let paused: Option<i32> = sqlx::query_scalar("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event='PgSleep' LIMIT 1")
+                        .fetch_optional(&mut observer)
+                        .await
+                        .unwrap();
+                    if let Some(pid) = paused {
+                        break pid;
+                    }
+                    assert!(
+                        tokio::time::Instant::now() < deadline,
+                        "{case}: take did not pause"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                };
+                let runtime_url = f.database.runtime_url.clone();
+                let prefix = organizations.to_vec();
+                let offboarding = tokio::spawn(async move {
+                    let mut conn = PgConnection::connect(&runtime_url).await.unwrap();
+                    let mut tx = conn.begin().await.unwrap();
+                    hold_prefix(&mut tx, &prefix, &[ADMIN, SUBJECT]).await;
+                    let result = invalidate_user(&mut tx, &command).await.unwrap();
+                    tx.commit().await.unwrap();
+                    result
+                });
+                await_row_wait(&mut observer, Some(holder), wait_table).await;
+                sqlx::query("SELECT offboarding_market_open_gate()")
+                    .execute(&mut f.admin)
+                    .await
+                    .unwrap();
+                let taken = pending.await.unwrap();
+                (taken, offboarding.await.unwrap())
+            };
+
+            let (status, body) = taken;
+            let take_won = !offboarding_first && !detached;
+            if take_won {
+                // The take committed first; the offboarding cancels its trade.
+                assert_eq!(status, 200, "{case}: {body}");
+                let trade: Uuid = body["id"].as_str().unwrap().parse().unwrap();
+                assert_eq!(result.cancelled_trade_ids, vec![trade], "{case}");
+            } else {
+                // Withdrawn first, or a detached maker: the take refuses.
+                assert_ne!(status, 200, "{case}: {body}");
+                assert!(result.cancelled_trade_ids.is_empty(), "{case}");
+            }
+            assert_eq!(result.withdrawn_orders, vec![ask], "{case}");
+            assert_eq!(result.released_uncommitted_quantity, d(2), "{case}");
+            let after = f.snapshot().await;
+            for trade in after["trades"].as_object().unwrap().values() {
+                assert_eq!(trade["status"], "CANCELLED", "{case}");
+            }
+            let order = row(&after, "orders", ask);
+            assert_eq!(order["status"], "CANCELLED", "{case}");
+            assert_eq!(decimal(&order["remaining_quantity_mt"]), d(2), "{case}");
+            let stock = row(&after, "inventory", item);
+            assert_eq!(decimal(&stock["current_stock_mt"]), d(2), "{case}");
+            assert_eq!(
+                decimal(&stock["reserved_stock_mt"]),
+                Decimal::ZERO,
+                "{case}"
+            );
+            pool.close().await;
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn matching_never_selects_a_detached_subject_order() {
+    use verdaxis_read::market_contract::matching::run_sealed_match;
+    // A detached owner is not execution-eligible, so matching excludes the
+    // order before it locks any party. It meets the offboarding only at the
+    // shared slice lock, and fills nothing whichever transaction runs first.
+    for offboarding_first in [true, false] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        let ask = id(95);
+        f.order(ask, SUBJECT, 1, 1, "OPEN", None).await;
+        let bid = id(96);
+        f.order(bid, COUNTERPARTY, 1, 1, "OPEN", None).await;
+        sqlx::query("SELECT offboarding_market_detach($1)")
+            .bind(SUBJECT)
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let pool = runtime_pool(&f.database.runtime_url, false).await;
+        let mut observer = PgConnection::connect(&f.database.admin_url).await.unwrap();
+        let command = f.command();
+        let mut tx = f.runtime.begin().await.unwrap();
+        if offboarding_first {
+            hold_prefix(&mut tx, &[], &[ADMIN, SUBJECT]).await;
+            invalidate_user(&mut tx, &command).await.unwrap();
+            let holder = backend_pid(&mut tx).await;
+            let matcher = pool.clone();
+            let pending = tokio::spawn(async move { run_sealed_match(&matcher, bid, now()).await });
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory' AND $1=ANY(pg_blocking_pids(pid)))")
+                    .bind(holder)
+                    .fetch_one(&mut observer)
+                    .await
+                    .unwrap();
+                if waiting {
+                    break;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "matching did not reach the slice"
+                );
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            tx.commit().await.unwrap();
+            let matched = pending.await.unwrap().expect("matching after commit");
+            assert!(matched.outcome.trades.is_empty());
+        } else {
+            let matched = run_sealed_match(&pool, bid, now()).await.unwrap();
+            assert!(matched.outcome.trades.is_empty());
+            hold_prefix(&mut tx, &[], &[ADMIN, SUBJECT]).await;
+            invalidate_user(&mut tx, &command).await.unwrap();
+            tx.commit().await.unwrap();
+        }
+        let after = f.snapshot().await;
+        assert!(after["trades"].as_object().unwrap().is_empty());
+        assert_eq!(row(&after, "orders", ask)["status"], "CANCELLED");
+        assert_eq!(
+            decimal(&row(&after, "orders", bid)["remaining_quantity_mt"]),
+            d(1)
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn subject_lock_is_never_awaited_out_of_order() {
+    let mut f = Fixture::new(SubjectSide::Seller).await;
+    f.order(id(100), SUBJECT, 1, 1, "OPEN", None).await;
+    let before = f.snapshot().await;
+    let command = f.command();
+    // Another session holds the subject row and this caller did not lock it:
+    // the subcommand refuses at once instead of waiting after the actor lock.
+    let mut holder = PgConnection::connect(&f.database.runtime_url)
+        .await
+        .unwrap();
+    let mut held = holder.begin().await.unwrap();
+    hold_prefix(&mut held, &[], &[SUBJECT]).await;
+    let mut tx = f.runtime.begin().await.unwrap();
+    hold_prefix(&mut tx, &[], &[ADMIN]).await;
+    let error = tokio::time::timeout(Duration::from_secs(3), invalidate_user(&mut tx, &command))
+        .await
+        .expect("the subject lock is not awaited")
+        .unwrap_err();
+    assert_eq!(sqlstate(&error).as_deref(), Some("55P03"), "{error:?}");
+    tx.rollback().await.unwrap();
+    held.rollback().await.unwrap();
+    assert_eq!(f.snapshot().await, before);
+    // With the row free, a caller that did not lock it still proceeds.
+    let mut tx = f.runtime.begin().await.unwrap();
+    let result = invalidate_user(&mut tx, &command).await.unwrap();
+    assert_eq!(result.withdrawn_orders, vec![id(100)]);
+    tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn caller_timeouts_are_restored() {
+    for company in [false, true] {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        f.order(id(105), SUBJECT, 1, 1, "OPEN", None).await;
+        let command = f.command();
+        let mut tx = f.runtime.begin().await.unwrap();
+        sqlx::raw_sql("SET LOCAL lock_timeout='7s'; SET LOCAL statement_timeout='9s'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        hold_prefix(
+            &mut tx,
+            &[SUBJECT_ORGANIZATION],
+            &[ADMIN, SUBJECT, COLLEAGUE],
+        )
+        .await;
+        if company {
+            let command = InvalidateOrganization {
+                organization_id: SUBJECT_ORGANIZATION,
+                actor_id: ADMIN,
+                now: now(),
+                policy: Arc::clone(&f.policy),
+                config: Arc::clone(&f.config),
+            };
+            invalidate_organization(&mut tx, &command).await.unwrap();
+        } else {
+            invalidate_user(&mut tx, &command).await.unwrap();
+        }
+        let (lock, statement): (String, String) = sqlx::query_as(
+            "SELECT current_setting('lock_timeout'),current_setting('statement_timeout')",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(
+            (lock.as_str(), statement.as_str()),
+            ("7s", "9s"),
+            "company {company}"
+        );
+        tx.rollback().await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn bounded_fan_out_withdraws_linked_filled_orders() {
+    // 100 pending trades, each linked to a filled subject ASK and a filled
+    // counterparty BID, plus 100 open subject ASKs: 300 order rows change.
+    let mut f = Fixture::new(SubjectSide::Seller).await;
+    let item = id(110);
+    sqlx::query("SELECT offboarding_market_fanout($1,$2,$3,100)")
+        .bind(SUBJECT)
+        .bind(COUNTERPARTY)
+        .bind(item)
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let result = f.invalidate(true).await.unwrap();
+    assert_eq!(result.cancelled_trade_ids.len(), 100);
+    assert_eq!(result.withdrawn_orders.len(), 200);
+    assert_eq!(result.released_uncommitted_quantity, d(200));
+    let after = f.snapshot().await;
+    let stock = row(&after, "inventory", item);
+    assert_eq!(decimal(&stock["current_stock_mt"]), d(200));
+    assert_eq!(decimal(&stock["reserved_stock_mt"]), Decimal::ZERO);
+    for order in after["orders"].as_object().unwrap().values() {
+        assert_eq!(decimal(&order["remaining_quantity_mt"]), d(1), "{order}");
+        let expected = if order["owner_user_id"] == SUBJECT.to_string() {
+            "CANCELLED"
+        } else {
+            "OPEN"
+        };
+        assert_eq!(order["status"], expected, "{order}");
+    }
+    for trade in after["trades"].as_object().unwrap().values() {
+        assert_eq!(trade["status"], "CANCELLED");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn change_seen_only_after_row_locks_refuses_atomically() {
+    // No new row can name the subject while the caller holds the subject row:
+    // its foreign-key check needs a share lock on that row. A concurrent
+    // writer can still change a linked counterparty order. Here it holds
+    // that change uncommitted, so the first two reads see the old row; the
+    // subcommand waits for the order row, the writer commits, and only the
+    // read after the row locks sees the change. The wait is bounded by the
+    // 500 ms market lock timeout, so a harness too slow to commit inside it
+    // (`55P03`) repeats the case, at most three times.
+    for attempt in 1..=3 {
+        let mut f = Fixture::new(SubjectSide::Seller).await;
+        let (ask, bid, pending) = (id(120), id(121), id(122));
+        f.order(ask, SUBJECT, 3, 2, "PARTIALLY_FILLED", None).await;
+        f.order(bid, COUNTERPARTY, 3, 2, "PARTIALLY_FILLED", None)
+            .await;
+        f.trade(
+            pending,
+            SUBJECT,
+            Some(ask),
+            Some(bid),
+            1,
+            "PENDING_CONFIRMATION",
+        )
+        .await;
+        let mut writer = PgConnection::connect(&f.database.admin_url).await.unwrap();
+        let mut held = writer.begin().await.unwrap();
+        sqlx::query("SELECT offboarding_market_touch_order($1)")
+            .bind(bid)
+            .execute(&mut *held)
+            .await
+            .unwrap();
+        let writer_pid = backend_pid(&mut held).await;
+        let before = f.snapshot().await;
+        let runtime_url = f.database.runtime_url.clone();
+        let command = f.command();
+        let offboarding = tokio::spawn(async move {
+            let mut conn = PgConnection::connect(&runtime_url).await.unwrap();
+            let mut tx = conn.begin().await.unwrap();
+            hold_prefix(&mut tx, &[SUBJECT_ORGANIZATION], &[ADMIN, SUBJECT]).await;
+            let result = invalidate_user(&mut tx, &command).await;
+            tx.rollback().await.unwrap();
+            result
+        });
+        let mut observer = PgConnection::connect(&f.database.admin_url).await.unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(writer_pid)
+            .fetch_one(&mut observer)
+            .await
+            .unwrap();
+            if waiting || offboarding.is_finished() {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "no wait observed");
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        held.commit().await.unwrap();
+        let error = offboarding.await.unwrap().unwrap_err();
+        let state = sqlstate(&error);
+        if state.as_deref() == Some("55P03") && attempt < 3 {
+            continue;
+        }
+        assert_eq!(
+            state.as_deref(),
+            Some("40001"),
+            "attempt {attempt}: {error:?}"
+        );
+        // Only the writer's own change is visible afterwards.
+        let after = f.snapshot().await;
+        for table in [
+            "trades",
+            "inventory",
+            "audit",
+            "outbox",
+            "watch",
+            "benchmarks",
+        ] {
+            assert_eq!(after[table], before[table], "{table}");
+        }
+        others_unchanged(&before, &after, "orders", &[bid]);
+        assert_eq!(
+            row(&after, "orders", bid)["version"].as_i64().unwrap(),
+            row(&before, "orders", bid)["version"].as_i64().unwrap() + 1
+        );
+        return;
+    }
+}

@@ -46,7 +46,7 @@ impl Fixture {
         .unwrap();
         sqlx::raw_sql(
             "CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text DEFAULT 'APPROVED',provenance text DEFAULT 'REAL');
-             CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid,role text DEFAULT 'ADMIN',status text DEFAULT 'APPROVED',email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,kyc_status text DEFAULT 'PENDING',kyc_organization_id uuid);
+             CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid,role text DEFAULT 'ADMIN',status text DEFAULT 'APPROVED',email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz,kyc_status text DEFAULT 'PENDING',kyc_organization_id uuid);
              CREATE TABLE organization_join_requests(id uuid PRIMARY KEY);
              CREATE TABLE kyc_execution_grace(user_id uuid,organization_id uuid,expires_at timestamptz);
              CREATE TABLE products(id uuid PRIMARY KEY,name text,fuel_type text,fuel_grade text,is_active boolean DEFAULT true);
@@ -60,6 +60,7 @@ impl Fixture {
              CREATE TABLE watchlist_targets(id uuid PRIMARY KEY,watchlist_id uuid,target_type text,order_id uuid,market_product_code text,delivery_point_id uuid,availability_window_code text,snapshot_price_per_mt_usd double precision,snapshot_quantity_mt double precision,snapshot_remaining_quantity_mt double precision,snapshot_status text,snapshot_side text,snapshot_market_product text,snapshot_delivery_point_name text,snapshot_availability_window text,snapshot_counterparty_label text);
              CREATE TABLE watchlist_events(id uuid PRIMARY KEY,watchlist_id uuid,watchlist_target_id uuid,event_type text,event_payload jsonb,is_read boolean DEFAULT false,created_at timestamptz);
              CREATE TABLE notifications(id uuid PRIMARY KEY,recipient_id uuid,type text,title text,message text,data jsonb,is_read boolean,created_at timestamptz);
+             CREATE TABLE trade_freezes(id uuid PRIMARY KEY,trade_id uuid NOT NULL,status text NOT NULL);
              CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action text,resource_type text,resource_id text,changes jsonb,ip_address text,request_id text,timestamp timestamptz);
              CREATE TABLE market_event_outbox(id uuid PRIMARY KEY,event_type text,aggregate_type text,aggregate_id text,participant_org_ids jsonb,payload jsonb,created_at timestamptz,dispatched_at timestamptz,delivery_attempts int DEFAULT 0,stream_seq bigint);"
         ).execute(&mut conn).await.unwrap();

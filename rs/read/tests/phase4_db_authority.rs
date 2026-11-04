@@ -6,7 +6,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
 
-const REVISION: &str = "p89_20261022_trade_freeze";
+const REVISION: &str = "ob_20261031_offboarding";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 

@@ -28,6 +28,7 @@ CREATE TABLE users (
     last_login timestamptz,
     password_changed_at timestamptz,
     authentication_revoked_at timestamptz,
+    offboarded_at timestamptz,
     must_change_password boolean NOT NULL DEFAULT false,
     created_at timestamptz NOT NULL DEFAULT now(),
     email_verified boolean NOT NULL DEFAULT false

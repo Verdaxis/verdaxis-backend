@@ -83,17 +83,19 @@ pub async fn run_authenticated<T: Send + 'static>(
                 }
             }
             let query = match request.lock_mode() {
-                UserLockMode::Share => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR SHARE",
-                UserLockMode::Update => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1 FOR UPDATE",
+                UserLockMode::Share => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1 FOR SHARE",
+                UserLockMode::Update => "SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1 FOR UPDATE",
             };
             let row = sqlx::query(query).bind(access.subject).fetch_optional(&mut *transaction).await
                 .map_err(|error| AuthenticatedError::Database(if scoped { scoped_failure(error) } else { ApiError::database() }))?
                 .ok_or(AuthenticatedError::Authentication(AuthError::Credentials))?;
             let password: Option<chrono::DateTime<chrono::Utc>> = row.get("password_changed_at");
             let revoked: Option<chrono::DateTime<chrono::Utc>> = row.get("authentication_revoked_at");
+            let offboarded: Option<chrono::DateTime<chrono::Utc>> = row.get("offboarded_at");
             validate_account_for_path(&access, &AccountState {
                 exists:true, status:row.get("status"), must_change_password:row.get("must_change_password"),
                 password_changed_at:password.map(|v|v.timestamp_micros()), authentication_revoked_at:revoked.map(|v|v.timestamp_micros()),
+                offboarded:offboarded.is_some(),
             }, request.route_template()).map_err(AuthenticatedError::Authentication)?;
             let actor = CurrentActor { id:row.get("id"), organization_id:row.get("organization_id"), role:row.get("role"), email_verified:row.get("email_verified") };
             work(&mut AuthenticatedTransaction { connection:&mut transaction, actor }).await.map_err(AuthenticatedError::Database)

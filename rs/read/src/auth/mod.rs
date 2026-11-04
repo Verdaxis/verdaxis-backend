@@ -9,6 +9,7 @@ pub mod error;
 pub mod issue;
 pub mod limits;
 pub mod lock;
+pub mod offboarding;
 pub mod origin;
 pub mod password;
 pub mod password_reset;

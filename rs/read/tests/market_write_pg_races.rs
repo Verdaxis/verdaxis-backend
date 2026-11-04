@@ -124,7 +124,7 @@ impl Fixture {
                 .fetch_one(&mut admin)
                 .await
                 .unwrap(),
-            "p89_20261022_trade_freeze"
+            "ob_20261031_offboarding"
         );
         for source in [
             include_str!("fixtures/market_write_matching.sql"),

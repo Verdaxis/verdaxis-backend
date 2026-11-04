@@ -363,7 +363,8 @@ async fn r4_refresh_vs_password_change_never_issues_after_cutoff() {
                 status: "APPROVED".into(),
                 must_change_password: false,
                 password_changed_at: Some(cutoff.timestamp_micros()),
-                authentication_revoked_at: None
+                authentication_revoked_at: None,
+                offboarded: false,
             }
         )
         .is_err()

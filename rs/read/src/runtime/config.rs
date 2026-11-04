@@ -223,6 +223,7 @@ pub fn config_from_deployed_environment(
             // an absent key leaves the in-app Host check off.
             allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
             market_write,
+            offboarding_enabled: deployed_bool(environment, super::offboarding::SWITCH, false)?,
         },
     };
     // Refuse an unknown status or an over-long message before serving, like
@@ -640,6 +641,7 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
                 | "p5_20261020_read_indexes"
                 | "p89_20261022_watchlist_producer"
                 | "p89_20261022_trade_freeze"
+                | "ob_20261031_offboarding"
         ) {
             return Err("production requires its reviewed union checkpoint".into());
         }

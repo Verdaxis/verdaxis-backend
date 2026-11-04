@@ -6,9 +6,12 @@
 //! refresh-session or reset-token rows. Statements read and write the same
 //! columns Python does, so a row written by either stack is valid for both.
 //!
-//! Rust never reads or writes `users.password_reset_token_hash` or
-//! `users.password_reset_expires`: they belong to Python's invitation flow.
-//! Reset tokens live only in `password_reset_tokens`.
+//! This module never reads or writes `users.password_reset_token_hash` or
+//! `users.password_reset_expires`, the secret of Python's admin invitation
+//! flow. In Rust only invitation acceptance (`super::invitation_accept`)
+//! reads and clears them, and the offboarding credential cutoff
+//! (`super::offboarding`) clears them. Reset tokens live only in
+//! `password_reset_tokens`.
 //!
 //! Token values never reach this module; callers pass SHA-256 hex digests, and
 //! a lookup is a digest equality in PostgreSQL.
@@ -47,6 +50,9 @@ pub struct UserRow {
     pub must_change_password: bool,
     pub password_changed_at: Option<DateTime<Utc>>,
     pub authentication_revoked_at: Option<DateTime<Utc>>,
+    /// Set when the account's access has ended. Credential routes treat such
+    /// an account as unknown.
+    pub offboarded_at: Option<DateTime<Utc>>,
     pub email_verification_token_hash: Option<String>,
     pub email_verification_token_expires_at: Option<DateTime<Utc>>,
     pub referral_code: Option<String>,
@@ -65,6 +71,7 @@ impl fmt::Debug for UserRow {
             .field("must_change_password", &self.must_change_password)
             .field("password_changed_at", &self.password_changed_at)
             .field("authentication_revoked_at", &self.authentication_revoked_at)
+            .field("offboarded_at", &self.offboarded_at)
             .finish_non_exhaustive()
     }
 }
@@ -138,7 +145,7 @@ macro_rules! select_user_for_update {
         concat!(
             "SELECT id, email, password_hash, status::text AS status, role::text AS role, ",
             "organization_id, email_verified, must_change_password, password_changed_at, ",
-            "authentication_revoked_at, email_verification_token_hash, ",
+            "authentication_revoked_at, offboarded_at, email_verification_token_hash, ",
             "email_verification_token_expires_at, referral_code ",
             "FROM users WHERE ",
             $filter,
@@ -314,6 +321,21 @@ pub async fn upsert_reset_token(
     .execute(&mut *connection)
     .await?;
     Ok(())
+}
+
+/// Delete every reset token of a user whose row the caller has locked, and
+/// return how many rows were removed. Used when the user's credentials end.
+pub async fn delete_user_reset_tokens(
+    connection: &mut PgConnection,
+    user_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    Ok(
+        sqlx::query("DELETE FROM password_reset_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *connection)
+            .await?
+            .rows_affected(),
+    )
 }
 
 /// Remove a bounded batch of expired reset tokens in a separate transaction.

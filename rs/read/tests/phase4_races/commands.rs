@@ -391,6 +391,7 @@ impl RotationInFlight {
                 .user
                 .authentication_revoked_at
                 .map(|at| at.timestamp_micros()),
+            offboarded: self.user.offboarded_at.is_some(),
         };
         let issuance = TokenIssuance {
             issued_at: Some(session_issued_at),

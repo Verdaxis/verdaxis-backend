@@ -223,7 +223,12 @@ async fn rotate(
         barrier.wait().await;
     }
     store::lock_device(&mut tx, device_hash).await?;
-    let Some(user) = store::lock_user(&mut tx, token.subject).await? else {
+    // An offboarded account is refused as an unknown one, before any session
+    // row is read or the replay rule can write.
+    let Some(user) = store::lock_user(&mut tx, token.subject)
+        .await?
+        .filter(|user| user.offboarded_at.is_none())
+    else {
         return Ok(Outcome::Refused(AuthCode::RefreshSessionRevoked));
     };
     #[cfg(feature = "contract-tests")]
@@ -246,6 +251,7 @@ async fn rotate(
         must_change_password: user.must_change_password,
         password_changed_at: user.password_changed_at.map(|t| t.timestamp_micros()),
         authentication_revoked_at: user.authentication_revoked_at.map(|t| t.timestamp_micros()),
+        offboarded: user.offboarded_at.is_some(),
     };
     if let Some(error) = cutoff_refusal(token.issuance, &account) {
         return Ok(Outcome::Refused(

@@ -1,6 +1,6 @@
 -- section: schema
 CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text DEFAULT 'APPROVED', provenance text DEFAULT 'REAL', supplier_tier text);
-CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid REFERENCES organizations, role text DEFAULT 'SUPPLIER', status text DEFAULT 'APPROVED', email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, kyc_status text DEFAULT 'APPROVED', kyc_organization_id uuid);
+CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid REFERENCES organizations, role text DEFAULT 'SUPPLIER', status text DEFAULT 'APPROVED', email_verified boolean DEFAULT true, must_change_password boolean DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, offboarded_at timestamptz, kyc_status text DEFAULT 'APPROVED', kyc_organization_id uuid);
 CREATE TABLE kyc_execution_grace(user_id uuid, organization_id uuid, expires_at timestamptz);
 CREATE TABLE products(id uuid PRIMARY KEY, name text, fuel_type text, fuel_grade text, is_active boolean DEFAULT true);
 CREATE TABLE delivery_points(id uuid PRIMARY KEY, name text, region text, is_active boolean DEFAULT true);

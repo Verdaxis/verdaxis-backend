@@ -199,6 +199,7 @@ pub enum MarketOperation {
     Commission,
     CommissionRead,
     Freeze,
+    Reassign,
 }
 
 impl MarketOperation {
@@ -247,6 +248,7 @@ impl MarketOperation {
             Self::Commission => vec![User, Commission],
             Self::CommissionRead => vec![User],
             Self::Freeze => vec![User, Trade, FreezeRow],
+            Self::Reassign => vec![Organization, User, Trade],
         }
     }
 }

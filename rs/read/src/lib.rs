@@ -2,6 +2,7 @@
 pub mod analytics;
 pub mod auth;
 pub mod business;
+pub mod case_reference;
 pub mod compliance;
 pub mod crud;
 pub mod kyc;
@@ -309,6 +310,11 @@ pub struct Phase2Options {
     /// `MARKET_SUPPORT_*` keys and the conversion collector). Absent keys keep
     /// Python's defaults.
     pub market_write: runtime::market_write::MarketWriteOptions,
+    /// `OFFBOARDING_ENABLED`: the release switch of the individual offboarding
+    /// command, its preview, the obligation list and the responsible-person
+    /// reassignment. Off unless the deployed environment turns it on; while
+    /// off, no router mounts any of these routes (see `runtime::offboarding`).
+    pub offboarding_enabled: bool,
 }
 
 fn read_admission_default() -> u32 {
@@ -407,6 +413,21 @@ pub mod market_freeze {
     pub(crate) use crate::order_write::freeze::{FreezeCommand, FreezeInput, execute_freeze};
     pub use crate::order_write::freeze::{
         FreezeRequest, FreezeResponse, FrozenPage, UnfreezeRequest,
+    };
+    pub use crate::order_write::{MarketErrorCode, MarketWriteError};
+}
+
+/// Administrator obligation list and responsible-person reassignment types
+/// and sealed command entry point.
+pub mod market_reassignment {
+    pub(crate) use crate::order_write::effects::AuditContext;
+    pub use crate::order_write::reassignment::{
+        AUDIT_ACTION, CASE_REFERENCE_MAX_LENGTH, CASE_REFERENCE_PREFIXES, CaseReference,
+        EVENT_TYPE, OBLIGATION_PAGE_LIMIT, ObligationPage, REQUEST_BODY_LIMIT_BYTES,
+        ReassignRequest, ResponsibleSide,
+    };
+    pub(crate) use crate::order_write::reassignment::{
+        ReassignmentCommand, ReassignmentInput, execute_reassignment,
     };
     pub use crate::order_write::{MarketErrorCode, MarketWriteError};
 }

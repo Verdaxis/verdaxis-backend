@@ -1338,6 +1338,7 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
         "p5_20261020_read_indexes",
         "p89_20261022_watchlist_producer",
         "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding",
     ]
     policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
     assert "prc_20261018_cache\tprc_20261026_changes" in policy
