@@ -788,7 +788,26 @@ fn timer_catch_up_after_restart_runs_once() {
         let service_path = Path::new(source).parent().unwrap().join(service_name);
         let service = text(service_path.to_str().unwrap());
         assert_eq!(directives(&service, "Type"), ["oneshot"], "{source}");
-        assert!(directives(&service, "Restart").is_empty(), "{source}");
+        // A persistent timer starts its service once for all missed elapses.
+        // A restart may follow only a failed run, so the catch-up still ends
+        // with one successful run; the retries must be bounded.
+        match directives(&service, "Restart").as_slice() {
+            [] => {}
+            ["on-failure"] => {
+                assert_eq!(directives(&service, "StartLimitBurst"), ["5"], "{source}");
+                assert_eq!(
+                    directives(&service, "StartLimitIntervalSec"),
+                    ["15min"],
+                    "{source}"
+                );
+                assert_eq!(
+                    directives(&service, "RestartPreventExitStatus"),
+                    ["2 3"],
+                    "{source}"
+                );
+            }
+            other => panic!("{source}: unbounded or unexpected Restart={other:?}"),
+        }
     }
     assert!(persistent > 0);
 }
