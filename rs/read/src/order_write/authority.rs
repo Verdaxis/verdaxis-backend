@@ -1,4 +1,4 @@
-//! The shared write authority projection (plan §11.2; CF4_04; PD89-12).
+//! The shared write authority projection (plan §11.2; CF4_04).
 //!
 //! [`WriteContext`] binds one authenticated actor to the organization a write
 //! acts for, the transaction instant, and — for a lifecycle command — the one
@@ -136,7 +136,7 @@ impl AssistedSideEvidence {
     }
 }
 
-/// The typed ownership proof for one recorded trade side (PD89-CF4-9).
+/// The typed ownership proof for one recorded trade side.
 ///
 /// The proof is built only by the settlement loader from the loaded trade and
 /// its immutable evidence. Its representation is private, so no caller can
