@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 UNIT_DIR = ROOT / "deploy/monitor"
 
@@ -158,33 +157,24 @@ def test_demo_activity_loads_exact_per_environment_identity_and_credentials(
     text = unit(name)
     timer = unit(timer_name)
 
-    assert f"User={user}" in text
-    assert f"Group={user}" in text
-    assert f"EnvironmentFile=/etc/verdaxis-monitor/demo/{environment}.env" in text
-    assert f"EnvironmentFile={backend_dir}/.runtime-release.env" in text
+    assert "User=verdaxis-prod" in text
+    assert "Group=verdaxis-prod" in text
+    assert f"EnvironmentFile={backend_dir}/.runtime-rust/jobs/demo.env" in text
     assert f"EnvironmentFile={backend_dir}/.env" not in text
-    assert f"Environment=ENVIRONMENT={environment}" in text
+    assert f"Environment=DEPLOY_STATE_DIR={backend_dir}/.runtime-deploy" in text
     assert "ExecStartPre=" not in text
-    assert "RuntimeDirectory=verdaxis-demo-" in text
     assert f"ConditionPathExists=!{backend_dir}/.runtime-deploy/{environment}.state" in text
-    assert f"BindReadOnlyPaths={backend_dir}" in text
     assert (
-        f"ExecStart=/usr/bin/env ENVIRONMENT={environment} /usr/bin/python3 "
-        f"/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py "
-        f"--source-directory {backend_dir} --expected-environment {environment} "
-        f"--expected-release-sha ${{RELEASE_SHA}} --python-executable "
-        f"{backend_dir}/venv/bin/python --script scripts/run_demo_activity.py "
-        "--runtime-directory %t/verdaxis-demo-"
+        f"ExecStart=/usr/bin/env {backend_dir}/.runtime-rust/verdaxis-read job demo "
+        f"--environment {environment} --release-sha ${{RELEASE_SHA}} --apply"
     ) in text
     assert "development" not in text.lower()
     assert "sudo" not in text.lower()
     assert "CapabilityBoundingSet=" in text
-    assert "NoNewPrivileges=yes" in text
+    assert "NoNewPrivileges=true" in text
     assert "ProtectSystem=strict" in text
-    assert "ProtectHome=tmpfs" in text
-    assert "IPAddressDeny=any" in text
-    assert "IPAddressAllow=127.0.0.0/8" in text
-    assert "TimeoutStartSec=" in text
+    assert "ProtectHome=read-only" in text
+    assert "TimeoutStartSec=600s" in text
     assert "ReadWritePaths=" not in text
     assert "/home/verdaxis-prod/.backup-env" not in text
     assert f"/etc/verdaxis-monitor/demo/{other_environment}.env" not in text

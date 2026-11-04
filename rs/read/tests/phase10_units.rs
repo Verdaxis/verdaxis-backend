@@ -299,6 +299,51 @@ fn job_units_load_only_their_purpose_env() {
 }
 
 #[test]
+fn demo_units_run_the_rust_job_with_their_own_env_file() {
+    for (environment, name) in [
+        ("production", "verdaxis-demo-activity.service"),
+        ("staging", "verdaxis-demo-activity-staging.service"),
+    ] {
+        let unit = text(&format!("deploy/monitor/{name}"));
+        let root = root_of(environment);
+        assert_eq!(
+            directives(&unit, "EnvironmentFile"),
+            [format!("{root}/.runtime-rust/jobs/demo.env")],
+            "{name}"
+        );
+        assert_eq!(
+            directives(&unit, "Environment"),
+            [format!("DEPLOY_STATE_DIR={root}/.runtime-deploy")],
+            "{name}"
+        );
+        assert_eq!(
+            directives(&unit, "ExecStart"),
+            [format!(
+                "/usr/bin/env {root}/.runtime-rust/verdaxis-read job demo --environment {environment} --release-sha ${{RELEASE_SHA}} --apply"
+            )],
+            "{name}"
+        );
+        assert_eq!(directives(&unit, "User"), ["verdaxis-prod"], "{name}");
+        let state = format!("!{root}/.runtime-deploy/{environment}.state");
+        assert!(
+            directives(&unit, "ConditionPathExists").contains(&state.as_str()),
+            "{name}"
+        );
+        for forbidden in [
+            "python",
+            "venv",
+            "verify_runtime_identity",
+            "/etc/verdaxis-monitor/demo/",
+        ] {
+            assert!(
+                !unit.to_ascii_lowercase().contains(forbidden),
+                "{name}: {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
 fn job_unit_timeouts_cover_the_job_deadline() {
     for (_, name, kind) in job_services() {
         let unit = canonical(&name);
