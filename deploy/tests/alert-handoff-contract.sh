@@ -463,6 +463,13 @@ setup_target() {
             > "/etc/verdaxis-monitor/runtime-identities/$environment.identity"
         chmod 0644 "/etc/verdaxis-monitor/runtime-identities/$environment.identity"
     done
+    # The health monitor probes only the host's installed endpoint list (Task
+    # 27 I2); here it names the two loopback readiness fakes.
+    printf '%s\n' '{"version": 1, "endpoints": [' \
+        '{"name": "prod_ready", "url": "http://127.0.0.1:8000/health/ready", "environment": "production"},' \
+        '{"name": "staging_ready", "url": "http://127.0.0.1:8001/health/ready", "environment": "staging"}]}' \
+        > /etc/verdaxis-monitor/health-endpoints.json
+    chmod 0644 /etc/verdaxis-monitor/health-endpoints.json
     install -d -o verdaxis-prod -g verdaxis-prod -m 0750 /home/verdaxis-prod/verdaxis
     install -o verdaxis-prod -g verdaxis-prod -m 0600 /dev/null /home/verdaxis-prod/.backup-env
     install -d -m 0755 /usr/local/libexec/verdaxis
