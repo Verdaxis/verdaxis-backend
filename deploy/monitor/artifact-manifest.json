@@ -155,7 +155,6 @@
   "binary": {
     "source": ".runtime-rust/verdaxis-read",
     "destination": "/usr/local/libexec/verdaxis/verdaxis-read",
-    "mode": "0755",
-    "sha256": "UNBOUND_RELEASE_BINARY"
+    "mode": "0755"
   }
 }

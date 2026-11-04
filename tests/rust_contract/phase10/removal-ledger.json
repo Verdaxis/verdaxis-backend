@@ -4739,7 +4739,7 @@
       "end_state": "shell",
       "owner": "Task 10 installer owner",
       "task": 10,
-      "source_sha256": "31e11154acdc6698a17c1bf13a0867df6f1fe74746539369d9e4a240e9e397eb",
+      "source_sha256": "d6172bb6817570d97395dff6e682d5f825ffabb8940acf4dd90b737d9e20d02b",
       "status": "planned",
       "evidence": [
         "installer_refuses_a_manifest_digest_mismatch"

@@ -17,10 +17,12 @@ MODE="dry-run"
 MODE_SET=0
 DEPLOY_ENVIRONMENT=""
 SOURCE_REF=""
+BINARY_SHA256=""
 UNIT_MANIFEST_PATH="deploy/systemd/runtime-units.manifest"
 
 usage() {
-    echo "usage: $0 [--dry-run|--apply] --environment production|staging --source-ref <40-hex-sha>" >&2
+    echo "usage: $0 [--dry-run|--apply] --environment production|staging --source-ref <40-hex-sha> --binary-sha256 <64-hex>" >&2
+    echo "Copy --binary-sha256 from binary_sha256 in the verified release record produced by deploy/scripts/verify-artifact.sh." >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -39,6 +41,11 @@ while [[ $# -gt 0 ]]; do
             DEPLOY_ENVIRONMENT="$2"
             shift 2
             ;;
+        --binary-sha256)
+            [[ $# -ge 2 && -z "$BINARY_SHA256" ]] || { usage; exit 2; }
+            BINARY_SHA256="$2"
+            shift 2
+            ;;
         --source-ref)
             [[ $# -ge 2 && -z "$SOURCE_REF" ]] || { usage; exit 2; }
             SOURCE_REF="$2"
@@ -50,6 +57,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ ! "$BINARY_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "--binary-sha256 is required and must be 64 lowercase hex characters" >&2
+    exit 2
+fi
 
 if [[ ! "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]; then
     echo "--source-ref must be a full lowercase commit SHA" >&2
@@ -83,7 +95,8 @@ if [[ "$MODE" == "apply" \
         /usr/bin/flock --exclusive --nonblock \
         "/run/lock/verdaxis-systemd-units-${DEPLOY_ENVIRONMENT}.lock" \
         "$SCRIPT_DIR/install_systemd_units.sh" --apply \
-        --environment "$DEPLOY_ENVIRONMENT" --source-ref "$SOURCE_REF"
+        --environment "$DEPLOY_ENVIRONMENT" --source-ref "$SOURCE_REF" \
+        --binary-sha256 "$BINARY_SHA256"
 fi
 
 SOURCE_GIT=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
@@ -298,7 +311,7 @@ elif [[ "$kyc_key_source_status" != 0 ]]; then
 fi
 # END kyc-key-source-preflight
 
-HOST_INSTALL_ARGS=(--binary "$SOURCE_ROOT/.runtime-rust/verdaxis-read")
+HOST_INSTALL_ARGS=(--binary "$SOURCE_ROOT/.runtime-rust/verdaxis-read" --binary-sha256 "$BINARY_SHA256")
 [[ "$MODE" != "dry-run" ]] || HOST_INSTALL_ARGS+=(--dry-run)
 sudo /bin/bash "$STAGING_DIR/deploy/scripts/install-host-automation.sh" "${HOST_INSTALL_ARGS[@]}"
 

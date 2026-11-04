@@ -17,7 +17,7 @@ CONTRACT = ROOT / "deploy/tests/units-contract.sh"
 @lru_cache(maxsize=1)
 def contract_cases():
     result = subprocess.run(
-        ["bash", str(CONTRACT)], capture_output=True, text=True, timeout=60, check=False
+        ["bash", str(CONTRACT), "--static"], capture_output=True, text=True, timeout=60, check=False
     )
     assert result.returncode == 0, result.stderr
     return {line.removeprefix("ok ") for line in result.stdout.splitlines() if line.startswith("ok ")}

@@ -1116,10 +1116,13 @@ Task 10b adds `deploy/scripts/install-host-automation.sh`, called once by the
 canonical unit installer after its immutable source checks. It installs only
 the digest-bound host binary, the named sysusers/tmpfiles/ACL policy and the
 16 active local/external monitor artifacts; it never activates units or touches
-retired recovery/external-check units. The source artifact manifest deliberately
-uses `UNBOUND_RELEASE_BINARY` until release packaging binds the attested binary
-digest; an unbound pack refuses before destination writes. The render account
-has a private home and no login shell. Exact effective handoff ACLs are checked
+retired recovery/external-check units. Both installers require `--binary-sha256`,
+which the operator copies from `binary_sha256` in the verified release record
+produced by `verify-artifact.sh`; the source manifest contains no binary digest.
+The binary and its temporary install copy must match that input, including in
+dry-run. CI runs static installer cells in the shell job and the full disposable
+identity and A/B/A restart/forward/revert cells after building the release binary.
+The render account has a private home and no login shell. Exact effective handoff ACLs are checked
 with `getfacl`; reinstallation does not remove entries, cursors or stable locks.
 Activation and native/Python fencing remain separate operator decisions.
 

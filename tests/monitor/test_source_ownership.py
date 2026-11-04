@@ -156,6 +156,13 @@ def load_manifest() -> dict:
     assert type(payload["schema_version"]) is int
     assert payload["schema_version"] == 1
     assert isinstance(payload["artifacts"], list)
+    # Binary identity is supplied from the verified release record at install
+    # time, never guessed from source or an installed-host metadata file.
+    assert payload["binary"] == {
+        "source": ".runtime-rust/verdaxis-read",
+        "destination": "/usr/local/libexec/verdaxis/verdaxis-read",
+        "mode": "0755",
+    }
     return payload
 
 

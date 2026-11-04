@@ -7,15 +7,20 @@ MANIFEST="$SOURCE_ROOT/deploy/monitor/artifact-manifest.json"
 ROOT=""
 DRY_RUN=0
 BINARY="$SOURCE_ROOT/.runtime-rust/verdaxis-read"
+BINARY_SHA256=""
 fail() { printf 'host automation: %s\n' "$*" >&2; exit 1; }
 while (( $# )); do
     case $1 in
         --root) [[ $# -ge 2 && -n $2 && $2 == /* ]] || fail 'root must be absolute'; ROOT=${2%/}; shift 2 ;;
         --binary) [[ $# -ge 2 ]] || fail 'binary argument missing'; BINARY=$2; shift 2 ;;
+        --binary-sha256) [[ $# -ge 2 && -z $BINARY_SHA256 ]] || fail 'binary digest argument missing or repeated'; BINARY_SHA256=$2; shift 2 ;;
         --dry-run) DRY_RUN=1; shift ;;
-        *) fail 'usage: install-host-automation.sh [--root DIR] [--dry-run] [--binary FILE]' ;;
+        *) fail 'usage: install-host-automation.sh --binary-sha256 <64-hex> [--root DIR] [--dry-run] [--binary FILE]' ;;
     esac
 done
+# The operator copies binary_sha256 from the verified release record produced
+# by verify-artifact.sh. No installed-host metadata or source placeholder is used.
+[[ $BINARY_SHA256 =~ ^[a-f0-9]{64}$ ]] || fail '--binary-sha256 is required and must be 64 lowercase hex characters'
 [[ "$ROOT" != *'/../'* && "$ROOT" != */.. && "$ROOT" != *'/./'* ]] || fail 'unsafe root'
 for tool in jq sha256sum; do command -v "$tool" >/dev/null || fail "missing $tool"; done
 # Exact source/destination pairs are an installer allowlist, not manifest authority.
@@ -41,10 +46,10 @@ verify() {
     [[ -f $1 && ! -L $1 ]] || fail "not a regular source: $1"
     [[ $2 =~ ^[a-f0-9]{64}$ && $(hash "$1") == "$2" ]] || fail "digest mismatch: $1"
 }
-# Validate everything before creating even the destination root. A release pack
-# must supply its attested binary digest; an unbound source manifest refuses.
+# Validate everything before creating even the destination root. The source
+# manifest pins policy bytes; the verified release record pins the binary.
 jq -e 'keys == ["artifacts","binary","schema_version"] and .schema_version == 1
-    and (.binary | keys == ["destination","mode","sha256","source"])
+    and (.binary | keys == ["destination","mode","source"])
     and .binary.source == ".runtime-rust/verdaxis-read"
     and .binary.destination == "/usr/local/libexec/verdaxis/verdaxis-read"
     and .binary.mode == "0755"
@@ -53,7 +58,7 @@ jq -e 'keys == ["artifacts","binary","schema_version"] and .schema_version == 1
     and ([.artifacts[].destination] | unique | length == 25)
     and all(.artifacts[]; keys == ["destination","mode","sha256","source"]
         and .mode == "0644" and (.sha256 | type == "string" and test("^[a-f0-9]{64}$")))' "$MANIFEST" >/dev/null || fail 'invalid manifest'
-verify "$BINARY" "$(jq -r '.binary.sha256' "$MANIFEST")"
+verify "$BINARY" "$BINARY_SHA256"
 SOURCES=("$BINARY")
 DESTINATIONS=(/usr/local/libexec/verdaxis/verdaxis-read)
 MODES=(0755)
@@ -88,7 +93,7 @@ for index in "${!SOURCES[@]}"; do
     TEMP=$(mktemp "${destination}.pending.XXXXXXXX")
     install -o root -g root -m "${MODES[$index]}" "${SOURCES[$index]}" "$TEMP"
     [[ $(hash "$TEMP") == $(hash "${SOURCES[$index]}") ]] || fail 'copy changed'
-    if (( index == 0 )); then expected=$(jq -r '.binary.sha256' "$MANIFEST"); else
+    if (( index == 0 )); then expected=$BINARY_SHA256; else
         expected=$(jq -r --arg destination "${DESTINATIONS[$index]}" '.artifacts[] | select(.destination == $destination) | .sha256' "$MANIFEST")
     fi
     verify "$TEMP" "$expected"

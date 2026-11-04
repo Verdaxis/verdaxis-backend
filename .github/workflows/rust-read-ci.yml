@@ -77,10 +77,10 @@ jobs:
         run: bash deploy/tests/deploy-transaction.sh
       - name: Run the Python-free unit installer contract
         shell: bash -euo pipefail {0}
-        run: bash deploy/tests/units-contract.sh
+        run: bash deploy/tests/units-contract.sh --static
 
-  # Pure tests plus the release build, the glibc floor check, and the archivable
-  # release artifact. No database, no container, no secrets.
+  # Pure tests plus the release build, disposable host-automation identity cells,
+  # the glibc floor check and the archivable artifact. No live database or secrets.
   offline:
     runs-on: ubuntu-22.04
     steps:
@@ -185,6 +185,12 @@ jobs:
           cargo build --manifest-path rs/Cargo.toml --locked --release \
             --target "$RUST_TARGET" -p verdaxis-read
           sha256sum "rs/target/$RUST_TARGET/release/verdaxis-read"
+
+      - name: Run the full host-automation installer and identity contracts
+        shell: bash -euo pipefail {0}
+        run: |
+          VERDAXIS_READ_BIN="$PWD/rs/target/$RUST_TARGET/release/verdaxis-read" \
+            bash deploy/tests/units-contract.sh
 
       - name: Check the glibc floor of the built binary
         shell: bash
