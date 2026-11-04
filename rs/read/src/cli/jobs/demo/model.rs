@@ -433,6 +433,21 @@ pub const DEMO_SEED_SUPPLIERS: [Uuid; 5] = [
     Uuid::from_u128(0x82426590_0963_5486_9b05_f81e97afe6ef),
 ];
 
+/// The ten demo seed organizations, buyers then suppliers: the only
+/// organizations coverage may write.
+pub const DEMO_SEED_ORGANIZATIONS: [Uuid; 10] = [
+    DEMO_SEED_BUYERS[0],
+    DEMO_SEED_BUYERS[1],
+    DEMO_SEED_BUYERS[2],
+    DEMO_SEED_BUYERS[3],
+    DEMO_SEED_BUYERS[4],
+    DEMO_SEED_SUPPLIERS[0],
+    DEMO_SEED_SUPPLIERS[1],
+    DEMO_SEED_SUPPLIERS[2],
+    DEMO_SEED_SUPPLIERS[3],
+    DEMO_SEED_SUPPLIERS[4],
+];
+
 /// The two demo activity organizations (`DEMO_ACTIVITY_*_ORG_ID`).
 pub const DEMO_ACTIVITY_BUYER_ORG_ID: Uuid =
     Uuid::from_u128(0x7cc77115_0a9f_4ec4_8c74_05aa10050111);

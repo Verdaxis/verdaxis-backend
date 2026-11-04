@@ -26,6 +26,8 @@ pub mod freeze;
 mod invalidation;
 pub(crate) mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
+/// The demo activity job's market phases (the sealed actorless system path).
+pub use transaction::system::demo::{DemoMarketFailure, DemoMarketReport, run_demo_market_phases};
 pub(crate) mod amend;
 pub mod locks;
 pub mod matching;

@@ -66,11 +66,20 @@ fn refused() -> MarketAttemptError {
 
 /// The system path's admission. The plan locked organizations and no user;
 /// each locked organization is allowed, DEMO and APPROVED.
+///
+/// A plan that locks nothing at all (a phase with nothing to change) is
+/// admitted with no organization: every system statement filters on the
+/// admitted organizations, so such a writer can change no row.
 async fn system_admission(
     tx: &mut LockedMarketTransaction<'_>,
     allowed: &[Uuid],
 ) -> Result<SystemWriter, MarketAttemptError> {
     let trace = tx.plan.trace();
+    if trace.is_empty() {
+        return Ok(SystemWriter {
+            organizations: Vec::new(),
+        });
+    }
     if trace.iter().any(|(class, _)| *class == LockClass::User) {
         return Err(refused());
     }

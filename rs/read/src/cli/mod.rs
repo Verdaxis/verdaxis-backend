@@ -579,6 +579,7 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
             jobs::reminders::command(&args).await
         }
         Command::Job(job) if job.kind == JobKind::KycNotices => jobs::kyc::run(&job).await,
+        Command::Job(job) if job.kind == JobKind::Demo => jobs::demo::command(&job).await,
         Command::Job(job) if job.kind == JobKind::PruneAnalytics => {
             jobs::prune::command(&job).await
         }

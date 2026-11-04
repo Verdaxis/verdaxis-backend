@@ -878,6 +878,7 @@ fn migrator_url_is_only_in_the_migrate_invocation() {
         "jobs/reminders.env",
         "jobs/kyc-notices.env",
         "jobs/prune-analytics.env",
+        "jobs/demo.env",
         "jobs/monitor-onboarding.env",
     ]
     .into_iter()

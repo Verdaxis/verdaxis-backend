@@ -479,6 +479,9 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
         ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
         ("freeze.rs", &["TRADE_FREEZES"]),
+        // The demo activity coverage writer (SYSTEM orders of DEMO seed
+        // organizations, behind the sealed system admission).
+        ("transaction/system/demo.rs", &["ORDERBOOK_ORDERS"]),
     ];
     per_file
         .iter()
@@ -673,9 +676,19 @@ const REMINDER_EXPORTS: &[&str] = &[
     "reminder_candidates",
 ];
 
+/// The demo activity job's one entry point into the market phases and its
+/// report types. Provisioning and the job gates stay outside the boundary.
+const DEMO_EXPORTS: &[&str] = &[
+    "DemoMarketFailure",
+    "DemoMarketReport",
+    "run_demo_market_phases",
+];
+
 /// A name an external caller may import from the boundary.
 fn business_export(name: &str) -> bool {
-    BUSINESS_EXPORTS.contains(&name) || REMINDER_EXPORTS.contains(&name)
+    BUSINESS_EXPORTS.contains(&name)
+        || REMINDER_EXPORTS.contains(&name)
+        || DEMO_EXPORTS.contains(&name)
 }
 
 fn rust_tokens(text: &str) -> Vec<String> {
