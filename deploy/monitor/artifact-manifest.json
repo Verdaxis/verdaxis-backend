@@ -2,34 +2,58 @@
   "schema_version": 1,
   "artifacts": [
     {
+      "source": "../external_monitor/systemd/verdaxis-monitor-verify.service",
+      "destination": "/etc/systemd/system/verdaxis-monitor-verify.service",
+      "mode": "0644",
+      "sha256": "b6d9ba54185794d270ed65823abb6cfe72603244748662620b5f8fe12406a81d"
+    },
+    {
+      "source": "../external_monitor/systemd/verdaxis-monitor.service",
+      "destination": "/etc/systemd/system/verdaxis-monitor.service",
+      "mode": "0644",
+      "sha256": "bc17eb6fbaf7d7dff1eed88758145abb1ff7117c12f129b67160048b4d9ffbaa"
+    },
+    {
+      "source": "../external_monitor/systemd/verdaxis-monitor.timer",
+      "destination": "/etc/systemd/system/verdaxis-monitor.timer",
+      "mode": "0644",
+      "sha256": "038ca76afa2bba9a5630bd2300079c6036c693e7338f108e75910a368bebeffa"
+    },
+    {
+      "source": "../external_monitor/systemd/verdaxis-onboarding-attention.service",
+      "destination": "/etc/systemd/system/verdaxis-onboarding-attention.service",
+      "mode": "0644",
+      "sha256": "aec4b5dbfe7153eb04bddc1646963357d8ee5559dee84aee5ad38231ceaeb370"
+    },
+    {
+      "source": "../external_monitor/systemd/verdaxis-onboarding-attention.timer",
+      "destination": "/etc/systemd/system/verdaxis-onboarding-attention.timer",
+      "mode": "0644",
+      "sha256": "0cbcf48a1388366371ab398cc95cab58ea2545830cac17aa22d15d861b7b6925"
+    },
+    {
+      "source": "../external_monitor/verdaxis-monitor.env.example",
+      "destination": "/usr/share/doc/verdaxis-monitor/verdaxis-monitor.env.example",
+      "mode": "0644",
+      "sha256": "dd3b4599d5188b6d921300811e1509216121c265da6f71bbcf89a78d6ceb63a1"
+    },
+    {
+      "source": "../external_monitor/verdaxis-render.sysusers",
+      "destination": "/usr/lib/sysusers.d/verdaxis-render.conf",
+      "mode": "0644",
+      "sha256": "bf537b27fc5c8aa89f47b0868a0fdf39b250f037fa176e5ca34dc9009ea01f53"
+    },
+    {
+      "source": "../external_monitor/verdaxis-render.tmpfiles",
+      "destination": "/usr/lib/tmpfiles.d/verdaxis-render.conf",
+      "mode": "0644",
+      "sha256": "bf4942154d086c49a5852517b6921e024fc5d2bab5b28d8677201e57e181762d"
+    },
+    {
       "source": "alert.env.example",
       "destination": "/usr/share/doc/verdaxis-monitor/alert.env.example",
       "mode": "0644",
       "sha256": "523958e11fbdbf92a462e0cd8965562992597bd83ff75c4b64cc10df226b2fba"
-    },
-    {
-      "source": "alert_dispatch.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/alert_dispatch.py",
-      "mode": "0755",
-      "sha256": "cc98df424a9c084eafa481e62ffc1aade75a3a886c4627454b359344b9fc2d84"
-    },
-    {
-      "source": "backup_verify.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
-      "mode": "0755",
-      "sha256": "189feb352cd10fce1b98146f0748f39c17ca8220e4b4a09e3cd251611c58973e"
-    },
-    {
-      "source": "local_health_check.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
-      "mode": "0755",
-      "sha256": "41e459f3d291ae6fe8816938622fae8e50bd34cbcc48738ffd792c4103e257ac"
-    },
-    {
-      "source": "outbox_backlog_probe.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
-      "mode": "0755",
-      "sha256": "2a8a2175625c8614875650c68c282bc147900006c01958062851ba8d75a21b3b"
     },
     {
       "source": "runtime-identity.example",
@@ -42,12 +66,6 @@
       "destination": "/usr/share/doc/verdaxis-monitor/runtime-v2-readiness-corpus.json",
       "mode": "0644",
       "sha256": "07172b9315750135599c7bae16d05754e718b09d1cb4bc87281e4a7fa526f50e"
-    },
-    {
-      "source": "status_state.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/status_state.py",
-      "mode": "0644",
-      "sha256": "c56120b579478b4eebcb2879e5c05b12d75aeb70c302b8d18926d49ba39a64bc"
     },
     {
       "source": "verdaxis-backup-verify.service",
@@ -132,12 +150,12 @@
       "destination": "/usr/lib/tmpfiles.d/verdaxis-monitor.conf",
       "mode": "0644",
       "sha256": "8578c412650310049283d18ba3f60e0d33f8c957b3a01907dc2c7a1d15ac4b4c"
-    },
-    {
-      "source": "verify_runtime_identity.py",
-      "destination": "/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py",
-      "mode": "0755",
-      "sha256": "d9dd256baa55927caa153d3957ec0a11427a0658d4971552c44beb13f149e6bd"
     }
-  ]
+  ],
+  "binary": {
+    "source": ".runtime-rust/verdaxis-read",
+    "destination": "/usr/local/libexec/verdaxis/verdaxis-read",
+    "mode": "0755",
+    "sha256": "UNBOUND_RELEASE_BINARY"
+  }
 }

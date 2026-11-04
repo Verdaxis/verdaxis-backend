@@ -1,0 +1,11 @@
+[Unit]
+Description=Repeat unresolved Verdaxis local monitor failures hourly
+
+[Timer]
+OnCalendar=hourly
+AccuracySec=1m
+Persistent=true
+Unit=verdaxis-monitor-alert-reminder.service
+
+[Install]
+WantedBy=timers.target

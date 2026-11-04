@@ -15,3 +15,5 @@ scripts/deploy.sh
 deploy/scripts/converge-acls.sh
 deploy/tests/deploy-transaction.sh
 deploy/tests/units-contract.sh
+deploy/scripts/install-host-automation.sh
+scripts/install_systemd_units.sh

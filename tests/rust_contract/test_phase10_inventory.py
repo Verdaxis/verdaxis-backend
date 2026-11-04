@@ -322,7 +322,7 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "installer_refuses_a_manifest_digest_mismatch",
         "installer_restart_and_revert_preserve_admitted_alert_state",
         "job_units_load_only_their_purpose_env",
-        "manifest_counts_are_16_canonical_11_local_8_external",
+        "manifest_counts_are_16_canonical_11_local_5_external",
         "monitor_units_exec_the_digest_pinned_host_copy",
         "no_unit_contains_python_or_a_venv_path",
         "old_unit_can_start_the_new_binary",
@@ -683,7 +683,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '1725bc88f6f917b54e898cfe24f33e156285ae5742ec4f3c78a2c41e314090c4'
+PINNED_SOURCE_IDENTITIES = '8d0614f391597f8c3ef24b38a433f5809d4ddd1d51b812ef968b04409c46cc16'
 
 
 def validate_inventory_contract(ledger, manifest):

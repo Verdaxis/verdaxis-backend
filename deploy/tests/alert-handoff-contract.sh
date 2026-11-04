@@ -251,10 +251,8 @@ inside() {
 
 disposable_identities() {
     local cell=alert_handoff_disposable_target
-    if [ "$(uname -s)" != Linux ]; then
-        fail "$cell" "the identity suite needs a Linux host"
-        return
-    fi
+    # The engine supplies Linux (including Colima on macOS). The target's
+    # systemd/ACL checks below remain mandatory; the client OS is irrelevant.
     engine=${VERDAXIS_CONTAINER_ENGINE:-}
     if [ -z "$engine" ]; then
         if command -v podman >/dev/null 2>&1; then engine=podman; else engine=docker; fi

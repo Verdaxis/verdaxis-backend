@@ -342,11 +342,13 @@ def test_failure_chain_and_external_trigger_contract():
         / "verdaxis-external-recover.service"
     ).read_text()
 
-    assert "OnFailure=verdaxis-recover.service" in monitor_unit
+    assert "OnFailure=" not in monitor_unit
+    assert "OnFailureJobMode=" not in monitor_unit
     assert "OnFailure=verdaxis-codex-diagnose.service" in recovery_unit
     assert "ConditionPathExists=" not in recovery_unit
     assert "OnFailure=" not in verify_unit
-    assert "Environment=TELEGRAM_DISABLED=1" in verify_unit
+    assert "monitor external --telegram-disabled" in verify_unit
+    assert "Environment=TELEGRAM_DISABLED=1" not in verify_unit
     assert "OnFailure=verdaxis-external-recover.service" in external_monitor_unit
     assert "User=verdaxis-monitor" in external_recovery_unit
     assert "StartLimitIntervalSec=1h" in external_recovery_unit

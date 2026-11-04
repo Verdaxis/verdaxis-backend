@@ -175,7 +175,7 @@
     "legacy_bind_form_still_serves",
     "mail_transport_logs_recipient_digest_never_address",
     "main_and_restart_locks_precede_authorization",
-    "manifest_counts_are_16_canonical_11_local_8_external",
+    "manifest_counts_are_16_canonical_11_local_5_external",
     "measure_artifact_is_report_only",
     "measure_extracts_digest_pinned_python_memory_and_computes_absolute_and_percentage_differences",
     "measure_marks_the_below_floor_caveat",
@@ -508,7 +508,7 @@
     {
       "id": "alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping",
       "owner_task": 28,
-      "plan_requirement": "\u00a722 R4-1; Task 28, PM acceptance",
+      "plan_requirement": "§22 R4-1; Task 28, PM acceptance",
       "required_result": "Kill before rename, after final-name rename before directory fsync, and after fsync before bookkeeping. Under the journal lock, recover any valid final-name entry by completing fsync and cursor bookkeeping before delivery. In-doubt recovery yields no entry or one ordered entry, never duplicate admission or out-of-order delivery."
     },
     {
@@ -952,7 +952,7 @@
     {
       "id": "external_monitor_alerts_on_producer_exit_4_with_healthy_status",
       "owner_task": 29,
-      "plan_requirement": "\u00a722 R4-3; Tasks 28 and 29, PM acceptance",
+      "plan_requirement": "§22 R4-3; Tasks 28 and 29, PM acceptance",
       "required_result": "For both producer units, journal-lock timeout on a healthy observation exits 4 with no admitted entry and unchanged healthy status. The bounded failed-unit check on the external monitor main path alerts using unit state only; it neither reads producer credentials nor enqueues the refused observation nor changes failure to success."
     },
     {
@@ -1060,7 +1060,7 @@
     {
       "id": "fleet_installed_dependency_is_classified",
       "owner_task": 25,
-      "plan_requirement": "\u00a74.7; Task 25",
+      "plan_requirement": "§4.7; Task 25",
       "required_result": "Final fleet disposition is bound to accepted W0 evidence; no schedule or port is invented."
     },
     {
@@ -1222,7 +1222,7 @@
     {
       "id": "host_replacements_preserve_backup_and_staging_pull",
       "owner_task": 36,
-      "plan_requirement": "\u00a74.6; Task 36",
+      "plan_requirement": "§4.6; Task 36",
       "required_result": "Each proved replacement preserves backup/restore and staging-pull contracts and has owner acceptance."
     },
     {
@@ -1270,7 +1270,7 @@
     {
       "id": "installer_dispatcher_effective_acl_survives_producer_restart_and_boot",
       "owner_task": 10,
-      "plan_requirement": "\u00a722 R4-2; Task 10, PM acceptance",
+      "plan_requirement": "§22 R4-2; Task 10, PM acceptance",
       "required_result": "For both producer units, prove effective ACLs after stop/start and boot ordering: dispatcher can traverse, lock, read and remove an admitted entry but cannot modify contents, cursor or status. Owning-group and other entries stay empty; no shared producer membership or unrelated access."
     },
     {
@@ -1388,10 +1388,10 @@
       "required_result": "main and restart locks precede authorization."
     },
     {
-      "id": "manifest_counts_are_16_canonical_11_local_8_external",
+      "id": "manifest_counts_are_16_canonical_11_local_5_external",
       "owner_task": 10,
       "plan_requirement": "Task 10, test assertions",
-      "required_result": "manifest counts are 16 canonical 11 local 8 external."
+      "required_result": "16 canonical, 11 local, 5 external; decision 203 retires automatic recovery and Task 29 retires external-checks."
     },
     {
       "id": "measure_artifact_is_report_only",
@@ -1744,13 +1744,13 @@
     {
       "id": "phase7_retirement_exact_operations_return_404",
       "owner_task": 20,
-      "plan_requirement": "\u00a723; Task 20, Path B",
+      "plan_requirement": "§23; Task 20, Path B",
       "required_result": "Exactly the 20 retired method/path operations return 404; adjacent routes remain available."
     },
     {
       "id": "phase7_retirement_preserves_table_and_row_identity",
       "owner_task": 20,
-      "plan_requirement": "\u00a723; Task 20, Path B",
+      "plan_requirement": "§23; Task 20, Path B",
       "required_result": "Retirement leaves all retained table and row identities and logical digests unchanged."
     },
     {

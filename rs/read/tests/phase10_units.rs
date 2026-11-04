@@ -591,6 +591,30 @@ fn monitor_units_exec_the_digest_pinned_host_copy() {
     for name in LOCAL_TIMERS {
         assert!(listed.contains(&name), "{name}");
     }
+    for (name, suffix) in [
+        ("verdaxis-monitor.service", ""),
+        ("verdaxis-monitor-verify.service", " --telegram-disabled"),
+    ] {
+        let source = format!("../external_monitor/systemd/{name}");
+        let unit = text(&format!("deploy/external_monitor/systemd/{name}"));
+        assert_eq!(
+            directives(&unit, "ExecStart"),
+            [format!("{HOST_COPY} monitor external{suffix}")]
+        );
+        assert!(listed.contains(&source.as_str()), "{name}");
+        assert_eq!(directives(&unit, "User"), ["root"]);
+        assert!(directives(&unit, "OnFailure").is_empty());
+        assert!(directives(&unit, "OnFailureJobMode").is_empty());
+    }
+    for name in ["verdaxis-health.service", "verdaxis-backup-verify.service"] {
+        assert_eq!(
+            directives(
+                &text(&format!("deploy/monitor/{name}")),
+                "StateDirectoryMode"
+            ),
+            ["0710"]
+        );
+    }
 }
 
 /// Decision 203: Caddy and the PostgreSQL cluster restart after an abnormal
@@ -686,4 +710,130 @@ fn onboarding_unit_runs_the_rust_monitor_with_its_own_env_file() {
     ] {
         assert!(!directives(&unit, key).is_empty(), "{key} is kept");
     }
+}
+
+#[test]
+fn manifest_counts_are_16_canonical_11_local_5_external() {
+    let inventory: serde_json::Value =
+        serde_json::from_str(&text("tests/rust_contract/phase10/units.json")).unwrap();
+    for (folder, expected) in [
+        ("deploy/systemd/", 16),
+        ("deploy/monitor/", 11),
+        ("deploy/external_monitor/systemd/", 5),
+    ] {
+        let rows: Vec<_> = inventory["artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                row["end_state"] == "rust" && row["source"].as_str().unwrap().starts_with(folder)
+            })
+            .collect();
+        assert_eq!(rows.len(), expected, "{folder}");
+        for row in rows {
+            let source = row["source"].as_str().unwrap();
+            assert!(repository().join(source).is_file(), "{source}");
+        }
+        let actual = std::fs::read_dir(repository().join(folder))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                matches!(
+                    entry.path().extension().and_then(|s| s.to_str()),
+                    Some("service" | "timer")
+                )
+            })
+            .filter(|entry| {
+                inventory["artifacts"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| {
+                        row["end_state"] == "rust"
+                            && row["source"]
+                                == format!("{folder}{}", entry.file_name().to_str().unwrap())
+                    })
+            })
+            .count();
+        assert_eq!(actual, expected, "{folder}");
+    }
+}
+
+#[test]
+fn timer_catch_up_after_restart_runs_once() {
+    let inventory: serde_json::Value =
+        serde_json::from_str(&text("tests/rust_contract/phase10/units.json")).unwrap();
+    let mut persistent = 0;
+    for row in inventory["artifacts"].as_array().unwrap() {
+        let source = row["source"].as_str().unwrap();
+        if row["end_state"] != "rust" || !source.ends_with(".timer") {
+            continue;
+        }
+        let timer = text(source);
+        if !directives(&timer, "Persistent").contains(&"true") {
+            continue;
+        }
+        persistent += 1;
+        let service_name = directives(&timer, "Unit")
+            .first()
+            .copied()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                source
+                    .rsplit('/')
+                    .next()
+                    .unwrap()
+                    .replace(".timer", ".service")
+            });
+        let service_path = Path::new(source).parent().unwrap().join(service_name);
+        let service = text(service_path.to_str().unwrap());
+        assert_eq!(directives(&service, "Type"), ["oneshot"], "{source}");
+        assert!(directives(&service, "Restart").is_empty(), "{source}");
+    }
+    assert!(persistent > 0);
+}
+
+#[test]
+fn old_unit_can_start_the_new_binary() {
+    let fixture = repository().join("rs/read/tests/fixtures/phase10/old-units");
+    let mut commands = 0;
+    for folder in ["systemd", "monitor"] {
+        for entry in std::fs::read_dir(fixture.join(folder)).unwrap() {
+            let path = entry.unwrap().path();
+            let unit = std::fs::read_to_string(&path).unwrap();
+            for line in directives(&unit, "ExecStart") {
+                let words: Vec<String> = line
+                    .replace("${RELEASE_SHA}", SHA)
+                    .replace("%i", "health")
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect();
+                let Some(index) = words
+                    .iter()
+                    .position(|word| word.ends_with("/verdaxis-read"))
+                else {
+                    panic!(
+                        "old ExecStart is not the release binary: {}",
+                        path.display()
+                    );
+                };
+                // --help parses the complete old argv without running a job,
+                // reading credentials, connecting to a DB or contacting a host.
+                let output = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
+                    .args(&words[index + 1..])
+                    .arg("--help")
+                    .env_clear()
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}: {}",
+                    path.display(),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                commands += 1;
+            }
+        }
+    }
+    assert_eq!(commands, 13);
 }

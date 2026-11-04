@@ -1,0 +1,2 @@
+# ChromeDriver must run as a non-root identity with its own private home.
+u verdaxis-render - "Verdaxis rendered page checks" /var/lib/verdaxis-render /usr/sbin/nologin

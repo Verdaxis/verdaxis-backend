@@ -170,4 +170,93 @@ offending=$(grep -v '^ *#' <<< "$PREFLIGHT" \
 [[ -z "$offending" ]] || fail "$CASE" "reads contents: $offending"
 pass "$CASE"
 
-printf 'units-contract: %d cases passed\n' "$PASSED"
+# Use a release-shaped fixture, never the installed host or a live release.
+mkdir -p "$ROOT/work"
+WORK=$(mktemp -d "$ROOT/work/units-contract.XXXXXXXX")
+WORK=$(cd "$WORK" && pwd -P)
+trap 'rm -rf -- "$WORK"' EXIT
+mkdir -p "$WORK/release/deploy/scripts" "$WORK/release/deploy/monitor" "$WORK/release/deploy/external_monitor/systemd" "$WORK/release/.runtime-rust"
+cp "$ROOT/deploy/scripts/install-host-automation.sh" "$WORK/release/deploy/scripts/"
+while IFS= read -r source; do
+    cp "$ROOT/deploy/monitor/$source" "$WORK/release/deploy/monitor/$source"
+done < <(jq -r '.artifacts[].source' "$ROOT/deploy/monitor/artifact-manifest.json")
+printf '#!/bin/sh\nexit 0\n' > "$WORK/release/.runtime-rust/verdaxis-read"
+BINARY_DIGEST=$(shasum -a 256 "$WORK/release/.runtime-rust/verdaxis-read")
+BINARY_DIGEST=${BINARY_DIGEST%% *}
+jq --arg digest "$BINARY_DIGEST" '.binary.sha256=$digest' "$ROOT/deploy/monitor/artifact-manifest.json" > "$WORK/release/deploy/monitor/artifact-manifest.json"
+HOST_INSTALLER="$WORK/release/deploy/scripts/install-host-automation.sh"
+# macOS has shasum; the Linux installer uses the same digest algorithm.
+mkdir "$WORK/tools"
+printf '#!/bin/sh\nexec shasum -a 256 "$@"\n' > "$WORK/tools/sha256sum"
+chmod +x "$WORK/tools/sha256sum"
+export PATH="$WORK/tools:$PATH"
+
+installer_refuses_a_manifest_digest_mismatch() {
+    local source target
+    bash "$HOST_INSTALLER" --root "$WORK/untouched" --dry-run >/dev/null
+    while IFS= read -r source; do
+        if [[ $source == .runtime-rust/* ]]; then target="$WORK/release/$source"; else target="$WORK/release/deploy/monitor/$source"; fi
+        cp "$target" "$WORK/original"
+        printf x >> "$target"
+        if bash "$HOST_INSTALLER" --root "$WORK/untouched" --dry-run >"$WORK/refusal.log" 2>&1; then
+            fail "$CASE" "accepted changed byte: $source"
+        fi
+        [[ ! -e "$WORK/untouched" ]] || fail "$CASE" 'wrote before digest verification'
+        cp "$WORK/original" "$target"
+    done < <(jq -r '.binary.source, .artifacts[].source' "$WORK/release/deploy/monitor/artifact-manifest.json")
+}
+CASE=installer_refuses_a_manifest_digest_mismatch
+installer_refuses_a_manifest_digest_mismatch
+pass "$CASE"
+
+installer_restart_and_revert_preserve_admitted_alert_state() {
+    command -v docker >/dev/null || fail "$CASE" 'Docker is required'
+    # A real previous native release is required. Task 10a did not contain
+    # this installer; copying the candidate would not prove forward revert.
+    if [[ -z ${VERDAXIS_PREVIOUS_HOST_RELEASE:-} || ! -f ${VERDAXIS_PREVIOUS_HOST_RELEASE}/deploy/scripts/install-host-automation.sh ]]; then
+        printf 'FAIL %s: VERDAXIS_PREVIOUS_HOST_RELEASE must name a prior native release pack\n' "$CASE" >&2
+        return 1
+    fi
+    cp -R "$VERDAXIS_PREVIOUS_HOST_RELEASE" "$WORK/previous-release"
+    docker run --rm -v "$WORK:/fixture" debian:bookworm-slim /bin/bash -euo pipefail -c '
+        apt-get update -qq >/dev/null
+        apt-get install -y -qq systemd acl jq >/dev/null
+        groupadd verdaxis-prod; useradd -g verdaxis-prod verdaxis-prod
+        bash /fixture/release/deploy/scripts/install-host-automation.sh
+        entry=/var/lib/verdaxis-health/alert-handoff/1.json
+        cursor=/var/lib/verdaxis-health/health.sequence.json
+        lock=/var/lib/verdaxis-health/.health.journal.lock
+        printf "{\"schema_version\":1,\"sequence\":1,\"state\":\"failed\"}\n" > "$entry"
+        chown verdaxis-health:verdaxis-health "$entry"
+        setfacl -m u::rw-,u:verdaxis-monitor-alert:r--,g::---,m::r--,o::--- "$entry"
+        printf "{\"sequence\":1}\n" > "$cursor"
+        chown verdaxis-health:verdaxis-health "$cursor"; chmod 0600 "$cursor"
+        sha256sum "$entry" "$cursor" > /tmp/state.sums
+        inode=$(stat -c %i "$lock")
+        bash /fixture/release/deploy/scripts/install-host-automation.sh
+        bash /fixture/previous-release/deploy/scripts/install-host-automation.sh
+        sha256sum --check /tmp/state.sums
+        test "$(stat -c %i "$lock")" = "$inode"
+        test "$(stat -c %U:%G:%a /usr/local/libexec/verdaxis/verdaxis-read)" = root:root:755
+        test "$(stat -c %U:%a /var/lib/verdaxis-render)" = verdaxis-render:700
+    '
+}
+CASE=installer_restart_and_revert_preserve_admitted_alert_state
+INSTALLER_FAILURES=0
+if installer_restart_and_revert_preserve_admitted_alert_state; then pass "$CASE"; else INSTALLER_FAILURES=$((INSTALLER_FAILURES + 1)); fi
+
+installer_enforces_per_check_handoff_acl_and_identity_boundary() {
+    # Install into a disposable target first; the installer checks exact ACLs.
+    docker run --rm -v "$WORK:/fixture" debian:bookworm-slim /bin/bash -euo pipefail -c '
+        apt-get update -qq >/dev/null
+        apt-get install -y -qq systemd acl jq >/dev/null
+        groupadd verdaxis-prod; useradd -g verdaxis-prod verdaxis-prod
+        bash /fixture/release/deploy/scripts/install-host-automation.sh
+    ' || return 1
+    # Missing binary, identity, systemd or ACL support fails; never skip.
+    bash "$ROOT/deploy/tests/alert-handoff-contract.sh" --disposable-identities
+}
+CASE=installer_enforces_per_check_handoff_acl_and_identity_boundary
+if installer_enforces_per_check_handoff_acl_and_identity_boundary; then pass "$CASE"; else INSTALLER_FAILURES=$((INSTALLER_FAILURES + 1)); fi
+printf 'units-contract: %d cases passed; %d installer cases failed\n' "$PASSED" "$INSTALLER_FAILURES"
+(( INSTALLER_FAILURES == 0 ))

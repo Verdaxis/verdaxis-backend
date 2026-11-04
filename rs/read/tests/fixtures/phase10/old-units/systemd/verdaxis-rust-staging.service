@@ -1,0 +1,53 @@
+[Unit]
+Description=Verdaxis Rust public reads (staging)
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/staging/be
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+# Key source must be regular root:root 0400; use an empty placeholder without a key ring.
+LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys-staging.json
+Type=simple
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
+# Identity from the release artifact, then the app-only Rust runtime file the
+# deploy transaction projects (ENVIRONMENT, RELEASE_SHA, MIGRATION_REVISION,
+# DATABASE_URL, DB_SESSION_TIME_ZONE, KYC_EXECUTION_GATE_ENABLED). The
+# secret-rich .env is never loaded: mail, JWT, provider and migrator
+# credentials stay out of this long-running process.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
+EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
+# Both prestarts run without the runtime environment. The shell guard
+# needs no Rust artifact; env launches the binary in the same PID, so
+# unit verification passes before the first artifact exists.
+ExecStartPre=/usr/bin/env -i PATH=/usr/bin:/bin /bin/bash /home/verdaxis-prod/verdaxis/staging/be/deploy/scripts/verify-deploy-start-guard.sh --environment staging --expected-release-sha ${RELEASE_SHA}
+ExecStartPre=/usr/bin/env -i /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read guard rust-start --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/revision.json
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/verdaxis-read serve --bind 127.0.0.1:8011 --budget-file /home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/budget.json
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+LimitNOFILE=65536
+TasksMax=256
+MemoryHigh=192M
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

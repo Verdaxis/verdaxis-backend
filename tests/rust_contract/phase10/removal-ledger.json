@@ -4739,7 +4739,7 @@
       "end_state": "shell",
       "owner": "Task 10 installer owner",
       "task": 10,
-      "source_sha256": "4fe4364b61d66f426df02d85985d1236b612e7c7b1994266a1cab16cfda5fef1",
+      "source_sha256": "31e11154acdc6698a17c1bf13a0867df6f1fe74746539369d9e4a240e9e397eb",
       "status": "planned",
       "evidence": [
         "installer_refuses_a_manifest_digest_mismatch"
@@ -5349,7 +5349,7 @@
       "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.service",
       "kind": "unit",
       "end_state": "gone",
-      "owner": "Task 32 removal owner",
+      "owner": "Task 32 removal (decision 203 / Task 29 retirement)",
       "task": 32,
       "source_sha256": "a2a3afa0e48b424d48f4f62539c59ee2578b75e8cbf23c367d2533ed8c53c9e1",
       "status": "planned",
@@ -5367,7 +5367,7 @@
       "source": "deploy/external_monitor/systemd/verdaxis-external-monitor.timer",
       "kind": "timer",
       "end_state": "gone",
-      "owner": "Task 32 removal owner",
+      "owner": "Task 32 removal (decision 203 / Task 29 retirement)",
       "task": 32,
       "source_sha256": "f31a806543711dc7a7193bfad0b491cf018f679a6645cea6a48baa374d981f8c",
       "status": "planned",
@@ -5405,7 +5405,7 @@
       "end_state": "rust",
       "owner": "monitor external",
       "task": 29,
-      "source_sha256": "bd275f7d36f379140184733e3479818e5776e0c12a54c1abb52ba7125b707a6c",
+      "source_sha256": "b6d9ba54185794d270ed65823abb6cfe72603244748662620b5f8fe12406a81d",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -5422,7 +5422,7 @@
       "end_state": "rust",
       "owner": "monitor external",
       "task": 29,
-      "source_sha256": "ee59a40ecb8db320590cb6adb8580d86ab40103415c5a3b2acbba2da402e56a5",
+      "source_sha256": "bc17eb6fbaf7d7dff1eed88758145abb1ff7117c12f129b67160048b4d9ffbaa",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -5488,7 +5488,7 @@
       "source": "deploy/external_monitor/systemd/verdaxis-recover.service",
       "kind": "unit",
       "end_state": "gone",
-      "owner": "Task 32 removal owner",
+      "owner": "Task 32 removal (decision 203 / Task 29 retirement)",
       "task": 32,
       "source_sha256": "f83b70150b94bbd38cbbf70749ced983344574d6331db67b27864d7137a5fca2",
       "status": "planned",

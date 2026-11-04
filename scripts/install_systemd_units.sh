@@ -207,7 +207,22 @@ if [[ "${#UNIT_NAMES[@]}" == 0 ]]; then
     exit 1
 fi
 
-ARCHIVE_PATHS=("$UNIT_MANIFEST_PATH")
+# Stage the host installer and its exact reviewed policy allowlist from the
+# same approved source. The release binary remains in the verified release pack.
+HOST_PATHS=(deploy/scripts/install-host-automation.sh deploy/monitor/artifact-manifest.json)
+HOST_MANIFEST_JSON=$("${SOURCE_GIT[@]}" show "$SOURCE_REF:deploy/monitor/artifact-manifest.json")
+HOST_SOURCE_LIST=$(jq -er '.artifacts[].source' <<< "$HOST_MANIFEST_JSON")
+while IFS= read -r host_source; do
+    # Git archive accepts only these two committed source namespaces.
+    [[ "$host_source" =~ ^[a-zA-Z0-9@._-]+$ || "$host_source" =~ ^\.\./external_monitor/(systemd/)?[a-zA-Z0-9@._-]+$ ]] || {
+        echo "invalid host artifact source" >&2; exit 1;
+    }
+    case "$host_source" in
+        ../external_monitor/*) HOST_PATHS+=("deploy/external_monitor/${host_source#../external_monitor/}") ;;
+        *) HOST_PATHS+=("deploy/monitor/$host_source") ;;
+    esac
+done <<< "$HOST_SOURCE_LIST"
+ARCHIVE_PATHS=("$UNIT_MANIFEST_PATH" "${HOST_PATHS[@]}")
 for unit_name in "${UNIT_NAMES[@]}"; do
     relative="deploy/systemd/$unit_name"
     "${SOURCE_GIT[@]}" cat-file -e "$SOURCE_REF:$relative"
@@ -282,6 +297,10 @@ elif [[ "$kyc_key_source_status" != 0 ]]; then
     exit 1
 fi
 # END kyc-key-source-preflight
+
+HOST_INSTALL_ARGS=(--binary "$SOURCE_ROOT/.runtime-rust/verdaxis-read")
+[[ "$MODE" != "dry-run" ]] || HOST_INSTALL_ARGS+=(--dry-run)
+sudo /bin/bash "$STAGING_DIR/deploy/scripts/install-host-automation.sh" "${HOST_INSTALL_ARGS[@]}"
 
 echo "Verdaxis systemd unit installation mode: $MODE"
 echo "Environment: $DEPLOY_ENVIRONMENT"

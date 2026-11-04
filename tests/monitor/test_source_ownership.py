@@ -45,26 +45,43 @@ RUNTIME_OWNED_BLOBS = {
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
+# Task 10b: only native active units and their reviewed policy/docs are installed.
 EXPECTED_ARTIFACTS = {
+    "../external_monitor/systemd/verdaxis-monitor-verify.service": (
+        "/etc/systemd/system/verdaxis-monitor-verify.service",
+        "0644",
+    ),
+    "../external_monitor/systemd/verdaxis-monitor.service": (
+        "/etc/systemd/system/verdaxis-monitor.service",
+        "0644",
+    ),
+    "../external_monitor/systemd/verdaxis-monitor.timer": (
+        "/etc/systemd/system/verdaxis-monitor.timer",
+        "0644",
+    ),
+    "../external_monitor/systemd/verdaxis-onboarding-attention.service": (
+        "/etc/systemd/system/verdaxis-onboarding-attention.service",
+        "0644",
+    ),
+    "../external_monitor/systemd/verdaxis-onboarding-attention.timer": (
+        "/etc/systemd/system/verdaxis-onboarding-attention.timer",
+        "0644",
+    ),
+    "../external_monitor/verdaxis-monitor.env.example": (
+        "/usr/share/doc/verdaxis-monitor/verdaxis-monitor.env.example",
+        "0644",
+    ),
+    "../external_monitor/verdaxis-render.sysusers": (
+        "/usr/lib/sysusers.d/verdaxis-render.conf",
+        "0644",
+    ),
+    "../external_monitor/verdaxis-render.tmpfiles": (
+        "/usr/lib/tmpfiles.d/verdaxis-render.conf",
+        "0644",
+    ),
     "alert.env.example": (
         "/usr/share/doc/verdaxis-monitor/alert.env.example",
         "0644",
-    ),
-    "alert_dispatch.py": (
-        "/usr/local/libexec/verdaxis-monitor/alert_dispatch.py",
-        "0755",
-    ),
-    "backup_verify.py": (
-        "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
-        "0755",
-    ),
-    "local_health_check.py": (
-        "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
-        "0755",
-    ),
-    "outbox_backlog_probe.py": (
-        "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
-        "0755",
     ),
     "runtime-identity.example": (
         "/usr/share/doc/verdaxis-monitor/runtime-identity.example",
@@ -72,10 +89,6 @@ EXPECTED_ARTIFACTS = {
     ),
     "runtime-v2-readiness-corpus.json": (
         "/usr/share/doc/verdaxis-monitor/runtime-v2-readiness-corpus.json",
-        "0644",
-    ),
-    "status_state.py": (
-        "/usr/local/libexec/verdaxis-monitor/status_state.py",
         "0644",
     ),
     "verdaxis-backup-verify.service": (
@@ -134,16 +147,12 @@ EXPECTED_ARTIFACTS = {
         "/usr/lib/tmpfiles.d/verdaxis-monitor.conf",
         "0644",
     ),
-    "verify_runtime_identity.py": (
-        "/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py",
-        "0755",
-    ),
 }
 
 
 def load_manifest() -> dict:
     payload = json.loads(MANIFEST.read_text())
-    assert set(payload) == {"schema_version", "artifacts"}
+    assert set(payload) == {"schema_version", "artifacts", "binary"}
     assert type(payload["schema_version"]) is int
     assert payload["schema_version"] == 1
     assert isinstance(payload["artifacts"], list)
@@ -189,7 +198,7 @@ def test_static_manifest_is_exact_byte_attested_and_non_promoting():
         destination = artifact["destination"]
         mode = artifact["mode"]
         digest = artifact["sha256"]
-        assert isinstance(source, str) and Path(source).name == source
+        assert isinstance(source, str) and source in EXPECTED_ARTIFACTS
         assert isinstance(destination, str) and destination.startswith("/")
         assert ".." not in Path(destination).parts
         assert destination not in destinations
@@ -211,7 +220,7 @@ def test_every_remaining_unit_is_in_the_static_inventory():
         if path.suffix in {".service", ".timer"}
     }
 
-    assert units == {source for source in sources if Path(source).suffix in {".service", ".timer"}}
+    assert units == {source for source in sources if "/" not in source and Path(source).suffix in {".service", ".timer"}}
 
 
 def test_monitor_tree_contains_no_activation_or_root_promotion_implementation():
