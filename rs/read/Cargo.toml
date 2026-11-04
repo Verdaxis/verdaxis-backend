@@ -197,6 +197,7 @@ rust_decimal = "1.43.0"
 rustix = { version = "=1.1.5", features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
+sha1 = "=0.11.0"
 sha2 = "0.11.1"
 # Phase 10 Task 9: the python-dotenv grammar of the deployed .env reader
 # (already in Cargo.lock through sqlx).
