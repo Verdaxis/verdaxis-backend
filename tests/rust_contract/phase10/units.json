@@ -388,7 +388,7 @@
       "end_state": "rust",
       "owner": "job demo",
       "task": 17,
-      "source_sha256": "58fb8ee04f5b82911ecc976413989de43cdbec9a4d9458f782feccc6fced108a",
+      "source_sha256": "c4791cc13c91ffcfcd68ce4a81715244a17c09949796e911cdd8934dd84e5c6a",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
@@ -422,7 +422,7 @@
       "end_state": "rust",
       "owner": "job demo",
       "task": 17,
-      "source_sha256": "ab072cb47be9c3963dc8462ae07080b5ff5cc8b44948c2a8a81a8649c71e9923",
+      "source_sha256": "42e2ed46153da9003ec2123eac49e62179d0628ea62039de773fea04629ff0d2",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",

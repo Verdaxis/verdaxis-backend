@@ -173,7 +173,12 @@ def test_demo_activity_loads_exact_per_environment_identity_and_credentials(
     assert "CapabilityBoundingSet=" in text
     assert "NoNewPrivileges=true" in text
     assert "ProtectSystem=strict" in text
-    assert "ProtectHome=read-only" in text
+    assert "ProtectHome=tmpfs" in text
+    assert f"BindReadOnlyPaths={backend_dir}" in text
+    assert f"InaccessiblePaths={backend_dir}/.env" in text
+    assert "IPAddressDeny=any" in text
+    assert "IPAddressAllow=127.0.0.0/8" in text
+    assert "MemoryDenyWriteExecute=true" in text
     assert "TimeoutStartSec=600s" in text
     assert "ReadWritePaths=" not in text
     assert "/home/verdaxis-prod/.backup-env" not in text

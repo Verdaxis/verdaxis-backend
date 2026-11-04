@@ -65,7 +65,7 @@
       "source": "verdaxis-demo-activity-staging.service",
       "destination": "/etc/systemd/system/verdaxis-demo-activity-staging.service",
       "mode": "0644",
-      "sha256": "58fb8ee04f5b82911ecc976413989de43cdbec9a4d9458f782feccc6fced108a"
+      "sha256": "c4791cc13c91ffcfcd68ce4a81715244a17c09949796e911cdd8934dd84e5c6a"
     },
     {
       "source": "verdaxis-demo-activity-staging.timer",
@@ -77,7 +77,7 @@
       "source": "verdaxis-demo-activity.service",
       "destination": "/etc/systemd/system/verdaxis-demo-activity.service",
       "mode": "0644",
-      "sha256": "ab072cb47be9c3963dc8462ae07080b5ff5cc8b44948c2a8a81a8649c71e9923"
+      "sha256": "42e2ed46153da9003ec2123eac49e62179d0628ea62039de773fea04629ff0d2"
     },
     {
       "source": "verdaxis-demo-activity.timer",
