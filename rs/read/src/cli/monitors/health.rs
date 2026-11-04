@@ -241,9 +241,15 @@ fn is_endpoint_name(name: &str) -> bool {
 }
 
 /// Accept only exactly `http://127.0.0.1:<port>/health/ready`, port 1-65535.
+///
+/// The text must already be the parser's canonical form: the monitor requests
+/// the URL as written, so a form the parser would rewrite (`127.1`, a dot
+/// segment, a leading zero) is refused rather than checked in its rewritten
+/// shape.
 fn parse_endpoint_url(url: &str) -> Result<(), EndpointsRefused> {
     let parsed = Url::parse(url).map_err(|_| EndpointsRefused)?;
-    if parsed.scheme() != "http"
+    if parsed.as_str() != url
+        || parsed.scheme() != "http"
         || parsed.host_str() != Some("127.0.0.1")
         || !parsed.username().is_empty()
         || parsed.password().is_some()

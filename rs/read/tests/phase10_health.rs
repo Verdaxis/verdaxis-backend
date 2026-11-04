@@ -649,6 +649,12 @@ fn health_endpoints_file_refuses_unsafe_or_malformed_content() {
         "http://127.0.0.1:0/health/ready",
         "http://127.0.0.1/health/ready",
         "http://127.0.0.1:8000/health/ready#fragment",
+        // Text the URL parser would rewrite: the monitor requests the text as
+        // written, so only the canonical form is accepted.
+        "http://127.1:8000/health/ready",
+        "http://127.0.0.1:8000/health/./ready",
+        "http://127.0.0.1:08000/health/ready",
+        "HTTP://127.0.0.1:8000/health/ready",
     ];
     for url in bad_urls {
         let body = format!(
