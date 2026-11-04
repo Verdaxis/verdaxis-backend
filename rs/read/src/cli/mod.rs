@@ -820,6 +820,17 @@ async fn serve(args: &ServeArgs) -> Result<(), Exit> {
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|_| Exit::Dependency)?;
+    // Under systemd's watchdog, the keepalive runs only while this process's
+    // own liveness route answers; a hung process misses the keepalives and is
+    // restarted. Without the unit settings there is nothing to signal.
+    let variables: std::collections::HashMap<String, String> = std::env::vars_os()
+        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+        .collect();
+    if let Some(watchdog) =
+        crate::runtime::watchdog::Watchdog::from_environment(&variables, std::process::id())
+    {
+        watchdog.start(bind);
+    }
     axum::serve(
         listener,
         router(state).into_make_service_with_connect_info::<SocketAddr>(),
