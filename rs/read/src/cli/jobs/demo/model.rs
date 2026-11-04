@@ -24,103 +24,54 @@ pub const B100_SPECIFICATION_STANDARD: &str = "ISO 8217:2024 DFA";
 const DEMO_ANNUAL_CONTANGO_RATE: Decimal = Decimal::from_parts(3, 0, 0, false, 2);
 const SLICE_SCHEME_NAMESPACE: Uuid = Uuid::from_u128(0xc4d5e6f7_a8b9_4012_9abc_def123456789);
 
-pub const PORTS: [&str; 8] = [
-    "Dalian",
-    "Busan",
-    "Shanghai",
-    "Singapore",
-    "Rotterdam",
-    "Houston",
-    "Los Angeles",
-    "Santos",
-];
+/// The demo book data (`deploy/rust/demo-book.json`): price bands per product
+/// and port, CI ranges and energy density, generated from Python's
+/// `app/seeds/market_seed.py` (demo scenarios, not Verdaxis assessments). It
+/// is data, not code, so no product name is compiled into this source.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoBook {
+    pub version: u32,
+    pub source: String,
+    pub products: Vec<DemoProduct>,
+}
 
-/// Demo price bands in USD/MT: product -> one `(bid_lo, bid_hi, ask_lo,
-/// ask_hi)` per port in [`PORTS`] order. Python's dict order is kept. These
-/// are demo scenarios, not Verdaxis assessments (sources in market_seed.py).
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoProduct {
+    pub name: String,
+    pub ci_low: f64,
+    pub ci_high: f64,
+    pub energy_density_mj_kg: f64,
+    pub ports: Vec<DemoPort>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoPort {
+    pub name: String,
+    pub bid_low: f64,
+    pub bid_high: f64,
+    pub ask_low: f64,
+    pub ask_high: f64,
+}
+
+impl DemoPort {
+    pub fn band(&self) -> Band {
+        (self.bid_low, self.bid_high, self.ask_low, self.ask_high)
+    }
+}
+
 /// `(bid_lo, bid_hi, ask_lo, ask_hi)` in USD/MT.
 pub type Band = (f64, f64, f64, f64);
 
-pub const PRICING: [(&str, [Band; 8]); 6] = [
-    (
-        "Bio Methanol",
-        [
-            (890.0, 930.0, 950.0, 990.0),
-            (910.0, 950.0, 970.0, 1010.0),
-            (885.0, 925.0, 945.0, 985.0),
-            (930.0, 975.0, 995.0, 1040.0),
-            (900.0, 950.0, 975.0, 1025.0),
-            (860.0, 910.0, 935.0, 985.0),
-            (900.0, 950.0, 975.0, 1025.0),
-            (820.0, 870.0, 895.0, 945.0),
-        ],
-    ),
-    (
-        "e-Methanol",
-        [
-            (1040.0, 1110.0, 1140.0, 1210.0),
-            (1070.0, 1140.0, 1170.0, 1240.0),
-            (1010.0, 1080.0, 1110.0, 1180.0),
-            (1090.0, 1170.0, 1205.0, 1285.0),
-            (1190.0, 1280.0, 1320.0, 1410.0),
-            (1040.0, 1120.0, 1155.0, 1235.0),
-            (1110.0, 1190.0, 1225.0, 1305.0),
-            (990.0, 1070.0, 1105.0, 1185.0),
-        ],
-    ),
-    (
-        "Bio Ethanol",
-        [
-            (800.0, 840.0, 855.0, 895.0),
-            (810.0, 850.0, 865.0, 905.0),
-            (795.0, 835.0, 850.0, 890.0),
-            (815.0, 855.0, 870.0, 910.0),
-            (780.0, 820.0, 835.0, 875.0),
-            (680.0, 710.0, 725.0, 755.0),
-            (740.0, 780.0, 795.0, 835.0),
-            (730.0, 760.0, 775.0, 805.0),
-        ],
-    ),
-    (
-        "Synthetic Ethanol",
-        [
-            (1140.0, 1210.0, 1245.0, 1315.0),
-            (1170.0, 1240.0, 1275.0, 1345.0),
-            (1120.0, 1190.0, 1225.0, 1295.0),
-            (1190.0, 1260.0, 1295.0, 1365.0),
-            (1240.0, 1320.0, 1360.0, 1440.0),
-            (1070.0, 1140.0, 1175.0, 1245.0),
-            (1130.0, 1200.0, 1235.0, 1305.0),
-            (1090.0, 1160.0, 1195.0, 1265.0),
-        ],
-    ),
-    (
-        "B30",
-        [
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (849.0, 869.0, 869.0, 889.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-            (1085.0, 1105.0, 1105.0, 1125.0),
-        ],
-    ),
-    ("B100", [(1342.0, 1362.0, 1362.0, 1382.0); 8]),
-];
-
-/// Carbon intensity range and energy density: `(ci_lo, ci_hi, MJ/kg)`.
-pub fn ci_data(product: &str) -> (f64, f64, f64) {
-    match product {
-        "Bio Ethanol" => (8.0, 18.0, 26.8),
-        "Bio Methanol" => (25.0, 55.0, 19.9),
-        "e-Methanol" => (5.0, 20.0, 19.9),
-        "Synthetic Ethanol" => (15.0, 35.0, 26.8),
-        "B30" => (70.0, 80.0, 39.5),
-        "B100" => (15.0, 30.0, 37.2),
-        _ => unreachable!("every demo product has CI data"),
-    }
+/// The committed demo book, parsed once.
+pub fn demo_book() -> &'static DemoBook {
+    static BOOK: std::sync::LazyLock<DemoBook> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../../../../../deploy/rust/demo-book.json"))
+            .expect("the committed demo book parses")
+    });
+    &BOOK
 }
 
 // ---- Python number semantics ---------------------------------------------------
@@ -387,9 +338,15 @@ pub fn build_coverage(
     let today = now.date_naive();
     let windows = tradable_windows(today);
     let mut orders = Vec::new();
-    for (product, bands) in PRICING {
-        let (ci_lo, ci_hi, energy_density) = ci_data(product);
-        for (port, band) in PORTS.iter().copied().zip(bands) {
+    for book_product in &demo_book().products {
+        let product = book_product.name.as_str();
+        let (ci_lo, ci_hi, energy_density) = (
+            book_product.ci_low,
+            book_product.ci_high,
+            book_product.energy_density_mj_kg,
+        );
+        for book_port in &book_product.ports {
+            let (port, band) = (book_port.name.as_str(), book_port.band());
             for window in &windows {
                 let scheme = slice_certification_scheme(product, port, window);
                 for side in [Side::Bid, Side::Ask] {

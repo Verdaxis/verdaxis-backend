@@ -55,6 +55,8 @@ use crate::{ApiError, ApiErrorKind, AppState};
 /// on the same request-scoped session.
 pub const DEFAULT_MARKET_TRANSACTION_ATTEMPTS: usize = 2;
 
+pub(crate) mod system;
+
 /// The bound the reviewed retry factory itself enforces.
 pub const MAX_MARKET_TRANSACTION_ATTEMPTS: usize = 3;
 
@@ -2246,14 +2248,19 @@ pub async fn run_market_command<C: MarketCommand>(
             .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::MarketBusy))?
             .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?;
         let access = Arc::new(access);
+        let user_attempt = UserAttempt {
+            command: &command,
+            access: &access,
+            class,
+        };
         for attempt in 0..DEFAULT_MARKET_TRANSACTION_ATTEMPTS {
-            match market_attempt(&pool, &access, &command, class, false).await {
+            match market_attempt(&pool, &user_attempt, false).await {
                 Ok(value) => return Ok(value),
                 Err(MarketAttemptError::PublicationFlush(error))
                     if command.recovers_publication_flush() =>
                 {
                     command.before_publication_recovery().await;
-                    return match market_attempt(&pool, &access, &command, class, true).await {
+                    return match market_attempt(&pool, &user_attempt, true).await {
                         Ok(value) => Ok(value),
                         Err(MarketAttemptError::RecoveryAbsent) => Err(error.into()),
                         Err(other) => Err(other.response()),
@@ -2268,7 +2275,7 @@ pub async fn run_market_command<C: MarketCommand>(
                                         == Some("uq_orderbook_orders_org_operation_idempotency")
                             })) =>
                 {
-                    return market_attempt(&pool, &access, &command, class, true)
+                    return market_attempt(&pool, &user_attempt, true)
                         .await
                         .map_err(MarketAttemptError::response);
                 }
@@ -2286,20 +2293,96 @@ pub async fn run_market_command<C: MarketCommand>(
     .map_err(|_| super::MarketWriteError::new(super::MarketErrorCode::DatabaseError))?
 }
 
-async fn market_attempt<C: MarketCommand>(
-    pool: &sqlx::PgPool,
-    access: &Arc<crate::auth::VerifiedAccess>,
-    command: &C,
+/// What differs between a user command and an actorless system command
+/// inside one attempt: discovery, admission with replay, and the command's
+/// own drift and response rules. Everything else (preview, lock acquisition,
+/// drift check, commit and its outcome rules) is [`market_attempt`].
+pub(super) trait AttemptAuthority: Send + Sync {
+    type Output: Send + 'static;
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+    ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>>;
+    /// Admit the locked transaction and run the command. A recovery-only
+    /// attempt replays a recorded outcome or ends as `RecoveryAbsent`.
+    fn admit_and_run<'a, 'b: 'a>(
+        &'a self,
+        port: &'a mut LockedMarketTransaction<'b>,
+        recovery_only: bool,
+    ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>>;
+    fn replans_missing_lock_rows(&self) -> bool;
+    fn preview_drift_error(&self) -> MarketAttemptError;
+    fn prepare_response(&self, value: &Self::Output) -> Result<(), MarketAttemptError>;
+}
+
+/// A user command: authenticate (cleanup class), replay, authenticate with
+/// the command's class, execute.
+struct UserAttempt<'c, C> {
+    command: &'c C,
+    access: &'c Arc<crate::auth::VerifiedAccess>,
     class: super::authority::admission::AdmissionClass,
+}
+
+impl<C: MarketCommand> AttemptAuthority for UserAttempt<'_, C> {
+    type Output = C::Output;
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+    ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
+        self.command.preview(conn, self.access.subject)
+    }
+    fn admit_and_run<'a, 'b: 'a>(
+        &'a self,
+        port: &'a mut LockedMarketTransaction<'b>,
+        recovery_only: bool,
+    ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
+        Box::pin(async move {
+            let actor = super::authority::admission::authenticate_shared(
+                port.conn,
+                port.locked,
+                self.access.clone(),
+                super::authority::admission::AdmissionClass::Cleanup,
+            )
+            .await?;
+            if let Some(value) = self.command.replay(port, &actor).await? {
+                return Ok(value);
+            }
+            if recovery_only {
+                return Err(MarketAttemptError::RecoveryAbsent);
+            }
+            let actor = super::authority::admission::authenticate_shared(
+                port.conn,
+                port.locked,
+                self.access.clone(),
+                self.class,
+            )
+            .await?;
+            self.command.execute(port, &actor).await
+        })
+    }
+    fn replans_missing_lock_rows(&self) -> bool {
+        self.command.replans_missing_lock_rows()
+    }
+    fn preview_drift_error(&self) -> MarketAttemptError {
+        self.command.preview_drift_error()
+    }
+    fn prepare_response(&self, value: &Self::Output) -> Result<(), MarketAttemptError> {
+        self.command.prepare_response(value)
+    }
+}
+
+pub(super) async fn market_attempt<A: AttemptAuthority>(
+    pool: &sqlx::PgPool,
+    authority: &A,
     recovery_only: bool,
-) -> Result<C::Output, MarketAttemptError> {
+) -> Result<A::Output, MarketAttemptError> {
     use sqlx::Connection;
     let mut connection = pool.acquire().await?;
     connection.close_on_drop();
     let mut preview_tx = connection
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY")
         .await?;
-    let preview = command.preview(&mut preview_tx, access.subject).await;
+    let preview = authority.preview(&mut preview_tx).await;
     if preview_tx.rollback().await.is_err() || connection.ping().await.is_err() {
         let _ = connection.close().await;
         return Err(super::MarketWriteError::new(super::MarketErrorCode::DatabaseError).into());
@@ -2315,7 +2398,7 @@ async fn market_attempt<C: MarketCommand>(
         let locked = match preview.locks.acquire(&mut tx).await {
             Err(error)
                 if error.code == super::MarketErrorCode::MarketSliceChanged
-                    && command.replans_missing_lock_rows() =>
+                    && authority.replans_missing_lock_rows() =>
             {
                 return Err(MarketAttemptError::PreviewChanged);
             }
@@ -2323,36 +2406,16 @@ async fn market_attempt<C: MarketCommand>(
         };
         // Discovery includes all resource identities, party membership and slice sets.
         // A new set never adds a lock here: it aborts the complete attempt.
-        let current = command.preview(&mut tx, access.subject).await?;
+        let current = authority.preview(&mut tx).await?;
         if current != preview {
-            return Err(command.preview_drift_error());
+            return Err(authority.preview_drift_error());
         }
-        let actor = super::authority::admission::authenticate_shared(
-            &mut tx,
-            &locked,
-            access.clone(),
-            super::authority::admission::AdmissionClass::Cleanup,
-        )
-        .await?;
         let mut port = LockedMarketTransaction {
             conn: &mut tx,
             plan: std::borrow::Cow::Borrowed(&preview.locks),
             locked: &locked,
         };
-        if let Some(value) = command.replay(&mut port, &actor).await? {
-            return Ok(value);
-        }
-        if recovery_only {
-            return Err(MarketAttemptError::RecoveryAbsent);
-        }
-        let actor = super::authority::admission::authenticate_shared(
-            port.conn,
-            &locked,
-            access.clone(),
-            class,
-        )
-        .await?;
-        command.execute(&mut port, &actor).await
+        authority.admit_and_run(&mut port, recovery_only).await
     }
     .await;
     match result {
@@ -2367,7 +2430,7 @@ async fn market_attempt<C: MarketCommand>(
             Err(error)
         }
         Ok(value) => {
-            if let Err(error) = command.prepare_response(&value) {
+            if let Err(error) = authority.prepare_response(&value) {
                 tx.rollback().await?;
                 let _ = connection.close().await;
                 return Err(error);
