@@ -1461,6 +1461,52 @@ def test_runtime_projection_carries_market_settings_with_python_defaults(tmp_pat
             )
 
 
+def test_runtime_projection_carries_the_offboarding_switch_only_when_set(tmp_path):
+    """The offboarding switch reaches the Rust runtime file only from the `.env`.
+
+    Absent stays absent (the Rust service reads it as off); a present value is
+    validated like the other deployed booleans and projected in normal form.
+    """
+    module = _load_preparer()
+    environment_file, release_sha = _market_environment_file(tmp_path, "")
+    result = module.prepare(
+        environment_file, release_sha, tmp_path / "absent", ROOT, MIGRATION_TARGET
+    )
+    assert "OFFBOARDING_ENABLED=" not in result["runtime_env"].read_text()
+
+    for extra, line in (
+        ("OFFBOARDING_ENABLED=yes\n", "OFFBOARDING_ENABLED=true"),
+        ("OFFBOARDING_ENABLED= Off \n", "OFFBOARDING_ENABLED=false"),
+    ):
+        environment_file, release_sha = _market_environment_file(tmp_path, extra)
+        result = module.prepare(
+            environment_file, release_sha, tmp_path / line, ROOT, MIGRATION_TARGET
+        )
+        assert line in result["runtime_env"].read_text().splitlines(), extra
+
+    environment_file, release_sha = _market_environment_file(
+        tmp_path, "OFFBOARDING_ENABLED=maybe\n"
+    )
+    with pytest.raises(module.RustRuntimeError, match="OFFBOARDING_ENABLED"):
+        module.prepare(
+            environment_file, release_sha, tmp_path / "refused", ROOT, MIGRATION_TARGET
+        )
+
+
+def test_offboarding_switch_is_refused_on_in_production():
+    """Production may carry the switch off, never on, until its own review."""
+    module = _load_preparer()
+    assert module.offboarding_settings({}, "production") == {}
+    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "false"}, "production") == {
+        "OFFBOARDING_ENABLED": "false"
+    }
+    with pytest.raises(module.RustRuntimeError, match="staging-only"):
+        module.offboarding_settings({"OFFBOARDING_ENABLED": "true"}, "production")
+    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "true"}, "staging") == {
+        "OFFBOARDING_ENABLED": "true"
+    }
+
+
 def test_runtime_environment_preserves_quoted_secret_bytes(tmp_path):
     module = _load_preparer()
     values = {

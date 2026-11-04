@@ -1,9 +1,9 @@
 //! Integrated acceptance checks of individual offboarding that need no
-//! database: the release switch stays off on a fresh deploy, and only
+//! database: the release switch follows the deployed `.env` only, and only
 //! organization rejection and offboarding leave a member without an
 //! organization.
 //!
-//! `switch_is_dormant_on_fresh_deploy` runs the unchanged deploy projection
+//! `switch_follows_the_deployed_environment` runs the deploy projection
 //! (`scripts/prepare_rust_runtime.py`) with the project's interpreter
 //! (`RUST_TEST_PYTHON`, default `python3`).
 use std::{
@@ -65,70 +65,17 @@ fn environment_line(line: &str) -> (String, String) {
     (key.to_owned(), value)
 }
 
-/// A fresh deploy cannot enable the command, even when the operator's
-/// environment file already carries the switch: the reviewed projection of
-/// the deployed environment into the Rust runtime file drops it, and the Rust
-/// process reads an absent switch as off. The Caddy snippet that routes the
-/// group to Rust is not imported anywhere in the deploy sources, and no unit
-/// or deploy script sets the switch. Turning it on is a separate reviewed
-/// change to the projection, the site import and the frontend build flag.
+/// The deployed `.env` alone decides the switch. A fresh deploy whose `.env`
+/// does not set it projects nothing, and the Rust process reads an absent
+/// switch as off; an `.env` that sets it reaches the Rust process in normal
+/// form. The projection refuses `true` in production (unit tests in
+/// `tests/unit/test_rust_release.py`). The Caddy snippet that routes the group
+/// to Rust is imported only on the host's site file, never by a deploy source,
+/// and no unit or deploy script other than the projection names the switch.
 #[test]
-fn switch_is_dormant_on_fresh_deploy() {
+fn switch_follows_the_deployed_environment() {
     let root = repository_root();
-    let folder = std::env::temp_dir().join(format!("offboarding-deploy-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&folder).unwrap();
     let release = "a".repeat(40);
-    let source = folder.join("deployed.env");
-    std::fs::write(
-        &source,
-        [
-            "ENVIRONMENT=staging".to_owned(),
-            format!("RELEASE_SHA={release}"),
-            "DATABASE_URL=postgresql://verdaxis_app_staging:disposable@127.0.0.1:5432/verdaxis_staging"
-                .into(),
-            "JWT_SECRET=runtime-test-authority-0000000000000000".into(),
-            "JWT_ISSUER=test-api".into(),
-            "JWT_AUDIENCE=test-web".into(),
-            "FRONTEND_URL=https://staging.verdaxis.exchange".into(),
-            "EMAIL_FROM=noreply@example.test".into(),
-            "RESEND_API_KEY=disposable-key".into(),
-            "OFFBOARDING_ENABLED=true".into(),
-        ]
-        .join("\n")
-            + "\n",
-    )
-    .unwrap();
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let output = Command::new(python)
-        .current_dir(&root)
-        .env("PYTHONPATH", &root)
-        .arg(root.join("scripts/prepare_rust_runtime.py"))
-        .arg("--environment-file")
-        .arg(&source)
-        .args(["--release-sha", &release])
-        .arg("--output-dir")
-        .arg(folder.join("prepared"))
-        .arg("--source-root")
-        .arg(&root)
-        .args(["--migration-revision", "ob_20261031_offboarding"])
-        .args(["--environment", "staging"])
-        .output()
-        .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-    assert!(
-        output.status.success(),
-        "the projection refused: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let runtime = std::fs::read_to_string(folder.join("prepared/runtime.env")).unwrap();
-    let mut environment: HashMap<String, String> = runtime
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(environment_line)
-        .collect();
-    assert!(
-        !environment.contains_key("OFFBOARDING_ENABLED"),
-        "the projection carries the switch: {runtime}"
-    );
     let budget = json!({"version":1,"release_sha":release,"environment_digest":"b".repeat(64),
         "services":2,"workers":4,"pool":2,"overflow":1,"reserve":20,"rust_pool":17,
         "python_budget":52,"total":69,"configured_max_connections":100})
@@ -138,19 +85,29 @@ fn switch_is_dormant_on_fresh_deploy() {
         config_from_deployed_environment(environment, bind, &budget)
             .map(|config| config.phase2.offboarding_enabled)
     };
-    assert_eq!(
-        switch(&environment),
-        Ok(false),
-        "the deployed process is dormant"
-    );
-    // The same projected environment with the switch added by a reviewed
-    // change does turn the command on: the projection is what keeps it off.
-    environment.insert("OFFBOARDING_ENABLED".into(), "true".into());
-    assert_eq!(switch(&environment), Ok(true));
-    std::fs::remove_dir_all(&folder).unwrap();
 
-    // No deploy source imports the routing snippet or sets the switch.
+    let (fresh, fresh_folder) = project_deployed_environment(&root, &release, None);
+    assert!(
+        !fresh.contains_key("OFFBOARDING_ENABLED"),
+        "a fresh deploy projects the switch: {fresh:?}"
+    );
+    assert_eq!(switch(&fresh), Ok(false), "a fresh deploy is off");
+
+    let (enabled, enabled_folder) =
+        project_deployed_environment(&root, &release, Some("OFFBOARDING_ENABLED=yes"));
+    assert_eq!(
+        enabled.get("OFFBOARDING_ENABLED").map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(switch(&enabled), Ok(true), "the .env turns it on");
+    // The runtime file names data files in its folder; remove them only now.
+    std::fs::remove_dir_all(&fresh_folder).unwrap();
+    std::fs::remove_dir_all(&enabled_folder).unwrap();
+
+    // No deploy source imports the routing snippet; only the projection names
+    // the switch.
     let snippet = root.join("deploy/caddy/rust-offboarding.caddy");
+    let projection = root.join("scripts/prepare_rust_runtime.py");
     let mut deploy_sources = files(
         &root.join("deploy"),
         &[
@@ -163,14 +120,72 @@ fn switch_is_dormant_on_fresh_deploy() {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        for needle in [
-            "verdaxis_rust_offboarding",
-            "rust-offboarding.caddy",
-            "OFFBOARDING_ENABLED",
-        ] {
+        for needle in ["verdaxis_rust_offboarding", "rust-offboarding.caddy"] {
             assert!(!text.contains(needle), "{} names {needle}", relative(&path));
         }
+        if path != projection {
+            assert!(
+                !text.contains("OFFBOARDING_ENABLED"),
+                "{} names OFFBOARDING_ENABLED",
+                relative(&path)
+            );
+        }
     }
+}
+
+/// Run the deploy projection (`scripts/prepare_rust_runtime.py`) over a staging
+/// `.env`, with one extra line when given. Return the Rust runtime file and
+/// the temporary folder, which the caller removes after its last read.
+fn project_deployed_environment(
+    root: &Path,
+    release: &str,
+    extra_line: Option<&str>,
+) -> (HashMap<String, String>, PathBuf) {
+    let folder = std::env::temp_dir().join(format!("offboarding-deploy-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let source = folder.join("deployed.env");
+    let mut lines = vec![
+        "ENVIRONMENT=staging".to_owned(),
+        format!("RELEASE_SHA={release}"),
+        "DATABASE_URL=postgresql://verdaxis_app_staging:disposable@127.0.0.1:5432/verdaxis_staging"
+            .into(),
+        "JWT_SECRET=runtime-test-authority-0000000000000000".into(),
+        "JWT_ISSUER=test-api".into(),
+        "JWT_AUDIENCE=test-web".into(),
+        "FRONTEND_URL=https://staging.verdaxis.exchange".into(),
+        "EMAIL_FROM=noreply@example.test".into(),
+        "RESEND_API_KEY=disposable-key".into(),
+    ];
+    lines.extend(extra_line.map(str::to_owned));
+    std::fs::write(&source, lines.join("\n") + "\n").unwrap();
+    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
+    let output = Command::new(python)
+        .current_dir(root)
+        .env("PYTHONPATH", root)
+        .arg(root.join("scripts/prepare_rust_runtime.py"))
+        .arg("--environment-file")
+        .arg(&source)
+        .args(["--release-sha", release])
+        .arg("--output-dir")
+        .arg(folder.join("prepared"))
+        .arg("--source-root")
+        .arg(root)
+        .args(["--migration-revision", "ob_20261031_offboarding"])
+        .args(["--environment", "staging"])
+        .output()
+        .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
+    assert!(
+        output.status.success(),
+        "the projection refused: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let runtime = std::fs::read_to_string(folder.join("prepared/runtime.env")).unwrap();
+    let environment = runtime
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(environment_line)
+        .collect();
+    (environment, folder)
 }
 
 /// A source statement that sets a member's organization to none, in Rust SQL

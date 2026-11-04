@@ -63,6 +63,10 @@ ALLOWED_HOSTS_KEY = "ALLOWED_HOSTS"
 # Rust service applies the same default. The watchlist producer keys are never
 # projected: only the release metadata file carries them.
 MARKET_BOOL_KEYS = {"AUTO_MATCHING_ENABLED": True, "MARKET_SUPPORT_ENABLED": False}
+# The individual offboarding switch (rs/read/src/runtime/offboarding.rs). An
+# absent key is not projected, so the Rust service reads it as off. Staging may
+# turn it on; production refuses `true` until its own reviewed enablement.
+OFFBOARDING_SWITCH_KEY = "OFFBOARDING_ENABLED"
 MARKET_INTEGER_KEYS = {
     "MARKET_SUPPORT_MAX_TTL_HOURS": (1, 720),
     "MARKET_SUPPORT_CONTEXT_TTL_MINUTES": (1, 1440),
@@ -205,6 +209,22 @@ def _deployed_bool(values: dict, key: str, default: bool) -> bool:
     if normalized in _BOOL_FALSE:
         return False
     raise RustRuntimeError(f"{key} must be true or false")
+
+
+def offboarding_settings(values: dict, environment: str) -> dict:
+    """Return the offboarding switch from the deployed `.env`, validated.
+
+    The switch is projected only when the `.env` sets it, in normal form.
+    Production refuses `true`: its enablement is a separate reviewed change.
+    """
+    if values.get(OFFBOARDING_SWITCH_KEY) is None:
+        return {}
+    enabled = _deployed_bool(values, OFFBOARDING_SWITCH_KEY, False)
+    if enabled and environment == "production":
+        raise RustRuntimeError(
+            f"{OFFBOARDING_SWITCH_KEY} is staging-only until the production enablement review"
+        )
+    return {OFFBOARDING_SWITCH_KEY: "true" if enabled else "false"}
 
 
 def market_write_settings(values: dict, environment: str) -> dict:
@@ -418,6 +438,7 @@ def project_runtime_environment(
     projected["UMAMI_ENABLED"] = "true" if all(projected.get(key) for key in UMAMI_KEYS) else "false"
     projected.update(system_status_settings(values))
     projected.update(market_write_settings(values, environment))
+    projected.update(offboarding_settings(values, environment))
     # Refuse control characters; quotes and backslashes are escaped by the
     # EnvironmentFile renderer without changing the deployed value.
     for key, value in projected.items():
