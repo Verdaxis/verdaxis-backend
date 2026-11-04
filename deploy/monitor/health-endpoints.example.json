@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "endpoints": [
+    {
+      "name": "prod_ready",
+      "url": "http://127.0.0.1:8000/health/ready",
+      "environment": "production"
+    },
+    {
+      "name": "prod_rust_ready",
+      "url": "http://127.0.0.1:8010/health/ready",
+      "environment": "production"
+    }
+  ]
+}
