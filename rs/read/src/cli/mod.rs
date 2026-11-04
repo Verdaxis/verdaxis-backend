@@ -426,6 +426,13 @@ pub struct CacheArgs {
     pub action: CacheAction,
     #[command(flatten)]
     pub identity: IdentityArgs,
+    /// The Rust runtime directory that holds `cache-authority.json`.
+    #[arg(long, value_parser = absolute_path)]
+    pub runtime_dir: PathBuf,
+    /// `activate`: the deployed `.env`; only ENVIRONMENT, RELEASE_SHA and
+    /// MIGRATOR_DATABASE_URL are read from it.
+    #[arg(long, value_parser = absolute_path)]
+    pub environment_file: Option<PathBuf>,
     #[arg(long)]
     pub apply: bool,
 }
@@ -657,6 +664,9 @@ pub async fn dispatch_os(args: Vec<OsString>) -> Exit {
         Command::Ops(OpsArgs {
             action: OpsAction::PrepareBudget(args),
         }) => ops_outcome("ops prepare-budget", ops::budget::run(&args)),
+        Command::Ops(OpsArgs {
+            action: OpsAction::CacheAuthority(args),
+        }) => ops::cache::command(&args).await,
         Command::Ops(OpsArgs {
             action: OpsAction::Preflight(args),
         }) => ops_outcome("ops preflight", ops::preflight::run(&args).await),

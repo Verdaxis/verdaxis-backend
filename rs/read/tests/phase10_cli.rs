@@ -106,7 +106,6 @@ fn subcommand_dispatch_is_exact() {
             "--file",
             "/nonexistent/input.csv",
         ],
-        vec!["ops", "cache-authority", "status"],
         vec!["ops", "fleet"],
         vec![
             "canary",

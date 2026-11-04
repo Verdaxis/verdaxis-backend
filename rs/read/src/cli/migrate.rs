@@ -639,7 +639,9 @@ pub async fn run(args: &super::MigrateArgs) -> super::Exit {
 /// The three keys `migrate` takes from the deployed `.env`: the identity and
 /// the migrator URL. The URL stays inside this process (the deploy never
 /// reads it); no other key of the file is used.
-fn deployed_migrator_values(path: &std::path::Path) -> Result<Vec<(String, String)>, super::Exit> {
+pub(crate) fn deployed_migrator_values(
+    path: &std::path::Path,
+) -> Result<Vec<(String, String)>, super::Exit> {
     let values = super::ops::runtime_env::read_environment_file(path)?;
     ["ENVIRONMENT", "RELEASE_SHA", "MIGRATOR_DATABASE_URL"]
         .into_iter()

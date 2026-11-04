@@ -31,7 +31,7 @@ pub const AUTHORITY_LEASE: Duration = Duration::from_secs(5);
 pub const AUTHORITY_REFRESH: Duration = Duration::from_secs(1);
 
 /// The record is a few hundred bytes; a larger file is not the owner's record.
-const MAX_RECORD_BYTES: u64 = 4096;
+pub const MAX_RECORD_BYTES: u64 = 4096;
 
 const RECORD_VERSION: u32 = 1;
 
@@ -310,13 +310,20 @@ struct RawRecord {
 
 /// Parse the owner record. `Ok(None)` is a deliberate revocation.
 pub fn parse_record(text: &str) -> Result<Option<Authority>, &'static str> {
+    parse_owner_record(text).map(|(_, authority)| authority)
+}
+
+/// [`parse_record`] that also returns the record's revision, which the owner
+/// (`ops cache-authority`) needs for a revoked record too.
+pub fn parse_owner_record(text: &str) -> Result<(u64, Option<Authority>), &'static str> {
     let raw: RawRecord =
         serde_json::from_str(text).map_err(|_| "invalid cache authority record")?;
+    let revision = raw.authority_revision;
     if raw.version != RECORD_VERSION {
         return Err("unsupported cache authority record version");
     }
     match (raw.state.as_str(), raw.database_epoch, raw.primary_identity) {
-        ("revoked", None, None) => Ok(None),
+        ("revoked", None, None) => Ok((revision, None)),
         ("active", Some(database_epoch), Some(primary_identity)) => {
             let authority = Authority {
                 database_epoch,
@@ -325,7 +332,7 @@ pub fn parse_record(text: &str) -> Result<Option<Authority>, &'static str> {
             };
             authority
                 .is_proved()
-                .then_some(Some(authority))
+                .then_some((revision, Some(authority)))
                 .ok_or("unproved cache authority record")
         }
         _ => Err("invalid cache authority record state"),

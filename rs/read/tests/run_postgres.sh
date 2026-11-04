@@ -287,7 +287,7 @@ set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test phase10_baseline_postgres --test phase10_migrate_postgres \
   --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
-  --test phase10_gena_postgres --test phase10_canary_postgres \
+  --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
   -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
 baseline_status=${PIPESTATUS[0]}
 set -e

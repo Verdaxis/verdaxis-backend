@@ -3,6 +3,7 @@
 //! Each operator task adds its own file here and one `pub mod` line below.
 
 pub mod budget;
+pub mod cache;
 pub mod csv;
 pub mod dotenv;
 pub mod gena;
