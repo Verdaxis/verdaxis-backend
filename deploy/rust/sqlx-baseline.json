@@ -1,9 +1,9 @@
 {
-  "alembic_head": "p89_20261022_trade_freeze",
-  "alembic_revisions": 81,
+  "alembic_head": "ob_20261031_offboarding",
+  "alembic_revisions": 82,
   "baseline_version": 1,
-  "file_sha256": "e9ffc94165af2ae8845784469fa592395ee21be3ec42f71901c1a6bb9e7bb09d",
-  "fingerprint": "28f1c10dbe3b685de515bedcdbb1df64c4c8b839b432a6dd848aebbf0312ffb0",
+  "file_sha256": "8280a7ff736a96aebea935e73b740353bd1899c4756788ddb8a68147dd55cbc8",
+  "fingerprint": "1a0b27c80961b8b8ad356fbdde4cf81fddf992e6e235c01a2ed388c451cb4d60",
   "postgres": "17.10",
   "reference_rows": {
     "delivery_points": 8,
@@ -13,5 +13,5 @@
     "public_read_cache_generations": 1,
     "public_read_cache_incarnation": 1
   },
-  "restored_fingerprint": "bd978ca4563032f9b2cec0bcaf4064af09cab772d067fc229feb332dcf47101e"
+  "restored_fingerprint": "cd32376612bedebe6b8f1c5299ffbad9c0c4d30724af36113a7d5b97e05a9b7b"
 }

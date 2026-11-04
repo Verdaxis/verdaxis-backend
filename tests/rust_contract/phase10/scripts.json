@@ -79,7 +79,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "8f8532604f019bd60d08e9cbbe18f8447a406046903808f9458760f908a82a04",
+      "source_sha256": "31a898f35324719c6e30d98210e9a9b5faed3eae67ecfd6e9be88dfa2860e7e5",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -216,7 +216,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "7890ac5db1f28e4baaa5da395c620d4a5744400cb37cd9f5850b62deba274de1",
+      "source_sha256": "16355b43c03ce0fe2598e4d7e73e95454c2be22a976bb20001a8d743489f04a8",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"

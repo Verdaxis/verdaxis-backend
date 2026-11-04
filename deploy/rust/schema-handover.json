@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "status": "closed",
+  "closed_on": "2026-11-05",
+  "final_head": "ob_20261031_offboarding",
+  "alembic_revisions": 82,
+  "single_head": true,
+  "source": {
+    "branch": "staging",
+    "sha": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+  },
+  "baseline": "deploy/rust/sqlx-baseline.json",
+  "approved_transitions_to_final_head": [
+    [
+      "p89_20261022_trade_freeze",
+      "ob_20261031_offboarding"
+    ],
+    [
+      "ob_20261031_offboarding",
+      "ob_20261031_offboarding"
+    ]
+  ],
+  "deployed_observations": [
+    {
+      "environment": "staging",
+      "observed_on": "2026-11-04",
+      "revision": "ob_20261031_offboarding",
+      "release_sha": "442d6b75fe25ffa04877af111be12a08719f8c09"
+    },
+    {
+      "environment": "production",
+      "observed_on": "2026-11-04",
+      "revision": "p89_20261022_trade_freeze",
+      "release_sha": "ba2279b488157630c2b601ba6628ebed108b3b79",
+      "pending_transition": [
+        "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding"
+      ]
+    }
+  ],
+  "producers": [
+    {
+      "producer": "Phase 0 convergence",
+      "revisions": [
+        "p0_20261016_union"
+      ],
+      "source_commit": "a588e19cd",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Phase 1 read cache",
+      "revisions": [
+        "prc_20261018_cache"
+      ],
+      "source_commit": "852d8760d",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Phase 2 change feed",
+      "revisions": [
+        "prc_20261026_changes"
+      ],
+      "source_commit": "c207899e2",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Phase 3 login and sessions",
+      "revisions": [
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor"
+      ],
+      "source_commit": "081de5de0",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Phase 4",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision"
+    },
+    {
+      "producer": "Phase 5 read indexes",
+      "revisions": [
+        "p5_20261020_read_indexes"
+      ],
+      "source_commit": "9cdd5564e",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Phase 6",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision"
+    },
+    {
+      "producer": "Phase 7 (Path B, retire)",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision (Task 20 report)"
+    },
+    {
+      "producer": "Phases 8-9 market writes",
+      "revisions": [
+        "p89_20261022_watchlist_producer",
+        "p89_20261022_trade_freeze"
+      ],
+      "source_commit": "5eed05aad",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Individual offboarding",
+      "revisions": [
+        "ob_20261031_offboarding"
+      ],
+      "source_commit": "37bf59d37",
+      "merged_by": "442d6b75fe25ffa04877af111be12a08719f8c09",
+      "acknowledgement": "merged; nothing pending"
+    },
+    {
+      "producer": "Security and operations lanes",
+      "revisions": [],
+      "acknowledgement": "no open branch carries a revision outside this graph that a deployed database uses"
+    }
+  ],
+  "revisions_outside_the_graph": {
+    "retired_by_phase0_rebuild": [
+      "catalog_20260926_biofuels",
+      "ua_20260925_user_activity",
+      "ua_20260926_activity_policy",
+      "uadl_20261003_delivery_reports",
+      "blng_20261014_prod",
+      "kycg_20261014_prod"
+    ],
+    "note": "Phase 0 built the new production database on the staging graph and kept the old database read-only, so the production-line revisions are not in any serving database. The undeployed lanes were never applied to a deployed database: the March 2026 exchange-hardening branch was abandoned, and the July 2026 market-support draft was replaced by ms_20260723_assisted_listings, ms_20260723_assisted_order_v2 and ms_20260723_organization_context.",
+    "undeployed_lanes": [
+      "s5_001_advanced_order_types",
+      "s5_002_add_order_audit_logs",
+      "s6_001_surveillance_events",
+      "s7_001_add_oauth_clients",
+      "s8_001_add_dashboard_widgets",
+      "ms_20260722_delegated_listings"
+    ]
+  },
+  "acknowledged_by": "PM (decision 199)"
+}

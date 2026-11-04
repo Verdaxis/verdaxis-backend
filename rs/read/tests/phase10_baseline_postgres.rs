@@ -16,6 +16,9 @@ use std::str::FromStr;
 const BASELINE_SQL: &str = include_str!("../migrations/1_baseline.sql");
 const MANIFEST: &str = include_str!("../../../deploy/rust/sqlx-baseline.json");
 const FINGERPRINT_SQL: &str = include_str!("../../../deploy/rust/catalog-fingerprint.sql");
+const HANDOVER: &str = include_str!("../../../deploy/rust/schema-handover.json");
+const ALLOWED_REVISIONS: &str = include_str!("../../../deploy/rust/allowed-revisions.json");
+const CHECKPOINTS: &str = include_str!("../../../deploy/migration-checkpoints.tsv");
 /// The production migrator role: the baseline's objects belong to it.
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
 
@@ -188,6 +191,45 @@ fn baseline_dump_has_no_owner_or_privilege_clauses() {
         manifest().file_sha256,
         "the baseline file differs from the digest in the manifest"
     );
+}
+
+/// The closed producer register names the head the baseline was built from,
+/// that head is the newest revision the Rust service accepts, and every
+/// transition the register approves is in the deploy checkpoint policy.
+#[test]
+fn handover_register_is_closed_at_the_baseline_head() {
+    let handover: serde_json::Value = serde_json::from_str(HANDOVER).expect("handover JSON");
+    let baseline: serde_json::Value = serde_json::from_str(MANIFEST).expect("manifest JSON");
+    assert_eq!(
+        handover["status"], "closed",
+        "the producer register is open"
+    );
+    assert_eq!(handover["single_head"], true);
+    assert_eq!(handover["final_head"], baseline["alembic_head"]);
+    assert_eq!(handover["alembic_revisions"], baseline["alembic_revisions"]);
+
+    let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
+    assert_eq!(
+        allowed.last().map(String::as_str),
+        handover["final_head"].as_str(),
+        "the final head is not the newest revision the Rust service accepts"
+    );
+
+    let policy: Vec<(&str, &str)> = CHECKPOINTS
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .collect();
+    for pair in handover["approved_transitions_to_final_head"]
+        .as_array()
+        .expect("approved transitions")
+    {
+        let from = pair[0].as_str().expect("from revision");
+        let to = pair[1].as_str().expect("to revision");
+        assert!(
+            policy.contains(&(from, to)),
+            "{from} -> {to} is not in deploy/migration-checkpoints.tsv"
+        );
+    }
 }
 
 #[tokio::test]
