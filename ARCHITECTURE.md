@@ -153,7 +153,7 @@ revision. `tests/unit/test_phase5_indexes.py`,
 ## Individual account state marker
 
 `alembic/versions/ob_20261031_individual_offboarding.py` (revision
-`ob_20261031_offboarding`, parent `p5_20261020_read_indexes`) adds the nullable
+`ob_20261031_offboarding`, parent `p89_20261022_trade_freeze`) adds the nullable
 `users.offboarded_at` marker and the append-only `individual_offboardings`
 history. No status value is added: a marked user keeps `REJECTED`. The named
 checks `ck_users_offboarded_requires_rejected` and

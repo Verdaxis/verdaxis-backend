@@ -129,3 +129,19 @@ def pytest_runtest_makereport(item, call):
     outcome=yield
     report=outcome.get_result()
     setattr(item,"rep_"+report.when,report)
+
+
+SKIPPED = []
+
+
+def pytest_runtest_logreport(report):
+    if report.skipped:
+        SKIPPED.append(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # Every target here runs against the disposable database this fixture
+    # created. A skip would hide a missing protocol, so it fails the run.
+    if SKIPPED:
+        print("protocol targets skipped:", *SKIPPED, sep="\n  ")
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
