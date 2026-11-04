@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 use support::{TempDir, contract_fixture, repository_root};
 use verdaxis_read::cli::Exit;
 use verdaxis_read::cli::monitors::health::{
-    DiskUsage, Endpoint, HealthConfig, ReadinessRefusal, check_directory_size, check_filesystem,
-    check_readiness, collect, execute_checks, read_identity, run, validate_readiness_payload,
+    DEFAULT_ENDPOINTS_FILE, DiskUsage, Endpoint, EndpointsRefused, HealthConfig, ReadinessRefusal,
+    check_directory_size, check_filesystem, check_readiness, collect, execute_checks,
+    load_endpoints, read_identity, run, validate_readiness_payload,
 };
 use verdaxis_read::cli::monitors::status::{
     Admission, AdmitAll, Category, CheckResult, Fault, Previous, Status, build_status,
@@ -437,9 +438,9 @@ fn config_for(scratch: &TempDir, server: &FakeServer, path: &str) -> HealthConfi
     HealthConfig {
         status_file: scratch.join("state/status.json"),
         endpoints: vec![Endpoint {
-            name: "prod_ready",
+            name: "prod_ready".to_owned(),
             url: server.url(path),
-            expected_environment: "production",
+            expected_environment: "production".to_owned(),
             identity_file: identity,
         }],
         filesystem: scratch.path().to_path_buf(),
@@ -459,17 +460,42 @@ fn read_status(path: &Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).expect("status file")).expect("status JSON")
 }
 
+// ---- installed endpoint list ---------------------------------------------------
+
+/// Write one endpoint list to the scratch directory, the way the host installer
+/// would install it.
+fn write_endpoints(scratch: &TempDir, body: &str) -> std::path::PathBuf {
+    let path = scratch.join("health-endpoints.json");
+    std::fs::write(&path, body).unwrap();
+    path
+}
+
+fn endpoint_entry(name: &str, port: u16, environment: &str) -> String {
+    format!(
+        r#"{{"name": "{name}", "url": "http://127.0.0.1:{port}/health/ready", "environment": "{environment}"}}"#
+    )
+}
+
+fn two_entry_list() -> String {
+    format!(
+        r#"{{"version": 1, "endpoints": [{}, {}]}}"#,
+        endpoint_entry("prod_ready", 8000, "production"),
+        endpoint_entry("prod_rust_ready", 8010, "production")
+    )
+}
+
 #[test]
-fn health_default_endpoints_are_the_fixed_numeric_loopback_pair() {
-    let config = HealthConfig::default();
-    let inventory: Vec<(&str, &str, &str)> = config
-        .endpoints
+fn health_endpoints_file_loads_the_listed_loopback_endpoints() {
+    let scratch = TempDir::new();
+    let path = write_endpoints(&scratch, &two_entry_list());
+    let endpoints = load_endpoints(&path).expect("a valid endpoint list loads");
+    let inventory: Vec<(&str, &str, &str)> = endpoints
         .iter()
         .map(|endpoint| {
             (
-                endpoint.name,
+                endpoint.name.as_str(),
                 endpoint.url.as_str(),
-                endpoint.expected_environment,
+                endpoint.expected_environment.as_str(),
             )
         })
         .collect();
@@ -482,19 +508,226 @@ fn health_default_endpoints_are_the_fixed_numeric_loopback_pair() {
                 "production"
             ),
             (
-                "staging_ready",
-                "http://127.0.0.1:8001/health/ready",
-                "staging"
+                "prod_rust_ready",
+                "http://127.0.0.1:8010/health/ready",
+                "production"
             ),
         ]
     );
-    assert_eq!(
-        config.endpoints[0].identity_file,
-        Path::new("/etc/verdaxis-monitor/runtime-identities/production.identity")
+    // The identity file stays derived from the environment, as before.
+    for (endpoint, environment) in endpoints.iter().zip(["production"; 2]) {
+        assert_eq!(
+            endpoint.identity_file,
+            Path::new(&format!(
+                "/etc/verdaxis-monitor/runtime-identities/{environment}.identity"
+            ))
+        );
+    }
+    // One entry at the maximum allowed count all load.
+    let eight = format!(
+        r#"{{"version": 1, "endpoints": [{}]}}"#,
+        (0..8)
+            .map(|index| endpoint_entry(&format!("endpoint_{index}"), 8000 + index, "production"))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
+    let many = write_endpoints(&scratch, &eight);
+    assert_eq!(load_endpoints(&many).unwrap().len(), 8);
+    // The example file the installer ships parses.
+    let example =
+        std::fs::read(repository_root().join("deploy/monitor/health-endpoints.example.json"))
+            .expect("read the shipped example");
+    let parsed_example = load_endpoints(&{
+        let copied = scratch.join("example.json");
+        std::fs::write(&copied, &example).unwrap();
+        copied
+    })
+    .expect("the shipped example is a valid list");
+    assert_eq!(parsed_example.len(), 2);
+    assert_eq!(parsed_example[0].name, "prod_ready");
+    assert_eq!(parsed_example[0].url, "http://127.0.0.1:8000/health/ready");
+    assert_eq!(parsed_example[1].name, "prod_rust_ready");
+    assert_eq!(parsed_example[1].url, "http://127.0.0.1:8010/health/ready");
+}
+
+#[test]
+fn health_endpoints_file_refuses_unsafe_or_malformed_content() {
+    let scratch = TempDir::new();
+    let refuse = |body: &str| -> bool {
+        let path = write_endpoints(&scratch, body);
+        load_endpoints(&path).is_err()
+    };
+    // Not JSON, wrong version, unknown top-level or entry keys.
+    assert!(refuse("not json at all"), "not json");
+    let version_two = format!(
+        r#"{{"version": 2, "endpoints": [{}]}}"#,
+        endpoint_entry("a", 8000, "production")
+    );
+    assert!(refuse(&version_two), "version 2");
+    assert!(
+        refuse(r#"{"version": "1", "endpoints": []}"#),
+        "version as text"
+    );
+    assert!(
+        refuse(
+            r#"{"endpoints": [{"name":"a","url":"http://127.0.0.1:8000/health/ready","environment":"production"}]}"#
+        ),
+        "no version"
+    );
+    assert!(
+        refuse(r#"{"version": 1, "endpoints": [], "extra": true}"#),
+        "unknown top-level key"
+    );
+    assert!(
+        refuse(
+            r#"{"version": 1, "endpoints": [{"name":"a","url":"http://127.0.0.1:8000/health/ready","environment":"production","extra":1}]}"#
+        ),
+        "unknown entry key"
+    );
+    assert!(
+        refuse(r#"{"version": 1, "endpoints": {}}"#),
+        "endpoints not a list"
+    );
+    assert!(refuse(r#"{"version": 1}"#), "no endpoints key");
+    // Zero or nine entries, duplicates, bad names.
+    assert!(refuse(r#"{"version": 1, "endpoints": []}"#), "zero entries");
+    let nine = format!(
+        r#"{{"version": 1, "endpoints": [{}]}}"#,
+        (0..9)
+            .map(|index| endpoint_entry(&format!("endpoint_{index}"), 8000 + index, "production"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    assert!(refuse(&nine), "nine entries");
+    let duplicate = format!(
+        r#"{{"version": 1, "endpoints": [{}, {}]}}"#,
+        endpoint_entry("same_name", 8000, "production"),
+        endpoint_entry("same_name", 8001, "staging")
+    );
+    assert!(refuse(&duplicate), "duplicate name");
+    assert!(
+        refuse(
+            r#"{"version": 1, "endpoints": [{"name":"","url":"http://127.0.0.1:8000/health/ready","environment":"production"}]}"#
+        ),
+        "empty name"
+    );
+    assert!(
+        refuse(
+            r#"{"version": 1, "endpoints": [{"name":"Prod-Ready","url":"http://127.0.0.1:8000/health/ready","environment":"production"}]}"#
+        ),
+        "uppercase and dash in the name"
+    );
+    let long_name = "x".repeat(65);
+    assert!(
+        refuse(&format!(
+            r#"{{"version": 1, "endpoints": [{}]}}"#,
+            endpoint_entry(&long_name, 8000, "production")
+        )),
+        "name over 64 chars"
+    );
+    // Exactly 64 characters is accepted.
+    let ok_name = "x".repeat(64);
+    let name_at_limit = format!(
+        r#"{{"version": 1, "endpoints": [{}]}}"#,
+        endpoint_entry(&ok_name, 8000, "production")
+    );
+    assert!(load_endpoints(&write_endpoints(&scratch, &name_at_limit)).is_ok());
+    assert!(
+        refuse(
+            r#"{"version": 1, "endpoints": [{"name":"x","url":"http://127.0.0.1:8000/health/ready","environment":"development"}]}"#
+        ),
+        "environment development"
+    );
+    // URL rules: scheme, host, user info, path, query, port.
+    let bad_urls = [
+        "https://127.0.0.1:8000/health/ready",
+        "http://localhost:8000/health/ready",
+        "http://10.0.0.1:8000/health/ready",
+        "http://user:pass@127.0.0.1:8000/health/ready",
+        "http://127.0.0.1:8000/other",
+        "http://127.0.0.1:8000/health/ready?probe=1",
+        "http://127.0.0.1:0/health/ready",
+        "http://127.0.0.1/health/ready",
+        "http://127.0.0.1:8000/health/ready#fragment",
+    ];
+    for url in bad_urls {
+        let body = format!(
+            r#"{{"version": 1, "endpoints": [{{"name":"x","url":"{url}","environment":"production"}}]}}"#
+        );
+        assert!(refuse(&body), "refused url {url}");
+    }
+    // A symlink, a directory, an over-8KiB file, and a missing file all refuse.
+    let target = scratch.join("target.json");
+    std::fs::write(&target, two_entry_list()).unwrap();
+    let linked = scratch.join("linked.json");
+    symlink(&target, &linked).unwrap();
+    assert!(load_endpoints(&linked).is_err(), "symlink");
+    assert!(load_endpoints(scratch.path()).is_err(), "directory");
+    let oversized = "x".repeat(8 * 1024 + 1);
+    assert!(refuse(&oversized), "over 8 KiB");
+    assert!(
+        load_endpoints(&scratch.join("absent.json")).is_err(),
+        "missing file"
+    );
+}
+
+#[test]
+fn health_run_refuses_without_an_endpoints_file() {
+    // A server that would answer correctly proves the run sent it nothing.
+    let server = FakeServer::start(Arc::new(|_path, stream| {
+        respond(
+            stream,
+            "200 OK",
+            &[],
+            readiness("production", SHA).to_string().as_bytes(),
+        )
+    }));
+    let scratch = TempDir::new();
+    let base = config_for(&scratch, &server, "/ready");
+    // The default config carries no endpoint, and that refuses the whole run
+    // before any request: one `fatal_error` status, exit 2.
+    let empty = HealthConfig {
+        endpoints: Vec::new(),
+        ..base.clone()
+    };
+    assert_eq!(run(&empty, &AdmitAll), Exit::Usage);
+    let published = read_status(&empty.status_file);
+    assert_eq!(published["category"], "failure");
+    assert_eq!(published["checks"][0]["code"], "fatal_error");
+    assert_eq!(published["checks"][0]["name"], "monitor");
+    assert_eq!(server.request_count(), 0, "no request was sent");
+
+    // A missing file is a refusal, and a refused list yields no endpoint, so
+    // `run_default` cannot go green on a missing or bad file: the same
+    // `fatal_error` run follows from `unwrap_or_default`.
     assert_eq!(
-        config.endpoints[1].identity_file,
-        Path::new("/etc/verdaxis-monitor/runtime-identities/staging.identity")
+        load_endpoints(&scratch.join("absent.json")),
+        Err(EndpointsRefused)
+    );
+    let refused_list = write_endpoints(&scratch, r#"{"version": 2}"#);
+    let from_refused = load_endpoints(&refused_list).unwrap_or_default();
+    assert!(from_refused.is_empty());
+    let refused_run = HealthConfig {
+        endpoints: from_refused,
+        status_file: scratch.join("state2/status.json"),
+        ..base
+    };
+    assert_eq!(run(&refused_run, &AdmitAll), Exit::Usage);
+    assert_eq!(
+        read_status(&refused_run.status_file)["checks"][0]["code"],
+        "fatal_error"
+    );
+    assert_eq!(server.request_count(), 0, "still no request was sent");
+}
+
+#[test]
+fn health_default_config_carries_no_hard_coded_endpoint() {
+    // The hard-coded list is gone: the default config carries no endpoint, so
+    // a stray `collect(&HealthConfig::default(), ..)` can never probe or go green.
+    let config = HealthConfig::default();
+    assert!(
+        config.endpoints.is_empty(),
+        "the default carries no endpoint"
     );
     assert_eq!(
         config.status_file,
@@ -511,6 +744,11 @@ fn health_default_endpoints_are_the_fixed_numeric_loopback_pair() {
     assert_eq!(config.request_timeout, Duration::from_secs(5));
     assert_eq!(config.total_timeout, Duration::from_secs(20));
     assert_eq!(config.max_body_bytes, 1024);
+    // The installed command reads this one file; the identity files stay derived.
+    assert_eq!(
+        DEFAULT_ENDPOINTS_FILE,
+        "/etc/verdaxis-monitor/health-endpoints.json"
+    );
 }
 
 #[test]

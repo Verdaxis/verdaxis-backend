@@ -1,8 +1,9 @@
 //! `verdaxis-read monitor health`: loopback readiness and local filesystem checks.
 //!
-//! The monitor reads the runtime identity files, asks each service for its
-//! readiness over numeric loopback HTTP, checks free disk space and, when
-//! configured, the size of one directory. It then publishes one private status
+//! The monitor reads the host's installed endpoint list and the runtime
+//! identity files, asks each listed service for its readiness over numeric
+//! loopback HTTP, checks free disk space and, when configured, the size of one
+//! directory. It then publishes one private status
 //! document (see [`super::status`]).
 //!
 //! It needs no credentials and no external service, so it works while the
@@ -115,6 +116,146 @@ pub fn read_identity(
             })
         }
         _ => Err(IdentityRefused),
+    }
+}
+
+// ---- endpoint list -----------------------------------------------------------
+
+/// The installed per-host endpoint list the monitor reads at startup.
+pub const DEFAULT_ENDPOINTS_FILE: &str = "/etc/verdaxis-monitor/health-endpoints.json";
+
+/// Fewest and most endpoints one host may list.
+const MIN_ENDPOINTS: usize = 1;
+const MAX_ENDPOINTS: usize = 8;
+/// Largest endpoint list file, in bytes.
+const MAX_ENDPOINTS_BYTES: usize = 8 * 1024;
+const ENDPOINTS_VERSION: u64 = 1;
+const ENDPOINTS_KEYS: [&str; 2] = ["version", "endpoints"];
+const ENDPOINT_KEYS: [&str; 3] = ["name", "url", "environment"];
+/// The one readiness path an endpoint may name.
+const READINESS_PATH: &str = "/health/ready";
+
+/// An endpoint list file that failed a rule. It carries no detail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndpointsRefused;
+
+/// One service to probe and the identity file that says what it must report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Endpoint {
+    pub name: String,
+    pub url: String,
+    pub expected_environment: String,
+    pub identity_file: PathBuf,
+}
+
+/// Read the host's endpoint list: a bounded regular file (not a link) holding a
+/// JSON object with `version` and `endpoints`, each endpoint naming one numeric
+/// loopback readiness URL and its environment.
+///
+/// Unknown keys, a wrong version, duplicate names, an out-of-range count, or any
+/// invalid entry refuse the whole file.
+pub fn load_endpoints(path: &Path) -> Result<Vec<Endpoint>, EndpointsRefused> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+        .map_err(|_| EndpointsRefused)?;
+    if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+        return Err(EndpointsRefused);
+    }
+    let mut raw = Vec::new();
+    file.take(MAX_ENDPOINTS_BYTES as u64 + 1)
+        .read_to_end(&mut raw)
+        .map_err(|_| EndpointsRefused)?;
+    if raw.len() > MAX_ENDPOINTS_BYTES {
+        return Err(EndpointsRefused);
+    }
+    let document = parse_strict_json(&raw).ok_or(EndpointsRefused)?;
+    let object = document.as_object().ok_or(EndpointsRefused)?;
+    if object.len() != ENDPOINTS_KEYS.len() {
+        return Err(EndpointsRefused);
+    }
+    let version = object
+        .get("version")
+        .and_then(Value::as_u64)
+        .ok_or(EndpointsRefused)?;
+    if version != ENDPOINTS_VERSION {
+        return Err(EndpointsRefused);
+    }
+    let listed = object
+        .get("endpoints")
+        .and_then(Value::as_array)
+        .ok_or(EndpointsRefused)?;
+    if listed.len() < MIN_ENDPOINTS || listed.len() > MAX_ENDPOINTS {
+        return Err(EndpointsRefused);
+    }
+    let mut names: Vec<&str> = Vec::new();
+    let mut endpoints = Vec::new();
+    for listed in listed {
+        let entry = listed.as_object().ok_or(EndpointsRefused)?;
+        if entry.len() != ENDPOINT_KEYS.len() {
+            return Err(EndpointsRefused);
+        }
+        let name = entry
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or(EndpointsRefused)?;
+        let url = entry
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or(EndpointsRefused)?;
+        let environment = entry
+            .get("environment")
+            .and_then(Value::as_str)
+            .ok_or(EndpointsRefused)?;
+        if !is_endpoint_name(name) || !matches!(environment, "production" | "staging") {
+            return Err(EndpointsRefused);
+        }
+        parse_endpoint_url(url)?;
+        names.push(name);
+        endpoints.push(Endpoint {
+            name: name.to_owned(),
+            url: url.to_owned(),
+            expected_environment: environment.to_owned(),
+            identity_file: PathBuf::from(format!(
+                "/etc/verdaxis-monitor/runtime-identities/{environment}.identity"
+            )),
+        });
+    }
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    if unique.len() != names.len() {
+        return Err(EndpointsRefused);
+    }
+    Ok(endpoints)
+}
+
+/// A name is 1-64 characters of `a-z`, `0-9` and `_`.
+fn is_endpoint_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    (1..=64).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'_')
+}
+
+/// Accept only exactly `http://127.0.0.1:<port>/health/ready`, port 1-65535.
+fn parse_endpoint_url(url: &str) -> Result<(), EndpointsRefused> {
+    let parsed = Url::parse(url).map_err(|_| EndpointsRefused)?;
+    if parsed.scheme() != "http"
+        || parsed.host_str() != Some("127.0.0.1")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != READINESS_PATH
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(EndpointsRefused);
+    }
+    match parsed.port() {
+        Some(0) | None => Err(EndpointsRefused),
+        Some(_) => Ok(()),
     }
 }
 
@@ -524,16 +665,8 @@ pub fn execute_checks(
 
 // ---- configuration and run ------------------------------------------------------------
 
-/// One service to probe and the identity file that says what it must report.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Endpoint {
-    pub name: &'static str,
-    pub url: String,
-    pub expected_environment: &'static str,
-    pub identity_file: PathBuf,
-}
-
-/// Everything the monitor reads. The default is the installed layout; tests
+/// Everything the monitor reads. The default is the installed layout with no
+/// endpoints: the installed command fills them from the host's list; tests
 /// build their own values.
 #[derive(Debug, Clone)]
 pub struct HealthConfig {
@@ -552,27 +685,9 @@ pub struct HealthConfig {
 
 impl Default for HealthConfig {
     fn default() -> Self {
-        let identity = |environment: &str| {
-            PathBuf::from(format!(
-                "/etc/verdaxis-monitor/runtime-identities/{environment}.identity"
-            ))
-        };
         Self {
             status_file: PathBuf::from("/var/lib/verdaxis-health/status.json"),
-            endpoints: vec![
-                Endpoint {
-                    name: "prod_ready",
-                    url: "http://127.0.0.1:8000/health/ready".to_owned(),
-                    expected_environment: "production",
-                    identity_file: identity("production"),
-                },
-                Endpoint {
-                    name: "staging_ready",
-                    url: "http://127.0.0.1:8001/health/ready".to_owned(),
-                    expected_environment: "staging",
-                    identity_file: identity("staging"),
-                },
-            ],
+            endpoints: Vec::new(),
             filesystem: PathBuf::from("/"),
             warning_free_percent: 20.0,
             critical_free_percent: 15.0,
@@ -589,8 +704,8 @@ impl Default for HealthConfig {
 /// Run every check and build the new status.
 ///
 /// An unsafe previous document is quarantined first and reported as one
-/// `previous_status_invalid` failure with no check run. A bad identity file
-/// refuses the whole run before any request is sent.
+/// `previous_status_invalid` failure with no check run. A bad identity file or
+/// a config with no endpoint refuses the whole run before any request is sent.
 pub fn collect(config: &HealthConfig, now: DateTime<Utc>) -> Result<Status, Fault> {
     let previous = load_monitor_status(&config.status_file, MAX_STATUS_BYTES);
     if previous == Previous::Malformed {
@@ -600,18 +715,24 @@ pub fn collect(config: &HealthConfig, now: DateTime<Utc>) -> Result<Status, Faul
     let identities: Vec<RuntimeIdentity> = config
         .endpoints
         .iter()
-        .map(|endpoint| read_identity(&endpoint.identity_file, endpoint.expected_environment))
+        .map(|endpoint| read_identity(&endpoint.identity_file, &endpoint.expected_environment))
         .collect::<Result<_, _>>()
         .map_err(|_| Fault)?;
+    if identities.is_empty() {
+        // A monitor with nothing to probe would publish a green status that
+        // checked nothing, so an endpoint-less run is a refusal like a bad
+        // identity file.
+        return Err(Fault);
+    }
 
     let started = Instant::now();
     let mut checks: Vec<Check<'_>> = Vec::new();
     for (endpoint, identity) in config.endpoints.iter().zip(identities) {
         checks.push(Box::new(move |left| {
             check_readiness(
-                endpoint.name,
+                &endpoint.name,
                 &endpoint.url,
-                endpoint.expected_environment,
+                &endpoint.expected_environment,
                 &identity.release_sha,
                 config.request_timeout.min(left),
                 config.max_body_bytes,
@@ -674,11 +795,20 @@ pub fn run_at(config: &HealthConfig, admission: &dyn Admission, now: DateTime<Ut
     }
 }
 
-/// The installed command: default layout, admission into the installed
-/// alert journal before the status is published.
+/// The installed command: the host's installed endpoint list, the default
+/// layout, and admission into the installed alert journal before the status is
+/// published.
+///
+/// A missing or refused endpoint list refuses the whole run in [`collect`]
+/// before any request is sent, exactly like a bad identity file: the published
+/// status is one `fatal_error` failure and the exit is [`Exit::Usage`].
 pub fn run_default() -> Exit {
+    let config = HealthConfig {
+        endpoints: load_endpoints(Path::new(DEFAULT_ENDPOINTS_FILE)).unwrap_or_default(),
+        ..HealthConfig::default()
+    };
     run(
-        &HealthConfig::default(),
+        &config,
         &JournalAdmission::installed(alert_journal::Check::Health),
     )
 }
