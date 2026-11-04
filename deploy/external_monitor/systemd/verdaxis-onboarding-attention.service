@@ -3,16 +3,21 @@ Description=Verdaxis production onboarding attention monitor
 Wants=network-online.target
 Requires=postgresql.service
 After=network-online.target postgresql.service
-ConditionPathExists=/home/verdaxis-prod/verdaxis/prod/be/.env
 
 [Service]
 Type=oneshot
 User=verdaxis-prod
 Group=verdaxis-prod
 WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
-EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.env
+# Only this purpose's projected keys (ops prepare-runtime; monitor.onboarding)
+# reach the process; the secret-rich .env is never loaded. Telegram keys are
+# monitor-owned in /etc/verdaxis-monitor.env. The binary runs the identity,
+# deploy-state and target gates itself before any work.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/jobs/monitor-onboarding.env
+Environment=DEPLOY_STATE_DIR=/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 EnvironmentFile=-/etc/verdaxis-monitor.env
-ExecStart=/home/verdaxis-prod/verdaxis/prod/be/venv/bin/python -m app.cli.onboarding_attention --state-file /var/lib/verdaxis-onboarding-attention/state.json
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read monitor onboarding --environment production --release-sha ${RELEASE_SHA} --state-file /var/lib/verdaxis-onboarding-attention/state.json
 StateDirectory=verdaxis-onboarding-attention
 StateDirectoryMode=0700
 TimeoutStartSec=5min
@@ -24,6 +29,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 ReadOnlyPaths=/home/verdaxis-prod/verdaxis/prod/be
 ReadWritePaths=/var/lib/verdaxis-onboarding-attention
+InaccessiblePaths=/home/verdaxis-prod/verdaxis/prod/be/.env
 InaccessiblePaths=-/home/verdaxis-prod/.ssh
 InaccessiblePaths=-/home/jons-openclaw/.ssh
 InaccessiblePaths=-/run/docker.sock

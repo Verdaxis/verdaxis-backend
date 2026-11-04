@@ -613,3 +613,77 @@ fn host_service_overrides_restart_on_failure() {
         );
     }
 }
+
+#[test]
+fn onboarding_unit_runs_the_rust_monitor_with_its_own_env_file() {
+    let unit = text("deploy/external_monitor/systemd/verdaxis-onboarding-attention.service");
+    // Items 1-4 of the lane brief: the reviewed unit bytes.
+    // 1. ExecStart is the Rust `monitor onboarding` command.
+    assert_eq!(
+        directives(&unit, "ExecStart"),
+        [format!(
+            "/usr/bin/env {PRODUCTION_ROOT}/.runtime-rust/verdaxis-read monitor onboarding --environment production --release-sha ${{RELEASE_SHA}} --state-file /var/lib/verdaxis-onboarding-attention/state.json"
+        )]
+    );
+    // 2. Only the purpose env, the release env and the optional monitor env;
+    // the full backend .env is removed and made inaccessible.
+    assert_eq!(
+        directives(&unit, "EnvironmentFile"),
+        [
+            format!("{PRODUCTION_ROOT}/.runtime-rust/jobs/monitor-onboarding.env"),
+            format!("{PRODUCTION_ROOT}/.runtime-release.env"),
+            "-/etc/verdaxis-monitor.env".to_owned(),
+        ]
+    );
+    assert_eq!(
+        directives(&unit, "Environment"),
+        [format!(
+            "DEPLOY_STATE_DIR={PRODUCTION_ROOT}/.runtime-deploy"
+        )]
+    );
+    assert!(
+        directives(&unit, "ConditionPathExists")
+            .iter()
+            .all(|v| !v.contains("/be/.env"))
+    );
+    assert!(
+        directives(&unit, "InaccessiblePaths")
+            .contains(&format!("{PRODUCTION_ROOT}/.env").as_str())
+    );
+    // 3. No python, no venv anywhere in the unit.
+    let lower = unit.to_ascii_lowercase();
+    for needle in ["python", "venv", ".py ", ".py\n", "uvicorn", "/be/scripts/"] {
+        assert!(!lower.contains(needle), "{needle:?}");
+    }
+    // 4. Identity, state and hardening are the reviewed existing values,
+    // and Telegram needs the network and PostgreSQL units to be present.
+    for (key, expected) in [
+        ("User", "verdaxis-prod"),
+        ("StateDirectory", "verdaxis-onboarding-attention"),
+        ("StateDirectoryMode", "0700"),
+        ("ReadWritePaths", "/var/lib/verdaxis-onboarding-attention"),
+        ("TimeoutStartSec", "5min"),
+        ("UMask", "0077"),
+        ("Requires", "postgresql.service"),
+        ("After", "network-online.target postgresql.service"),
+    ] {
+        assert_eq!(directives(&unit, key), [expected], "{key}");
+    }
+    for key in [
+        "NoNewPrivileges",
+        "PrivateDevices",
+        "PrivateTmp",
+        "ProtectSystem",
+        "ProtectHome",
+        "ProtectControlGroups",
+        "ProtectKernelModules",
+        "ProtectKernelTunables",
+        "ProtectClock",
+        "ProtectHostname",
+        "RestrictRealtime",
+        "RestrictSUIDSGID",
+        "LockPersonality",
+    ] {
+        assert!(!directives(&unit, key).is_empty(), "{key} is kept");
+    }
+}
