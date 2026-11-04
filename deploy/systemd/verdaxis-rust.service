@@ -26,6 +26,10 @@ ExecStartPre=/usr/bin/env -i /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/
 ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read serve --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
 Restart=on-failure
 RestartSec=5
+# The service signals systemd only while /health/live answers; a hung
+# process misses the keepalives and is restarted (Restart=on-failure).
+WatchdogSec=30s
+NotifyAccess=main
 KillSignal=SIGTERM
 TimeoutStopSec=30
 TimeoutStartSec=120

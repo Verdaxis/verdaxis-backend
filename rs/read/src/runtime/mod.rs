@@ -19,3 +19,4 @@ pub mod phase4_analytics;
 pub mod policy;
 pub mod safe_fs;
 pub mod trading_routes;
+pub mod watchdog;
