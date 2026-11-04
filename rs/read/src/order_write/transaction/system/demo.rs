@@ -630,10 +630,15 @@ pub(crate) const RETENTION_DAYS: i64 = 7;
 /// An activity order nothing refers to (Python's
 /// `_unreferenced_demo_order_filter`), as SQL on the alias `o`; `$1` is the
 /// admitted activity organizations.
+///
+/// Unlike Python, a live (open or partly filled) order is never pruned:
+/// prune holds no slice lock, so it must not take an order out of a book a
+/// user command may be matching against. Activity orders fill at once and
+/// legacy quotes expire in the phase before, so no live one is expected.
 macro_rules! unreferenced_order {
     () => {
         "o.organization_id = ANY($1) AND o.provenance = 'DEMO' \
-     AND o.owner_user_id IS NULL \
+     AND o.owner_user_id IS NULL AND o.status NOT IN ('OPEN', 'PARTIALLY_FILLED') \
      AND NOT EXISTS (SELECT 1 FROM trades t WHERE t.bid_order_id = o.id OR t.ask_order_id = o.id) \
      AND NOT EXISTS (SELECT 1 FROM watchlist_targets w WHERE w.order_id = o.id) \
      AND NOT EXISTS (SELECT 1 FROM match_suggestions m \
