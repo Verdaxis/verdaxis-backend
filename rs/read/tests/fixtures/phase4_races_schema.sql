@@ -36,6 +36,7 @@ CREATE TABLE users(
     must_change_password boolean NOT NULL DEFAULT false,
     password_changed_at timestamptz,
     authentication_revoked_at timestamptz,
+    offboarded_at timestamptz,
     email_verification_token_hash text,
     email_verification_token_expires_at timestamptz,
     referral_code text UNIQUE,
@@ -66,6 +67,12 @@ CREATE TABLE organization_join_requests(
     review_note text,
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE(user_id, organization_id)
+);
+
+CREATE TABLE trade_freezes(
+    id uuid PRIMARY KEY,
+    trade_id uuid NOT NULL,
+    status text NOT NULL
 );
 
 CREATE TABLE audit_logs(

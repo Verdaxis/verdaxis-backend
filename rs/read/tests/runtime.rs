@@ -342,16 +342,18 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
         "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
+        "ob_20261031_offboarding",
     ] {
         base.migration_revision = revision.into();
-        assert!(validate_config(&base).is_ok());
+        assert!(validate_config(&base).is_ok(), "{revision}");
     }
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
 }
 
 /// The reviewed release allowlist, in migration order.
-const RELEASE_REVISIONS: [&str; 9] = [
+const RELEASE_REVISIONS: [&str; 10] = [
     "kycg_20261014_staging",
     "p0_20261016_union",
     "prc_20261018_cache",
@@ -361,10 +363,11 @@ const RELEASE_REVISIONS: [&str; 9] = [
     "p5_20261020_read_indexes",
     "p89_20261022_watchlist_producer",
     "p89_20261022_trade_freeze",
+    "ob_20261031_offboarding",
 ];
 
 /// The reviewed checkpoints a production runtime admits.
-const PRODUCTION_REVISIONS: [&str; 7] = [
+const PRODUCTION_REVISIONS: [&str; 8] = [
     "p0_20261016_union",
     "prc_20261026_changes",
     "p3_20261020_auth_tokens",
@@ -372,6 +375,7 @@ const PRODUCTION_REVISIONS: [&str; 7] = [
     "p5_20261020_read_indexes",
     "p89_20261022_watchlist_producer",
     "p89_20261022_trade_freeze",
+    "ob_20261031_offboarding",
 ];
 
 #[test]

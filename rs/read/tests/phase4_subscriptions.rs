@@ -198,7 +198,7 @@ mod postgres {
             let schema = format!("p4_t13_{}", Uuid::new_v4().simple());
             sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}; SET search_path TO {schema};
                 CREATE TABLE organizations(id uuid PRIMARY KEY);
-                CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid REFERENCES organizations,role text,status text,email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz);
+                CREATE TABLE users(id uuid PRIMARY KEY,organization_id uuid REFERENCES organizations,role text,status text,email_verified boolean DEFAULT true,must_change_password boolean DEFAULT false,password_changed_at timestamptz,authentication_revoked_at timestamptz,offboarded_at timestamptz);
                 CREATE TABLE organization_join_requests(id uuid PRIMARY KEY);
                 CREATE TABLE subscriptions(id uuid PRIMARY KEY,org_id uuid NOT NULL UNIQUE REFERENCES organizations,tier text NOT NULL,started_at timestamptz DEFAULT now(),expires_at timestamptz,is_active boolean NOT NULL,seller_fee_per_mt_usd numeric CHECK(seller_fee_per_mt_usd IS NULL OR (seller_fee_per_mt_usd>=0 AND seller_fee_per_mt_usd<=100000 AND seller_fee_per_mt_usd*100=trunc(seller_fee_per_mt_usd*100))));
                 CREATE TABLE audit_logs(id uuid PRIMARY KEY,user_id uuid,action varchar(100),resource_type varchar(50),resource_id varchar(100),changes jsonb,ip_address varchar(45),request_id varchar(36),timestamp timestamptz);

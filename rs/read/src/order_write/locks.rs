@@ -202,6 +202,7 @@ pub enum MarketOperation {
     /// The actorless demo writer (`system::demo`): demo organizations, their
     /// market slices and the demo orders it reads back; never a user.
     DemoSystem,
+    Reassign,
 }
 
 impl MarketOperation {
@@ -251,6 +252,7 @@ impl MarketOperation {
             Self::CommissionRead => vec![User],
             Self::Freeze => vec![User, Trade, FreezeRow],
             Self::DemoSystem => vec![Organization, Slice, Order],
+            Self::Reassign => vec![Organization, User, Trade],
         }
     }
 }

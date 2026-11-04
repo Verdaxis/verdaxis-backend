@@ -1,12 +1,12 @@
 //! The single sealed market row-write boundary.
 //!
 //! Standalone order commands use [`execute_order_command`]. Ordered business
-//! commands enter only through the borrowed [`invalidate_organization`]
-//! subcommand after business-owner organization/user locks; that subcommand
-//! never owns completion or retries. The order-expiry reminder job takes its
-//! scan key and its user-then-order row locks through the borrowed
-//! `reminders` functions and writes only notification rows itself. No module
-//! outside `order_write` locks or changes order/trade/inventory rows.
+//! commands enter only through the borrowed [`invalidate_organization`] and
+//! [`invalidate_user`] subcommands after business-owner organization/user
+//! locks; those subcommands never own completion or retries. The order-expiry
+//! reminder job takes its scan key and its user-then-order row locks through
+//! the borrowed `reminders` functions and writes only notification rows itself.
+//! No module outside `order_write` locks or changes order/trade/inventory rows.
 
 // Plan §6.1: no float arithmetic anywhere in the write boundary. The copy in
 // `decimal.rs` keeps the rule true for that file under any module owner.
@@ -38,6 +38,7 @@ pub(crate) mod orders;
 pub mod outbox;
 mod post_only;
 pub mod producer;
+pub mod reassignment;
 mod reminders;
 mod reservations;
 pub mod support;
@@ -65,7 +66,8 @@ pub use decimal::{
 pub use error::{MarketErrorCode, MarketWriteError};
 pub use expiry::{ExpiryEffect, ExpirySlice, MAX_EXPIRY_ORDERS};
 pub use invalidation::{
-    InvalidateOrganization, InvalidationError, InvalidationResult, invalidate_organization,
+    InvalidateOrganization, InvalidateUser, InvalidationError, InvalidationResult, UserScopeCounts,
+    count_user_scope, invalidate_organization, invalidate_user,
 };
 pub use locks::{
     IDEMPOTENCY_KEY_BOUNDS, IDEMPOTENCY_KEY_MAX, IDEMPOTENCY_KEY_MIN, IDEMPOTENCY_LOCK_TIMEOUT,

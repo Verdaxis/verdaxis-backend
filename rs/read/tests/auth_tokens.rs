@@ -4,6 +4,14 @@ use verdaxis_read::auth::{
     AccountState, VerificationSettings, validate_account, verify_access, verify_authorization,
 };
 
+/// The recorded Python vectors predate the offboarding marker; none of their
+/// accounts is offboarded.
+fn vector_account(user: &Value) -> AccountState {
+    let mut user = user.clone();
+    user["offboarded"] = Value::Bool(false);
+    serde_json::from_value(user).unwrap()
+}
+
 #[tokio::test]
 async fn access_vectors_match_python_http_outcomes() {
     use axum::{
@@ -35,7 +43,7 @@ async fn access_vectors_match_python_http_outcomes() {
         );
         let authorization = vector["authorization"].as_array().unwrap();
         let first = authorization.first().and_then(Value::as_str);
-        let user: AccountState = serde_json::from_value(vector["user"].clone()).unwrap();
+        let user = vector_account(&vector["user"]);
         let outcome = verify_authorization(first, &config, now)
             .and_then(|access| validate_account(&access, &user).map(|()| access));
         let expected_wire = vector
@@ -138,8 +146,7 @@ async fn access_vectors_match_python_http_outcomes() {
                 let fixture = fixture.clone();
                 let config = config_for(&fixture, &http_settings);
                 async move {
-                    let user: AccountState =
-                        serde_json::from_value(fixture["user"].clone()).unwrap();
+                    let user = vector_account(&fixture["user"]);
                     match verify_authorization(
                         headers.get("authorization").and_then(|v| v.to_str().ok()),
                         &config,
@@ -256,6 +263,7 @@ fn forced_password_change_allows_only_the_profile_and_password_paths() {
         must_change_password: true,
         password_changed_at: None,
         authentication_revoked_at: None,
+        offboarded: false,
     };
     for path in [
         "/api/auth/me",

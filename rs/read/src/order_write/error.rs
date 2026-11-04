@@ -165,6 +165,17 @@ market_error_codes! {
         "The trade is not frozen";
     TradeNotSettleable => "TRADE_NOT_SETTLEABLE", StatusCode::CONFLICT,
         "The trade cannot be settled in its current state";
+    TradeNotReassignable => "TRADE_NOT_REASSIGNABLE", StatusCode::CONFLICT,
+        "Only a confirmed or delivered trade can change its responsible person";
+    ReassignmentStale => "REASSIGNMENT_STALE", StatusCode::CONFLICT,
+        "The responsible person changed; reload and retry";
+    ReassignmentCurrentStillMember => "REASSIGNMENT_CURRENT_STILL_MEMBER", StatusCode::CONFLICT,
+        "The responsible person is still a member of the recorded organization";
+    ReassignmentReplacementIneligible => "REASSIGNMENT_REPLACEMENT_INELIGIBLE", StatusCode::CONFLICT,
+        "The replacement must be a current member of the recorded organization with the role the trade side requires";
+    ReassignmentManualResolutionRequired => "REASSIGNMENT_MANUAL_RESOLUTION_REQUIRED", StatusCode::CONFLICT,
+        "This assisted trade side needs a separately reviewed support resolution";
+    UserNotFound => "USER_NOT_FOUND", StatusCode::NOT_FOUND, "The user was not found";
     TradeDemoNotFreezable => "TRADE_DEMO_NOT_FREEZABLE", StatusCode::CONFLICT,
         "A demonstration trade cannot be frozen";
     FreezeHistoryImmutable => "FREEZE_HISTORY_IMMUTABLE", StatusCode::CONFLICT,

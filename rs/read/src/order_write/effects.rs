@@ -175,6 +175,34 @@ pub(super) async fn append_freeze_audit(
     Ok(())
 }
 
+/// One administrator action on a trade, with the request identity.
+pub(super) async fn append_administrator_audit(
+    conn: &mut PgConnection,
+    actor: Uuid,
+    action: &str,
+    trade: Uuid,
+    changes: serde_json::Value,
+    at: DateTime<Utc>,
+    context: &AuditContext,
+) -> Result<(), MarketWriteError> {
+    append_audit(
+        conn,
+        &AuditFact {
+            id: Uuid::new_v4(),
+            actor_id: Some(actor),
+            action: action.into(),
+            resource_type: "trade".into(),
+            resource_id: Some(trade.to_string()),
+            changes: Some(changes),
+            ip_address: context.ip_address.clone(),
+            request_id: context.request_id.clone(),
+            at,
+        },
+    )
+    .await?;
+    Ok(())
+}
+
 /// A caller-declared insertion under an already held organization and slice.
 #[derive(Clone, Debug)]
 pub struct NewOrderEffect {

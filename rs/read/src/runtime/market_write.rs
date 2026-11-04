@@ -26,6 +26,7 @@ use crate::providers::umami::{UmamiConfig, UmamiPolicy};
 use crate::routes::market_write::{
     amend, freeze, inventory, matchmaking, order_create, orders, trade_lifecycle, trades,
 };
+use crate::routes::reassignment;
 use crate::subscriptions::FeeConfig;
 use crate::{AppState, Config};
 
@@ -373,4 +374,19 @@ pub(crate) fn routes(app: &AppState, limits: SharedLimits) -> Option<Router> {
             .merge(suggestions)
             .merge(support),
     )
+}
+
+/// The administrator obligation list and responsible-person reassignment.
+///
+/// [`routes`] does not call this. The offboarding composition
+/// ([`super::offboarding::routes`]) mounts it together with the account
+/// offboarding command, only while the offboarding release switch is on.
+/// `None` under the same condition as [`routes`].
+pub fn reassignment_routes(app: &AppState) -> Option<Router> {
+    let phase2 = app.phase2.as_ref()?;
+    app.market_write.as_ref()?;
+    Some(reassignment::router(reassignment::ReassignmentState::new(
+        app.pools.read.clone(),
+        phase2.verification.clone(),
+    )))
 }

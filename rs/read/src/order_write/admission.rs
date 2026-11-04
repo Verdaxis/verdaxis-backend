@@ -80,7 +80,7 @@ pub(crate) async fn authenticate_preview(
     access: std::sync::Arc<VerifiedAccess>,
     class: AdmissionClass,
 ) -> Result<AuthenticatedActor, MarketWriteError> {
-    let row=sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at FROM users WHERE id=$1")
+    let row=sqlx::query("SELECT id,organization_id,role::text AS role,status::text AS status,email_verified,must_change_password,password_changed_at,authentication_revoked_at,offboarded_at FROM users WHERE id=$1")
         .bind(access.subject).fetch_optional(conn).await?.ok_or_else(||MarketWriteError::new(MarketErrorCode::AuthCredentialsInvalid))?;
     let status = match row.get::<String, _>("status").as_str() {
         "APPROVED" => AccountState::Approved,
@@ -98,10 +98,16 @@ pub(crate) async fn authenticate_preview(
         password_changed_at: row.get("password_changed_at"),
         authentication_revoked_at: row.get("authentication_revoked_at"),
     };
+    // The offboarding marker is read before the cleanup class relaxes the
+    // revocation cutoff below: `cutoff_refusal` refuses a marked account first.
+    let offboarded = row
+        .get::<Option<DateTime<Utc>>, _>("offboarded_at")
+        .is_some();
     let mut cutoff = crate::auth::AccountState {
         exists: true,
         status: String::new(),
         must_change_password: false,
+        offboarded,
         password_changed_at: account
             .password_changed_at
             .map(|time| time.timestamp_micros()),

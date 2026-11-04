@@ -1,5 +1,5 @@
 CREATE TABLE organizations(id uuid PRIMARY KEY, verification_status text NOT NULL DEFAULT 'APPROVED');
-CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text NOT NULL, status text NOT NULL DEFAULT 'APPROVED', email_verified boolean NOT NULL DEFAULT true, must_change_password boolean NOT NULL DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, kyc_status text NOT NULL DEFAULT 'PENDING', kyc_organization_id uuid);
+CREATE TABLE users(id uuid PRIMARY KEY, organization_id uuid, role text NOT NULL, status text NOT NULL DEFAULT 'APPROVED', email_verified boolean NOT NULL DEFAULT true, must_change_password boolean NOT NULL DEFAULT false, password_changed_at timestamptz, authentication_revoked_at timestamptz, offboarded_at timestamptz, kyc_status text NOT NULL DEFAULT 'PENDING', kyc_organization_id uuid);
 CREATE TABLE kyc_execution_grace(id uuid PRIMARY KEY, user_id uuid, organization_id uuid, expires_at timestamptz);
 CREATE TABLE trades(id uuid PRIMARY KEY, buyer_id uuid NOT NULL,seller_id uuid NOT NULL,buyer_user_id uuid,seller_user_id uuid,bid_order_id uuid,ask_order_id uuid);
 CREATE TABLE orderbook_orders(id uuid PRIMARY KEY, organization_id uuid,owner_user_id uuid,created_by_actor_user_id uuid,creation_method text,side text);

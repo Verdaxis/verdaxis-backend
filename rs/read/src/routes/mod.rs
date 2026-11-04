@@ -24,6 +24,9 @@ pub mod ports;
 pub mod prices;
 pub mod producers;
 pub mod root;
+// The administrator obligation list and reassignment: admin routes outside the
+// market-write switch, unmounted until the offboarding release switch.
+pub mod reassignment;
 pub mod trade_tape;
 // Phase 2 Task 11: watchlist routes
 pub use crate::crud::watchlists::router as watchlist_router;

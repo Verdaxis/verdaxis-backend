@@ -383,7 +383,8 @@ fn preauth_refusal(path: &str, refusal: Refusal) -> Response {
     rate_limit_response()
 }
 
-fn rate_limit_response() -> Response {
+/// The shared quota refusal: 429 `RATE_LIMITED` with a one-minute `Retry-After`.
+pub(crate) fn rate_limit_response() -> Response {
     (
         StatusCode::TOO_MANY_REQUESTS,
         [("retry-after", "60")],
@@ -734,6 +735,12 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     // read service's `POST /api/orderbook` boundary.
     let routes = match super::market_write::routes(&state, limits.clone()) {
         Some(market) => routes.merge(market),
+        None => routes,
+    };
+    // The individual offboarding group mounts only while its release switch
+    // is on; otherwise none of its routes exists here.
+    let routes = match super::offboarding::routes(&state, limits.clone()) {
+        Some(offboarding) => routes.merge(offboarding),
         None => routes,
     };
     let routes = routes

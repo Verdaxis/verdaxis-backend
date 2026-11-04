@@ -178,6 +178,28 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
             ),
     )
 }
+/// The account offboarding command and preview, composed with the production
+/// admission event producer and a supplied market implementation.
+///
+/// Test-only: it lets a test replace the market work. The serving composition
+/// is [`super::offboarding::routes`], which always supplies the real
+/// user-scoped market invalidation and mounts only behind the release switch.
+/// `None` when this composition has no Phase 2 settings.
+#[cfg(feature = "contract-tests")]
+pub fn offboarding_routes<H: business::offboarding::OffboardingMarketHook>(
+    app: &AppState,
+    market: Arc<H>,
+) -> Option<Router> {
+    let settings = app.phase2.as_ref()?;
+    Some(business::offboarding::router(
+        app.clone(),
+        settings.verification.clone(),
+        business::offboarding::OffboardingService {
+            market,
+            events: Arc::new(Events(app.clone())),
+        },
+    ))
+}
 fn client(request: &Request) -> String {
     super::http::client_ip(
         request

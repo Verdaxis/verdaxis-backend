@@ -307,6 +307,21 @@ jobs:
           DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: venv/bin/python -m pytest tests/rust_contract/test_phase5_routing.py tests/unit/test_rust_phase5_candidate.py -q
 
+      # The offboarding snippet in a real Caddy, in front of the served Rust
+      # router with its release switch off and on and a Python stand-in.
+      - name: Run the offboarding routing test against the pinned Caddy
+        if: matrix.check == 'caddy'
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          SQLX_OFFLINE: "true"
+        run: |
+          set -o pipefail
+          CADDY_BINARY="$RUNNER_TEMP/bin/caddy" cargo test --manifest-path rs/Cargo.toml --locked \
+            -p verdaxis-read --test offboarding_composition \
+            -- --ignored --exact caddy_routes_the_group_only_when_enabled 2>&1 | tee offboarding-caddy.log
+          grep -Eq '^test result: ok\. 1 passed; 0 failed' offboarding-caddy.log
+
       - name: Download the release artifact
         if: matrix.check == 'combined'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -391,6 +406,41 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_phase10_reminders.sh
+      - name: Individual account state marker schema
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_schema.sh
+      - name: Account access marker admission
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_admission.sh
+      - name: Account credential cutoff
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_credentials.sh
+      - name: Account offboarding command
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_command.sh
+      - name: Market invalidation, reassignment, matching, conservation and locks
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_market.sh
+      - name: Composed account offboarding
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_composition.sh
+      - name: Integrated offboarding acceptance across both stacks
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_offboarding_acceptance.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         if: matrix.check == 'phase2'

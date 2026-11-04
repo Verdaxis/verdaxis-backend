@@ -425,6 +425,7 @@ impl Fixture {
                email_verified boolean NOT NULL DEFAULT true,\
                password_changed_at timestamptz,\
                authentication_revoked_at timestamptz,\
+               offboarded_at timestamptz,\
                kyc_status varchar(20) NOT NULL DEFAULT 'PENDING',\
                kyc_organization_id uuid REFERENCES organizations(id),\
                onboarding_use_case varchar(50),\

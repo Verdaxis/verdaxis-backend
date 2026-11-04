@@ -34,7 +34,7 @@ impl Fixture {
             .fetch_one(&mut admin)
             .await
             .unwrap();
-        assert_eq!(revision, "p89_20261022_trade_freeze");
+        assert_eq!(revision, "ob_20261031_offboarding");
         let evidence_type: String = sqlx::query_scalar("SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='market_event_outbox' AND column_name='producer_evidence'")
             .fetch_one(&mut admin).await.unwrap();
         assert_eq!(evidence_type, "jsonb");

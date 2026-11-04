@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use super::invalidation::{InvalidateOrganization, InvalidationError, OrderRestoration};
+use super::invalidation::{Invalidation, InvalidationError, OrderRestoration, Scope};
 use crate::{
     business::audit::{AuditFact, append_audit},
     market::visibility::{VisibilityClock, public_order_sql},
@@ -12,7 +12,7 @@ use crate::{
 
 async fn audit(
     conn: &mut PgConnection,
-    command: &InvalidateOrganization,
+    command: &Invalidation<'_>,
     action: &str,
     resource: &str,
     id: Uuid,
@@ -49,11 +49,12 @@ fn json_number(value: Decimal) -> Result<Value, sqlx::Error> {
 
 pub(super) async fn restoration_effects(
     conn: &mut PgConnection,
-    command: &InvalidateOrganization,
+    command: &Invalidation<'_>,
     changes: &[OrderRestoration],
     trades: &[Uuid],
 ) -> Result<(), InvalidationError> {
-    let reference = format!("organization:{}", command.organization_id);
+    let reason = command.scope.reason();
+    let reference = command.scope.reference();
     for trade in trades {
         audit(
             conn,
@@ -61,7 +62,7 @@ pub(super) async fn restoration_effects(
             "trade.cancelled",
             "trade",
             *trade,
-            json!({"status":"CANCELLED","reason":"organization_rejected","reference":reference}),
+            json!({"status":"CANCELLED","reason":reason,"reference":reference}),
         )
         .await?;
     }
@@ -121,7 +122,7 @@ pub(super) async fn restoration_effects(
                 "WITH eligible_orders AS NOT MATERIALIZED ({relation}) SELECT provenance,CASE WHEN $7::text='ASK' THEN min(price_per_mt_usd) ELSE max(price_per_mt_usd) END AS price,count(*) AS count,max(coalesce(updated_at,created_at)) AS observed FROM eligible_orders WHERE NOT off_spec AND (side<>'ASK' OR (certification_declared AND length(btrim(certification_scheme))>0)) GROUP BY provenance"
             );
             let clock = VisibilityClock::at(command.now);
-            let policy = serde_json::to_string(command.policy.as_ref())
+            let policy = serde_json::to_string(command.policy)
                 .map_err(|error| sqlx::Error::Encode(Box::new(error)))?;
             let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
                 .bind(policy)
@@ -171,37 +172,55 @@ pub(super) async fn restoration_effects(
             }
         }
         let terminal_before = matches!(change.before.status.as_str(), "CANCELLED" | "EXPIRED");
-        let action = if order.organization_id == command.organization_id && !terminal_before {
+        let action = if command.scope.owns(&change.before) && !terminal_before {
             "order.cancelled"
         } else if order.status == "EXPIRED" && !terminal_before {
             "order.expired"
         } else {
             "order.updated"
         };
-        audit(conn,command,action,"order",order.id,json!({"status":order.status,"restored_quantity_mt":change.restored.to_string(),"released_quantity_mt":change.released.to_string(),"reason":"organization_rejected","reference":reference})).await?;
+        audit(conn,command,action,"order",order.id,json!({"status":order.status,"restored_quantity_mt":change.restored.to_string(),"released_quantity_mt":change.released.to_string(),"reason":reason,"reference":reference})).await?;
     }
     Ok(())
 }
 
-pub(super) async fn organization_effects(
+/// The scope audit and, when any participant is affected, one market event.
+/// A company rejection always notifies the rejected organization. The user
+/// scope event carries counts only: no person, reason or reference.
+pub(super) async fn scope_effects(
     conn: &mut PgConnection,
-    command: &InvalidateOrganization,
+    command: &Invalidation<'_>,
     orders: &[Uuid],
     trades: &[Uuid],
     participants: Vec<Uuid>,
-) -> Result<Uuid, InvalidationError> {
+) -> Result<Vec<Uuid>, InvalidationError> {
+    let (resource, subject) = match command.scope {
+        Scope::Organization(id) => ("organization", id),
+        Scope::User(id) => ("user", id),
+    };
     audit(
         conn,
         command,
         "market.access_invalidated",
-        "organization",
-        command.organization_id,
-        json!({"cancelled_trade_ids":trades,"affected_order_ids":orders,"reason":"organization_rejected","reference":format!("organization:{}",command.organization_id)}),
+        resource,
+        subject,
+        json!({"cancelled_trade_ids":trades,"affected_order_ids":orders,"reason":command.scope.reason(),"reference":command.scope.reference()}),
     )
     .await?;
+    if participants.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = match command.scope {
+        Scope::Organization(id) => {
+            json!({"schema_version":1,"organization_id":id,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"reference":command.scope.reference(),"_public_market_invalidation":true})
+        }
+        Scope::User(_) => {
+            json!({"schema_version":1,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"_public_market_invalidation":true})
+        }
+    };
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,created_at,delivery_attempts) VALUES($1,'market_access_invalidated','organization',$2,$3::jsonb,$4::jsonb,$5,0)")
-        .bind(id).bind(command.organization_id.to_string()).bind(json!(participants)).bind(json!({"schema_version":1,"organization_id":command.organization_id,"cancelled_trade_count":trades.len(),"affected_order_count":orders.len(),"reference":format!("organization:{}",command.organization_id),"_public_market_invalidation":true})).bind(command.now).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO market_event_outbox(id,event_type,aggregate_type,aggregate_id,participant_org_ids,payload,created_at,delivery_attempts) VALUES($1,'market_access_invalidated',$2,$3,$4::jsonb,$5::jsonb,$6,0)")
+        .bind(id).bind(resource).bind(subject.to_string()).bind(json!(participants)).bind(payload).bind(command.now).execute(&mut *conn).await?;
     super::transaction::wake_market_event_dispatchers(conn).await?;
-    Ok(id)
+    Ok(vec![id])
 }

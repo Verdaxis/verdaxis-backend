@@ -30,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
-for i in {1..90}; do
+for _ in {1..90}; do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
@@ -69,7 +69,8 @@ export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migr
 export RUST_TEST_PRODUCTION_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_STAGING_DATABASE_URL="postgres://verdaxis_app_staging:disposable_staging_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_WRONG_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_other_test"
-export RELEASE_SHA=$(git rev-parse HEAD)
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 # Settings import requirements for the alembic migration below.
 export ENVIRONMENT="${ENVIRONMENT:-test}"
 export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
@@ -129,7 +130,7 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
   export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
     MIGRATOR_DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
-  "$RUST_TEST_PYTHON" -m alembic upgrade p89_20261022_trade_freeze
+  "$RUST_TEST_PYTHON" -m alembic upgrade ob_20261031_offboarding
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=rust_migrator -v backup_role=rust_backup \

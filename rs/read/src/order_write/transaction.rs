@@ -1824,6 +1824,12 @@ impl LockedMarketTransaction<'_> {
         self.locked.require_economic_phase()?;
         super::effects::append_freeze_audit(self.conn, fact, context).await
     }
+    pub(super) fn reassignment<'a>(
+        &'a mut self,
+        actor: &'a super::AuthenticatedActor,
+    ) -> Result<super::reassignment::ReassignmentPort<'a>, super::MarketWriteError> {
+        super::reassignment::ReassignmentPort::new(self.conn, self.locked, actor)
+    }
     pub(super) fn lifecycle(
         &mut self,
     ) -> Result<super::trade_lifecycle::LifecyclePort<'_>, super::MarketWriteError> {

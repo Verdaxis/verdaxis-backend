@@ -685,11 +685,22 @@ const DEMO_EXPORTS: &[&str] = &[
     "run_demo_market_phases",
 ];
 
+// The individual market scope for account offboarding: the same borrowed,
+// completion-free contract as `invalidate_organization`, scoped to one person,
+// and its lock-free count, which the offboarding preview reads.
+const USER_SCOPE_EXPORTS: &[&str] = &[
+    "InvalidateUser",
+    "invalidate_user",
+    "UserScopeCounts",
+    "count_user_scope",
+];
+
 /// A name an external caller may import from the boundary.
 fn business_export(name: &str) -> bool {
     BUSINESS_EXPORTS.contains(&name)
         || REMINDER_EXPORTS.contains(&name)
         || DEMO_EXPORTS.contains(&name)
+        || USER_SCOPE_EXPORTS.contains(&name)
 }
 
 fn rust_tokens(text: &str) -> Vec<String> {
@@ -872,6 +883,18 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
     );
     assert!(boundary_reference_allowed(
         "crate::order_write::invalidate_organization(conn, command)",
+        false
+    ));
+    assert!(boundary_reference_allowed(
+        "use crate::order_write::{InvalidateUser, InvalidationError, invalidate_user};",
+        false
+    ));
+    assert!(boundary_reference_allowed(
+        "use crate::order_write::{UserScopeCounts, count_user_scope};",
+        false
+    ));
+    assert!(!boundary_reference_allowed(
+        "use crate::order_write::{InvalidateUser, execute_order_command};",
         false
     ));
     assert!(!boundary_reference_allowed(
