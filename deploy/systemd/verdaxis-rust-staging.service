@@ -31,7 +31,7 @@ Restart=on-failure
 RestartSec=5
 # The service signals systemd only while /health/live answers; a hung
 # process misses the keepalives and is restarted (Restart=on-failure).
-WatchdogSec=30s
+WatchdogSec=60s
 NotifyAccess=main
 KillSignal=SIGTERM
 TimeoutStopSec=30

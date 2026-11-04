@@ -72,7 +72,7 @@ async fn accept_and_hang() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>
 }
 
 /// Start the watchdog against a scratch notify socket with a 200 ms deadline,
-/// so keepalives go out every 100 ms. The socket is returned for receiving.
+/// so probes run every 50 ms. The socket is returned for receiving.
 async fn started_watchdog(
     label: &str,
     bind: std::net::SocketAddr,
@@ -187,7 +187,7 @@ fn serve_units_enable_the_watchdog() {
     for name in ["verdaxis-rust.service", "verdaxis-rust-staging.service"] {
         let unit = std::fs::read_to_string(repository().join("deploy/systemd").join(name))
             .unwrap_or_else(|error| panic!("read {name}: {error}"));
-        assert!(unit.contains("WatchdogSec=30s"), "{name}");
+        assert!(unit.contains("WatchdogSec=60s"), "{name}");
         assert!(unit.contains("NotifyAccess=main"), "{name}");
         assert!(unit.contains("Restart=on-failure"), "{name}");
     }

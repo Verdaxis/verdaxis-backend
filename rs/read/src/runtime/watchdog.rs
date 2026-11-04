@@ -68,9 +68,11 @@ impl Watchdog {
 
     /// Probe `/health/live` on `bind` and signal systemd while it answers.
     ///
-    /// The loop probes every `interval / 2`, so a probe always lands well
-    /// before the systemd deadline. Each probe sends one plain HTTP request
-    /// over a fresh loopback connection with a total timeout of two seconds
+    /// The loop probes every `interval / 4`, so a slow host gets four
+    /// chances to answer before the systemd deadline (staging, on a shared
+    /// host, has taken more than 3 s to answer one loopback probe). Each
+    /// probe sends one plain HTTP request over a fresh loopback connection
+    /// with a total timeout of [`PROBE_TIMEOUT`] (at most one probe period)
     /// and reads at most 4 KiB — plenty for a status line. Only the exact
     /// `HTTP/1.1 200` status line counts as healthy; a 503, a hang or a
     /// refused connection sends nothing, and systemd restarts the service
@@ -80,11 +82,13 @@ impl Watchdog {
     /// failure costs at most one restart, and the loop must survive it.
     pub fn start(self, bind: SocketAddr) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(self.interval / 2);
+            let period = self.interval / 4;
+            let timeout = PROBE_TIMEOUT.min(period);
+            let mut ticker = tokio::time::interval(period);
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
-                if probe_live(bind).await {
+                if probe_live(bind, timeout).await {
                     let _ = self.notify("WATCHDOG=1");
                 }
             }
@@ -119,9 +123,14 @@ fn abstract_socket(_name: &str) -> Option<std::os::unix::net::SocketAddr> {
     None
 }
 
-/// One liveness probe: `GET /health/live` with a two-second total timeout,
-/// healthy only on an exact `HTTP/1.1 200` status line.
-async fn probe_live(bind: SocketAddr) -> bool {
+/// The longest one liveness probe may take. Under the units' 60 s deadline a
+/// probe runs every 15 s, so a probe that hangs for this long still leaves
+/// three more chances before systemd restarts the service.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// One liveness probe: `GET /health/live` within `timeout`, healthy only on
+/// an exact `HTTP/1.1 200` status line.
+async fn probe_live(bind: SocketAddr, timeout: Duration) -> bool {
     let request = format!("GET /health/live HTTP/1.1\r\nHost: {bind}\r\nConnection: close\r\n\r\n");
     let probe = async {
         let mut stream = tokio::net::TcpStream::connect(bind).await?;
@@ -142,7 +151,7 @@ async fn probe_live(bind: SocketAddr) -> bool {
         }
         Ok::<bool, std::io::Error>(answer.starts_with(b"HTTP/1.1 200"))
     };
-    tokio::time::timeout(Duration::from_secs(2), probe)
+    tokio::time::timeout(timeout, probe)
         .await
         .unwrap_or(Ok(false))
         .unwrap_or(false)
