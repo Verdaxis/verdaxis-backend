@@ -1,7 +1,6 @@
 //! Actor-scoped batched loading. The caller supplies the shared public-order
 //! result captured on this transaction; no private visibility policy is copied.
-use super::events::source_order_sql;
-use super::{Event, Metrics, Summary, Target, project_summary};
+use super::{EventAdmission, Metrics, Summary, Target, project_summary};
 use chrono::{DateTime, Utc};
 use sqlx::{PgConnection, Row};
 use std::collections::{HashMap, HashSet};
@@ -117,9 +116,9 @@ impl VisibleSnapshot {
         connection: &mut PgConnection,
         actor: Uuid,
         id: Uuid,
-        cutoff: DateTime<Utc>,
+        admission: EventAdmission,
     ) -> Result<Option<Summary>, sqlx::Error> {
-        load_detail(connection, actor, id, &self.ids, &self.orders, cutoff).await
+        load_detail(connection, actor, id, &self.ids, &self.orders, admission).await
     }
 }
 
@@ -144,13 +143,6 @@ pub async fn capture_visible(
     Ok(VisibleSnapshot::from_orders(values))
 }
 
-const EVENTS_SQL: &str = concat!(
-    "SELECT e.watchlist_target_id,e.event_type::text AS event_type,",
-    "e.is_read,e.created_at,",
-    source_order_sql!(),
-    " FROM watchlist_events e WHERE e.watchlist_id=$1"
-);
-
 /// Four bounded statements independent of target count: owner, targets, events
 /// and (by the caller) the shared public-order relation. No state is updated.
 pub async fn load_detail(
@@ -159,7 +151,7 @@ pub async fn load_detail(
     watchlist_id: Uuid,
     visible_order_ids: &HashSet<Uuid>,
     visible_orders: &[VisibleOrder],
-    best_price_cutoff: DateTime<Utc>,
+    admission: EventAdmission,
 ) -> Result<Option<Summary>, sqlx::Error> {
     let Some(container) = sqlx::query(
         "SELECT id,name,kind::text AS kind,created_at FROM watchlists WHERE id=$1 AND user_id=$2",
@@ -189,25 +181,14 @@ pub async fn load_detail(
                     .is_some_and(|id| visible_order_ids.contains(&id))
         })
         .collect::<Vec<_>>();
-    // The counts read the source order with the feed's own rule.
-    let rows = sqlx::query(EVENTS_SQL)
-        .bind(watchlist_id)
-        .fetch_all(&mut *connection)
-        .await?;
-    let events = rows
-        .iter()
-        .map(|row| {
-            Ok(Event {
-                target_id: row.try_get("watchlist_target_id")?,
-                event_type: row.try_get("event_type")?,
-                order_id: row.try_get("source_order")?,
-                is_read: row.try_get("is_read")?,
-                created_at: row.try_get("created_at")?,
-            })
-        })
-        .collect::<Result<Vec<_>, sqlx::Error>>()?;
-    let mut metrics =
-        Metrics::from_visible_events(&targets, &events, visible_order_ids, best_price_cutoff);
+    // The counts admit rows with the feed's own relation.
+    let mut metrics = Metrics::load_events(
+        &mut *connection,
+        watchlist_id,
+        visible_order_ids.iter().copied().collect(),
+        admission,
+    )
+    .await?;
     let mut counts = HashMap::new();
     for order in visible_orders {
         *counts

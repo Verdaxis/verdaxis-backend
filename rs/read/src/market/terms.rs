@@ -855,8 +855,12 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     reject_unknown(object, &FAME_ASK_FIELDS)?;
     check_schema_version(object)?;
     literal_true(object, "neat_fame")?;
-    let nomination = optional_enum(object, "nomination_status", &FAME_NOMINATION)?
-        .unwrap_or_else(|| "PENDING".to_owned());
+    // `nomination_status: Literal["PENDING", "IDENTIFIED"] = "PENDING"` is not
+    // Optional: an explicit null fails the literal, not the default.
+    let nomination = match object.get("nomination_status") {
+        None => "PENDING".to_owned(),
+        Some(_) => required_enum(object, "nomination_status", &FAME_NOMINATION)?,
+    };
     let uco = required_decimal(object, "uco_mass_pct", None, None, None)?;
     if uco != 100 {
         return Err("uco_mass_pct must be 100".to_owned());
@@ -886,7 +890,7 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
     required_date(object, "certificate_valid_until")?;
     optional_string(object, "certificate_scope", 1, 200)?;
     let evidence_status = required_enum(object, "evidence_status", &FAME_EVIDENCE_STATUS)?;
-    let documents = string_list(object, "document_references", 20)?;
+    let documents = defaulted_string_list(object, "document_references", 20)?;
     let evidence_due = required_enum(object, "evidence_due", &FAME_EVIDENCE_DUE)?;
     let quality = quality_evidence(object.get("quality_evidence"))?;
     let sustainability = sustainability_evidence(object.get("sustainability_evidence"))?;
@@ -934,18 +938,28 @@ fn validate_fame_ask(object: &Map<String, Json>) -> Result<(), String> {
 }
 
 fn check_schema_version(object: &Map<String, Json>) -> Result<(), String> {
+    // `schema_version: Literal[1] = 1` applies its default only when the key
+    // is absent; an explicit null fails the literal, not the default.
     match object.get("schema_version") {
-        None | Some(Json::Null) => Ok(()),
+        None => Ok(()),
         Some(value) if decimal_of(value).is_some_and(|number| number == 1) => Ok(()),
         _ => Err("schema_version must be 1".to_owned()),
     }
 }
 
-fn string_list(object: &Map<String, Json>, key: &str, max: usize) -> Result<Vec<String>, String> {
-    let items = object
-        .get(key)
-        .and_then(Json::as_array)
-        .ok_or_else(|| format!("{key} must be a list"))?;
+/// A `list` field declared with `default_factory=list`: an absent key is the
+/// empty list, but an explicit null is still a type failure, as in pydantic.
+fn defaulted_string_list(
+    object: &Map<String, Json>,
+    key: &str,
+    max: usize,
+) -> Result<Vec<String>, String> {
+    let empty: Vec<Json> = Vec::new();
+    let items = match object.get(key) {
+        None => &empty,
+        Some(Json::Array(items)) => items,
+        Some(_) => return Err(format!("{key} must be a list")),
+    };
     if items.len() > max {
         return Err(format!("{key} holds too many values"));
     }
@@ -1151,10 +1165,16 @@ fn public_quality_evidence(value: Option<&Json>) -> Result<Json, String> {
     };
     let object = as_object(value)?;
     let status = public_fame_enum(object, "status", &["PENDING", "AVAILABLE"])?;
-    let results = object
-        .get("results")
-        .and_then(Json::as_array)
-        .ok_or_else(|| "results must be a list".to_owned())?;
+    // The response schema requires `results`, but its input is always the
+    // full declaration's dump, where an omitted list already became [].
+    let empty: &[Json] = &[];
+    let results = match object.get("results") {
+        None => empty,
+        Some(results) => results
+            .as_array()
+            .map(|items| items.as_slice())
+            .ok_or_else(|| "results must be a list".to_owned())?,
+    };
     let mut public_results = Vec::with_capacity(results.len());
     for result in results {
         public_results.push(public_quality_result(as_object(result)?)?);
@@ -1349,6 +1369,164 @@ pub fn public_response_terms(profile: &str, terms: &Json) -> Result<Json, String
         "lng_v1" => public_lng_response_terms(terms),
         other => Err(format!("unknown public terms profile {other}")),
     }
+}
+
+/// Field order of `FameAskTerms`, the owner's full B100 ASK declaration.
+const FAME_ASK_RESPONSE_FIELDS: [&str; 31] = [
+    "schema_version",
+    "neat_fame",
+    "batch_reference",
+    "producing_site",
+    "production_origin",
+    "feedstock_origin",
+    "shipping_location",
+    "uco_mass_pct",
+    "standard",
+    "standard_edition",
+    "astm_grade",
+    "en_climate_class",
+    "cfpp_c",
+    "cloud_point_c",
+    "ci_gco2e_mj",
+    "ci_methodology",
+    "ci_boundary",
+    "ci_basis",
+    "sustainability_scheme",
+    "certificate_reference",
+    "certificate_holder",
+    "certificate_valid_until",
+    "certificate_scope",
+    "evidence_status",
+    "document_references",
+    "lhv_mj_kg",
+    "quality_evidence",
+    "sustainability_evidence",
+    "nomination_status",
+    "side",
+    "evidence_due",
+];
+
+/// Project stored terms through the owner's full response schema
+/// (`FameOrderTerms` or `LngOrderTerms`): the declaration is validated, every
+/// declared field appears in schema order with absent optional fields as null,
+/// text is stripped and decimals use their wire text.
+pub fn owner_response_terms(profile: &str, terms: &Json) -> Result<Json, String> {
+    if terms.is_null() {
+        return Ok(Json::Null);
+    }
+    let object = as_object(terms)?;
+    let side = required_enum(object, "side", &["BID", "ASK"])?;
+    match (profile, side.as_str()) {
+        (FAME_PROFILE, "BID") => {
+            validate_fame_schema(&side, Some(terms))?;
+            let normalized = normalized_bid_terms(object, FAME_PROFILE)?;
+            Ok(Json::Object(select_fields(
+                as_object(&normalized)?,
+                &FAME_BID_FIELDS,
+            )))
+        }
+        (FAME_PROFILE, _) => {
+            validate_fame_schema(&side, Some(terms))?;
+            owner_fame_ask_terms(object)
+        }
+        (LNG_PROFILE, "BID") => {
+            validate_lng_terms(&side, Some(terms))?;
+            let normalized = normalized_bid_terms(object, LNG_PROFILE)?;
+            // `LngBidTerms` declares the stored fields without the version and window.
+            Ok(Json::Object(select_fields(
+                as_object(&normalized)?,
+                &LNG_BID_FIELDS[1..10],
+            )))
+        }
+        (LNG_PROFILE, _) => {
+            validate_lng_terms(&side, Some(terms))?;
+            let mut owner = select_fields(object, &LNG_ASK_FIELDS);
+            normalize_public_values(
+                &mut owner,
+                &["bio_share_pct", "wtt_ghg_gco2e_mj", "min_methane_number"],
+            )?;
+            Ok(Json::Object(owner))
+        }
+        (other, _) => Err(format!("unknown order terms profile {other}")),
+    }
+}
+
+/// The `fields` of `object` in that order; an absent field is null.
+fn select_fields(object: &Map<String, Json>, fields: &[&str]) -> Map<String, Json> {
+    fields
+        .iter()
+        .map(|field| {
+            let value = object.get(*field).cloned().unwrap_or(Json::Null);
+            ((*field).to_owned(), value)
+        })
+        .collect()
+}
+
+fn owner_fame_ask_terms(object: &Map<String, Json>) -> Result<Json, String> {
+    let mut owner = select_fields(object, &FAME_ASK_RESPONSE_FIELDS);
+    // Schema defaults for fields a stored declaration may omit.
+    if owner["schema_version"].is_null() {
+        owner.insert("schema_version".to_owned(), Json::from(1));
+    }
+    if owner["nomination_status"].is_null() {
+        owner.insert(
+            "nomination_status".to_owned(),
+            Json::String("PENDING".to_owned()),
+        );
+    }
+    // `document_references` defaults to [], so an omitted list is stored as
+    // an empty list, exactly like the schema's model dump.
+    if let Json::Null = owner["document_references"] {
+        owner.insert("document_references".to_owned(), Json::Array(Vec::new()));
+    }
+    normalize_public_values(
+        &mut owner,
+        &["cfpp_c", "cloud_point_c", "ci_gco2e_mj", "lhv_mj_kg"],
+    )?;
+    if let Some(Json::Array(references)) = owner.get_mut("document_references") {
+        for reference in references {
+            if let Json::String(text) = reference {
+                *text = text.trim().to_owned();
+            }
+        }
+    }
+    let quality = owner_quality_evidence(&owner["quality_evidence"])?;
+    owner.insert("quality_evidence".to_owned(), quality);
+    let sustainability = owner_nested_terms(
+        &owner["sustainability_evidence"],
+        &FAME_SUSTAINABILITY_FIELDS,
+        &["quantity_mt"],
+    )?;
+    owner.insert("sustainability_evidence".to_owned(), sustainability);
+    Ok(Json::Object(owner))
+}
+
+fn owner_quality_evidence(value: &Json) -> Result<Json, String> {
+    if value.is_null() {
+        return Ok(Json::Null);
+    }
+    let mut evidence = select_fields(as_object(value)?, &FAME_QUALITY_FIELDS);
+    normalize_public_values(&mut evidence, &[])?;
+    // `results` defaults to [], so an omitted list is stored as an empty one.
+    let results = match &evidence["results"] {
+        Json::Null => Vec::new(),
+        Json::Array(results) => results
+            .iter()
+            .map(|result| owner_nested_terms(result, &FAME_QUALITY_RESULT_FIELDS, &["value"]))
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => return Err("quality results must be a list".to_owned()),
+    };
+    evidence.insert("results".to_owned(), Json::Array(results));
+    Ok(Json::Object(evidence))
+}
+
+fn owner_nested_terms(value: &Json, fields: &[&str], decimals: &[&str]) -> Result<Json, String> {
+    if value.is_null() {
+        return Ok(Json::Null);
+    }
+    let mut nested = select_fields(as_object(value)?, fields);
+    normalize_public_values(&mut nested, decimals)?;
+    Ok(Json::Object(nested))
 }
 
 /// Redact private reviewed terms to their public form for one profile.

@@ -28,10 +28,16 @@ use sqlx::{Connection, Row};
 use uuid::Uuid;
 
 pub fn routes() -> Router<AppState> {
+    read_routes().route("/api/orderbook", axum::routing::post(create_order_boundary))
+}
+
+/// The same reads without the `POST /api/orderbook` boundary, for a served
+/// router that mounts the real order-entry route on that path.
+pub fn read_routes() -> Router<AppState> {
     Router::new()
         .route("/api/orderbook/bids", get(bids))
         .route("/api/orderbook/asks", get(asks))
-        .route("/api/orderbook", get(list).post(create_order_boundary))
+        .route("/api/orderbook", get(list))
         .route("/api/orderbook/with-ci", get(with_ci))
 }
 

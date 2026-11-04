@@ -68,6 +68,39 @@ REVIEWED_EXCLUSIONS = {
         "migration-owned stream replay barrier; read by the stream runtime, "
         "never a cached read dependency"
     ),
+    # Phases 8-9 market writes. No public cached route reads these tables.
+    "trade_freezes": (
+        "trade freeze history read and written by authenticated trade lifecycle "
+        "and freeze routes; never cached"
+    ),
+    "market_support_contexts": (
+        "staff market-support contexts read and written by authenticated support "
+        "routes and assisted order writes; never cached"
+    ),
+    "market_support_authorizations": (
+        "one-use assisted-order authorizations read and written inside "
+        "authenticated order writes; never cached"
+    ),
+    "staff_capability_assignments": (
+        "staff capability grants read and written by authenticated support "
+        "administration and assisted order writes; never cached"
+    ),
+    "match_suggestions": (
+        "private organization match dismissals read and written by "
+        "authenticated matchmaking routes; never cached"
+    ),
+    "market_event_retention_control": (
+        "migration-owned outbox retention mode read by the watchlist producer; "
+        "never a cached read dependency"
+    ),
+    "watchlist_producer_state": (
+        "watchlist producer consumer watermark read and advanced by the "
+        "producer task; never a cached read dependency"
+    ),
+    "orders": (
+        "legacy table that no Rust query reads; the scan matches the client "
+        "error text 'Can only update orders' in order_write/amend.rs"
+    ),
     **{table: "cache infrastructure itself" for table in CACHE_TABLES},
 }
 

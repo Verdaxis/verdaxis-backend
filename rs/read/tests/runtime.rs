@@ -323,7 +323,7 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
     let mut base = staging();
     base.environment = "production".into();
     base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
-    base.migration_revision = "p0_20261016_union".into();
+    base.migration_revision = "p89_20261022_trade_freeze".into();
     base.bind = "127.0.0.1:8010".parse().unwrap();
     assert!(validate_config(&base).is_err());
     base.prepared_budget = Some(budget_document(compiled_sha()));
@@ -348,6 +348,69 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
     }
     base.migration_revision = "kycg_20261014_staging".into();
     assert!(validate_config(&base).is_err());
+}
+
+/// The reviewed release allowlist, in migration order.
+const RELEASE_REVISIONS: [&str; 9] = [
+    "kycg_20261014_staging",
+    "p0_20261016_union",
+    "prc_20261018_cache",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
+    "p5_20261020_read_indexes",
+    "p89_20261022_watchlist_producer",
+    "p89_20261022_trade_freeze",
+];
+
+/// The reviewed checkpoints a production runtime admits.
+const PRODUCTION_REVISIONS: [&str; 7] = [
+    "p0_20261016_union",
+    "prc_20261026_changes",
+    "p3_20261020_auth_tokens",
+    "sse_20261021_replay_floor",
+    "p5_20261020_read_indexes",
+    "p89_20261022_watchlist_producer",
+    "p89_20261022_trade_freeze",
+];
+
+#[test]
+fn release_pins_admit_exactly_the_reviewed_checkpoints() {
+    assert_eq!(
+        verdaxis_read::runtime::artifact::ALLOWED_REVISIONS,
+        RELEASE_REVISIONS.as_slice()
+    );
+    let mut staged = staging();
+    let mut production = staging();
+    production.environment = "production".into();
+    production.database_url =
+        "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
+    production.bind = "127.0.0.1:8010".parse().unwrap();
+    production.prepared_budget = Some(budget_document(compiled_sha()));
+    for revision in RELEASE_REVISIONS {
+        staged.migration_revision = revision.into();
+        assert!(validate_config(&staged).is_ok(), "{revision}");
+        production.migration_revision = revision.into();
+        assert_eq!(
+            validate_config(&production).is_ok(),
+            PRODUCTION_REVISIONS.contains(&revision),
+            "{revision}"
+        );
+    }
+    for revision in [
+        "",
+        "*",
+        "head",
+        "heads",
+        "base",
+        "unlisted_revision",
+        "p89_20261022_trade_freeze_next",
+    ] {
+        staged.migration_revision = revision.into();
+        assert!(validate_config(&staged).is_err(), "{revision}");
+        production.migration_revision = revision.into();
+        assert!(validate_config(&production).is_err(), "{revision}");
+    }
 }
 
 #[test]
@@ -680,6 +743,64 @@ fn deployed_start_refuses_an_unreadable_watchlist_activation() {
             "{recorded:?}: {error}"
         );
     }
+}
+
+#[test]
+fn deployed_environment_reads_the_watchlist_event_producer() {
+    use verdaxis_read::runtime::config::config_from_deployed_environment;
+    use verdaxis_read::watchlist_producer::{ActivationRefusal, ProducerActivation};
+    let bind: std::net::SocketAddr = "127.0.0.1:8011".parse().unwrap();
+    let budget = budget_document(compiled_sha());
+    // Neither key: the producer is not selected and stays inactive.
+    let config = config_from_deployed_environment(&deployed_environment(), bind, &budget).unwrap();
+    assert_eq!(config.phase2.watchlist_event_producer, None);
+    assert_eq!(
+        ProducerActivation::from_release(
+            config.phase2.watchlist_event_producer.as_deref(),
+            config.phase2.watchlist_producer_activated_at.as_deref(),
+            &config.release_sha,
+        ),
+        Err(ActivationRefusal::ProducerMissing)
+    );
+    // Both keys from the same release file activate it; the producer alone does not.
+    let mut environment = deployed_environment();
+    environment.insert("WATCHLIST_EVENT_PRODUCER".into(), "rust-market-v1".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(
+        config.phase2.watchlist_event_producer.as_deref(),
+        Some("rust-market-v1")
+    );
+    assert_eq!(
+        ProducerActivation::from_release(
+            config.phase2.watchlist_event_producer.as_deref(),
+            config.phase2.watchlist_producer_activated_at.as_deref(),
+            &config.release_sha,
+        ),
+        Err(ActivationRefusal::ActivatedAtMissing)
+    );
+    environment.insert(
+        "WATCHLIST_PRODUCER_ACTIVATED_AT".into(),
+        "2026-11-01T00:00:00Z".into(),
+    );
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    let activation = ProducerActivation::from_release(
+        config.phase2.watchlist_event_producer.as_deref(),
+        config.phase2.watchlist_producer_activated_at.as_deref(),
+        &config.release_sha,
+    )
+    .unwrap();
+    assert_eq!(activation.release_sha(), config.release_sha);
+    // The deployed revision here predates the producer schema: still inactive.
+    assert_eq!(
+        ProducerActivation::from_config(&config),
+        Err(ActivationRefusal::SchemaTooOld)
+    );
+    environment.insert("WATCHLIST_EVENT_PRODUCER".into(), "legacy-python".into());
+    let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
+    assert_eq!(
+        ProducerActivation::from_config(&config),
+        Err(ActivationRefusal::LegacyProducer)
+    );
 }
 
 #[test]

@@ -1371,6 +1371,96 @@ def test_runtime_environment_never_projects_the_watchlist_activation(tmp_path):
     assert "WATCHLIST_PRODUCER_ACTIVATED_AT" not in result["runtime_env"].read_text()
 
 
+def _market_environment_file(tmp_path: Path, extra: str) -> tuple[Path, str]:
+    release_sha = "a" * 40
+    environment_file = tmp_path / ".env"
+    environment_file.write_text(
+        f"ENVIRONMENT=staging\nRELEASE_SHA={release_sha}\n"
+        "DATABASE_URL=postgresql+asyncpg://verdaxis_app_staging:fixture-secret"
+        "@127.0.0.1:5432/verdaxis_staging\n"
+        "JWT_SECRET=" + "k" * 40 + "\n"
+        "JWT_ISSUER=verdaxis-staging-api\n"
+        "JWT_AUDIENCE=verdaxis-staging-web\n"
+        "FRONTEND_URL=https://staging.verdaxis.exchange\n"
+        "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
+        "RESEND_API_KEY=re_fixture_key\n" + extra
+    )
+    return environment_file, release_sha
+
+
+def test_runtime_projection_carries_market_settings_with_python_defaults(tmp_path):
+    """The seven market keys reach the Rust runtime file with Python's rules.
+
+    An absent key is not projected, so the Rust service applies Python's
+    default; a present key is validated as Python validates it and projected
+    in normal form. The watchlist producer keys are never projected.
+    """
+    module = _load_preparer()
+    environment_file, release_sha = _market_environment_file(tmp_path, "")
+    result = module.prepare(
+        environment_file, release_sha, tmp_path / "absent", ROOT, MIGRATION_TARGET
+    )
+    projected = result["runtime_env"].read_text()
+    for key in (
+        "AUTO_MATCHING_ENABLED",
+        "MARKET_SUPPORT_ENABLED",
+        "MARKET_SUPPORT_MAX_TTL_HOURS",
+        "MARKET_SUPPORT_CONTEXT_TTL_MINUTES",
+        "MARKET_SUPPORT_CONSENT_VERSION",
+        "MARKET_SUPPORT_CONSENT_REFERENCE",
+        "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS",
+    ):
+        assert f"{key}=" not in projected, key
+
+    environment_file, release_sha = _market_environment_file(
+        tmp_path,
+        "AUTO_MATCHING_ENABLED=Off\n"
+        "MARKET_SUPPORT_ENABLED=yes\n"
+        "MARKET_SUPPORT_MAX_TTL_HOURS= 72 \n"
+        "MARKET_SUPPORT_CONTEXT_TTL_MINUTES=30\n"
+        "MARKET_SUPPORT_CONSENT_VERSION=2026-10-01\n"
+        "MARKET_SUPPORT_CONSENT_REFERENCE=Staging support terms\n"
+        "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=00000000-0000-0000-0000-000000003001\n"
+        "WATCHLIST_EVENT_PRODUCER=rust-market-v1\n"
+        "WATCHLIST_PRODUCER_ACTIVATED_AT=2026-11-01T00:00:00+00:00\n",
+    )
+    result = module.prepare(
+        environment_file, release_sha, tmp_path / "present", ROOT, MIGRATION_TARGET
+    )
+    projected = result["runtime_env"].read_text().splitlines()
+    for line in (
+        "AUTO_MATCHING_ENABLED=false",
+        "MARKET_SUPPORT_ENABLED=true",
+        "MARKET_SUPPORT_MAX_TTL_HOURS=72",
+        "MARKET_SUPPORT_CONTEXT_TTL_MINUTES=30",
+        "MARKET_SUPPORT_CONSENT_VERSION=2026-10-01",
+        'MARKET_SUPPORT_CONSENT_REFERENCE="Staging support terms"',
+        "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=00000000-0000-0000-0000-000000003001",
+    ):
+        assert line in projected, line
+    assert not any(line.startswith("WATCHLIST_") for line in projected)
+
+    for extra, reason in (
+        ("AUTO_MATCHING_ENABLED=maybe\n", "AUTO_MATCHING_ENABLED"),
+        ("MARKET_SUPPORT_ENABLED=2\n", "MARKET_SUPPORT_ENABLED"),
+        ("MARKET_SUPPORT_MAX_TTL_HOURS=0\n", "MARKET_SUPPORT_MAX_TTL_HOURS"),
+        ("MARKET_SUPPORT_MAX_TTL_HOURS=721\n", "MARKET_SUPPORT_MAX_TTL_HOURS"),
+        ("MARKET_SUPPORT_CONTEXT_TTL_MINUTES=1441\n", "MARKET_SUPPORT_CONTEXT_TTL_MINUTES"),
+        ("MARKET_SUPPORT_CONTEXT_TTL_MINUTES=ten\n", "MARKET_SUPPORT_CONTEXT_TTL_MINUTES"),
+        ("MARKET_SUPPORT_ENABLED=true\n", "explicitly configured"),
+        (
+            "MARKET_SUPPORT_ENABLED=true\nMARKET_SUPPORT_CONSENT_VERSION=\n"
+            "MARKET_SUPPORT_CONSENT_REFERENCE=terms\n",
+            "required when enabled",
+        ),
+    ):
+        environment_file, release_sha = _market_environment_file(tmp_path, extra)
+        with pytest.raises(module.RustRuntimeError, match=reason):
+            module.prepare(
+                environment_file, release_sha, tmp_path / "refused", ROOT, MIGRATION_TARGET
+            )
+
+
 def test_runtime_environment_preserves_quoted_secret_bytes(tmp_path):
     module = _load_preparer()
     values = {

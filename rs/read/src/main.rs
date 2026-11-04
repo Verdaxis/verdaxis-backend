@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::path::Path;
-use verdaxis_read::runtime::config::{config_from_deployed_environment, deployed_arguments};
+use verdaxis_read::runtime::config::{
+    BOOTSTRAP_PRODUCER_FLAG, bootstrap_arguments, config_from_deployed_environment,
+    deployed_arguments,
+};
 use verdaxis_read::runtime::policy::committed_policy;
 use verdaxis_read::{AppState, Config, connect, router};
 
@@ -17,10 +20,38 @@ async fn main() {
         println!("{}", verdaxis_read::version_json());
         return;
     }
+    // The one-shot watchlist producer bootstrap prints exactly one line: the
+    // outcome with the watermark, or the refusal reason.
+    if std::env::args().nth(1).as_deref() == Some(BOOTSTRAP_PRODUCER_FLAG) {
+        std::process::exit(bootstrap().await);
+    }
     tracing_subscriber::fmt().json().init();
     if serve().await.is_err() {
         tracing::error!(error_class = "startup", "read service startup failed");
         std::process::exit(1);
+    }
+}
+
+async fn bootstrap() -> i32 {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let config = match bootstrap_arguments(&arguments).and_then(|budget| {
+        deployed_config(std::net::SocketAddr::from(([127, 0, 0, 1], 0)), &budget)
+    }) {
+        Ok(config) => config,
+        Err(_) => {
+            println!("refused reason=configuration_invalid");
+            return 2;
+        }
+    };
+    match verdaxis_read::watchlist_producer::bootstrap_command(&config).await {
+        Ok(outcome) => {
+            println!("{}", outcome.report());
+            0
+        }
+        Err(reason) => {
+            println!("refused reason={reason}");
+            1
+        }
     }
 }
 
@@ -44,6 +75,13 @@ async fn serve() -> Result<(), ()> {
         verdaxis_read::streams::runtime::CapacityConfig::default(),
     )
     .await;
+    // The trusted watchlist producer runs only when the release activates it.
+    let producer = verdaxis_read::watchlist_producer::start(
+        &state,
+        streams
+            .as_ref()
+            .map(verdaxis_read::streams::runtime::StreamRuntime::producer_wake),
+    );
     // Disabled caching starts no task; an enabled cache starts the authority
     // refresh and invalidation loop before the service accepts traffic.
     state.start_trading_cache();
@@ -54,6 +92,9 @@ async fn serve() -> Result<(), ()> {
     )
     .with_graceful_shutdown(async move {
         shutdown_signal().await;
+        if let Some(producer) = producer {
+            producer.shutdown().await;
+        }
         if let Some(streams) = streams {
             streams.shutdown().await;
         }
@@ -103,7 +144,13 @@ fn load_config() -> Result<Config, String> {
     }
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let (bind, budget_file) = deployed_arguments(&arguments)?;
-    let budget = read_prepared_budget(&budget_file)?;
+    deployed_config(bind, &budget_file)
+}
+
+/// The validated configuration from the flat deployed environment and the
+/// prepared budget artifact at `budget_file`.
+fn deployed_config(bind: std::net::SocketAddr, budget_file: &Path) -> Result<Config, String> {
+    let budget = read_prepared_budget(budget_file)?;
     let environment: HashMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();

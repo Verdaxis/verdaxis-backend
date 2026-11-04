@@ -272,6 +272,7 @@ async fn the_boundary_takes_every_lock_in_the_reviewed_order() {
             response_status: 200,
             response_body: serde_json::json!({"id": "10000000-0000-4000-8000-0000000000a1"}),
             replayed: false,
+            matched_trades: 0,
         }
     );
     let recorded = recording.lock().unwrap();
@@ -491,7 +492,8 @@ async fn a_failed_commit_is_ambiguous_and_never_rerun() {
     )
     .await
     .unwrap_err();
-    assert_eq!(refused.status.as_u16(), 500);
+    assert_eq!(refused.status.as_u16(), 503);
+    assert_eq!(refused.detail["code"], "COMMIT_OUTCOME_UNKNOWN");
     let recorded = recording.lock().unwrap();
     assert_eq!(
         recorded.rollbacks, 0,
@@ -524,6 +526,7 @@ async fn a_replay_returns_the_stored_result_and_emits_nothing() {
             response_status: 201,
             response_body: serde_json::json!({"id": "stored"}),
             replayed: true,
+            matched_trades: 0,
         }
     );
     let recorded = recording.lock().unwrap();
@@ -549,7 +552,7 @@ async fn a_reused_key_with_a_different_payload_is_refused() {
         .await
         .unwrap_err();
     assert_eq!(refused.status.as_u16(), 409);
-    assert_eq!(refused.detail, serde_json::json!(REPLAY_CONFLICT_MESSAGE));
+    assert_eq!(refused.detail["code"], "IDEMPOTENCY_CONFLICT");
     let recorded = recording.lock().unwrap();
     assert_eq!(recorded.rollbacks, 1);
     assert!(recorded.events.is_empty());

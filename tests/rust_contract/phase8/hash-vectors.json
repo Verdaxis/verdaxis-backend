@@ -1,0 +1,240 @@
+{
+  "source": "Inherited Python-produced Phase 2 hash vectors; no Python write-route replay.",
+  "source_sha256": {
+    "app/services/market_locks.py": "76a9f6ab40bf87565cbd5cdfe25f064aa4265156e7d9fdd97d784aad0ad747fc",
+    "app/services/market_transactions.py": "fb61f2978ce43c7599d19aebac2de89e235bc1f997dc03b63eb03e7f36886a80",
+    "app/services/idempotency.py": "820a043369aaa815e720e10a0e07b0727aa049f09fbeba1839b420dd43195b12",
+    "app/services/command_results.py": "a0b014426ddabff35747ff64ea11457aa6341242e3146f91bec213000baa1479",
+    "app/models/command_result.py": "97a8fdbf9db84a3b52c8bb6d6a8c56031765f259f2d99d1ab309e546b90d89ed",
+    "app/models/market_event.py": "d87b731dda9a4d29a918ae0349a0f89d600ff5fbfcb1a9f57076e822cd8df349",
+    "app/services/db_errors.py": "3fe23bfc6792cbb58437d41b77a62fdee92ec5409792a535da2804886bd5927a",
+    "deploy/postgres/app_acl_policy.sql": "5a035c8dc7354150fcbb27ea038df2f1ddaf199173d26e05904c09160014e9a0"
+  },
+  "command_request_hashes": [
+    {
+      "label": "canonical-economic-values",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "order.amend"
+          },
+          "order_id": {
+            "k": "uuid",
+            "v": "10000000-0000-4000-8000-0000000000a1"
+          },
+          "update": {
+            "k": "object",
+            "v": {
+              "price_per_mt_usd": {
+                "k": "decimal",
+                "v": "750.00"
+              },
+              "quantity_mt": {
+                "k": "decimal",
+                "v": "10"
+              },
+              "expires_at": {
+                "k": "timestamp",
+                "v": "2026-10-03T12:00:00+00:00"
+              },
+              "availability_window": {
+                "k": "text",
+                "v": "Q1_2026"
+              }
+            }
+          }
+        }
+      },
+      "sha256": "537ecfda89bc0e3c19c5ad23cfb252bb8840db7dd9ae85190d7c644528c870e4"
+    },
+    {
+      "label": "normalized-decimal-and-zone",
+      "payload": {
+        "k": "object",
+        "v": {
+          "update": {
+            "k": "object",
+            "v": {
+              "price_per_mt_usd": {
+                "k": "decimal",
+                "v": "750"
+              },
+              "quantity_mt": {
+                "k": "decimal",
+                "v": "10.00"
+              },
+              "expires_at": {
+                "k": "timestamp",
+                "v": "2026-10-03T20:00:00+08:00"
+              },
+              "availability_window": {
+                "k": "text",
+                "v": "Q1_2026"
+              }
+            }
+          },
+          "order_id": {
+            "k": "uuid",
+            "v": "10000000-0000-4000-8000-0000000000a1"
+          },
+          "operation": {
+            "k": "text",
+            "v": "order.amend"
+          }
+        }
+      },
+      "sha256": "537ecfda89bc0e3c19c5ad23cfb252bb8840db7dd9ae85190d7c644528c870e4"
+    },
+    {
+      "label": "absent-key-differs-from-null-key",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.decline"
+          },
+          "reason": {
+            "k": "null"
+          }
+        }
+      },
+      "sha256": "f78af2c1280dd0c2c8cab5e476c2fc1614cf12f442045ee92bff5e5dc405ca21"
+    },
+    {
+      "label": "absent-only",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.decline"
+          }
+        }
+      },
+      "sha256": "b3fe4aa6e1ca8eb648bb02e85905b15a076db5634aefb582e4cc7c4d2b2e6735"
+    },
+    {
+      "label": "nested-and-unicode",
+      "payload": {
+        "k": "object",
+        "v": {
+          "operation": {
+            "k": "text",
+            "v": "trade.confirm"
+          },
+          "note": {
+            "k": "text",
+            "v": "caf\u00e9 \u2615 \u2028"
+          },
+          "items": {
+            "k": "array",
+            "v": [
+              {
+                "k": "int",
+                "v": 1
+              },
+              {
+                "k": "bool",
+                "v": true
+              },
+              {
+                "k": "null"
+              },
+              {
+                "k": "object",
+                "v": {
+                  "z": {
+                    "k": "text",
+                    "v": "0"
+                  },
+                  "a": {
+                    "k": "text",
+                    "v": "1"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "sha256": "dd980cafe44910d09f84f813e04b153ec3fa4ad2eddb40739e867c9898b516f9"
+    }
+  ],
+  "idempotency_request_hashes": [
+    {
+      "label": "json-native-order-payload",
+      "payload": {
+        "k": "object",
+        "v": {
+          "side": {
+            "k": "text",
+            "v": "BID"
+          },
+          "price_per_mt_usd": {
+            "k": "text",
+            "v": "750.00"
+          },
+          "quantity_mt": {
+            "k": "int",
+            "v": 10
+          },
+          "delivery_point_id": {
+            "k": "text",
+            "v": "20000000-0000-4000-8000-0000000000b1"
+          },
+          "is_demo": {
+            "k": "bool",
+            "v": false
+          },
+          "certifications": {
+            "k": "array",
+            "v": [
+              {
+                "k": "text",
+                "v": "ISCC"
+              }
+            ]
+          }
+        }
+      },
+      "sha256": "2955e057cd820e5a4ffd9c732337a79cd0d628cd4cc6096bb25c52a72532917c"
+    },
+    {
+      "label": "nested-json",
+      "payload": {
+        "k": "object",
+        "v": {
+          "actor_id": {
+            "k": "text",
+            "v": "30000000-0000-4000-8000-0000000000c1"
+          },
+          "offer": {
+            "k": "object",
+            "v": {
+              "price": {
+                "k": "int",
+                "v": 1
+              },
+              "tags": {
+                "k": "array",
+                "v": []
+              }
+            }
+          }
+        }
+      },
+      "sha256": "7b0f2ca497957f347f7e1e2a24967d1ab5525dd34d4e881ec48d6da323d4508d"
+    },
+    {
+      "label": "empty-object",
+      "payload": {
+        "k": "object",
+        "v": {}
+      },
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ]
+}

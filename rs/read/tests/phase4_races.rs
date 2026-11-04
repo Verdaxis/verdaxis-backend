@@ -83,6 +83,22 @@ async fn row_json(world: &World, sql: &'static str, id: Uuid) -> Value {
         .unwrap()
 }
 
+// The initial attempt is included in the three-attempt test bound.
+async fn retry_waiting_command(
+    mut result: Verdict,
+    mut restart: impl FnMut() -> Pending,
+) -> (Verdict, usize) {
+    let mut retries = 0;
+    for _ in 1..3 {
+        if !matches!(&result, Err(error) if error.detail["code"] == "MARKET_BUSY") {
+            break;
+        }
+        retries += 1;
+        result = finished(restart()).await;
+    }
+    (result, retries)
+}
+
 async fn audits_of(world: &World, action: &str, resource: Uuid) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM audit_logs WHERE action=$1 AND resource_id=$2")
         .bind(action)
@@ -187,6 +203,8 @@ const JOIN_REVIEW_REPETITIONS: usize = 50;
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn join_approval_and_org_rejection_do_not_deadlock() {
     let mut world = World::new().await;
+    let mut retried_iterations = 0;
+    let mut total_retries = 0;
     for join_first in [true, false] {
         for _ in 0..JOIN_REVIEW_REPETITIONS {
             let organization = world.organization().await;
@@ -234,7 +252,20 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             wait_blocked(&mut world.watcher, holder_pid, 1).await;
             gate.open();
             let holder = finished(holder).await;
-            let contender = finished(contender).await;
+            let (contender, retries) = retry_waiting_command(finished(contender).await, || {
+                if join_first {
+                    spawn_write(
+                        &world.pool,
+                        world.actor,
+                        review_organization(&world, organization, false),
+                    )
+                } else {
+                    spawn_write(&world.pool, world.actor, review_join(join, true))
+                }
+            })
+            .await;
+            retried_iterations += usize::from(retries > 0);
+            total_retries += retries;
 
             assert_eq!(organization_status(&world, organization).await, "REJECTED");
             assert_eq!(
@@ -314,6 +345,10 @@ async fn join_approval_and_org_rejection_do_not_deadlock() {
             }
         }
     }
+    println!(
+        "join_approval_and_org_rejection_do_not_deadlock retried_iterations={retried_iterations} total_retries={total_retries} total_iterations={}",
+        2 * JOIN_REVIEW_REPETITIONS
+    );
     world.finish().await;
 }
 
@@ -882,8 +917,20 @@ async fn invitation_rotation_vs_acceptance_is_serialized() {
     );
     wait_blocked(&mut world.watcher, acceptance.backend, 1).await;
     acceptance.consume().await;
+    let (rotation, retries) = retry_waiting_command(finished(rotation).await, || {
+        spawn_write(
+            &world.pool,
+            world.actor,
+            create("accept-first@customer.example"),
+        )
+    })
+    .await;
+    println!(
+        "invitation_rotation_vs_acceptance_is_serialized retried_iterations={} total_retries={retries} total_iterations=1",
+        usize::from(retries > 0)
+    );
     assert_eq!(
-        refusal(&finished(rotation).await),
+        refusal(&rotation),
         (409, "EMAIL_ALREADY_REGISTERED".into()),
         "a rotation reissued an invitation that was already spent"
     );
@@ -1972,21 +2019,72 @@ async fn auth_maintenance_vs_ordered_write_lock_order() {
     let python = tokio::spawn(async move {
         let cleared_low = python_writers::clear_reset_hash_of(&mut maintenance, low).await;
         match cleared_low {
-            Ok(_) => sqlx::query("COMMIT")
-                .execute(&mut maintenance)
-                .await
-                .is_ok(),
-            Err(_) => {
-                let _ = sqlx::query("ROLLBACK").execute(&mut maintenance).await;
-                false
+            Ok(_) => {
+                sqlx::query("COMMIT")
+                    .execute(&mut maintenance)
+                    .await
+                    .unwrap();
+                (true, None)
+            }
+            Err(error) => {
+                let code = error
+                    .as_database_error()
+                    .and_then(|error| error.code())
+                    .expect("maintenance refusal has a SQLSTATE")
+                    .into_owned();
+                sqlx::query("ROLLBACK")
+                    .execute(&mut maintenance)
+                    .await
+                    .unwrap();
+                (false, Some(code))
             }
         }
     });
-    finished(rejection)
-        .await
-        .expect("the rejection commits within its bounded retry");
-    let committed = python.await.unwrap();
-    wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
+    let rejection = finished(rejection).await;
+    let (committed, maintenance_code) = python.await.unwrap();
+    let rejection_busy = matches!(&rejection, Err(error) if error.detail["code"] == "MARKET_BUSY");
+    let resolution = if let Some(code) = maintenance_code.as_deref() {
+        assert!(
+            rejection.is_ok(),
+            "only the maintenance transaction may lose this resolution"
+        );
+        assert!(
+            matches!(code, "40P01" | "55P03"),
+            "unexpected maintenance SQLSTATE: {code}"
+        );
+        code
+    } else if rejection_busy {
+        assert!(
+            committed,
+            "only the rejection may lose the lock-deadline resolution"
+        );
+        // The ordered owner maps SQLSTATE 55P03 to MARKET_BUSY.
+        "55P03"
+    } else {
+        rejection
+            .as_ref()
+            .expect("the rejection commits or returns MARKET_BUSY");
+        assert!(committed);
+        // Both commands completed, so the ordered owner's internal retry must
+        // have recovered the sole victim. The counter proves the detected cycle.
+        "40P01"
+    };
+    if resolution == "40P01" {
+        wait_for_deadlock_count(&mut world.watcher, deadlocks_before + 1).await;
+    }
+    let (rejection, retries) = retry_waiting_command(rejection, || {
+        spawn_write(
+            &world.pool,
+            world.actor,
+            review_organization(&world, organization, false),
+        )
+    })
+    .await;
+    println!(
+        "auth_maintenance_vs_ordered_write_lock_order resolution={resolution} retried_iterations={} total_retries={retries} total_iterations=1",
+        usize::from(retries > 0)
+    );
+    rejection.expect("the rejection commits within its bounded retry");
     let cleared: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM users WHERE id = ANY($1) AND password_reset_token_hash IS NULL",
     )
@@ -2056,15 +2154,10 @@ async fn kyc_party(world: &World, user: Uuid) -> KycParty {
     }
 }
 
-/// Each of the four rejection routes leaves every pre-existing trade exactly as
-/// it was — participants, lifecycle state, quantity and fee and term snapshots —
-/// whatever the rejected party's current membership, and the settlement
-/// reservation stays. The authority of an existing party is its immutable
-/// participation in the trade, not its current membership. Meanwhile new
-/// execution is refused: authentication stops for a rejected account, and the
-/// execution policy and its SQL mirror refuse an unlinked or rejected party.
-/// The deliver and pay requests themselves run in Python until the market
-/// phases and are not driven here.
+/// Organization rejection cancels pending trades and releases their restored
+/// reservation along with the withdrawn remainder. Confirmed and delivered
+/// trades retain their participants, lifecycle and fee/term snapshots. Other
+/// rejection routes retain all existing trades. New execution stays refused.
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL authority"]
 async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed() {
@@ -2150,12 +2243,17 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 verdict.unwrap_or_else(|error| panic!("{case}: {error:?}"));
             }
 
-            // Existing trades: immutable participants, lifecycle and snapshots.
+            // Only a pending trade in the rejected organization changes status;
+            // full-row equality still protects every participant and snapshot.
             for (trade, before) in trades.iter().zip(&trades_before) {
+                let mut expected = before.clone();
+                if route == Route::Organization && before["status"] == "PENDING_CONFIRMATION" {
+                    expected["status"] = Value::String("CANCELLED".into());
+                }
                 assert_eq!(
-                    &row_json(&world, TRADE_ROW, *trade).await,
-                    before,
-                    "{case}: a trade changed"
+                    row_json(&world, TRADE_ROW, *trade).await,
+                    expected,
+                    "{case}: a trade changed outside its permitted transition"
                 );
             }
             let authorized: i64 = sqlx::query_scalar("SELECT count(*) FROM trades WHERE id = ANY($1) AND $2 IN (buyer_user_id, seller_user_id)")
@@ -2169,8 +2267,9 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 "{case}: the party's participation no longer identifies it"
             );
 
-            // The settlement reservation of existing trades is untouched; only
-            // an organization rejection withdraws the uncommitted remainder.
+            // Fixture stock is 20 available / 80 reserved: 60 remainder plus
+            // the 20 pending take. Confirmed/delivered quantities were consumed
+            // before this snapshot. Rejection restores 20, then releases 80.
             let (available, reserved) = world.stock(listing.inventory).await;
             assert_eq!(
                 available + reserved,
@@ -2185,7 +2284,7 @@ async fn rejected_party_new_execution_refused_but_existing_deliver_pay_allowed()
                 );
                 assert_eq!(
                     (available, reserved),
-                    (Decimal::from(80), Decimal::from(20)),
+                    (Decimal::from(100), Decimal::ZERO),
                     "{case}"
                 );
             } else {
