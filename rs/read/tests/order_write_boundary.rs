@@ -681,6 +681,7 @@ const REMINDER_EXPORTS: &[&str] = &[
 const DEMO_EXPORTS: &[&str] = &[
     "DemoMarketFailure",
     "DemoMarketReport",
+    "TickOutcome",
     "run_demo_market_phases",
 ];
 

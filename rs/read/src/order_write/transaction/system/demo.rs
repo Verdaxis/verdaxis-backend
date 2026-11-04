@@ -21,12 +21,14 @@ use super::super::{BoxFuture, LockedMarketTransaction, MarketAttemptError, Marke
 use super::{SystemMarketCommand, SystemWriter, refused, run_system_market_command, sealed};
 use crate::cli::jobs::demo::model::{
     CoverageOrder, DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID,
-    DEMO_COVERAGE_OPERATION, DEMO_SEED_ORGANIZATIONS,
+    DEMO_COVERAGE_OPERATION, DEMO_SEED_ORGANIZATIONS, Side, TickChoice, tick_choice,
 };
 use crate::order_write::MarketWriteError;
 use crate::order_write::locks::{
     LockClass, MarketOperation, OperationLockPlan, PartyLockPreview, SliceKey,
 };
+use crate::order_write::matching::{DemoOrderPair, MatchBound};
+use crate::subscriptions::FeeConfig;
 
 /// The two demo activity organizations: tick, prune and legacy expiry write
 /// only their rows.
@@ -965,6 +967,334 @@ impl SystemMarketCommand for DemoLegacyExpiry {
     }
 }
 
+// ---- activity tick -----------------------------------------------------------------
+
+/// What one tick did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TickOutcome {
+    /// One matched pair: the ask, the bid and their one trade.
+    Created {
+        trade_id: Uuid,
+        product: &'static str,
+        port: &'static str,
+        window: String,
+    },
+    /// The tick's trade exists already (a rerun, or a concurrent tick).
+    AlreadyGenerated,
+    /// The chosen product or delivery point is not an active catalog row.
+    MissingCatalog,
+}
+
+/// Python's `_tick_trade_exists`: the activity pair's trade created three
+/// minutes before the tick.
+async fn tick_trade_exists(
+    conn: &mut PgConnection,
+    tick: DateTime<Utc>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM trades \
+                        WHERE buyer_id = $1 AND seller_id = $2 AND created_at = $3)",
+    )
+    .bind(DEMO_ACTIVITY_BUYER_ORG_ID)
+    .bind(DEMO_ACTIVITY_SELLER_ORG_ID)
+    .bind(tick - chrono::Duration::minutes(3))
+    .fetch_one(conn)
+    .await
+}
+
+/// Python's `_load_product_and_port`: the active catalog rows of the tick's
+/// product and port, by name.
+async fn active_catalog_slice(
+    conn: &mut PgConnection,
+    product: &str,
+    port: &str,
+) -> Result<Option<(Uuid, Uuid)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT p.id, d.id FROM products p, delivery_points d \
+         WHERE p.name = $1 AND p.is_active AND d.name = $2 AND d.is_active",
+    )
+    .bind(product)
+    .bind(port)
+    .fetch_optional(conn)
+    .await
+}
+
+/// What the tick's preview found; `execute` writes exactly it.
+#[derive(Debug, Clone, Default)]
+enum TickPlan {
+    #[default]
+    Exists,
+    MissingCatalog,
+    Pair {
+        product_id: Uuid,
+        delivery_point_id: Uuid,
+    },
+}
+
+/// The tick phase (Python's `generate_demo_market_activity`): one ask of the
+/// activity seller, then one bid of the activity buyer at the book midpoint,
+/// matched only with each other, in one transaction holding both activity
+/// organizations and the slice.
+pub(crate) struct DemoTick {
+    choice: TickChoice,
+    now: DateTime<Utc>,
+    planned: Mutex<TickPlan>,
+}
+
+impl sealed::Sealed for DemoTick {}
+
+impl DemoTick {
+    pub(crate) fn new(now: DateTime<Utc>) -> Self {
+        Self {
+            choice: tick_choice(now),
+            now,
+            planned: Mutex::new(TickPlan::default()),
+        }
+    }
+
+    /// The stored columns of one of the tick's two orders.
+    fn order_json(&self, id: Uuid, side: Side, slice: (Uuid, Uuid), ordinal: i64) -> Value {
+        let choice = &self.choice;
+        let (organization, created_at) = match side {
+            Side::Ask => (
+                DEMO_ACTIVITY_SELLER_ORG_ID,
+                choice.tick - chrono::Duration::minutes(8),
+            ),
+            Side::Bid => (
+                DEMO_ACTIVITY_BUYER_ORG_ID,
+                choice.tick - chrono::Duration::minutes(7),
+            ),
+        };
+        let mut row = json!({
+            "id": id,
+            "organization_id": organization,
+            "creation_method": "SYSTEM",
+            "provenance": "DEMO",
+            "side": side.as_str(),
+            "product_id": slice.0,
+            "delivery_point_id": slice.1,
+            "quantity_mt": choice.quantity_mt.to_string(),
+            "remaining_quantity_mt": choice.quantity_mt.to_string(),
+            "price_per_mt_usd": choice.price_per_mt_usd.to_string(),
+            "availability_window": choice.window,
+            "status": "OPEN",
+            "expires_at": choice.expires_at,
+            "acceptance_ordinal": ordinal,
+            "created_at": created_at,
+            "updated_at": created_at,
+        });
+        if side == Side::Ask {
+            let ask = &choice.ask;
+            for (key, value) in [
+                ("certifications", json!([ask.certification_scheme])),
+                ("certification_declared", json!(true)),
+                ("certification_scheme", json!(ask.certification_scheme)),
+                ("specification_standard", json!(ask.specification_standard)),
+                ("msds_available", json!(true)),
+                ("is_verdaxis_verified", json!(ask.is_verdaxis_verified)),
+                (
+                    "carbon_intensity_gco2_mj",
+                    json!(ask.carbon_intensity_gco2_mj.to_string()),
+                ),
+                (
+                    "carbon_intensity_method",
+                    json!(ask.carbon_intensity_method),
+                ),
+                (
+                    "energy_density_mj_kg",
+                    json!(ask.energy_density_mj_kg.to_string()),
+                ),
+                ("feedstock", json!(ask.feedstock)),
+                ("origin", json!(ask.origin)),
+                ("off_spec", json!(false)),
+            ] {
+                row[key] = value;
+            }
+        }
+        row
+    }
+}
+
+impl SystemMarketCommand for DemoTick {
+    type Output = TickOutcome;
+
+    fn allowed_organizations(&self) -> &[Uuid] {
+        &ACTIVITY_ORGANIZATIONS
+    }
+
+    fn preview<'a>(
+        &'a self,
+        conn: &'a mut PgConnection,
+    ) -> BoxFuture<'a, Result<MarketPreview, MarketAttemptError>> {
+        Box::pin(async move {
+            let choice = &self.choice;
+            let plan = if tick_trade_exists(conn, choice.tick).await? {
+                TickPlan::Exists
+            } else {
+                match active_catalog_slice(conn, choice.product, choice.port).await? {
+                    None => TickPlan::MissingCatalog,
+                    Some((product_id, delivery_point_id)) => TickPlan::Pair {
+                        product_id,
+                        delivery_point_id,
+                    },
+                }
+            };
+            let preview = match &plan {
+                // Nothing to write: lock nothing (admitted with no
+                // organization, so the writer can change no row).
+                TickPlan::Exists | TickPlan::MissingCatalog => {
+                    let parties = PartyLockPreview::system([], json!({"tick": choice.tick}));
+                    let mut locks = OperationLockPlan::new(MarketOperation::DemoSystem);
+                    locks.parties(&parties)?;
+                    MarketPreview { parties, locks }
+                }
+                TickPlan::Pair {
+                    product_id,
+                    delivery_point_id,
+                } => activity_preview(
+                    json!({"tick": choice.tick}),
+                    &[SliceKey {
+                        product_id: *product_id,
+                        delivery_point_id: Some(*delivery_point_id),
+                        availability_window: choice.window.clone(),
+                    }],
+                )?,
+            };
+            *self.planned.lock().map_err(|_| refused())? = plan;
+            Ok(preview)
+        })
+    }
+
+    fn execute<'a, 'b: 'a>(
+        &'a self,
+        tx: &'a mut LockedMarketTransaction<'b>,
+        writer: &'a SystemWriter,
+    ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
+        Box::pin(async move {
+            let plan = self.planned.lock().map_err(|_| refused())?.clone();
+            let (product_id, delivery_point_id) = match plan {
+                TickPlan::Exists => return Ok(TickOutcome::AlreadyGenerated),
+                TickPlan::MissingCatalog => return Ok(TickOutcome::MissingCatalog),
+                TickPlan::Pair {
+                    product_id,
+                    delivery_point_id,
+                } => (product_id, delivery_point_id),
+            };
+            let choice = &self.choice;
+            // A concurrent tick may have passed the preview before waiting on
+            // these locks: recheck under them (Python does the same).
+            if tick_trade_exists(tx.conn, choice.tick).await? {
+                return Ok(TickOutcome::AlreadyGenerated);
+            }
+            let mut ordinals: Vec<i64> = sqlx::query_scalar(
+                "SELECT nextval('orderbook_acceptance_ordinal_seq') FROM generate_series(1, 2)",
+            )
+            .fetch_all(&mut *tx.conn)
+            .await?;
+            ordinals.sort_unstable();
+            let (ask_id, bid_id) = (Uuid::new_v4(), Uuid::new_v4());
+            let slice = (product_id, delivery_point_id);
+            let rows = json!([
+                self.order_json(ask_id, Side::Ask, slice, ordinals[0]),
+                self.order_json(bid_id, Side::Bid, slice, ordinals[1]),
+            ]);
+            let written: Vec<Uuid> = sqlx::query_scalar(
+                "INSERT INTO orderbook_orders \
+                   (id, organization_id, creation_method, provenance, side, product_id, \
+                    delivery_point_id, quantity_mt, remaining_quantity_mt, price_per_mt_usd, \
+                    availability_window, certifications, certification_declared, \
+                    certification_scheme, specification_standard, msds_available, \
+                    is_verdaxis_verified, carbon_intensity_gco2_mj, carbon_intensity_method, \
+                    energy_density_mj_kg, feedstock, origin, off_spec, status, expires_at, \
+                    acceptance_ordinal, created_at, updated_at) \
+                 SELECT id, organization_id, creation_method, provenance, side, product_id, \
+                    delivery_point_id, quantity_mt, remaining_quantity_mt, price_per_mt_usd, \
+                    availability_window, coalesce(certifications, '[]'::json), \
+                    coalesce(certification_declared, false), certification_scheme, \
+                    specification_standard, coalesce(msds_available, false), \
+                    coalesce(is_verdaxis_verified, false), carbon_intensity_gco2_mj, \
+                    carbon_intensity_method, energy_density_mj_kg, feedstock, origin, \
+                    coalesce(off_spec, false), status, expires_at, acceptance_ordinal, \
+                    created_at, updated_at \
+                 FROM jsonb_populate_recordset(NULL::orderbook_orders, $1::jsonb) \
+                 WHERE organization_id = ANY($2) \
+                 RETURNING id",
+            )
+            .bind(rows)
+            .bind(writer.organizations())
+            .fetch_all(&mut *tx.conn)
+            .await?;
+            written_exactly(written, &[ask_id, bid_id])?;
+
+            // The bid takes the ask: the exact pair is the only DEMO crossing
+            // the bound allows, and exactly one canonical trade must result.
+            let pair = DemoOrderPair::new(bid_id, ask_id).ok_or_else(refused)?;
+            let bid = tx.matching_order(bid_id).await?;
+            let match_plan = tx
+                .prepare_match(&bid, MatchBound::new(self.now).with_demo_pair(pair))
+                .await?;
+            let outcome = tx
+                .complete_match(&match_plan, &FeeConfig::default(), true)
+                .await?;
+            let [trade] = outcome.trades.as_slice() else {
+                return Err(refused());
+            };
+            if trade.bid_order_id != bid_id
+                || trade.ask_order_id != ask_id
+                || trade.buyer_id != DEMO_ACTIVITY_BUYER_ORG_ID
+                || trade.seller_id != DEMO_ACTIVITY_SELLER_ORG_ID
+            {
+                return Err(refused());
+            }
+
+            // Python's timestamps, set before any notice or event is staged.
+            let stamped: Option<Uuid> = sqlx::query_scalar(
+                "UPDATE trades SET created_at = $2, confirmed_at = $3 \
+                 WHERE id = $1 AND buyer_provenance = 'DEMO' AND seller_provenance = 'DEMO' \
+                   AND buyer_user_id IS NULL AND seller_user_id IS NULL \
+                 RETURNING id",
+            )
+            .bind(trade.id)
+            .bind(choice.tick - chrono::Duration::minutes(3))
+            .bind(choice.tick - chrono::Duration::minutes(2))
+            .fetch_optional(&mut *tx.conn)
+            .await?;
+            if stamped != Some(trade.id) {
+                return Err(refused());
+            }
+            let touched: Vec<Uuid> = sqlx::query_scalar(
+                "UPDATE orderbook_orders SET updated_at = $2 \
+                 WHERE id = ANY($1) AND organization_id = ANY($3) AND provenance = 'DEMO' \
+                   AND owner_user_id IS NULL \
+                 RETURNING id",
+            )
+            .bind([ask_id, bid_id].as_slice())
+            .bind(choice.tick)
+            .bind(writer.organizations())
+            .fetch_all(&mut *tx.conn)
+            .await?;
+            written_exactly(touched, &[ask_id, bid_id])?;
+
+            super::super::super::effects::notify_trade_confirmed(
+                tx.conn,
+                trade.id,
+                trade.buyer_id,
+                trade.seller_id,
+                choice.tick,
+            )
+            .await?;
+            tx.locked.begin_target_phase()?;
+            append_demo_market_changed(tx.conn, "tick").await?;
+            Ok(TickOutcome::Created {
+                trade_id: trade.id,
+                product: choice.product,
+                port: choice.port,
+                window: choice.window.clone(),
+            })
+        })
+    }
+}
+
 // ---- the market phases of one run ---------------------------------------------------
 
 /// What the market phases of one demo run did, by count.
@@ -975,6 +1305,8 @@ pub struct DemoMarketReport {
     pub coverage: CoverageCounts,
     pub legacy_expired: usize,
     pub prune: PruneCounts,
+    /// The tick's result; `None` until the tick phase committed.
+    pub tick: Option<TickOutcome>,
 }
 
 /// The market phase that stopped a run. Every earlier transaction
@@ -988,6 +1320,7 @@ pub enum DemoMarketFailure {
     Coverage(MarketWriteError),
     LegacyExpiry(MarketWriteError),
     Prune(MarketWriteError),
+    Tick(MarketWriteError),
 }
 
 impl DemoMarketFailure {
@@ -996,6 +1329,7 @@ impl DemoMarketFailure {
             Self::CoverageScope | Self::CoverageTooLarge | Self::Coverage(_) => "coverage",
             Self::LegacyExpiry(_) => "legacy_expiry",
             Self::Prune(_) => "prune",
+            Self::Tick(_) => "tick",
         }
     }
 }
@@ -1041,7 +1375,7 @@ async fn coverage_by_product(
 }
 
 /// The market phases of one run, in Python's order: coverage (one
-/// transaction per product), legacy expiry, prune. Each transaction commits
+/// transaction per product), legacy expiry, prune, then the tick. Each transaction commits
 /// on its own and the first failure stops the run; a later run converges.
 /// `report` holds what committed before a failure.
 pub async fn run_demo_market_phases(
@@ -1067,9 +1401,14 @@ pub async fn run_demo_market_phases(
         run_system_market_command(pool.clone(), permits.clone(), DemoLegacyExpiry::new(now))
             .await
             .map_err(DemoMarketFailure::LegacyExpiry)?;
-    report.prune = run_system_market_command(pool.clone(), permits, DemoPrune::new(now))
+    report.prune = run_system_market_command(pool.clone(), permits.clone(), DemoPrune::new(now))
         .await
         .map_err(DemoMarketFailure::Prune)?;
+    report.tick = Some(
+        run_system_market_command(pool.clone(), permits, DemoTick::new(now))
+            .await
+            .map_err(DemoMarketFailure::Tick)?,
+    );
     Ok(())
 }
 

@@ -16,7 +16,9 @@ use uuid::Uuid;
 use crate::cli::context::{self, Purpose};
 use crate::cli::gate::{require_apply, require_unit_deploy_state_absent};
 use crate::cli::{Exit, JobArgs, JobKind};
-use crate::order_write::{DemoMarketFailure, DemoMarketReport, run_demo_market_phases};
+use crate::order_write::{
+    DemoMarketFailure, DemoMarketReport, TickOutcome, run_demo_market_phases,
+};
 use model::{
     Catalog, DEMO_ACTIVITY_BUYER_ORG_ID, DEMO_ACTIVITY_SELLER_ORG_ID, DEMO_SEED_BUYERS,
     DEMO_SEED_SUPPLIERS,
@@ -168,6 +170,20 @@ impl DemoReport {
             "legacy_activity_expired": self.market.legacy_expired,
             "trades_pruned": self.market.prune.trades,
             "orders_pruned": self.market.prune.orders,
+            "tick": match &self.market.tick {
+                None => json!(null),
+                Some(TickOutcome::Created { product, port, window, .. }) => json!({
+                    "created_orders": 2, "created_trades": 1,
+                    "product": product, "delivery_point": port, "availability_window": window,
+                }),
+                Some(TickOutcome::AlreadyGenerated) => json!({
+                    "created_orders": 0, "created_trades": 0, "reason": "already generated for tick",
+                }),
+                Some(TickOutcome::MissingCatalog) => json!({
+                    "created_orders": 0, "created_trades": 0,
+                    "reason": "missing product or delivery point",
+                }),
+            },
         })
     }
 }

@@ -3250,6 +3250,15 @@ impl Fixture {
         .await
         .unwrap()
     }
+    /// The demo_market_changed rows of one phase (`coverage`, `prune` or
+    /// `tick`); a Rust run also ticks, so phase tests read their own rows.
+    async fn phase_events(&mut self, phase: &str) -> Vec<Value> {
+        self.demo_events()
+            .await
+            .into_iter()
+            .filter(|event| event["aggregate_id"] == phase)
+            .collect()
+    }
     async fn admin_sql(&mut self, sql: &str) {
         sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
             .execute(&mut self.admin)
@@ -3281,7 +3290,7 @@ async fn demo_coverage_after_python_writes_nothing_and_events_match() {
     let created = ok(&python)["coverage_created"].as_u64().unwrap();
     assert!(created > 0, "{python}");
     assert_eq!(
-        f.demo_events().await,
+        f.phase_events("coverage").await,
         vec![coverage_event()],
         "Python's event"
     );
@@ -3293,7 +3302,7 @@ async fn demo_coverage_after_python_writes_nothing_and_events_match() {
     assert!(!report.market.coverage.changed(), "{report:?}");
     assert_eq!(f.coverage_book().await, book, "Rust changed Python's book");
     assert_eq!(
-        f.demo_events().await,
+        f.phase_events("coverage").await,
         vec![coverage_event()],
         "no Rust event"
     );
@@ -3306,7 +3315,7 @@ async fn demo_coverage_after_python_writes_nothing_and_events_match() {
     result.unwrap();
     assert_eq!(report.market.coverage.created as u64, created);
     assert_eq!(
-        f.demo_events().await,
+        f.phase_events("coverage").await,
         vec![coverage_event()],
         "Rust's event"
     );
@@ -3316,7 +3325,7 @@ async fn demo_coverage_after_python_writes_nothing_and_events_match() {
         assert_eq!(ok(&python)[key], 0, "{key}: {python}");
     }
     assert_eq!(f.coverage_book().await, book, "Python changed Rust's book");
-    assert_eq!(f.demo_events().await, vec![coverage_event()]);
+    assert_eq!(f.phase_events("coverage").await, vec![coverage_event()]);
 }
 
 /// The same drift on a fresh Python-built book: one row repriced, one
@@ -3508,7 +3517,7 @@ async fn demo_prune_respects_customer_pins_and_history() {
             .execute(&mut f.admin)
             .await
             .unwrap();
-        let events_before = f.demo_events().await.len();
+        let events_before = f.phase_events("prune").await.len();
         let pruned = if rust {
             let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
             result.unwrap();
@@ -3517,16 +3526,17 @@ async fn demo_prune_respects_customer_pins_and_history() {
         } else {
             ok(&f.python(f.command("demo_prune")).await).clone()
         };
-        let left: Vec<String> =
-            sqlx::query_scalar("SELECT id::text FROM trades WHERE buyer_id = $1::uuid ORDER BY id")
-                .bind(DEMO_BUYER_ORG)
-                .fetch_all(&mut f.admin)
-                .await
-                .unwrap();
+        // The aged trades only: a Rust run ticks after the prune.
+        let left: Vec<String> = sqlx::query_scalar(
+            "SELECT id::text FROM trades WHERE buyer_id = $1::uuid \
+             AND created_at < now() - interval '1 day' ORDER BY id",
+        )
+        .bind(DEMO_BUYER_ORG)
+        .fetch_all(&mut f.admin)
+        .await
+        .unwrap();
         assert_eq!(left, vec![trades[0]["id"].as_str().unwrap().to_owned()]);
-        let events = f.demo_events().await;
-        assert_eq!(events.len(), events_before + 1);
-        assert_eq!(events.last().unwrap()["aggregate_id"], "prune");
+        assert_eq!(f.phase_events("prune").await.len(), events_before + 1);
         counts.push((
             pruned["trades_pruned"].clone(),
             pruned["orders_pruned"].clone(),
@@ -3535,4 +3545,176 @@ async fn demo_prune_respects_customer_pins_and_history() {
     }
     assert_eq!(counts[0], counts[1], "Python and Rust prune the same rows");
     assert_eq!(counts[1].0, 1);
+}
+
+// ---- the Rust demo tick ----------------------------------------------------------
+
+/// Recent ticks whose Rust draw is B30 at Rotterdam (the slice the fixture
+/// catalog holds) with a window open for at least six more hours.
+fn rust_b30_ticks(count: usize) -> Vec<chrono::DateTime<chrono::Utc>> {
+    use verdaxis_read::cli::jobs::demo::model::{activity_tick, tick_choice};
+    let now = chrono::Utc::now();
+    let mut found = Vec::new();
+    let mut tick = activity_tick(now);
+    while found.len() < count && now - tick < chrono::Duration::days(6) {
+        tick -= chrono::Duration::minutes(5);
+        let choice = tick_choice(tick);
+        if choice.product == "B30"
+            && choice.port == "Rotterdam"
+            && choice.expires_at > now + chrono::Duration::hours(6)
+        {
+            found.push(tick);
+        }
+    }
+    assert_eq!(
+        found.len(),
+        count,
+        "no recent Rust tick draws the B30 Rotterdam slice"
+    );
+    found
+}
+
+async fn tick_times(f: &mut Fixture) -> Value {
+    sqlx::query_scalar(
+        "SELECT jsonb_build_object( \
+           'orders', (SELECT jsonb_agg(jsonb_build_object('side', side, 'created_at', created_at, \
+                        'updated_at', updated_at) ORDER BY side) \
+                      FROM orderbook_orders WHERE organization_id IN ($1::uuid, $2::uuid)), \
+           'trades', (SELECT jsonb_agg(jsonb_build_object('created_at', created_at, \
+                        'confirmed_at', confirmed_at)) \
+                      FROM trades WHERE buyer_id = $1::uuid AND seller_id = $2::uuid))",
+    )
+    .bind(DEMO_BUYER_ORG)
+    .bind(DEMO_SELLER_ORG)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
+    use verdaxis_read::order_write::TickOutcome;
+    let mut f = Fixture::new().await;
+    f.demo_organizations().await;
+    let tick = rust_b30_ticks(1)[0];
+    let (report, result) = f
+        .rust_demo(tick + chrono::Duration::seconds(30), Vec::new())
+        .await;
+    result.unwrap();
+    assert!(
+        matches!(
+            report.market.tick,
+            Some(TickOutcome::Created { product: "B30", .. })
+        ),
+        "{report:?}"
+    );
+
+    // The documented rows, as the Python tick writes them.
+    let shape: Value = sqlx::query_scalar("SELECT residual_demo_shape()")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    let orders = shape["orders"].as_array().unwrap();
+    assert_eq!(orders.len(), 2, "{shape}");
+    assert_eq!(orders[0]["side"], "ASK");
+    assert_eq!(orders[0]["organization_id"], DEMO_SELLER_ORG);
+    assert_eq!(orders[1]["side"], "BID");
+    assert_eq!(orders[1]["organization_id"], DEMO_BUYER_ORG);
+    assert!(orders[0]["acceptance_ordinal"].as_i64() < orders[1]["acceptance_ordinal"].as_i64());
+    for order in orders {
+        assert_eq!(order["creation_method"], "SYSTEM");
+        assert_eq!(order["provenance"], "DEMO");
+        assert_eq!(order["owner_user_id"], Value::Null);
+        assert_eq!(order["created_by_actor_user_id"], Value::Null);
+        assert_eq!(order["status"], "FILLED");
+    }
+    let trades = shape["trades"].as_array().unwrap();
+    assert_eq!(trades.len(), 1, "{shape}");
+    let trade = &trades[0];
+    assert_eq!(trade["buyer_user_id"], Value::Null);
+    assert_eq!(trade["seller_user_id"], Value::Null);
+    assert_eq!(trade["buyer_provenance"], "DEMO");
+    assert_eq!(trade["seller_provenance"], "DEMO");
+    assert_eq!(trade["confirmed"], true);
+    assert_eq!(trade["ask_order_id"], orders[0]["id"]);
+    assert_eq!(trade["bid_order_id"], orders[1]["id"]);
+
+    // Python's times: ask tick-8 min, bid tick-7 min, both updated at the
+    // tick; the trade created tick-3 min and confirmed tick-2 min.
+    let at = |minutes: i64| json!(tick - chrono::Duration::minutes(minutes));
+    let times = tick_times(&mut f).await;
+    let parse = |value: &Value| {
+        chrono::DateTime::parse_from_rfc3339(value.as_str().unwrap())
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    let stored = |path: [&str; 2], index: usize| parse(&times[path[0]][index][path[1]]);
+    assert_eq!(json!(stored(["orders", "created_at"], 0)), at(8), "{times}");
+    assert_eq!(json!(stored(["orders", "created_at"], 1)), at(7), "{times}");
+    assert_eq!(json!(stored(["orders", "updated_at"], 0)), at(0), "{times}");
+    assert_eq!(json!(stored(["orders", "updated_at"], 1)), at(0), "{times}");
+    assert_eq!(json!(stored(["trades", "created_at"], 0)), at(3), "{times}");
+    assert_eq!(
+        json!(stored(["trades", "confirmed_at"], 0)),
+        at(2),
+        "{times}"
+    );
+
+    // One tick event, Python's shape.
+    let mut expected = coverage_event();
+    expected["aggregate_id"] = json!("tick");
+    expected["payload"]["operation"] = json!("tick");
+    assert_eq!(f.demo_events().await, vec![expected]);
+
+    // A rerun of the same tick, by Rust and then by Python, writes nothing.
+    let before = f.snapshot().await;
+    let (report, result) = f
+        .rust_demo(tick + chrono::Duration::seconds(90), Vec::new())
+        .await;
+    result.unwrap();
+    assert_eq!(report.market.tick, Some(TickOutcome::AlreadyGenerated));
+    let python = f.demo_tick(&tick.to_rfc3339()).await;
+    assert_eq!(ok(&python)["created_trades"], 0, "{python}");
+    assert_eq!(
+        ok(&python)["reason"],
+        "already generated for tick",
+        "{python}"
+    );
+    let after = f.snapshot().await;
+    assert_eq!(after["trades"], before["trades"]);
+    assert_eq!(after["orders"], before["orders"]);
+    f.ledger().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn concurrent_demo_ticks_give_one_trade() {
+    use verdaxis_read::order_write::TickOutcome;
+    let mut f = Fixture::new().await;
+    f.demo_organizations().await;
+    let tick = rust_b30_ticks(1)[0] + chrono::Duration::seconds(30);
+    let (first, second) =
+        tokio::join!(f.rust_demo(tick, Vec::new()), f.rust_demo(tick, Vec::new()));
+    let outcomes = [first, second];
+    let created = outcomes
+        .iter()
+        .filter(|(report, _)| matches!(report.market.tick, Some(TickOutcome::Created { .. })))
+        .count();
+    assert_eq!(created, 1, "{outcomes:?}");
+    for (report, result) in &outcomes {
+        // The other tick either found the trade under the locks or was bounded
+        // by them with no effect.
+        let found = report.market.tick == Some(TickOutcome::AlreadyGenerated);
+        let bounded = matches!(result, Err(DemoFailure::Market(DemoMarketFailure::Tick(_))));
+        let won = matches!(report.market.tick, Some(TickOutcome::Created { .. }));
+        assert!(won || found || bounded, "{report:?} {result:?}");
+    }
+    let trades: i64 = sqlx::query_scalar("SELECT count(*) FROM trades WHERE buyer_id = $1::uuid")
+        .bind(DEMO_BUYER_ORG)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(trades, 1);
+    f.ledger().await;
 }

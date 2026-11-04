@@ -453,3 +453,173 @@ pub const DEMO_ACTIVITY_BUYER_ORG_ID: Uuid =
     Uuid::from_u128(0x7cc77115_0a9f_4ec4_8c74_05aa10050111);
 pub const DEMO_ACTIVITY_SELLER_ORG_ID: Uuid =
     Uuid::from_u128(0xd1e43e55_3fb0_4b5e_9f0b_93aa10050222);
+
+// ---- activity tick ---------------------------------------------------------------
+
+/// Python's tick quantities (`_quantity`), in metric tons.
+pub const TICK_QUANTITIES_MT: [i64; 7] = [500, 750, 1000, 1250, 1500, 2000, 2500];
+/// The length of one activity tick: one matched pair per tick at most.
+pub const TICK_SECONDS: i64 = 300;
+
+/// Python's `_activity_tick`: the start of the five-minute tick holding `now`.
+pub fn activity_tick(now: DateTime<Utc>) -> DateTime<Utc> {
+    let seconds = now.timestamp().div_euclid(TICK_SECONDS) * TICK_SECONDS;
+    Utc.timestamp_opt(seconds, 0).single().unwrap_or(now)
+}
+
+/// The tick's draws. Python seeds its Mersenne Twister with the tick key; its
+/// draws are not reproduced (only one owner runs per environment, and the
+/// tick-trade check makes a repeat a no-op). This splitmix64 sequence is
+/// seeded by the same key, so a rerun of one tick draws the same pair.
+struct TickDraws(u64);
+
+impl TickDraws {
+    fn new(tick: DateTime<Utc>) -> Self {
+        Self(tick.timestamp().div_euclid(TICK_SECONDS) as u64)
+    }
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+    fn index(&mut self, length: usize) -> usize {
+        (self.next() % length as u64) as usize
+    }
+    /// A value in `[low, high]`, like Python's `uniform`.
+    fn uniform(&mut self, low: f64, high: f64) -> f64 {
+        let unit = (self.next() >> 11) as f64 / (1u64 << 53) as f64;
+        low + (high - low) * unit
+    }
+}
+
+/// The disclosure of the tick's ask (Python's `_ask_metadata`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TickAsk {
+    pub certification_scheme: &'static str,
+    pub specification_standard: &'static str,
+    pub is_verdaxis_verified: bool,
+    pub carbon_intensity_gco2_mj: Decimal,
+    pub carbon_intensity_method: &'static str,
+    pub energy_density_mj_kg: Decimal,
+    pub feedstock: &'static str,
+    pub origin: String,
+}
+
+/// One tick's matched pair: the slice, the quantity, the midpoint price and
+/// the ask's disclosure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TickChoice {
+    pub tick: DateTime<Utc>,
+    pub product: &'static str,
+    pub port: &'static str,
+    pub window: String,
+    pub quantity_mt: Decimal,
+    pub price_per_mt_usd: Decimal,
+    pub expires_at: DateTime<Utc>,
+    pub ask: TickAsk,
+}
+
+/// Python's `_activity_slice`, `_quantity`, `_price` and `_ask_metadata` for
+/// the tick holding `now`.
+pub fn tick_choice(now: DateTime<Utc>) -> TickChoice {
+    let tick = activity_tick(now);
+    let today = tick.date_naive();
+    let mut draws = TickDraws::new(tick);
+    let book = demo_book();
+    let product = &book.products[draws.index(book.products.len())];
+    let port = &product.ports[draws.index(product.ports.len())];
+    let windows = tradable_windows(today);
+    let window = windows[draws.index(windows.len())].clone();
+    let quantity = Decimal::from(TICK_QUANTITIES_MT[draws.index(TICK_QUANTITIES_MT.len())]);
+    let band = port.band();
+    let bid = seed_price(Side::Bid, band, &window, 0, today);
+    let ask = seed_price(Side::Ask, band, &window, 0, today);
+    let scheme = slice_certification_scheme(&product.name, &port.name, &window);
+    let mut disclosure = TickAsk {
+        certification_scheme: scheme,
+        specification_standard: "ISO 8217 / supplier specification",
+        is_verdaxis_verified: true,
+        carbon_intensity_gco2_mj: two_places(python_round2(
+            draws.uniform(product.ci_low, product.ci_high),
+        )),
+        carbon_intensity_method: "ISCC EU default pathway",
+        energy_density_mj_kg: two_places(product.energy_density_mj_kg),
+        feedstock: "Demo feedstock disclosure",
+        origin: format!("{} demo terminal", port.name),
+    };
+    if let Some(blend) = blend_disclosure(&product.name) {
+        disclosure.specification_standard = blend.specification_standard;
+        disclosure.feedstock = blend.feedstock;
+        disclosure.carbon_intensity_method = blend.carbon_intensity_method;
+        disclosure.is_verdaxis_verified = false;
+    }
+    TickChoice {
+        tick,
+        product: &product.name,
+        port: &port.name,
+        expires_at: window_expiry(&window, tick),
+        window,
+        quantity_mt: quantity,
+        price_per_mt_usd: cents((bid + ask) / Decimal::TWO),
+        ask: disclosure,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(text: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(text)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn the_tick_is_the_five_minute_start_and_its_draw_is_stable() {
+        let start = at("2026-11-04T06:15:00Z");
+        assert_eq!(activity_tick(at("2026-11-04T06:15:00Z")), start);
+        assert_eq!(activity_tick(at("2026-11-04T06:19:59.999Z")), start);
+        assert_eq!(
+            activity_tick(at("2026-11-04T06:20:00Z")),
+            at("2026-11-04T06:20:00Z")
+        );
+        let first = tick_choice(at("2026-11-04T06:15:01Z"));
+        assert_eq!(
+            first,
+            tick_choice(at("2026-11-04T06:19:59Z")),
+            "one tick, one draw"
+        );
+        assert_eq!(first.tick, start);
+        assert!(TICK_QUANTITIES_MT.contains(&first.quantity_mt.try_into().unwrap()));
+        assert_eq!(first.price_per_mt_usd.scale(), 2);
+        assert_eq!(first.expires_at, window_expiry(&first.window, start));
+        let product = demo_book()
+            .products
+            .iter()
+            .find(|product| product.name == first.product)
+            .unwrap();
+        assert!(product.ports.iter().any(|port| port.name == first.port));
+        let ci = first.ask.carbon_intensity_gco2_mj;
+        assert!(ci >= two_places(product.ci_low) && ci <= two_places(product.ci_high));
+    }
+
+    #[test]
+    fn the_tick_price_is_the_book_midpoint() {
+        let choice = tick_choice(at("2026-11-04T06:15:00Z"));
+        let book = demo_book();
+        let port = book
+            .products
+            .iter()
+            .find(|product| product.name == choice.product)
+            .and_then(|product| product.ports.iter().find(|port| port.name == choice.port))
+            .unwrap();
+        let today = choice.tick.date_naive();
+        let bid = seed_price(Side::Bid, port.band(), &choice.window, 0, today);
+        let ask = seed_price(Side::Ask, port.band(), &choice.window, 0, today);
+        assert!(bid <= choice.price_per_mt_usd && choice.price_per_mt_usd <= ask);
+        assert_eq!(choice.price_per_mt_usd, cents((bid + ask) / Decimal::TWO));
+    }
+}
