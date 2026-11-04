@@ -695,18 +695,19 @@
       "id": "unit.deploy/external_monitor/systemd/verdaxis-recover.service",
       "source": "deploy/external_monitor/systemd/verdaxis-recover.service",
       "kind": "unit",
-      "end_state": "rust",
-      "owner": "recover",
-      "task": 30,
+      "end_state": "gone",
+      "owner": "Task 32 removal owner",
+      "task": 32,
       "source_sha256": "f83b70150b94bbd38cbbf70749ced983344574d6331db67b27864d7137a5fca2",
       "status": "planned",
       "evidence": [
         "test_phase10_units_are_exactly_41",
         "no_unit_contains_python_or_a_venv_path"
       ],
-      "deleting_task": null,
+      "deleting_task": 32,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
-      "installed_check": "systemctl cat verdaxis-recover.service"
+      "installed_check": "systemctl cat verdaxis-recover.service",
+      "last_reference_change": "Decision 203: automatic recovery retired (masked on the shared host, absent on EU production); crash gaps closed by systemd restart drop-ins and the serve watchdog; Task 32 removes the files"
     }
   ]
 }

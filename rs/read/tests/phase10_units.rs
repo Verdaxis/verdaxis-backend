@@ -547,3 +547,24 @@ fn monitor_units_exec_the_digest_pinned_host_copy() {
         assert!(listed.contains(&name), "{name}");
     }
 }
+
+/// Decision 203: Caddy and the PostgreSQL cluster restart after an abnormal
+/// exit on the production host (their distribution units have Restart=no).
+#[test]
+fn host_service_overrides_restart_on_failure() {
+    for unit in ["caddy.service", "postgresql@17-main.service"] {
+        let text = std::fs::read_to_string(repository().join(format!(
+            "deploy/systemd/overrides/{unit}.d/10-verdaxis-restart.conf"
+        )))
+        .unwrap();
+        let settings: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.is_empty())
+            .collect();
+        assert_eq!(
+            settings,
+            ["[Service]", "Restart=on-failure", "RestartSec=5s"],
+            "{unit}"
+        );
+    }
+}
