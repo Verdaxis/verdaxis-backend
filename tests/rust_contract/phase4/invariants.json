@@ -5807,7 +5807,7 @@
     },
     {
       "path": "tests/unit/test_kyc_key_source_preflight.py",
-      "sha256": "6813371fd2a95aeabeffaa18b6c42656a430fd30375372c1dfd766e0f3e7a6f6",
+      "sha256": "a7294640385b0ba9f21c4c1609192203c3c11129f5c8b4e8456f0da58531c9db",
       "definitions": [
         {
           "id": "P4_SRC_113",
