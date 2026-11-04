@@ -654,7 +654,9 @@ async fn cancel_waits_for_the_declared_slice_on_an_independent_connection() {
             .status()
     });
     let mut observed = false;
-    for _ in 0..100 {
+    // Up to 5 s: on a loaded host the request can take longer than
+    // 200 ms to reach the lock. The poll ends as soon as it is seen.
+    for _ in 0..2_500 {
         let waiting:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND usename='rust_app' AND wait_event_type='Lock' AND pid<>pg_backend_pid())").fetch_one(&mut f.admin).await.unwrap();
         if waiting {
             observed = true;

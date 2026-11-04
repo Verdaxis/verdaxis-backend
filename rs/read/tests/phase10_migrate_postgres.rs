@@ -919,9 +919,16 @@ async fn migrate_and_app_request_do_not_half_apply() {
     let second = migrator_with_second_migration(two_changes).await;
     let rules = policy(&[("sqlx_1", "sqlx_2")]);
     // Both changes, read by the application in one statement (one snapshot).
-    let observe = "SELECT to_regclass('public.migrate_probe') IS NOT NULL, \
-                   EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.products'::regclass \
-                           AND attname = 'migrate_probe_flag' AND NOT attisdropped)";
+    // Both facts are read from the catalog tables under the statement's one
+    // snapshot. `to_regclass` would consult the catalog cache instead, whose
+    // view can differ from the snapshot and show a torn pair on its own.
+    let observe = "SELECT EXISTS (SELECT 1 FROM pg_class c \
+                                  JOIN pg_namespace n ON n.oid = c.relnamespace \
+                                  WHERE n.nspname = 'public' AND c.relname = 'migrate_probe'), \
+                   EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
+                           JOIN pg_namespace n ON n.oid = c.relnamespace \
+                           WHERE n.nspname = 'public' AND c.relname = 'products' \
+                             AND a.attname = 'migrate_probe_flag' AND NOT a.attisdropped)";
 
     // 1. An application lock blocks the migration: it fails whole, with no
     //    history row and neither change.

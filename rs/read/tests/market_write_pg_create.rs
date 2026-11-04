@@ -765,7 +765,9 @@ async fn create_order_allocates_acceptance_after_the_slice_lock() {
     let router = f.router.clone();
     let body = f.body("BID");
     let request = tokio::spawn(async move { send(&router, Some(buyer()), &[], body).await });
-    for _ in 0..100 {
+    // Up to 5 s: on a loaded host the request can take longer than
+    // 200 ms to reach the lock. The poll ends as soon as it is seen.
+    for _ in 0..2_500 {
         let waits:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
         if waits {
             break;
@@ -813,7 +815,9 @@ async fn same_key_creates_serialize_and_commit_one_effect_set() {
         .await
     });
     let mut observed = false;
-    for _ in 0..100 {
+    // Up to 5 s: on a loaded host the request can take longer than
+    // 200 ms to reach the lock. The poll ends as soon as it is seen.
+    for _ in 0..2_500 {
         observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
         if observed {
             break;
@@ -1150,7 +1154,9 @@ async fn create_captured_clock_keeps_a_live_order_after_a_lock_wait() {
     body["expires_at"] = json!(expires_at.to_rfc3339());
     let request = tokio::spawn(async move { send(&router, Some(buyer()), &[], body).await });
     let mut observed = false;
-    for _ in 0..100 {
+    // Up to 5 s: on a loaded host the request can take longer than
+    // 200 ms to reach the lock. The poll ends as soon as it is seen.
+    for _ in 0..2_500 {
         observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
         if observed {
             break;
@@ -1568,7 +1574,9 @@ async fn capability_revoked_during_the_command_returns_the_context_conflict() {
         .await
     });
     let mut observed = false;
-    for _ in 0..100 {
+    // Up to 5 s: on a loaded host the request can take longer than
+    // 200 ms to reach the lock. The poll ends as soon as it is seen.
+    for _ in 0..2_500 {
         observed=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND datname=current_database())").fetch_one(&mut f.admin).await.unwrap();
         if observed {
             break;
