@@ -49,4 +49,4 @@ export RUST_ABILITIES_TEMPLATE_DATABASE="$template"
 # CARGO_RUNNER carries the caller's shared target-directory lock.
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test abilities_postgres -- --include-ignored --test-threads=1
+  --features contract-tests --test abilities_postgres --test abilities_http -- --include-ignored --test-threads=1
