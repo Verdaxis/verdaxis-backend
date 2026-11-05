@@ -3,7 +3,11 @@
 #[path = "support/market_database.rs"]
 mod market_database;
 
-use axum::{Router, body::{Body, to_bytes}, http::{Request, StatusCode}};
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use chrono::Utc;
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
@@ -13,20 +17,40 @@ use verdaxis_read::{AppState, Config, compiled_sha};
 
 const SECRET: &str = "abilities-synthetic-secret-at-least-32-characters";
 const ACTIONS: [&str; 23] = [
-    "place_bid_order", "place_ask_order", "amend_order", "cancel_order",
-    "hit_ask_order", "hit_bid_order", "confirm_trade", "deliver_trade", "pay_trade",
-    "manage_inventory", "publish_inventory", "create_rfq", "quote_rfq",
-    "view_admin_analytics", "view_audit_log", "view_user_activity", "view_feedback",
-    "manage_subscriptions", "manage_accounts", "review_kyc", "manage_commissions",
-    "market_support_access", "market_support_assisted_orders",
+    "place_bid_order",
+    "place_ask_order",
+    "amend_order",
+    "cancel_order",
+    "hit_ask_order",
+    "hit_bid_order",
+    "confirm_trade",
+    "deliver_trade",
+    "pay_trade",
+    "manage_inventory",
+    "publish_inventory",
+    "create_rfq",
+    "quote_rfq",
+    "view_admin_analytics",
+    "view_audit_log",
+    "view_user_activity",
+    "view_feedback",
+    "manage_subscriptions",
+    "manage_accounts",
+    "review_kyc",
+    "manage_commissions",
+    "market_support_access",
+    "market_support_assisted_orders",
 ];
 
 fn token(user: Uuid) -> String {
     let now = Utc::now().timestamp();
-    jsonwebtoken::encode(&jsonwebtoken::Header::default(),
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
         &json!({"sub":user,"type":"access","iat":now-1,"exp":now+600,
                 "iss":"abilities-test","aud":"abilities-test"}),
-        &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes())).unwrap()
+        &jsonwebtoken::EncodingKey::from_secret(SECRET.as_bytes()),
+    )
+    .unwrap()
 }
 
 async fn application(url: &str, gate: bool) -> (Router, sqlx::PgPool, sqlx::PgPool) {
@@ -39,27 +63,56 @@ async fn application(url: &str, gate: bool) -> (Router, sqlx::PgPool, sqlx::PgPo
         "frontend_url":"https://app.example.test","email_from":"team@example.test",
         "resend_api_key":"synthetic","auth_domain_datasets":"null"}
     })).unwrap();
-    let read = PgPoolOptions::new().max_connections(4).connect(url).await.unwrap();
-    let health = PgPoolOptions::new().max_connections(1).connect(url).await.unwrap();
-    let state = AppState::new(config, verdaxis_read::runtime::db::Pools {
-        read:read.clone(), health:health.clone(),
-    }, serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap()).unwrap();
+    let read = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(url)
+        .await
+        .unwrap();
+    let health = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(url)
+        .await
+        .unwrap();
+    let state = AppState::new(
+        config,
+        verdaxis_read::runtime::db::Pools {
+            read: read.clone(),
+            health: health.clone(),
+        },
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap(),
+    )
+    .unwrap();
     (verdaxis_read::router(state), read, health)
 }
 
-async fn get(app: &Router, path: &str, bearer: Option<&str>) -> (StatusCode, axum::http::HeaderMap, Value) {
+async fn get(
+    app: &Router,
+    path: &str,
+    bearer: Option<&str>,
+) -> (StatusCode, axum::http::HeaderMap, Value) {
     let mut request = Request::builder().uri(path);
-    if let Some(bearer) = bearer { request = request.header("authorization",format!("Bearer {bearer}")); }
-    let response = app.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+    if let Some(bearer) = bearer {
+        request = request.header("authorization", format!("Bearer {bearer}"));
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
     let status = response.status();
     let headers = response.headers().clone();
-    let bytes = to_bytes(response.into_body(), 1<<20).await.unwrap();
+    let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
     (status, headers, serde_json::from_slice(&bytes).unwrap())
 }
 
 fn reason<'a>(payload: &'a Value, action: &str) -> Option<&'a str> {
-    payload["abilities"].as_array().unwrap().iter().find(|row| row["action"] == action)
-        .unwrap()["reason_code"].as_str()
+    payload["abilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["action"] == action)
+        .unwrap()["reason_code"]
+        .as_str()
 }
 
 #[tokio::test]
@@ -76,34 +129,75 @@ async fn authenticated_shape_policy_switch_and_password_boundary() {
     let bearer = token(user);
     for gate in [false, true] {
         let (app, read, health) = application(&database.runtime_url, gate).await;
-        assert_eq!(get(&app,"/api/auth/me/abilities",None).await.0, StatusCode::UNAUTHORIZED);
-        let (status, headers, body) = get(&app,"/api/auth/me/abilities",Some(&bearer)).await;
+        assert_eq!(
+            get(&app, "/api/auth/me/abilities", None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let (status, headers, body) = get(&app, "/api/auth/me/abilities", Some(&bearer)).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(headers["cache-control"], "no-store");
         assert_eq!(body["schema_version"], 1);
         let rows = body["abilities"].as_array().unwrap();
-        assert_eq!(rows.iter().map(|row|row["action"].as_str().unwrap()).collect::<Vec<_>>(), ACTIONS);
+        assert_eq!(
+            rows.iter()
+                .map(|row| row["action"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ACTIONS
+        );
         for row in rows {
-            assert_eq!(row.as_object().unwrap().len(),4);
+            assert_eq!(row.as_object().unwrap().len(), 4);
             let allowed = row["allowed"].as_bool().unwrap();
             assert_eq!(row["reason_code"].is_null(), allowed);
             assert_eq!(row["reason"].is_null(), allowed);
-            if !allowed { assert!(!row["reason"].as_str().unwrap().is_empty()); }
+            if !allowed {
+                assert!(!row["reason"].as_str().unwrap().is_empty());
+            }
         }
-        assert_eq!(reason(&body,"place_bid_order"),gate.then_some("KYC_REQUIRED"));
-        assert_eq!(reason(&body,"cancel_order"),None);
-        assert_eq!(reason(&body,"deliver_trade"),None);
-        for action in ["create_rfq","quote_rfq"] {
-            assert_eq!(reason(&body,action),Some("ACTION_RETIRED"));
-            let row = rows.iter().find(|row|row["action"] == action).unwrap();
-            assert_eq!(row["reason"],"This feature has been retired.");
+        assert_eq!(
+            reason(&body, "place_bid_order"),
+            gate.then_some("KYC_REQUIRED")
+        );
+        assert_eq!(reason(&body, "cancel_order"), None);
+        assert_eq!(reason(&body, "deliver_trade"), None);
+        for action in ["create_rfq", "quote_rfq"] {
+            assert_eq!(reason(&body, action), Some("ACTION_RETIRED"));
+            let row = rows.iter().find(|row| row["action"] == action).unwrap();
+            assert_eq!(row["reason"], "This feature has been retired.");
         }
-        // The endpoint performs no INSERT/UPDATE: read-only grants suffice.
-        sqlx::query("UPDATE users SET must_change_password=true WHERE id=$1").bind(user).execute(&mut admin).await.unwrap();
-        assert_eq!(get(&app,"/api/auth/me",Some(&bearer)).await.0,StatusCode::OK);
-        let (status, _, body) = get(&app,"/api/auth/me/abilities",Some(&bearer)).await;
-        assert_eq!(status,StatusCode::FORBIDDEN,"{body}");
-        sqlx::query("UPDATE users SET must_change_password=false WHERE id=$1").bind(user).execute(&mut admin).await.unwrap();
+        // Forced-password profile reads are allowed, but ability hints are not.
+        sqlx::query("UPDATE users SET must_change_password=true WHERE id=$1")
+            .bind(user)
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        assert_eq!(
+            get(&app, "/api/auth/me", Some(&bearer)).await.0,
+            StatusCode::OK
+        );
+        let (status, _, body) = get(&app, "/api/auth/me/abilities", Some(&bearer)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        sqlx::query("UPDATE users SET must_change_password=false WHERE id=$1")
+            .bind(user)
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE users SET role='ADMIN' WHERE id=$1")
+            .bind(user)
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let (status, _, staff) = get(&app, "/api/auth/me/abilities", Some(&bearer)).await;
+        assert_eq!(status, StatusCode::OK, "{staff}");
+        assert_eq!(reason(&staff, "manage_accounts"), None);
+        assert_eq!(
+            reason(&staff, "market_support_access"),
+            Some("MARKET_SUPPORT_DISABLED")
+        );
+        sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1")
+            .bind(user)
+            .execute(&mut admin)
+            .await
+            .unwrap();
         read.close().await;
         health.close().await;
     }

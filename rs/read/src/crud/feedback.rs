@@ -236,7 +236,12 @@ async fn list_feedback(State(state): State<AppState>, request: Request) -> Respo
             Box::pin(async move {
                 // `require_role` reads current state before the endpoint's own
                 // query parameters are validated, so the role check comes first.
-                if transaction.actor().role.as_deref() != Some("ADMIN") {
+                if crate::order_write::party_policy::role_denial(
+                    transaction.actor().role.as_deref(),
+                    "ADMIN",
+                )
+                .is_some()
+                {
                     return Err(forbidden());
                 }
                 // A GET has no body; the shared seam still enforces typed

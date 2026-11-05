@@ -554,8 +554,12 @@ impl MarketCommand for AmendCommand {
             .await?;
             // The legacy administrator workspace is closed for self-service
             // amendment, as the source refuses it before preparing a command.
-            if self.settings.support_enabled
-                && authenticated.account().role == super::authority::ActorRole::Admin
+            if super::party_policy::legacy_admin_denial(
+                Some(authenticated.account().role.as_str()),
+                self.settings.support_enabled,
+                false,
+            )
+            .is_some()
             {
                 return Err(MarketWriteError::new(
                     MarketErrorCode::MarketSupportLegacyMutationRetired,

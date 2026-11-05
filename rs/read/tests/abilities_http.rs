@@ -1,5 +1,8 @@
 //! Abilities are mounted with authentication, not the public read fallback.
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use tower::ServiceExt;
 use verdaxis_read::{AppState, Config};
 
@@ -15,15 +18,28 @@ async fn abilities_require_the_same_bearer_authentication_as_me() {
         "jwt_issuer":"test", "jwt_audience":"test", "frontend_url":"https://app.example.test",
         "email_from":"team@example.test", "resend_api_key":"synthetic", "auth_domain_datasets":"null"}
     })).unwrap();
-    let pool = |size| sqlx::postgres::PgPoolOptions::new().max_connections(size)
-        .connect_lazy(&config.database_url).unwrap();
-    let state = AppState::new(config.clone(), verdaxis_read::runtime::db::Pools {
-        read: pool(2), health: pool(1),
-    }, serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap()).unwrap();
+    let pool = |size| {
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(size)
+            .connect_lazy(&config.database_url)
+            .unwrap()
+    };
+    let state = AppState::new(
+        config.clone(),
+        verdaxis_read::runtime::db::Pools {
+            read: pool(2),
+            health: pool(1),
+        },
+        serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap(),
+    )
+    .unwrap();
     let app = verdaxis_read::router(state);
     for path in ["/api/auth/me", "/api/auth/me/abilities"] {
-        let response = app.clone().oneshot(Request::builder().uri(path)
-            .body(Body::empty()).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
         assert_eq!(response.headers()["www-authenticate"], "Bearer");
     }
