@@ -5,10 +5,11 @@ synthetic fixtures here and, after the W5 release, on the real post-deletion
 tree. The fixtures are synthetic data: nothing here imports, starts or
 deletes the application, and no host is contacted.
 
-RED is the pre tree (``app/`` still present, a Python Caddy fallback, the
-backend units installed). GREEN is the post tree (the W5 end state). Both
-runs use the same checks, so a check that stops being able to fail is a
-broken check.
+The pre tree still has ``app/``, a Python Caddy fallback and the backend
+units; the post tree is the W5 end state. Every check must pass on the post
+tree and report a failure on the pre tree, except the two checks that state
+rules holding in both states. A check that cannot fail on the pre tree is a
+broken check, so the normal test run fails in that case.
 """
 
 import ast
@@ -101,9 +102,31 @@ def surface_files(root):
 TREE_ROOTS = {"pre": PRE, "post": POST}
 
 
+# These two checks describe rules that hold before and after W5, so they pass
+# on both trees. Every other check must report a failure on the pre tree.
+CHECKS_THAT_HOLD_ON_BOTH_TREES = frozenset({
+    "check_host_python_cleanup_removes_only_verdaxis_owned_paths",
+    "check_daily_backup_and_staging_pull_still_run",
+})
+
+
 @pytest.fixture(params=list(TREE_ROOTS.values()), ids=list(TREE_ROOTS))
 def root(request):
     return request.param
+
+
+def assert_check(check, root):
+    """Pass on the post tree; on the pre tree, require the check to report a failure.
+
+    A check that passes on the pre tree can no longer detect the state that
+    W5 removes, so that is a test failure too.
+    """
+    expect_failure = root == PRE and check.__name__ not in CHECKS_THAT_HOLD_ON_BOTH_TREES
+    if not expect_failure:
+        check(root)
+        return
+    with pytest.raises(AssertionError):
+        check(root)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +141,7 @@ def check_python_application_tree_is_absent(root):
 
 
 def test_python_application_tree_is_absent(root):
-    check_python_application_tree_is_absent(root)
+    assert_check(check_python_application_tree_is_absent, root)
 
 
 # ---------------------------------------------------------------------------
@@ -133,7 +156,7 @@ def check_no_installed_reference_to_a_deleted_python_path(root):
 
 
 def test_no_installed_reference_to_a_deleted_python_path(root):
-    check_no_installed_reference_to_a_deleted_python_path(root)
+    assert_check(check_no_installed_reference_to_a_deleted_python_path, root)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +177,7 @@ def check_no_caddy_upstream_or_route_points_at_python(root):
 
 
 def test_no_caddy_upstream_or_route_points_at_python(root):
-    check_no_caddy_upstream_or_route_points_at_python(root)
+    assert_check(check_no_caddy_upstream_or_route_points_at_python, root)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +205,7 @@ def check_phase7_routes_have_their_recorded_end_state(root):
 
 
 def test_phase7_routes_have_their_recorded_end_state(root):
-    check_phase7_routes_have_their_recorded_end_state(root)
+    assert_check(check_phase7_routes_have_their_recorded_end_state, root)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +242,7 @@ def check_alembic_history_is_inert_and_unreferenced(root):
 
 
 def test_alembic_history_is_inert_and_unreferenced(root):
-    check_alembic_history_is_inert_and_unreferenced(root)
+    assert_check(check_alembic_history_is_inert_and_unreferenced, root)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +261,7 @@ def check_ci_harness_does_not_import_the_deleted_application(root):
 
 
 def test_ci_harness_does_not_import_the_deleted_application(root):
-    check_ci_harness_does_not_import_the_deleted_application(root)
+    assert_check(check_ci_harness_does_not_import_the_deleted_application, root)
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +298,7 @@ def check_python_tests_that_import_app_are_removed_or_offhost(root):
 
 
 def test_python_tests_that_import_app_are_removed_or_offhost(root):
-    check_python_tests_that_import_app_are_removed_or_offhost(root)
+    assert_check(check_python_tests_that_import_app_are_removed_or_offhost, root)
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +319,7 @@ def check_host_python_cleanup_removes_only_verdaxis_owned_paths(root):
 
 
 def test_host_python_cleanup_removes_only_verdaxis_owned_paths(root):
-    check_host_python_cleanup_removes_only_verdaxis_owned_paths(root)
+    assert_check(check_host_python_cleanup_removes_only_verdaxis_owned_paths, root)
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +341,7 @@ def check_staging_is_cleaned_before_production(root):
 
 
 def test_staging_is_cleaned_before_production(root):
-    check_staging_is_cleaned_before_production(root)
+    assert_check(check_staging_is_cleaned_before_production, root)
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +375,7 @@ def check_old_timer_and_new_job_do_not_duplicate(root):
 
 
 def test_old_timer_and_new_job_do_not_duplicate(root):
-    check_old_timer_and_new_job_do_not_duplicate(root)
+    assert_check(check_old_timer_and_new_job_do_not_duplicate, root)
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +392,7 @@ def check_previous_release_artifact_still_starts(root):
 
 
 def test_previous_release_artifact_still_starts(root):
-    check_previous_release_artifact_still_starts(root)
+    assert_check(check_previous_release_artifact_still_starts, root)
 
 
 # ---------------------------------------------------------------------------
@@ -398,7 +421,7 @@ def check_daily_backup_and_staging_pull_still_run(root):
 
 
 def test_daily_backup_and_staging_pull_still_run(root):
-    check_daily_backup_and_staging_pull_still_run(root)
+    assert_check(check_daily_backup_and_staging_pull_still_run, root)
 
 
 # ---------------------------------------------------------------------------
