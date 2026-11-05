@@ -180,6 +180,21 @@ run() {
         --acceptance-public-key "$work/private/acceptance-pub" > "$work/out" 2> "$work/err"
 }
 inventory_approval=$(sha256sum "$work/private/inventory" | cut -d ' ' -f 1)
+# Root recovery must reject executable Git configuration before any status call.
+printf '#!/bin/sh\ntouch "%s/fsmonitor-executed"\n' "$work" > "$work/fsmonitor"
+chmod 0755 "$work/fsmonitor"
+git -C "$checkout" config core.fsmonitor "$work/fsmonitor"
+if run capture --inventory "$work/private/inventory" --manifest-sha256 "$inventory_approval"; then exit 1; fi
+grep -q 'inert recovery allowlist' "$work/err"
+[[ ! -e $work/fsmonitor-executed ]]
+git -C "$checkout" config --unset core.fsmonitor
+mv "$checkout/.git" "$work/redirect.git"
+printf 'gitdir: %s\n' "$work/redirect.git" > "$checkout/.git"
+if run capture --inventory "$work/private/inventory" --manifest-sha256 "$inventory_approval"; then exit 1; fi
+grep -q 'canonical Git directory must be a real directory' "$work/err"
+rm "$checkout/.git"
+mv "$work/redirect.git" "$checkout/.git"
+printf 'ok privileged recovery refuses executable config and redirected metadata\n'
 run capture --inventory "$work/private/inventory" --manifest-sha256 "$inventory_approval"
 approval=$(sha256sum "$bundle/manifest.json" | cut -d ' ' -f 1)
 run verify --manifest-sha256 "$approval"
