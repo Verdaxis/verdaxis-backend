@@ -1,4 +1,4 @@
-pub use verdaxis_read::{ApiError, AppState, auth, business};
+pub use verdaxis_read::{ApiError, AppState, auth, business, market_party_policy};
 
 #[allow(dead_code)]
 #[path = "../src/subscriptions/fees.rs"]

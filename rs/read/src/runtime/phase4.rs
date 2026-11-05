@@ -67,6 +67,7 @@ pub fn routes(app: &AppState, limits: auth::limits::SharedLimits) -> Option<Rout
     .expect("validated seller fee configuration");
     let provider = super::phase4_analytics::provider(app);
     let stateful = Router::new()
+        .merge(auth::abilities::routes())
         .merge(business::profile::routes(
             business::profile::ProfileAuthority::new(
                 settings.verification.clone(),

@@ -180,6 +180,22 @@ keys disable evidence storage/download without changing readiness. The exact
 method/path selector is `deploy/caddy/rust-phase4.caddy`; AI chat stays on Python.
 The following component sections describe their local exports, not activation.
 
+## Rust user abilities
+
+`auth/abilities.rs`, mounted with the auth/profile composition, serves read-only
+`GET /api/auth/me/abilities` with schema version 1 and `Cache-Control: no-store`.
+It uses the current authenticated transaction and the same user lock as Rust
+`/auth/me`. `order_write/party_policy.rs` provides extracted admission, role and
+provenance predicates consumed by both commands and hints through the narrow
+pure `market_party_policy` export; `kyc/policy.rs` owns
+the shared KYC truth table and `order_write/support.rs` owns current capabilities.
+RFQ action IDs remain but always deny with `ACTION_RETIRED`. The independent
+exact Caddy selector is `deploy/caddy/rust-abilities.caddy`; its route inventory
+is `tests/rust_contract/abilities/routes.json`. See `docs/user-abilities.md` for
+precedence and the deliberate differences from the closed Python reference.
+`abilities_policy.rs`, `abilities_http.rs` and the migrated disposable
+`abilities_postgres.rs` acceptance test cover this contract.
+
 ## Rust market write serving composition
 
 `runtime/market_write.rs` mounts the 43 market operations (orders, inventory,

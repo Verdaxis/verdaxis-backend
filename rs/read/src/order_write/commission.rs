@@ -186,7 +186,9 @@ impl MarketCommand for CommissionCommand {
         actor: &'a AuthenticatedActor,
     ) -> BoxFuture<'a, Result<Self::Output, MarketAttemptError>> {
         Box::pin(async move {
-            if actor.account().role != ActorRole::Admin {
+            if super::party_policy::role_denial(Some(actor.account().role.as_str()), "ADMIN")
+                .is_some()
+            {
                 return Ok(CommissionResult::refusal(
                     403,
                     "ADMIN_REQUIRED",

@@ -441,6 +441,11 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_offboarding_acceptance.sh
+      - name: Abilities on a migrated database, and hint parity with the enforcing routes
+        if: matrix.check == 'postgres'
+        env:
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_abilities.sh
 
       - name: Run every Phase 2 route scenario and race schedule
         if: matrix.check == 'phase2'

@@ -355,7 +355,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "16355b43c03ce0fe2598e4d7e73e95454c2be22a976bb20001a8d743489f04a8",
+      "source_sha256": "c3c80305a24b39ec58aa9e6df9b881830b38ce7e0f95d30da15f3e36f2279baf",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -4787,7 +4787,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "16355b43c03ce0fe2598e4d7e73e95454c2be22a976bb20001a8d743489f04a8",
+      "source_sha256": "c3c80305a24b39ec58aa9e6df9b881830b38ce7e0f95d30da15f3e36f2279baf",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -6034,6 +6034,103 @@
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "systemctl cat verdaxis-rust.service"
+    },
+    {
+      "id": "rust-source.rs/read/src/auth/abilities.rs",
+      "source": "rs/read/src/auth/abilities.rs",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "Rust authentication abilities",
+      "task": 32,
+      "source_sha256": "b2b7202a9b5d407e879fafee00bdf717a9b41e6647add55f4dc612ea99e3c262",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the previous signed Rust release and reviewed route configuration before W5.",
+      "installed_check": "Task 31 full rehearsal and Task 32 all-groups window must exercise abilities and shared party admission; retained Rust source is not a Python deletion target."
+    },
+    {
+      "id": "rust-source.rs/read/src/order_write/party_policy.rs",
+      "source": "rs/read/src/order_write/party_policy.rs",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "Shared Rust order party admission",
+      "task": 32,
+      "source_sha256": "f6e2bc0b5bd1a5664ddb41cf88325c160a970f8fee619fb0b2185201f529754a",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the previous signed Rust release and reviewed route configuration before W5.",
+      "installed_check": "Task 31 full rehearsal and Task 32 all-groups window must exercise abilities and shared party admission; retained Rust source is not a Python deletion target."
+    },
+    {
+      "id": "test-source.rs/read/tests/abilities_http.rs",
+      "source": "rs/read/tests/abilities_http.rs",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
+      "task": 31,
+      "source_sha256": "dc372c1228c0d30507e4539a4a0d6cd0f072f1fc1262e9cf9aec9ea918b1906d",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain regression tests with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source."
+    },
+    {
+      "id": "test-source.rs/read/tests/abilities_policy.rs",
+      "source": "rs/read/tests/abilities_policy.rs",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
+      "task": 31,
+      "source_sha256": "9fde88b1d2aaf3581651f91ffb78e290ba69d0c6121510be5071c2b164dd81e6",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain regression tests with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source."
+    },
+    {
+      "id": "test-source.rs/read/tests/abilities_postgres.rs",
+      "source": "rs/read/tests/abilities_postgres.rs",
+      "kind": "script",
+      "end_state": "rust",
+      "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
+      "task": 31,
+      "source_sha256": "c24b526be7fd3efc21572778d85bce45f82042df64518a3ad4721e4640ffece6",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain regression tests with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source."
+    },
+    {
+      "id": "test-source.tests/rust_contract/test_abilities_routing.py",
+      "source": "tests/rust_contract/test_abilities_routing.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
+      "task": 31,
+      "source_sha256": "947056fd6160f38e7558b21fbfae54fc5f6cfe17128dc6a428613fe1abab4fdc",
+      "status": "planned",
+      "evidence": [
+        "no_caddy_upstream_or_route_points_at_python"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain regression tests with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
+      "offhost_location": "Repository tests/rust_contract/test_abilities_routing.py; CI and disposable test environments only, never installed on serving hosts."
     }
   ],
   "phase": "pre-removal",

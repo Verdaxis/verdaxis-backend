@@ -7,7 +7,9 @@ use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 pub use verdaxis_read::business::{admission, audit, error, transaction};
-pub use verdaxis_read::{ApiError, AppState, Config, MarketPolicy, auth, runtime};
+pub use verdaxis_read::{
+    ApiError, AppState, Config, MarketPolicy, auth, market_party_policy, runtime,
+};
 #[path = "../src/business/joins.rs"]
 pub mod joins;
 #[path = "../src/business/membership.rs"]

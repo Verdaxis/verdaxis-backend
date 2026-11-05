@@ -352,6 +352,7 @@
 - **Trigger:** Isolated app-role RFQ tests passed after manual database setup, but CI failed because its market database never received ACL convergence after migration.
 - **Rule:** Run the repository's complete disposable PostgreSQL runner when adding app-role route tests. Migrate each test database before applying and validating its exact ACL policy; keep migration-head assertions current.
 - **Why:** Manual setup can supply permissions absent from CI and conceal a test-harness ordering defect.
+- **Abilities review correction (2026-11-05):** A hint route needs migrated account/KYC/provenance cases and comparisons with real enforcing routes, not only pure policy tests. Register ignored inventory/support suites with migrated templates in the CI runner. Shared-helper extraction must also update direct-source test module declarations; compile all targets, not only the library, before reporting clippy or regression acceptance.
 
 ### Verify The Verdaxis Host And Login Account
 - **Date:** 2026-09-22

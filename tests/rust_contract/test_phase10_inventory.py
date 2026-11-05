@@ -201,6 +201,27 @@ def test_phase10_no_row_is_ownerless_or_untested():
     assert manifest["results"] == [], "Task 1 is an evidence plan, not gate acceptance"
 
 
+def test_phase10_retains_the_rust_only_abilities_route_and_shared_party_policy():
+    rows = document("removal-ledger")["artifacts"]
+    retained = {row["source"]: row for row in rows if row["id"].startswith("rust-source.")}
+    assert set(retained) == {
+        "rs/read/src/auth/abilities.rs",
+        "rs/read/src/order_write/party_policy.rs",
+    }
+    assert all(row["end_state"] == "rust" and row["deleting_task"] is None
+               for row in retained.values())
+    abilities = json.loads((ROOT / "tests/rust_contract/abilities/routes.json").read_text())
+    assert abilities["owner"] == "rust"
+    assert abilities["routes"] == [
+        {"method": method, "path": "/api/auth/me/abilities", "auth": "current_user"}
+        for method in ("GET", "HEAD", "OPTIONS")
+    ]
+    snippet = (ROOT / "deploy/caddy/rust-abilities.caddy").read_text()
+    assert "/api/auth/me/abilities" in snippet
+    assert "rust-abilities.caddy" in (ROOT / "tests/rust_contract/test_phase89_switch.py").read_text()
+    assert (ROOT / "rs/read/src/auth/abilities.rs").read_text().count("sqlx::query!") == 0
+
+
 def test_phase10_inventory_rejects_missing_and_duplicate_dispositions():
     rows = document("removal-ledger")["artifacts"]
     assert rows, "missing disposition rows"
@@ -653,6 +674,16 @@ ROUND4_REQUIREMENTS = {
 
 
 SUPPLEMENTAL_GROUPS = {
+    'abilities-tests': {
+        'test-source.rs/read/tests/abilities_http.rs': 'rs/read/tests/abilities_http.rs',
+        'test-source.rs/read/tests/abilities_policy.rs': 'rs/read/tests/abilities_policy.rs',
+        'test-source.rs/read/tests/abilities_postgres.rs': 'rs/read/tests/abilities_postgres.rs',
+        'test-source.tests/rust_contract/test_abilities_routing.py': 'tests/rust_contract/test_abilities_routing.py',
+    },
+    'rust-runtime': {
+        'rust-source.rs/read/src/auth/abilities.rs': 'rs/read/src/auth/abilities.rs',
+        'rust-source.rs/read/src/order_write/party_policy.rs': 'rs/read/src/order_write/party_policy.rs',
+    },
     'mounts': {
         'artifact.app/main.py': 'app/main.py',
     },
@@ -683,7 +714,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = 'eb1c8d87573401ad7e511e4e28bd81d427e8c75d91a53a5e1525c89180d40816'
+PINNED_SOURCE_IDENTITIES = '4554852cea059640cca3a8383fde7a9d80789abe94f5dc6076f9f9afc3c23946'
 
 
 def validate_inventory_contract(ledger, manifest):
