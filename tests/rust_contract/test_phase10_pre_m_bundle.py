@@ -30,10 +30,11 @@ class PreMReleaseBundle(unittest.TestCase):
 
     def test_root_git_trust_is_limited_to_the_canonical_checkout(self):
         source = SCRIPT.read_text()
-        self.assertIn('safe.directory=$checkout', source)
-        self.assertIn('GIT_CONFIG_GLOBAL=/dev/null', source)
-        self.assertIn('core.hooksPath=/dev/null', source)
-        self.assertIn('core.fsmonitor=false', source)
+        helper = (ROOT / 'deploy/scripts/safe-root-git.sh').read_text()
+        self.assertIn('safe_root_git "$checkout"', source)
+        self.assertIn('GIT_CONFIG_GLOBAL=/dev/null', helper)
+        self.assertIn('core.hooksPath=/dev/null', helper)
+        self.assertIn('core.fsmonitor=false', helper)
         self.assertIn('canonical Git directory must be a real directory', source)
         self.assertIn('Git configuration outside the inert recovery allowlist', source)
 

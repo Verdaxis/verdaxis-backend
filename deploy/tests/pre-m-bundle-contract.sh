@@ -16,9 +16,12 @@ chmod 0700 "$work" "$work/private"
 # Replace only the trusted PATH in the disposable copy so adapter commands
 # cannot become a runtime option or ambient production override.
 perl -pe 's@^export PATH=.*$@export PATH='"$work"'/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin@' "$script" > "$work/trusted/scripts/pre-m-bundle.sh"
+cp "$ROOT/deploy/scripts/safe-root-git.sh" "$work/trusted/scripts/"
 cp "$ROOT/deploy/rust/catalog-fingerprint.sql" "$work/trusted/rust/"
 script=$work/trusted/scripts/pre-m-bundle.sh
 # Record the transaction parent only in the private fixture copy.
+# The injected script must expand these variables in its own process.
+# shellcheck disable=SC2016
 printf '\nprintf "%%s\\n" "$$" > "$FIXTURE_WORK/transaction.pid"\n' > "$work/record-parent"
 perl -0777 -i -pe 'BEGIN { open my $in, "<", $ARGV[1] or die $!; local $/; $insert=<$in>; pop @ARGV; } s/(umask 077\n)/$1$insert/' "$script" "$work/record-parent"
 checkout=/home/verdaxis-prod/verdaxis/staging/be
@@ -313,7 +316,7 @@ for url in http://127.0.0.1:8001/health/ready http://127.0.0.1:8011/health/ready
         if BAD_READY_URL=$url BAD_READY_BODY=$body run restore --manifest-sha256 "$approval"; then exit 1; fi
         grep -q 'exact readiness differs' "$work/err"
         [[ -e $checkout/.runtime-deploy/staging.state ]]
-        if [[ $url == http:* ]]; then ! grep -q 'caddy reload' "$work/calls"; fi
+        if [[ $url == http:* ]] && grep -q 'caddy reload' "$work/calls"; then exit 1; fi
     done
 done
 run restore --manifest-sha256 "$approval"

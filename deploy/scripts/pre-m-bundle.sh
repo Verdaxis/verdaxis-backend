@@ -124,15 +124,10 @@ safe_path "$checkout/.git"
 [[ -d $checkout/.git && ! -L $checkout/.git ]] || fail 'canonical Git directory must be a real directory'
 for git_input in config index HEAD objects refs; do safe_path "$checkout/.git/$git_input"; done
 [[ ! -e $checkout/.git/objects/info/alternates ]] || fail 'Git object alternates are unsupported'
-git_configuration=$(git config --file "$checkout/.git/config" --no-includes --list) || fail 'Git local configuration is unreadable'
-while IFS= read -r config_line; do
-    [[ -n $config_line ]] || continue
-    config_name=${config_line%%=*}
-    case $config_name in
-        core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|remote.origin.url|remote.origin.fetch|branch.staging.remote|branch.staging.merge|branch.prod.remote|branch.prod.merge) ;;
-        *) fail 'Git configuration outside the inert recovery allowlist' ;;
-    esac
-done <<< "$git_configuration"
+# The installed bundle tooling includes this sibling trusted helper.
+# shellcheck source=deploy/scripts/safe-root-git.sh
+source "$(dirname "${BASH_SOURCE[0]}")/safe-root-git.sh"
+safe_root_git "$checkout" rev-parse --git-dir >/dev/null || fail 'Git configuration outside the inert recovery allowlist'
 state_dir=$checkout/.runtime-deploy
 state=$state_dir/$environment.state
 backend=$(jq -r .backend_unit "$work/inventory.json")
@@ -186,7 +181,7 @@ check_consumers() {
         # present in the approved inventory (source files are captured as Git).
         while IFS= read -r input; do
             if [[ $input == "$checkout" ]]; then continue; fi
-            if [[ $input == "$checkout/"* ]] && git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-files --error-unmatch "${input#"$checkout/"}" >/dev/null 2>&1; then continue; fi
+            if [[ $input == "$checkout/"* ]] && safe_root_git "$checkout" ls-files --error-unmatch "${input#"$checkout/"}" >/dev/null 2>&1; then continue; fi
             case $input in
                 /usr/bin/*|/bin/*|/usr/lib/*)
                     jq -e --arg path "$input" 'any(.native_dependency_files[]; .path == $path)' "$work/inventory.json" >/dev/null || fail 'native consumer executable not in dependency closure'
@@ -384,7 +379,7 @@ verify_signed_artifact() {
     policy_path=$(file_of_kind policy)
     policy_actual=$policy_path
     [[ $mode == capture ]] || policy_actual=$(payload_of "$policy_path")
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" show "$release:deploy/rust/$environment-policy.json" > "$work/source-policy"
+    safe_root_git "$checkout" show "$release:deploy/rust/$environment-policy.json" > "$work/source-policy"
     cmp -s "$policy_actual" "$work/source-policy" || fail 'selected policy differs from exact checkout source'
     timeout 10 "$output/verdaxis-read" --version-json > "$work/version" 2>"$work/version-error" || fail 'old executable version check failed'
     jq -e --arg sha "$release" --arg revision "$final_alembic" '.release_sha == $sha and (.migration_revision_allowlist | index($revision) != null)' "$work/version" >/dev/null || fail 'old executable source identity or compiled pin differs'
@@ -400,7 +395,7 @@ if [[ $mode == capture ]]; then
     [[ ! -e $bundle ]] || fail 'bundle already exists'
     [[ $(basename "$bundle") == "pre-M-$environment-$release" ]] || fail 'bundle name differs'
     branch=$(jq -r .checkout_branch "$work/inventory.json")
-    [[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" symbolic-ref --short HEAD) == "$branch" && $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" rev-parse HEAD) == "$release" && -z $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" status --porcelain --untracked-files=no) ]] || fail 'checkout branch, identity or tracked bytes differ'
+    [[ $(safe_root_git "$checkout" symbolic-ref --short HEAD) == "$branch" && $(safe_root_git "$checkout" rev-parse HEAD) == "$release" && -z $(safe_root_git "$checkout" status --porcelain --untracked-files=no) ]] || fail 'checkout branch, identity or tracked bytes differ'
     locks
     [[ ! -e $state && ! -L $state ]] || fail 'capture requires an accepted release'
     check_runtime_credentials
@@ -430,8 +425,8 @@ if [[ $mode == capture ]]; then
             --arg mode "$(stat -c %a "$path")" --argjson size "$(stat -c %s "$path")" \
             '{id:$id,kind:$kind,path:$path,sha256:$sha,uid:$uid,gid:$gid,mode:$mode,size:$size}' >> "$work/files"
     done < <(jq -c '.files[]' "$work/inventory.json")
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" bundle create "$stage/checkout.bundle" HEAD >"$work/git-output" 2>&1
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-tree -r "$release" > "$stage/source-tree"
+    safe_root_git "$checkout" bundle create "$stage/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    safe_root_git "$checkout" ls-tree -r "$release" > "$stage/source-tree"
     ! grep -qvE $'^100(644|755) blob [0-9a-f]{40}\t' "$stage/source-tree" || fail 'nonregular checkout source member'
     : > "$stage/source-metadata"
     while IFS=$'\t' read -r metadata source_path; do
@@ -535,15 +530,15 @@ if [[ $mode == restore ]]; then
     read_database
     check_package_closure
     [[ $catalog_hash == "$(jq -r .catalog_sha256 "$work/manifest.json")" ]] || fail 'application catalog differs'
-    git init --bare "$work/source.git" >"$work/git-output" 2>&1
-    git -C "$work/source.git" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
-    [[ $(git -C "$work/source.git" rev-parse FETCH_HEAD) == "$release" ]] || fail 'source object identity differs'
+    safe_root_git_init "$work/source.git" >"$work/git-output" 2>&1
+    safe_root_git "$work/source.git" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    [[ $(safe_root_git "$work/source.git" rev-parse FETCH_HEAD) == "$release" ]] || fail 'source object identity differs'
     # Remove only tracked files absent from the saved release. Untracked user
     # files are never removed. Runtime files are published from the saved list.
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-files > "$work/current-files"
+    safe_root_git "$checkout" ls-files > "$work/current-files"
     while IFS= read -r path; do
         [[ $path =~ ^[A-Za-z0-9_./@+-]+$ && $path != /* && $path != *../* ]] || fail 'unsafe tracked source path'
-        if ! git -C "$work/source.git" cat-file -e "$release:$path" 2>/dev/null; then
+        if ! safe_root_git "$work/source.git" cat-file -e "$release:$path" 2>/dev/null; then
             safe_path "$checkout/$path"
             [[ ! -e $checkout/$path ]] || { regular "$checkout/$path"; rm -- "$checkout/$path"; sync -f "$(dirname "$checkout/$path")"; }
         fi
@@ -554,23 +549,23 @@ if [[ $mode == restore ]]; then
         [[ $saved_metadata == *$'\t'"$path" && $saved_metadata != *$'\n'* ]] || fail 'source metadata is missing or repeated'
         IFS=: read -r source_uid source_gid permissions source_size <<< "${saved_metadata%%$'\t'*}"
         [[ $source_uid =~ ^[0-9]+$ && $source_gid =~ ^[0-9]+$ && $permissions =~ ^[0-7]{3,4}$ ]] || fail 'invalid source metadata'
-        git -C "$work/source.git" show "$release:$path" > "$work/source-file"
+        safe_root_git "$work/source.git" show "$release:$path" > "$work/source-file"
         [[ $(stat -c %s "$work/source-file") == "$source_size" ]] || fail 'source size differs'
         parent=$(dirname "$checkout/$path")
         # Parent creation is permitted only inside the fixed checkout.
         safe_path "$parent"; mkdir -p -- "$parent"; safe_path "$checkout/$path"
         publish "$work/source-file" "$checkout/$path" "$source_uid" "$source_gid" "$permissions"
     done < "$bundle/source-tree"
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    safe_root_git "$checkout" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
     # Git objects are immutable prerequisites. Publish index and branch ref
     # as explicit transaction entries, not an in-place branch reset.
-    git -C "$work/source.git" read-tree "$release"
+    safe_root_git "$work/source.git" read-tree "$release"
     git_dir=$checkout/.git
     safe_path "$git_dir"
     [[ -d $git_dir && ! -L $git_dir ]] || fail 'canonical Git directory changed'
     publish "$work/source.git/index" "$git_dir/index" "$deploy_uid" "$(stat -c %g "$checkout")" 0644
     branch=$(jq -r .checkout_branch "$work/inventory.json")
-    [[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" symbolic-ref --short HEAD) == "$branch" ]] || fail 'canonical checkout branch differs'
+    [[ $(safe_root_git "$checkout" symbolic-ref --short HEAD) == "$branch" ]] || fail 'canonical checkout branch differs'
     printf '%s\n' "$release" > "$work/source-ref"
     publish "$work/source-ref" "$git_dir/refs/heads/$branch" "$deploy_uid" "$(stat -c %g "$checkout")" 0644
     while IFS= read -r row; do
@@ -610,7 +605,7 @@ read_database
 [[ $catalog_hash == "$(jq -r .catalog_sha256 "$work/manifest.json")" ]] || fail 'application catalog differs'
 check_consumers
 check_package_closure
-[[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" rev-parse HEAD) == "$release" && -z $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" status --porcelain --untracked-files=no) ]] || fail 'restored checkout identity or bytes differ'
+[[ $(safe_root_git "$checkout" rev-parse HEAD) == "$release" && -z $(safe_root_git "$checkout" status --porcelain --untracked-files=no) ]] || fail 'restored checkout identity or bytes differ'
 while IFS=$'\t' read -r metadata source_path; do
     regular "$checkout/$source_path"
     [[ $(stat -c '%u:%g:%a:%s' "$checkout/$source_path") == "$metadata" ]] || fail 'restored source metadata differs'
