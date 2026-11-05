@@ -338,7 +338,21 @@
     "all_required_evidence_accepted": "GO",
     "source_inventory_is_not_installed_acceptance": true
   },
-  "measurement": "not run (decision 110); Task 34 only",
+  "measurement": {
+    "status": "not run (decision 110); Task 34 offline adapter only",
+    "offline_adapter": {
+      "test_source": "tests/rust_contract/test_phase10_measure.py",
+      "test_source_sha256": "73f5ebbea48cdf99252f574899890c5e771cafa3a9687c470e5cc2a2b0114101",
+      "run_config": "tests/rust_contract/phase10/measure-final.toml",
+      "seed": "tests/rust_contract/phase10/measure-seed.json",
+      "seed_sha256": "3a0a0c0b8d97b544a37a6972295aec4467eaa908ac69c93e39473f1ede2aed7a",
+      "python_memory_baseline": "tests/rust_contract/phase10/python-memory-baseline.json",
+      "baseline_placeholders_refuse": true,
+      "wrapper": "deploy/tests/final-measure.sh",
+      "wrapper_mode_exercised": "--offline-check"
+    },
+    "run": "the single plan-10.6 run happens after cutover, under the exclusive reservation"
+  },
   "offhost_groups": [
     "scripts/phase0",
     "scripts/rust_contract",
@@ -508,7 +522,7 @@
     {
       "id": "alert_recovery_after_final_name_rename_completes_fsync_and_bookkeeping",
       "owner_task": 28,
-      "plan_requirement": "§22 R4-1; Task 28, PM acceptance",
+      "plan_requirement": "\u00a722 R4-1; Task 28, PM acceptance",
       "required_result": "Kill before rename, after final-name rename before directory fsync, and after fsync before bookkeeping. Under the journal lock, recover any valid final-name entry by completing fsync and cursor bookkeeping before delivery. In-doubt recovery yields no entry or one ordered entry, never duplicate admission or out-of-order delivery."
     },
     {
@@ -634,7 +648,7 @@
     {
       "id": "baseline_fingerprint_matches_the_committed_artifact",
       "owner_task": 5,
-      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "plan_requirement": "\u00a78.3, catalog fingerprint tests; Task 5",
       "required_result": "In CI, the disposable baseline database fingerprint equals the fingerprint in the committed baseline artifact."
     },
     {
@@ -952,7 +966,7 @@
     {
       "id": "external_monitor_alerts_on_producer_exit_4_with_healthy_status",
       "owner_task": 29,
-      "plan_requirement": "§22 R4-3; Tasks 28 and 29, PM acceptance",
+      "plan_requirement": "\u00a722 R4-3; Tasks 28 and 29, PM acceptance",
       "required_result": "For both producer units, journal-lock timeout on a healthy observation exits 4 with no admitted entry and unchanged healthy status. The bounded failed-unit check on the external monitor main path alerts using unit state only; it neither reads producer credentials nor enqueues the refused observation nor changes failure to success."
     },
     {
@@ -1024,25 +1038,25 @@
     {
       "id": "fingerprint_changes_when_a_column_is_added",
       "owner_task": 5,
-      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "plan_requirement": "\u00a78.3, catalog fingerprint tests; Task 5",
       "required_result": "Adding an application-table column in the disposable database changes the catalog fingerprint."
     },
     {
       "id": "fingerprint_excludes_extension_members",
       "owner_task": 5,
-      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "plan_requirement": "\u00a78.3, catalog fingerprint tests; Task 5",
       "required_result": "Changing definitions of extension-owned members identified by pg_depend.deptype = 'e' leaves the fingerprint unchanged; extension names and versions remain included."
     },
     {
       "id": "fingerprint_ignores_acls_and_owners",
       "owner_task": 5,
-      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
-      "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires."
+      "plan_requirement": "\u00a78.3, catalog fingerprint tests; Task 5",
+      "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as \u00a78.3 requires."
     },
     {
       "id": "fingerprint_is_stable_across_two_reads",
       "owner_task": 5,
-      "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
+      "plan_requirement": "\u00a78.3, catalog fingerprint tests; Task 5",
       "required_result": "Two reads of the unchanged disposable application catalog produce the same canonical SHA-256 fingerprint; each read uses one read-only REPEATABLE READ transaction."
     },
     {
@@ -1060,7 +1074,7 @@
     {
       "id": "fleet_installed_dependency_is_classified",
       "owner_task": 25,
-      "plan_requirement": "§4.7; Task 25",
+      "plan_requirement": "\u00a74.7; Task 25",
       "required_result": "Final fleet disposition is bound to accepted W0 evidence; no schedule or port is invented."
     },
     {
@@ -1222,7 +1236,7 @@
     {
       "id": "host_replacements_preserve_backup_and_staging_pull",
       "owner_task": 36,
-      "plan_requirement": "§4.6; Task 36",
+      "plan_requirement": "\u00a74.6; Task 36",
       "required_result": "Each proved replacement preserves backup/restore and staging-pull contracts and has owner acceptance."
     },
     {
@@ -1270,7 +1284,7 @@
     {
       "id": "installer_dispatcher_effective_acl_survives_producer_restart_and_boot",
       "owner_task": 10,
-      "plan_requirement": "§22 R4-2; Task 10, PM acceptance",
+      "plan_requirement": "\u00a722 R4-2; Task 10, PM acceptance",
       "required_result": "For both producer units, prove effective ACLs after stop/start and boot ordering: dispatcher can traverse, lock, read and remove an admitted entry but cannot modify contents, cursor or status. Owning-group and other entries stay empty; no shared producer membership or unrelated access."
     },
     {
@@ -1744,13 +1758,13 @@
     {
       "id": "phase7_retirement_exact_operations_return_404",
       "owner_task": 20,
-      "plan_requirement": "§23; Task 20, Path B",
+      "plan_requirement": "\u00a723; Task 20, Path B",
       "required_result": "Exactly the 20 retired method/path operations return 404; adjacent routes remain available."
     },
     {
       "id": "phase7_retirement_preserves_table_and_row_identity",
       "owner_task": 20,
-      "plan_requirement": "§23; Task 20, Path B",
+      "plan_requirement": "\u00a723; Task 20, Path B",
       "required_result": "Retirement leaves all retained table and row identities and logical digests unchanged."
     },
     {
