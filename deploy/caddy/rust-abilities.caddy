@@ -1,0 +1,19 @@
+# Import inside the site's route block before its Python fallback.
+# Argument 0 is Rust; argument 1 is Python. Equal arguments disable this route.
+# Python has no abilities route. An unavailable Rust upstream fails without
+# falling back to Python. Only the exact path and GET/HEAD/OPTIONS move.
+(verdaxis_rust_abilities) {
+	@rust_abilities {
+		expression '{args[0]}' != '{args[1]}'
+		method GET HEAD OPTIONS
+		path_regexp ^/api/auth/me/abilities$
+	}
+	handle @rust_abilities {
+		reverse_proxy {args[0]} {
+			header_up X-Forwarded-For {client_ip}
+			transport http {
+				keepalive off
+			}
+		}
+	}
+}
