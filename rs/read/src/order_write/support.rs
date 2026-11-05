@@ -306,16 +306,22 @@ impl SupportAction {
             | Self::ContextActive
             | Self::ContextGet(_)
             | Self::ContextExit(_)
-            | Self::Composite(_) => {
-                capabilities.contains(&Capability::Authorizations)
-                    && capabilities.contains(&Capability::Listings)
-            }
+            | Self::Composite(_) => capabilities_allow_assisted_orders(capabilities),
             Self::Authorizations { .. } => capabilities.contains(&Capability::Authorizations),
             Self::Listings { .. } => capabilities.contains(&Capability::Listings),
-            Self::Organizations(_) => !capabilities.is_empty(),
+            Self::Organizations(_) => capabilities_allow_access(capabilities),
             Self::Capabilities | Self::Grant(_) | Self::Revoke { .. } => true,
         }
     }
+}
+
+pub fn capabilities_allow_access(capabilities: &[Capability]) -> bool {
+    !capabilities.is_empty()
+}
+
+pub fn capabilities_allow_assisted_orders(capabilities: &[Capability]) -> bool {
+    capabilities.contains(&Capability::Authorizations)
+        && capabilities.contains(&Capability::Listings)
 }
 
 /// A validated action and the caller's current capabilities.
@@ -391,12 +397,19 @@ impl SupportCommand {
             offboarded: micros("offboarded_at")?.is_some(),
         };
         validate_account(&self.access, &account).map_err(account_refusal)?;
-        if !self.settings.enabled {
-            return Err(refusal(MarketErrorCode::NotFound));
-        }
-        let role: Option<String> = row.try_get("role")?;
-        if role.as_deref() != Some("ADMIN") {
-            return Err(refusal(MarketErrorCode::SupportForbidden));
+        let facts = super::party_policy::PartyFacts {
+            status: account.status,
+            must_change_password: account.must_change_password,
+            role: row.try_get("role")?,
+            support_enabled: self.settings.enabled,
+            ..Default::default()
+        };
+        if let Some(denial) = super::party_policy::support_denial(&facts) {
+            return Err(refusal(if denial == "MARKET_SUPPORT_DISABLED" {
+                MarketErrorCode::NotFound
+            } else {
+                MarketErrorCode::SupportForbidden
+            }));
         }
         Ok(())
     }
@@ -417,7 +430,7 @@ fn account_refusal(error: AuthError) -> MarketWriteError {
     })
 }
 
-async fn current_capabilities(
+pub(crate) async fn current_capabilities(
     conn: &mut PgConnection,
     actor: Uuid,
     now: DateTime<Utc>,

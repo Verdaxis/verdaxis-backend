@@ -1,5 +1,6 @@
 //! Token verification, token issuance and password primitives, plus the
 //! session storage and lock primitives that credential routes build on.
+pub mod abilities;
 mod actor;
 mod claims;
 pub mod cookies;

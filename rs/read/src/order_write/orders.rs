@@ -281,9 +281,12 @@ impl MarketCommand for OrderCommand {
                 AdmissionClass::Cleanup,
             )
             .await?;
-            if self.request.context.is_none()
-                && self.request.support_enabled
-                && checked.account().role == super::authority::ActorRole::Admin
+            if super::party_policy::legacy_admin_denial(
+                Some(checked.account().role.as_str()),
+                self.request.support_enabled,
+                self.request.context.is_some(),
+            )
+            .is_some()
             {
                 return Err(MarketWriteError::new(
                     MarketErrorCode::MarketSupportLegacyMutationRetired,

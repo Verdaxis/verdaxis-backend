@@ -24,6 +24,8 @@ PHASE7_SNIPPET = ROOT / "deploy/caddy/phase10-phase7-retire.caddy"
 PHASE7_LEDGER = ROOT / "tests/rust_contract/phase10/phase7-routes.json"
 RELEASED_SNIPPETS = (
     "rust-auth.caddy",
+    "rust-abilities.caddy",
+    "rust-offboarding.caddy",
     "rust-crud.caddy",
     "rust-phase4.caddy",
     "rust-phase5.caddy",
@@ -288,8 +290,9 @@ def test_market_and_phase7_matchers_do_not_overlap_released_snippets():
 def test_python_answers_each_write_slash_variant_with_a_redirect():
     """The snippet leaves slash variants of the write paths on Python, which
     redirects each one to its canonical path rather than serving it."""
-    from app.main import app
     from starlette.routing import Match
+
+    from app.main import app
 
     canonical = {}
     for route in app.router.routes:

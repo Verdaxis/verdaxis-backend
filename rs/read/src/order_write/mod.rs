@@ -30,6 +30,7 @@ pub mod matching;
 pub(crate) mod order_create;
 pub(crate) mod orders;
 pub mod outbox;
+pub mod party_policy;
 mod post_only;
 pub mod producer;
 pub mod reassignment;

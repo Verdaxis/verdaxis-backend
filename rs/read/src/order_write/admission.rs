@@ -157,15 +157,28 @@ pub async fn require_execution(
     }
     let row=sqlx::query("SELECT u.organization_id,u.role::text AS role,u.status::text AS status,u.email_verified,u.must_change_password,u.kyc_status,u.kyc_organization_id,o.verification_status::text AS organization_status,EXISTS(SELECT 1 FROM kyc_execution_grace g WHERE g.user_id=u.id AND g.organization_id=u.organization_id AND g.expires_at>$2) AS grace FROM users u LEFT JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1")
         .bind(party.user_id).bind(now).fetch_optional(conn).await?.ok_or_else(invalid)?;
-    if row.get::<Option<Uuid>, _>("organization_id") != Some(party.organization_id)
-        || row.get::<String, _>("role") != role_text(party.role)
-        || row.get::<String, _>("status") != "APPROVED"
-        || !row.get::<bool, _>("email_verified")
-        || row.get::<bool, _>("must_change_password")
-        || row
-            .get::<Option<String>, _>("organization_status")
-            .as_deref()
-            != Some("APPROVED")
+    let organization: Option<Uuid> = row.get("organization_id");
+    let bound: Option<Uuid> = row.get("kyc_organization_id");
+    let facts = super::super::party_policy::PartyFacts {
+        role: row.get("role"),
+        status: row.get("status"),
+        email_verified: row.get("email_verified"),
+        must_change_password: row.get("must_change_password"),
+        has_organization: organization.is_some(),
+        organization_status: row.get("organization_status"),
+        kyc_status: row.get("kyc_status"),
+        kyc_bound: bound.is_some(),
+        kyc_matches: bound == organization,
+        grace: row.get("grace"),
+        execution_gate_enabled: gate_enabled,
+        provenance: String::new(),
+        support_enabled: false,
+        listings: false,
+        authorizations: false,
+    };
+    if organization != Some(party.organization_id)
+        || facts.role.as_deref() != Some(role_text(party.role))
+        || super::super::party_policy::account_denial(&facts).is_some()
     {
         return Err(MarketWriteError::new(
             MarketErrorCode::ExecutionNotAvailable,
@@ -173,13 +186,13 @@ pub async fn require_execution(
     }
     let status = row.get::<String, _>("kyc_status");
     let bound = row.get::<Option<Uuid>, _>("kyc_organization_id");
-    let eligible = if gate_enabled {
-        status != "REJECTED"
-            && ((status == "APPROVED" && bound == Some(party.organization_id))
-                || row.get::<bool, _>("grace"))
-    } else {
-        status != "REJECTED" && bound.is_none_or(|id| id == party.organization_id)
-    };
+    let eligible = super::super::party_policy::execution_kyc_allowed(
+        &status,
+        bound.is_some(),
+        bound == Some(party.organization_id),
+        row.get("grace"),
+        gate_enabled,
+    );
     if !eligible {
         return Err(MarketWriteError::new(MarketErrorCode::KycRequired));
     }

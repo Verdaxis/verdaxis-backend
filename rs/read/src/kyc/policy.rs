@@ -58,6 +58,22 @@ pub struct KycEligibility {
     pub grace_expires_at: Option<DateTime<Utc>>,
 }
 
+/// Current-organization KYC truth table used by scalar and locked write adapters.
+pub fn execution_allowed(
+    rejected: bool,
+    approved_for_organization: bool,
+    advisory_binding_allowed: bool,
+    active_grace: bool,
+    gate: bool,
+) -> bool {
+    !rejected
+        && if gate {
+            approved_for_organization || active_grace
+        } else {
+            advisory_binding_allowed
+        }
+}
+
 pub fn eligibility(
     policy: &KycPolicy,
     party: &KycParty,
@@ -66,9 +82,14 @@ pub fn eligibility(
 ) -> KycEligibility {
     let rejected = party.kyc_status == KycStatus::Rejected;
     if !policy.execution_gate_enabled {
-        let eligible = !rejected
-            && (party.kyc_organization_id.is_none()
-                || party.kyc_organization_id == party.organization_id);
+        let eligible = execution_allowed(
+            rejected,
+            false,
+            party.kyc_organization_id.is_none()
+                || party.kyc_organization_id == party.organization_id,
+            false,
+            false,
+        );
         return KycEligibility {
             eligible,
             reason: if rejected {
@@ -81,10 +102,15 @@ pub fn eligibility(
             grace_expires_at: None,
         };
     }
-    if party.kyc_status == KycStatus::Approved
-        && party.organization_id.is_some()
-        && party.kyc_organization_id == party.organization_id
-    {
+    if execution_allowed(
+        rejected,
+        party.kyc_status == KycStatus::Approved
+            && party.organization_id.is_some()
+            && party.kyc_organization_id == party.organization_id,
+        false,
+        false,
+        true,
+    ) {
         return KycEligibility {
             eligible: true,
             reason: KycReason::Approved,
@@ -94,7 +120,13 @@ pub fn eligibility(
     let grace = grace.filter(|grace| grace.belongs_to(party));
     let reason = if rejected {
         KycReason::Rejected
-    } else if grace.is_some_and(|grace| now < grace.expires_at) {
+    } else if execution_allowed(
+        rejected,
+        false,
+        false,
+        grace.is_some_and(|grace| now < grace.expires_at),
+        true,
+    ) {
         KycReason::Grace
     } else {
         KycReason::Required

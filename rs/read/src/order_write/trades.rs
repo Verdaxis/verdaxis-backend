@@ -730,10 +730,16 @@ impl<'a> TradePort<'a> {
         ) {
             return Err(unavailable());
         }
-        if order.side == Side::Ask && actor.account().role != ActorRole::Buyer {
+        if order.side == Side::Ask
+            && super::party_policy::role_denial(Some(actor.account().role.as_str()), "BUYER")
+                .is_some()
+        {
             return Err(MarketWriteError::new(MarketErrorCode::TradePartyForbidden));
         }
-        if order.side == Side::Bid && actor.account().role != ActorRole::Supplier {
+        if order.side == Side::Bid
+            && super::party_policy::role_denial(Some(actor.account().role.as_str()), "SUPPLIER")
+                .is_some()
+        {
             return Err(MarketWriteError::new(MarketErrorCode::TradePartyForbidden));
         }
         if order.side == Side::Bid && catalog.specification_standard.is_some() {
@@ -751,7 +757,9 @@ impl<'a> TradePort<'a> {
                 .bind(org)
                 .fetch_one(&mut *self.conn)
                 .await?;
-        if provenance != "REAL" || order.execution_provenance() != matching::Provenance::Real {
+        if !super::party_policy::take_provenance_allowed(&provenance)
+            || order.execution_provenance() != matching::Provenance::Real
+        {
             return Err(unavailable());
         }
         if matching::OwnerRevalidation::default()

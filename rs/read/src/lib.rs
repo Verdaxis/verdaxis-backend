@@ -371,6 +371,9 @@ pub fn verify_release(value: &str) -> Result<(), &'static str> {
     }
 }
 
+/// Pure party admission predicates; no market write authority or connection.
+pub use order_write::party_policy as market_party_policy;
+
 pub use order_write::matching as market_matching;
 /// The trusted watchlist producer: release activation, the serving-process
 /// consumer and the operator watermark bootstrap.

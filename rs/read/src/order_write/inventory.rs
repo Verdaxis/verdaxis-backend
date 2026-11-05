@@ -636,7 +636,9 @@ impl<'a> InventoryPort<'a> {
     ) -> Result<Value, MarketWriteError> {
         let org = self.require_admission(actor).await?;
         let write = InventoryWrite::validate(action, &app.policy)?;
-        if actor.account().role != ActorRole::Supplier {
+        if super::party_policy::role_denial(Some(actor.account().role.as_str()), "SUPPLIER")
+            .is_some()
+        {
             return Err(not_available());
         }
         match write {
@@ -780,8 +782,22 @@ impl<'a> InventoryPort<'a> {
         if !self.locked.contains(LockClass::Organization, org) || !actor.account().email_verified {
             return Err(not_available());
         }
-        let admitted:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users u JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1 AND u.organization_id=$2 AND u.role::text IN ('BUYER','SUPPLIER') AND u.status::text='APPROVED' AND u.email_verified AND NOT u.must_change_password AND u.kyc_status<>'REJECTED' AND (u.kyc_organization_id IS NULL OR u.kyc_organization_id=u.organization_id) AND o.verification_status::text='APPROVED')").bind(actor.user_id()).bind(org).fetch_one(&mut *self.conn).await?;
-        if !admitted {
+        let row = sqlx::query("SELECT u.role::text AS role,u.status::text AS status,u.email_verified,u.must_change_password,u.kyc_status,u.kyc_organization_id,o.verification_status::text AS organization_status FROM users u JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1 AND u.organization_id=$2")
+            .bind(actor.user_id()).bind(org).fetch_optional(&mut *self.conn).await?.ok_or_else(not_available)?;
+        let bound: Option<Uuid> = row.get("kyc_organization_id");
+        let facts = super::party_policy::PartyFacts {
+            role: row.get("role"),
+            status: row.get("status"),
+            email_verified: row.get("email_verified"),
+            must_change_password: row.get("must_change_password"),
+            kyc_status: row.get("kyc_status"),
+            kyc_bound: bound.is_some(),
+            kyc_matches: bound == Some(org),
+            organization_status: row.get("organization_status"),
+            has_organization: true,
+            ..Default::default()
+        };
+        if super::party_policy::indicative_denial(&facts).is_some() {
             return Err(not_available());
         }
         Ok(org)

@@ -592,9 +592,12 @@ impl<'a> CreatePort<'a> {
             command.settings.kyc_execution_gate_enabled,
         )
         .await?;
-        if (command.input.fields["side"] == "BID" && actor.account().role != ActorRole::Buyer)
-            || (command.input.fields["side"] == "ASK"
-                && actor.account().role != ActorRole::Supplier)
+        let required = if command.input.fields["side"] == "BID" {
+            "BUYER"
+        } else {
+            "SUPPLIER"
+        };
+        if super::party_policy::role_denial(Some(actor.account().role.as_str()), required).is_some()
         {
             return Err(refusal(
                 StatusCode::FORBIDDEN,

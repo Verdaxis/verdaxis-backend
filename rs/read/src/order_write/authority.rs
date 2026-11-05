@@ -37,6 +37,16 @@ pub enum ActorRole {
     Admin,
 }
 
+impl ActorRole {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Buyer => "BUYER",
+            Self::Supplier => "SUPPLIER",
+            Self::Admin => "ADMIN",
+        }
+    }
+}
+
 /// The locked database projection of one account (CF4_04).
 ///
 /// Task 3 fills it from the user row it already locks and refreshes it on every

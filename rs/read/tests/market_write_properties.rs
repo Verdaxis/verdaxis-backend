@@ -13,6 +13,12 @@ mod locks;
 mod market {
     pub use verdaxis_read::market::windows;
 }
+#[allow(dead_code)]
+#[path = "../src/order_write/party_policy.rs"]
+mod party_policy;
+mod kyc {
+    pub use verdaxis_read::kyc::policy;
+}
 mod auth {
     pub use verdaxis_read::auth::*;
 }

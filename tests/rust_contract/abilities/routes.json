@@ -1,0 +1,9 @@
+{
+  "owner": "rust",
+  "schema_version": 1,
+  "routes": [
+    {"method": "GET", "path": "/api/auth/me/abilities", "auth": "current_user"},
+    {"method": "HEAD", "path": "/api/auth/me/abilities", "auth": "current_user"},
+    {"method": "OPTIONS", "path": "/api/auth/me/abilities", "auth": "current_user"}
+  ]
+}

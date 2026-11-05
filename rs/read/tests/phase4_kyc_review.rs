@@ -1,4 +1,6 @@
-pub use verdaxis_read::{ApiError, ApiErrorKind, auth, business, crud, runtime};
+pub use verdaxis_read::{
+    ApiError, ApiErrorKind, auth, business, crud, market_party_policy, runtime,
+};
 
 #[path = "../src/kyc/review.rs"]
 mod review;

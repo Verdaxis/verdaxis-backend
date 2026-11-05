@@ -97,7 +97,7 @@ fn invalid_body() -> ApiError {
 }
 
 fn require_admin(actor: &CurrentActor) -> Result<(), ApiError> {
-    if actor.role.as_deref() == Some("ADMIN") {
+    if crate::market_party_policy::role_denial(actor.role.as_deref(), "ADMIN").is_none() {
         Ok(())
     } else {
         Err(refusal(

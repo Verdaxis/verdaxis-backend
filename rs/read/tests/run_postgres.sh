@@ -77,11 +77,11 @@ ALTER SCHEMA public OWNER TO rust_migrator;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
 }
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test; do
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test verdaxis_inventory_test verdaxis_support_test; do
   market_image_role_setup "$database"
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
-for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT FREEZE FREEZE_ENFORCEMENT RACES PRODUCER RESIDUAL SERVING; do
+for target in TRADES CREATE AMEND CONFIRM PUBLISH SETTLEMENT FREEZE FREEZE_ENFORCEMENT RACES PRODUCER RESIDUAL SERVING INVENTORY SUPPORT; do
   database="verdaxis_$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')_test"
   export "RUST_${target}_TEMPLATE_DATABASE=$database"
 done
@@ -113,7 +113,11 @@ export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://rust_migrator:disposable_mig
 # The market serving target clones this template per case.
 export RUST_SERVING_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_serving_test"
 export RUST_SERVING_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_serving_test"
-for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test; do
+export RUST_INVENTORY_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_inventory_test"
+export RUST_INVENTORY_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_inventory_test"
+export RUST_SUPPORT_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_support_test"
+export RUST_SUPPORT_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_support_test"
+for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test verdaxis_inventory_test verdaxis_support_test; do
   export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
   export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
@@ -194,6 +198,7 @@ set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test market_write_pg_trades --test market_write_pg_create \
   --test market_write_pg_amend --test market_write_pg_confirm \
+  --test market_write_pg_inventory --test market_write_pg_support \
   --test market_write_pg_publish --test market_write_pg_settlement \
   --test market_write_pg_trade_membership \
   --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \

@@ -490,7 +490,7 @@ impl<E: AdmissionEvents> BusinessCommand for AccountRejection<E> {
 }
 
 pub fn require_admin(actor: &CurrentActor) -> Result<(), crate::ApiError> {
-    if actor.role.as_deref() != Some("ADMIN") {
+    if crate::market_party_policy::role_denial(actor.role.as_deref(), "ADMIN").is_some() {
         return Err(refusal(
             StatusCode::FORBIDDEN,
             "ADMIN_REQUIRED",

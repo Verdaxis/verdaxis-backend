@@ -23,6 +23,12 @@ mod locks;
 mod market {
     pub use verdaxis_read::market::windows;
 }
+#[allow(dead_code)]
+#[path = "../src/order_write/party_policy.rs"]
+mod party_policy;
+mod kyc {
+    pub use verdaxis_read::kyc::policy;
+}
 pub use verdaxis_read::{ApiError, ApiErrorKind};
 
 /// The authority projection reads the verified access through this path.

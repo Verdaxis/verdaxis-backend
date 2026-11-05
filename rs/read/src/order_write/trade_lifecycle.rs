@@ -1471,7 +1471,10 @@ impl MarketCommand for SettlementCommand {
     }
 }
 fn require_payment_role(actor: &AuthenticatedActor, pay: bool) -> Result<(), MarketWriteError> {
-    if pay && actor.account().role != ActorRole::Supplier {
+    if pay
+        && super::party_policy::role_denial(Some(actor.account().role.as_str()), "SUPPLIER")
+            .is_some()
+    {
         return Err(forbidden());
     }
     Ok(())
