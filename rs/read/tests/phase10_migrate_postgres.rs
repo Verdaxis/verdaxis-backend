@@ -346,6 +346,66 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
     let report = status(&mut connect(&database).await).await.expect("status");
     assert!(report.pending.is_empty() && report.foreign.is_empty());
     assert_eq!(report.revision(), Some("sqlx_1".into()));
+    let rules = TransitionPolicy::compiled();
+    assert!(rules.allows(&adoption_head(), "sqlx_1"));
+    for apply in [false, true] {
+        assert_eq!(
+            run_transition(
+                &mut as_migrator(&database).await,
+                &MIGRATOR,
+                &rules,
+                &baseline,
+                "sqlx_1",
+                "sqlx_1",
+                apply,
+            )
+            .await,
+            Ok(RunOutcome::AtTarget)
+        );
+        assert_eq!(history_rows(&database).await, first);
+    }
+    // An intact sqlx row does not excuse a changed retained Alembic head.
+    sqlx::query("UPDATE public.alembic_version SET version_num = 'unexpected'")
+        .execute(&mut as_migrator(&database).await)
+        .await
+        .expect("change the disposable retained head");
+    assert_eq!(
+        run_transition(
+            &mut as_migrator(&database).await,
+            &MIGRATOR,
+            &rules,
+            &baseline,
+            "sqlx_1",
+            "sqlx_1",
+            true,
+        )
+        .await,
+        Err(RunRefusal::CurrentRevision)
+    );
+    assert_eq!(history_rows(&database).await, first);
+    sqlx::query("UPDATE public.alembic_version SET version_num = $1")
+        .bind(&baseline.alembic_head)
+        .execute(&mut as_migrator(&database).await)
+        .await
+        .expect("restore the disposable retained head");
+    sqlx::query("CREATE TABLE public.resume_catalog_change (id integer)")
+        .execute(&mut as_migrator(&database).await)
+        .await
+        .expect("change the disposable catalog");
+    assert_eq!(
+        run_transition(
+            &mut as_migrator(&database).await,
+            &MIGRATOR,
+            &rules,
+            &baseline,
+            "sqlx_1",
+            "sqlx_1",
+            false,
+        )
+        .await,
+        Err(RunRefusal::History)
+    );
+    assert_eq!(history_rows(&database).await, first);
     drop_database(&database).await;
 }
 

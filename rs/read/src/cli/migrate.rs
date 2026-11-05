@@ -255,6 +255,40 @@ pub async fn adopt(
     expected_current: &str,
     baseline: &BaselineRecord,
 ) -> Result<Adoption, AdoptionRefusal> {
+    if check_adoption(connection, expected_current, baseline).await? {
+        return Ok(Adoption::AlreadyAdopted);
+    }
+    let migration = baseline_migration()?;
+    let history_exists = table_exists(connection, HISTORY_TABLE).await?;
+    let mut transaction = connection.begin().await?;
+    if !history_exists {
+        sqlx::query(HISTORY_DDL).execute(&mut *transaction).await?;
+    }
+    sqlx::query(
+        "INSERT INTO public._sqlx_migrations \
+           (version, description, installed_on, success, checksum, execution_time) \
+         VALUES ($1, $2, now(), true, $3, 0)",
+    )
+    .bind(migration.version)
+    .bind(&*migration.description)
+    .bind(&*migration.checksum)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    // Re-read and validate the committed adoption through the same gates.
+    if check_adoption(connection, expected_current, baseline).await? {
+        Ok(Adoption::Adopted)
+    } else {
+        Err(AdoptionRefusal::History)
+    }
+}
+
+/// Validate adoption without writing; true means the exact row is present.
+async fn check_adoption(
+    connection: &mut PgConnection,
+    expected_current: &str,
+    baseline: &BaselineRecord,
+) -> Result<bool, AdoptionRefusal> {
     let migration = baseline_migration()?;
     let embedded_digest: String = Sha256::digest(migration.sql.as_str().as_bytes())
         .iter()
@@ -276,41 +310,15 @@ pub async fn adopt(
             && row.checksum.as_slice() == &*migration.checksum
             && row.description == migration.description
     };
-    match current.history.as_slice() {
-        [] => {}
-        [row] if exact_adoption(row) => {
-            // A resume checks the catalog again and writes nothing.
-            if fingerprint(connection).await? != baseline.fingerprint {
-                return Err(AdoptionRefusal::Fingerprint);
-            }
-            return Ok(Adoption::AlreadyAdopted);
-        }
+    let adopted = match current.history.as_slice() {
+        [] => false,
+        [row] if exact_adoption(row) => true,
         _ => return Err(AdoptionRefusal::History),
-    }
+    };
     if fingerprint(connection).await? != baseline.fingerprint {
         return Err(AdoptionRefusal::Fingerprint);
     }
-    let history_exists = table_exists(connection, HISTORY_TABLE).await?;
-    let mut transaction = connection.begin().await?;
-    if !history_exists {
-        sqlx::query(HISTORY_DDL).execute(&mut *transaction).await?;
-    }
-    sqlx::query(
-        "INSERT INTO public._sqlx_migrations \
-           (version, description, installed_on, success, checksum, execution_time) \
-         VALUES ($1, $2, now(), true, $3, 0)",
-    )
-    .bind(migration.version)
-    .bind(&*migration.description)
-    .bind(&*migration.checksum)
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    // Read the row back: the commit must have recorded exactly what sqlx expects.
-    match status(connection).await?.history.as_slice() {
-        [row] if exact_adoption(row) => Ok(Adoption::Adopted),
-        _ => Err(AdoptionRefusal::History),
-    }
+    Ok(adopted)
 }
 
 /// The approved exact current -> target transitions (`deploy/migration-checkpoints.tsv`).
@@ -487,6 +495,18 @@ pub async fn run_transition(
     if !policy.allows(expected_current, target) {
         return Err(RunRefusal::Transition);
     }
+    // The M no-change transition is still an adoption resume: recheck the
+    // retained final Alembic head, exact history and unchanged catalog. This
+    // path must not create history, even when called with --apply.
+    if expected_current == ADOPTED_REVISION && target == ADOPTED_REVISION {
+        return match check_adoption(connection, &baseline.alembic_head, baseline).await {
+            Ok(true) => Ok(RunOutcome::AtTarget),
+            Ok(false) => Err(RunRefusal::CurrentRevision),
+            Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
+            Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
+            Err(_) => Err(RunRefusal::History),
+        };
+    }
     match (sqlx_version(expected_current), sqlx_version(target)) {
         (Some(_), Some(_)) => {
             run_to_target(
@@ -512,14 +532,13 @@ pub async fn run_transition(
         }
         (None, Some(_)) if target == ADOPTED_REVISION => {
             if !apply {
-                let current = status_with(connection, migrator).await?;
-                return match current.revision().as_deref() {
-                    _ if !current.foreign.is_empty() => Err(RunRefusal::History),
-                    Some(revision) if revision == expected_current => {
-                        Ok(RunOutcome::WouldApply(vec![1]))
-                    }
-                    Some(revision) if revision == target => Ok(RunOutcome::AtTarget),
-                    _ => Err(RunRefusal::CurrentRevision),
+                return match check_adoption(connection, expected_current, baseline).await {
+                    Ok(false) => Ok(RunOutcome::WouldApply(vec![1])),
+                    Ok(true) => Ok(RunOutcome::AtTarget),
+                    Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
+                    Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
+                    Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
+                    Err(_) => Err(RunRefusal::History),
                 };
             }
             match adopt(connection, expected_current, baseline).await {

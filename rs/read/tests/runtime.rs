@@ -9,7 +9,7 @@ fn staging() -> Config {
         db_session_time_zone: "UTC".into(),
         environment: "staging".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: "sqlx_1".into(),
         database_url:
             "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
@@ -32,7 +32,7 @@ async fn fleet_config_cases() {
     };
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "kycg_20261014_staging",
+        "migration_revision": "sqlx_1",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -226,7 +226,7 @@ fn fleet_config_syntax_is_checked_by_runtime_validation() {
 fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "kycg_20261014_staging",
+        "migration_revision": "sqlx_1",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -255,7 +255,7 @@ fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
 #[test]
 fn timezone_policy_is_required_and_cannot_inject_startup_options() {
     let input = serde_json::json!({
-        "environment":"test", "release_sha":compiled_sha(), "migration_revision":"kycg_20261014_staging",
+        "environment":"test", "release_sha":compiled_sha(), "migration_revision":"sqlx_1",
         "database_url":"postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind":"127.0.0.1:0", "pool_max":17, "python_budget":52, "configured_max_connections":100
     });
@@ -273,7 +273,7 @@ fn timezone_policy_is_required_and_cannot_inject_startup_options() {
 
 #[test]
 fn revisions_fail_closed() {
-    let allowed = vec!["kycg_20261014_staging".to_owned()];
+    let allowed = vec!["sqlx_1".to_owned()];
     assert!(check_revision(&allowed[0], &allowed).is_ok());
     for revision in ["head", "", "kycg_20261014_prod", "unexpected"] {
         assert!(check_revision(revision, &allowed).is_err());
@@ -281,49 +281,32 @@ fn revisions_fail_closed() {
 }
 
 #[test]
-fn union_checkpoint_is_accepted_by_compiled_policy() {
+fn m_refuses_previous_release_pins() {
     let mut config = staging();
-    config.migration_revision = "p0_20261016_union".into();
-    assert!(validate_config(&config).is_ok());
-    config.environment = "production".into();
-    assert!(validate_config(&config).is_err());
-}
-
-#[test]
-fn cache_checkpoint_is_accepted_and_earlier_checkpoints_stay_accepted() {
-    let mut config = staging();
+    // Previous releases remain recoverable only through their complete bundles.
     for revision in [
         "kycg_20261014_staging",
         "p0_20261016_union",
         "prc_20261018_cache",
         "prc_20261026_changes",
         "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor",
+        "p5_20261020_read_indexes",
+        "p89_20261022_watchlist_producer",
+        "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding",
     ] {
         config.migration_revision = revision.into();
-        assert!(validate_config(&config).is_ok(), "{revision}");
+        assert!(validate_config(&config).is_err(), "{revision}");
     }
-    config.migration_revision = "prc_20261018_other".into();
-    assert!(validate_config(&config).is_err());
 }
 
 #[test]
-fn read_index_checkpoint_is_accepted_and_the_cache_checkpoint_stays_accepted() {
-    let mut config = staging();
-    // The cache checkpoint stays accepted so one change can roll the route back.
-    for revision in ["prc_20261018_cache", "p5_20261020_read_indexes"] {
-        config.migration_revision = revision.into();
-        assert!(validate_config(&config).is_ok(), "{revision}");
-    }
-    config.migration_revision = "p5_20261020_other".into();
-    assert!(validate_config(&config).is_err());
-}
-
-#[test]
-fn production_requires_its_exact_database_and_union_checkpoint() {
+fn production_requires_its_exact_database_and_sqlx_baseline() {
     let mut base = staging();
     base.environment = "production".into();
     base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
-    base.migration_revision = "p89_20261022_trade_freeze".into();
+    base.migration_revision = "sqlx_1".into();
     base.bind = "127.0.0.1:8010".parse().unwrap();
     assert!(validate_config(&base).is_err());
     base.prepared_budget = Some(budget_document(compiled_sha()));
@@ -338,45 +321,13 @@ fn production_requires_its_exact_database_and_union_checkpoint() {
         config.database_url = config.database_url.replace(from, to);
         assert!(validate_config(&config).is_err());
     }
-    for revision in [
-        "prc_20261026_changes",
-        "p3_20261020_auth_tokens",
-        "sse_20261021_replay_floor",
-        "p5_20261020_read_indexes",
-        "ob_20261031_offboarding",
-    ] {
-        base.migration_revision = revision.into();
-        assert!(validate_config(&base).is_ok(), "{revision}");
-    }
-    base.migration_revision = "kycg_20261014_staging".into();
+    base.migration_revision = "ob_20261031_offboarding".into();
     assert!(validate_config(&base).is_err());
 }
 
-/// The reviewed release allowlist, in migration order.
-const RELEASE_REVISIONS: [&str; 10] = [
-    "kycg_20261014_staging",
-    "p0_20261016_union",
-    "prc_20261018_cache",
-    "prc_20261026_changes",
-    "p3_20261020_auth_tokens",
-    "sse_20261021_replay_floor",
-    "p5_20261020_read_indexes",
-    "p89_20261022_watchlist_producer",
-    "p89_20261022_trade_freeze",
-    "ob_20261031_offboarding",
-];
-
-/// The reviewed checkpoints a production runtime admits.
-const PRODUCTION_REVISIONS: [&str; 8] = [
-    "p0_20261016_union",
-    "prc_20261026_changes",
-    "p3_20261020_auth_tokens",
-    "sse_20261021_replay_floor",
-    "p5_20261020_read_indexes",
-    "p89_20261022_watchlist_producer",
-    "p89_20261022_trade_freeze",
-    "ob_20261031_offboarding",
-];
+/// The M release admits only the adopted baseline.
+const RELEASE_REVISIONS: [&str; 1] = ["sqlx_1"];
+const PRODUCTION_REVISIONS: [&str; 1] = ["sqlx_1"];
 
 #[test]
 fn release_pins_admit_exactly_the_reviewed_checkpoints() {
@@ -499,7 +450,7 @@ fn rust_admission_is_independent_of_python_capacity() {
     for slots in [1_u32, 8, 16, 24, 47] {
         let config: Config = serde_json::from_value(serde_json::json!({
             "environment": "staging", "release_sha": compiled_sha(),
-            "migration_revision": "kycg_20261014_staging",
+            "migration_revision": "sqlx_1",
             "database_url": "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
             "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
             "read_admission_slots": slots, "pool_max": slots + 1,
@@ -671,7 +622,7 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
     [
         ("ENVIRONMENT", "staging"),
         ("RELEASE_SHA", compiled_sha()),
-        ("MIGRATION_REVISION", "kycg_20261014_staging"),
+        ("MIGRATION_REVISION", "sqlx_1"),
         (
             "DATABASE_URL",
             "postgresql://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
@@ -893,7 +844,7 @@ fn compliance_exchange_rate_is_an_optional_positive_decimal() {
     // default rate to the pricing core.
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "kycg_20261014_staging",
+        "migration_revision": "sqlx_1",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -1123,7 +1074,7 @@ fn a_malformed_allowed_hosts_value_stops_the_start() {
 fn allowed_hosts_can_be_carried_in_the_contract_document() {
     let input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "kycg_20261014_staging",
+        "migration_revision": "sqlx_1",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC",

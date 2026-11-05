@@ -72,7 +72,15 @@ fn unlisted_revision_is_refused() {
 fn stream_schema_starts_at_its_checkpoint_and_stays_for_later_ones() {
     use verdaxis_read::streams::runtime::{STREAM_REVISION, schema_has_streams};
     assert!(schema_has_streams(STREAM_REVISION));
-    assert!(schema_has_streams("p5_20261020_read_indexes"));
+    for revision in [
+        "p5_20261020_read_indexes",
+        "p89_20261022_watchlist_producer",
+        "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding",
+        "sqlx_1",
+    ] {
+        assert!(schema_has_streams(revision), "{revision}");
+    }
     for earlier in [
         "p3_20261020_auth_tokens",
         "prc_20261026_changes",
