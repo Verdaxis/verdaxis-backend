@@ -4991,6 +4991,40 @@
       "condition": "Task 25 fleet-disposition.json binds the unchanged Task 36 manual register and PM probe; stdlib-only imports. Publish only through a reviewed commit of data/fleet_demand.json. No browser or schedule is installed."
     },
     {
+      "id": "script.scripts/rust_contract/deletion_host_contract.py",
+      "source": "scripts/rust_contract/deletion_host_contract.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 deletion host contract owner",
+      "task": 32,
+      "source_sha256": "6cd1464ad07b9e5390f3ba8bd9f56c8e43a071e1521bb8a9fbf0ab83163fd204",
+      "status": "planned",
+      "evidence": [
+        "host_python_cleanup_removes_only_verdaxis_owned_paths"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "Repository scripts/rust_contract/deletion_host_contract.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
+      "id": "script.scripts/rust_contract/deletion_manifest.py",
+      "source": "scripts/rust_contract/deletion_manifest.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 deletion manifest owner",
+      "task": 32,
+      "source_sha256": "e3b8a455cb395612d495748302c2a29a1038a94907534d2f5e13ed6c83f12b54",
+      "status": "planned",
+      "evidence": [
+        "python_tests_that_import_app_are_removed_or_offhost"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "Repository scripts/rust_contract/deletion_manifest.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
       "id": "script.security_preflight.py",
       "source": "scripts/security_preflight.py",
       "kind": "script",
@@ -5328,6 +5362,23 @@
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "test-source.tests/rust_contract/test_phase10_deletion.py",
+      "source": "tests/rust_contract/test_phase10_deletion.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 deletion contract checks (off-host test source; never installed)",
+      "task": 32,
+      "source_sha256": "c498dd78ace2d82d15ace64a1663f173da66bb772bbbe3e1ecbc14aacc9c1c27",
+      "status": "planned",
+      "evidence": [
+        "python_application_tree_is_absent"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_deletion.py; CI and disposable test environments only, never installed on serving hosts."
     },
     {
       "id": "unit.deploy/external_monitor/systemd/verdaxis-codex-diagnose.service",
