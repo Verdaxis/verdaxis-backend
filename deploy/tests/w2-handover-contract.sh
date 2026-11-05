@@ -135,4 +135,33 @@ service_value() {
 }
 if (run_group news) 2>/dev/null; then exit 1; fi
 [[ $(group_phase news) == running ]]
+# A failed timer restart is resumable without another job invocation.
+STATE_DIR=$stage/resume
+mkdir -p "$STATE_DIR/news"
+printf 'awaiting-acceptance\n' > "$STATE_DIR/news/phase"
+printf 'verdaxis-news-refresh-staging.timer\n' > "$STATE_DIR/news/active-timers"
+printf 'verdaxis-news-refresh-staging.service\tnew-run\n' > "$STATE_DIR/news/runs.tsv"
+printf '%s\n' '{"groups":{"news":{"no_duplicate_effect":true}},"runs":{"verdaxis-news-refresh-staging.service":"new-run"}}' > "$EVIDENCE"
+service_ctl() { printf '%s\n' "$*" >> "$LOG"; return 1; }
+if (accept_group news) 2>/dev/null; then exit 1; fi
+[[ $(group_phase news) == accepted ]]
+service_ctl() { printf '%s\n' "$*" >> "$LOG"; }
+accept_group news
+[[ $(group_phase news) == accepted ]]
+# A completed rollback retries timer restoration without releasing alerts or
+# changing permissions again. The saved snapshot is still checked.
+verify_snapshot() { printf 'checked snapshot\n' >> "$LOG"; }
+mkdir -p "$STATE_DIR/news/previous"
+set_phase news rolled-back
+service_ctl() { printf '%s\n' "$*" >> "$LOG"; return 1; }
+if (rollback_group news) 2>/dev/null; then exit 1; fi
+[[ $(group_phase news) == rolled-back ]]
+service_ctl() { printf '%s\n' "$*" >> "$LOG"; }
+rollback_group news
+[[ $(group_phase news) == rolled-back ]]
+# Phase publication must sync the new file and its containing directory.
+sync_path() { printf '%s\n' "$1" >> "$stage/sync-log"; }
+set_phase news accepted
+grep -Fxq "$STATE_DIR/news/phase.tmp" "$stage/sync-log"
+grep -Fxq "$STATE_DIR/news" "$stage/sync-log"
 printf 'PASS W2 shell state, order, rollback and pending-alert fence\n'

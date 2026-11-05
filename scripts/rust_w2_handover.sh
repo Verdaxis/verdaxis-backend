@@ -42,9 +42,23 @@ group_timers() {
 service_ctl() { /usr/bin/systemctl "$@"; }
 service_value() { /usr/bin/systemctl show --value --property="$2" "$1"; }
 group_phase() { if [[ -f $STATE_DIR/$1/phase ]]; then cat "$STATE_DIR/$1/phase"; else printf absent; fi; }
+sync_path() {
+    # GNU sync with a path calls fsync for that file/directory. The portable
+    # fixture uses the system-wide sync on BSD, whose sync lacks path operands.
+    if [[ $(uname -s) == Linux ]]; then /bin/sync "$1"; else /bin/sync; fi
+}
 set_phase() {
     printf '%s\n' "$2" > "$STATE_DIR/$1/phase.tmp" || return
+    sync_path "$STATE_DIR/$1/phase.tmp" || return
     mv -- "$STATE_DIR/$1/phase.tmp" "$STATE_DIR/$1/phase" || return
+    sync_path "$STATE_DIR/$1" || return
+}
+restore_active_timers() {
+    local group=$1 unit
+    while IFS= read -r unit; do
+        [[ -n $unit ]] || continue
+        service_ctl start "$unit" || return
+    done < "$STATE_DIR/$group/active-timers"
 }
 # Save complete regular-file unit/drop-in ABI before the install-only operation.
 snapshot_dropins() {
@@ -92,8 +106,11 @@ snapshot_group() {
     : > "$STATE_DIR/$group/snapshot.tsv" || return
     for file in "$STATE_DIR/$group/previous/"* "$STATE_DIR/$group/dropins/"*/*.conf "$STATE_DIR/$group/active-timers" "$STATE_DIR/$group/absent"; do
         [[ -f $file ]] || continue
+        sync_path "$file" || return
         printf '%s\t%s\n' "${file#"$STATE_DIR/$group/"}" "$(file_digest "$file")" >> "$STATE_DIR/$group/snapshot.tsv" || return
     done
+    sync_path "$STATE_DIR/$group/snapshot.tsv" || return
+    sync_path "$STATE_DIR/$group/previous" || return
     verify_snapshot "$group" || return
     set_phase "$group" captured || return
 }
@@ -325,6 +342,17 @@ run_group() {
 }
 accept_group() {
     local group=$1 unit invocation
+    if [[ $(group_phase "$group") == accepted ]]; then
+        [[ -f $STATE_DIR/$group/acceptance.json ]] || { fail 'saved acceptance is absent'; return 1; }
+        verify_direct_fences "$group" || return
+        jq -e --arg group "$group" '.groups[$group].no_duplicate_effect == true' "$STATE_DIR/$group/acceptance.json" >/dev/null || { fail 'saved group acceptance differs'; return 1; }
+        while IFS=$'\t' read -r unit invocation; do
+            jq -e --arg unit "$unit" --arg invocation "$invocation" '.runs[$unit] == $invocation' "$STATE_DIR/$group/acceptance.json" >/dev/null || { fail 'saved acceptance run differs'; return 1; }
+        done < "$STATE_DIR/$group/runs.tsv"
+        verify_ready || return
+        restore_active_timers "$group"
+        return
+    fi
     [[ $(group_phase "$group") == awaiting-acceptance ]] || { fail 'group has no completed run'; return 1; }
     verify_direct_fences "$group" || return
     jq -e --arg group "$group" '.groups[$group].no_duplicate_effect == true and (if $group == "demo" then .groups[$group].market_groups_accepted == true else true end)' "$EVIDENCE" >/dev/null || { fail 'group acceptance missing'; return 1; }
@@ -334,7 +362,7 @@ accept_group() {
     verify_ready || return
     cp -- "$EVIDENCE" "$STATE_DIR/$group/acceptance.json" || return
     set_phase "$group" accepted || return
-    while IFS= read -r unit; do [[ -z $unit ]] || service_ctl start "$unit"; done < "$STATE_DIR/$group/active-timers"
+    restore_active_timers "$group"
 }
 rollback_group() {
     local group=$1 file unit
@@ -348,6 +376,11 @@ rollback_group() {
         fi
     done
     verify_snapshot "$group" || return
+    if [[ $(group_phase "$group") == rolled-back ]]; then
+        verify_ready || return
+        restore_active_timers "$group"
+        return
+    fi
     quiesce_group "$group" || return
     verify_direct_fences "$group" || return
     if [[ $group == local-monitor || $group == external-recovery ]]; then
@@ -380,7 +413,7 @@ rollback_group() {
     restore_launcher_permissions "$group" || return
     verify_ready || return
     set_phase "$group" rolled-back || return
-    while IFS= read -r unit; do [[ -z $unit ]] || service_ctl start "$unit"; done < "$STATE_DIR/$group/active-timers"
+    restore_active_timers "$group"
 }
 verify_release() {
     local -a source_git=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
