@@ -656,7 +656,12 @@ def test_phase7_path_a_requires_live_native_acceptance_and_schema_closure():
 
 def test_phase7_live_retirement_claim_requires_authorization_and_evidence():
     claimed = copy.deepcopy(document("phase7-decision"))
-    claimed["paths"]["B"]["live_acceptance"]["staging"]["status"] = "accepted"
+    # An accepted environment cell inside an unauthorized live acceptance.
+    claimed["paths"]["B"]["live_acceptance"]["authorized"] = False
+    claimed["paths"]["B"]["live_acceptance"]["authorization_ref"] = None
+    claimed["paths"]["B"]["live_acceptance"]["staging"].update(
+        {"status": "accepted", "authorization_ref": None, "evidence_sha256": None}
+    )
     with pytest.raises(AssertionError, match="authorization"):
         validate_decision(claimed)
 

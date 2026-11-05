@@ -202,8 +202,12 @@ fn handover_register_is_closed_at_the_baseline_head() {
     let handover: serde_json::Value = serde_json::from_str(HANDOVER).expect("handover JSON");
     let baseline: serde_json::Value = serde_json::from_str(MANIFEST).expect("manifest JSON");
     assert_eq!(
-        handover["status"], "producers-closed",
+        handover["status"], "closed",
         "the producer register is open"
+    );
+    assert_eq!(
+        handover["task5_completion"]["state"], "complete",
+        "Task 5 waits on its Task 20 gate"
     );
     let final_head = handover["final_head"].as_str().expect("final head");
     assert_eq!(final_head, baseline["alembic_head"]);

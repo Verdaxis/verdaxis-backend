@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "producers-closed",
+  "status": "closed",
   "closed_on": "2026-11-05",
   "final_head": "ob_20261031_offboarding",
   "alembic_revisions": 82,
@@ -190,8 +190,7 @@
   },
   "acknowledged_by": "PM (decision 199)",
   "task5_completion": {
-    "state": "candidate",
-    "blocked_by": "Task 20 selected-path (Path B) live acceptance on staging and production",
-    "evidence": "tests/rust_contract/phase10/phase7-decision.json live_acceptance"
+    "state": "complete",
+    "gate": "Task 20 Path B live acceptance recorded in tests/rust_contract/phase10/phase7-decision.json"
   }
 }

@@ -34,7 +34,7 @@
         "upstream": null,
         "ownership_state": "accepted",
         "ownership_scope": "exact matcher ownership record in this repository",
-        "live_state": "not-applied",
+        "live_state": "applied",
         "acceptance_source": "live-http-and-retention"
       },
       "retention": {
@@ -57,9 +57,32 @@
           "tests/rust_contract/test_phase10_phase7.py"
         ],
         "live_capture": {
-          "status": "not-run",
-          "authorization_ref": null,
-          "reason": "Applying Caddy ownership on staging or production needs separate authorization."
+          "status": "accepted",
+          "authorization_ref": "PM under standing GO decisions 102/103/108/146; retire import shipped with R12 (staging 2026-11-02, production 2026-11-04)",
+          "environment": "production",
+          "before_captured_at": "2026-11-05T04:01:03Z",
+          "after_captured_at": "2026-11-05T04:19:01Z",
+          "before": {
+            "row_counts": {
+              "negotiation_rounds": 0,
+              "negotiations": 0,
+              "rfq_quotes": 9,
+              "rfqs": 7,
+              "supplier_offers": 0
+            },
+            "logical_digest": "5805e07adbacaf840d7b67541325fd721a5d8ca5f54d536d5168e2ae62b62814"
+          },
+          "after": {
+            "row_counts": {
+              "negotiation_rounds": 0,
+              "negotiations": 0,
+              "rfq_quotes": 9,
+              "rfqs": 7,
+              "supplier_offers": 0
+            },
+            "logical_digest": "5805e07adbacaf840d7b67541325fd721a5d8ca5f54d536d5168e2ae62b62814"
+          },
+          "note": "Counts equal the R12 pre-switch census on both hosts. The logical digest is SHA-256 of the ordered row text of the five tables (work/p7-accept/retained-digest.sql), taken before and after the production offboarding release; staging gave the same counts and an unchanged digest."
         }
       },
       "rollback": {
@@ -71,18 +94,24 @@
       },
       "live_acceptance": {
         "required": true,
-        "authorized": false,
-        "authorization_ref": null,
-        "completion": "blocked-separately-authorized",
+        "authorized": true,
+        "authorization_ref": "PM under standing GO decisions 102/103/108/146; retire import shipped with R12 (staging 2026-11-02, production 2026-11-04)",
+        "completion": "accepted",
         "staging": {
-          "status": "not-run",
-          "authorization_ref": null,
-          "evidence_sha256": null
+          "status": "accepted",
+          "authorization_ref": "PM under standing GO decisions 102/103/108/146; retire import shipped with R12 (staging 2026-11-02, production 2026-11-04)",
+          "evidence_sha256": "150ed8ff3fd3045674b0212a2065cf776824fcadcf626276dacdff2f27f82ef2",
+          "captured_at": "2026-11-05T03:59Z",
+          "probes": 87,
+          "failed": 0
         },
         "production": {
-          "status": "not-run",
-          "authorization_ref": null,
-          "evidence_sha256": null
+          "status": "accepted",
+          "authorization_ref": "PM under standing GO decisions 102/103/108/146; retire import shipped with R12 (staging 2026-11-02, production 2026-11-04)",
+          "evidence_sha256": "55b0848b6dafc3605a343a10f1bb2cb04ae0e63347687ad79f2d277f0f36355e",
+          "captured_at": "2026-11-05T03:59Z",
+          "probes": 87,
+          "failed": 0
         }
       },
       "production_usage": {
@@ -98,23 +127,15 @@
     }
   },
   "schema_producers": {
-    "closed": false,
-    "active": [
-      "alembic"
-    ],
-    "blocking": [
-      "Task 5 baseline adoption",
-      "active Alembic producers"
-    ],
-    "task_20_acceptance_requires_closure": true
+    "closed": true,
+    "active": [],
+    "blocking": [],
+    "task_20_acceptance_requires_closure": true,
+    "register": "deploy/rust/schema-handover.json"
   },
   "acceptance": {
-    "state": "candidate",
-    "blockers": [
-      "separately authorized staging Caddy ownership and 404 corpus",
-      "separately authorized production Caddy ownership and 404 corpus",
-      "schema-producer closure before Task 5"
-    ]
+    "state": "accepted",
+    "blockers": []
   },
-  "notes": "Founder decision 122 selects Path B. Ownership of the exact 20 operations is accepted in this repository; no staging or production application is claimed. Live acceptance and schema-producer closure remain blocking."
+  "notes": "Founder decision 122 selects Path B. The retire import is live on staging and production; live acceptance (47 retired method/path pairs answer the Caddy 404 with no upstream, 40 boundary probes reach the application) and unchanged retained data were recorded on 5 November 2026. The schema-producer register is closed at ob_20261031_offboarding."
 }
