@@ -99,7 +99,48 @@ def redact(value):
     return value
 
 
+def validate_manual(document):
+    """Validate a PM classification record, never installed or signed acceptance."""
+    schema_check(document)
+    rows = document['dependencies']
+    ids = [row['id'] for row in rows]
+    if not rows or len(ids) != len(set(ids)) or set(ids) != set(document['required_dependencies']):
+        refuse('manual dependency coverage mismatch')
+    if {host['id'] for host in document['hosts']} != {'production', 'staging'}:
+        refuse('both hosts required')
+    if digest(canonical(document['schedules'])) != document['schedule_sha256']:
+        refuse('schedule set changed')
+    if digest(canonical(document['manual_collection']['evidence'])) != document['source_sha256']:
+        refuse('manual evidence binding changed')
+    without_references = dict(document)
+    without_references.pop('credential_references')
+    # OnCalendar is structural timer syntax, not a credential assignment.
+    without_references['schedules'] = [dict(row, expression=row['expression'].removeprefix('OnCalendar='))
+                                       for row in document['schedules']]
+    without_references['dependencies'] = [
+        {key: value for key, value in row.items() if key != 'credential_references'} for row in rows]
+    if redact(without_references) != without_references:
+        refuse('unredacted secret-looking value')
+    for row in rows:
+        if row['removed_package_dependencies'] or any(
+                name.split('.')[0] in {'app', 'scripts', 'alembic'} for name in row['imports']):
+            refuse('manual row retains removed package dependency')
+        if not set(row['credential_references']) <= set(document['credential_references']):
+            refuse('credential reference not registered')
+        policy = row['automation']
+        retiring = policy['decision'] == 'retire'
+        if retiring != (row['classification'] == 'retirement-approved'):
+            refuse('manual classification mismatch')
+        if policy['python_dependency'] == 'verdaxis' and not retiring:
+            refuse('retained Verdaxis Python is forbidden')
+        if policy['window'] != ('W5' if retiring else 'unchanged'):
+            refuse('manual handover window mismatch')
+
+
 def validate(document):
+    if isinstance(document, dict) and document.get('scope') == 'collected-manual':
+        validate_manual(document)
+        return
     if isinstance(document, dict) and document.get('scope') != 'fixture':
         refuse('fixture scope required; installed acceptance is not implemented in stage 1')
     schema_check(document)

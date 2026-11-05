@@ -1,14 +1,995 @@
 {
   "schema_version": 1,
-  "scope": "uncollected",
+  "scope": "collected-manual",
   "binding": "unsigned, digest-bound",
-  "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "schedule_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-  "hosts": [],
-  "required_dependencies": [],
-  "dependencies": [],
-  "schedules": [],
-  "credential_references": [],
-  "observations": [],
-  "dependency_coverage": "manual-review-required"
+  "source_sha256": "f21a9b13a33757389b0c92ac2ae8fb8c73d6248b096dc4c15fc18fc3b2dac6ce",
+  "schedule_sha256": "d733dd2096a0a6a8f9933f3833d0e7699282163a76438876018d3a7e23b1c291",
+  "hosts": [
+    {
+      "id": "production",
+      "owner": "PM",
+      "acquired": {
+        "units": true,
+        "timers": true,
+        "dropins": false,
+        "cron": true,
+        "processes": false,
+        "usr_local": true,
+        "packages": false
+      }
+    },
+    {
+      "id": "staging",
+      "owner": "PM",
+      "acquired": {
+        "units": true,
+        "timers": true,
+        "dropins": false,
+        "cron": true,
+        "processes": false,
+        "usr_local": true,
+        "packages": false
+      }
+    }
+  ],
+  "required_dependencies": [
+    "backup",
+    "restore",
+    "staging-pull",
+    "local-db-backup",
+    "umami-dump",
+    "codex-diagnose",
+    "monitor",
+    "monitor-backup-1",
+    "monitor-backup-2",
+    "monitor-backup-3",
+    "monitor-backup-4",
+    "monitor-backup-5",
+    "monitor-backup-6",
+    "monitor-backup-7",
+    "monitor-backup-8",
+    "recover",
+    "demo-wrapper",
+    "old-production-units",
+    "analytics-relay",
+    "test-guard-production",
+    "test-guard-staging",
+    "test-postgres"
+  ],
+  "dependencies": [
+    {
+      "id": "backup",
+      "host": "staging",
+      "kind": "backup",
+      "location": "host",
+      "path": "/home/verdaxis-prod/backup-db.sh",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-prod",
+      "database_identity": "verdaxis_staging and umami; production export over SSH; deployed SQL roles require attestation",
+      "destination": "/home/verdaxis-prod/backups",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "Preserve unchanged restore verification helper, database inventory and row counts; restore execution and row-count proof remain uncollected.",
+      "credential_references": [
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-backup_ed25519",
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-known_hosts"
+      ],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "system",
+        "replacement_tasks": [],
+        "reason": "Retain backup-db.sh unchanged. System /usr/bin/python3 serves third-party /usr/local/bin/b2 and three inline status/due-check/prune helpers; no app venv, app package or Alembic dependency. Restore helper implementation remains uncollected.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "restore",
+      "host": "staging",
+      "kind": "restore",
+      "location": "host",
+      "path": "/home/verdaxis-prod/verify-backup-restore.sh",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-prod",
+      "database_identity": "verdaxis_staging and umami; production export over SSH; deployed SQL roles require attestation",
+      "destination": "/home/verdaxis-prod/backups",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "Preserve unchanged restore verification helper, database inventory and row counts; restore execution and row-count proof remain uncollected.",
+      "credential_references": [
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-backup_ed25519",
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-known_hosts"
+      ],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "uncollected",
+        "replacement_tasks": [],
+        "reason": "Retain backup-db.sh unchanged. System /usr/bin/python3 serves third-party /usr/local/bin/b2 and three inline status/due-check/prune helpers; no app venv, app package or Alembic dependency. Restore helper implementation remains uncollected.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "staging-pull",
+      "host": "staging",
+      "kind": "staging-pull",
+      "location": "host",
+      "path": "/home/verdaxis-prod/backup-db.sh",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-prod",
+      "database_identity": "production export over SSH; SQL role uncollected",
+      "destination": "/home/verdaxis-prod/backups",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "Preserve unchanged restore verification helper, database inventory and row counts; restore execution and row-count proof remain uncollected.",
+      "credential_references": [
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-backup_ed25519",
+        "/home/verdaxis-prod/.ssh/verdaxis-new-prod-known_hosts"
+      ],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "system",
+        "replacement_tasks": [],
+        "reason": "Retain backup-db.sh unchanged. System /usr/bin/python3 serves third-party /usr/local/bin/b2 and three inline status/due-check/prune helpers; no app venv, app package or Alembic dependency. Restore helper implementation remains uncollected.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "local-db-backup",
+      "host": "production",
+      "kind": "backup",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-local-db-backup",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/production-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-backup-export",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain unchanged shell backup producer; #!/bin/sh, no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "umami-dump",
+      "host": "production",
+      "kind": "dump",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-umami-dump",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/production-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain unchanged analytics dump; #!/bin/bash, no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "codex-diagnose",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-codex-diagnose",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "jons-openclaw",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [],
+        "reason": "No replacement: read-only Codex diagnosis was only an OnFailure helper for the old monitor.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-1",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak-20260525163435",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-2",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260531121431",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-3",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260601175104",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-4",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260601180120",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-5",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260622213505",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-6",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260622215832",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-7",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak.20260623152430",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "monitor-backup-8",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-monitor.bak-20261103-canary",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          10,
+          29
+        ],
+        "reason": "Retire old Python monitor and dormant copies; Rust external monitor replaces the active monitor under Tasks 10b/29.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "recover",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-recover",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          30
+        ],
+        "reason": "Masked legacy Python recovery; Task 30 supplies bounded Rust recovery.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "demo-wrapper",
+      "host": "staging",
+      "kind": "usr-local",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-demo-activity",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [
+          17
+        ],
+        "reason": "Shell wrapper launches the app venv scripts/run_demo_activity.py; Task 17 replaces demo activity.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "old-production-units",
+      "host": "staging",
+      "kind": "unit",
+      "location": "host",
+      "path": "/etc/systemd/system",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "retirement-approved",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retire",
+        "window": "W5",
+        "python_dependency": "verdaxis",
+        "replacement_tasks": [],
+        "reason": "Retired shared-host production: remove disabled or masked backend, auth-maintenance, demo-activity, news-refresh, onboarding-attention, order-expiry-reminders and product-analytics-prune services/timers. Production moved to vmi3623757; no replacement on staging.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "analytics-relay",
+      "host": "production",
+      "kind": "unit",
+      "location": "host",
+      "path": "/usr/bin/ssh",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/production-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-analytics-relay",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [
+        "/etc/verdaxis-analytics-relay/id_ed25519",
+        "/etc/verdaxis-analytics-relay/known_hosts"
+      ],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain disabled SSH analytics relay; no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "test-guard-production",
+      "host": "production",
+      "kind": "unit",
+      "location": "host",
+      "path": "/etc/verdaxis-test-guard.nft",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/production-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain nft test isolation; no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "test-guard-staging",
+      "host": "staging",
+      "kind": "unit",
+      "location": "host",
+      "path": "/usr/local/sbin/verdaxis-test-guard",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/staging-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "uncollected",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain shell test isolation; no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    },
+    {
+      "id": "test-postgres",
+      "host": "production",
+      "kind": "unit",
+      "location": "host",
+      "path": "/usr/lib/postgresql/17/bin/postgres",
+      "owner": "PM",
+      "sha256": null,
+      "classification": "unaffected",
+      "evidence": "outputs/research/rust-phase10/t36/production-deps.txt; PM classification 2026-11-05",
+      "imports": [],
+      "import_evidence": "manual interpreter/dependency review; not a transitive import proof",
+      "removed_package_dependencies": [],
+      "unix_identity": "verdaxis-test",
+      "database_identity": "not applicable",
+      "destination": "not applicable",
+      "retention": "unchanged; installed details uncollected",
+      "restore_contract": "not applicable",
+      "credential_references": [],
+      "automation": {
+        "decision": "retained",
+        "window": "unchanged",
+        "python_dependency": "none",
+        "replacement_tasks": [],
+        "reason": "Retain disabled disposable PostgreSQL service; no Python.",
+        "owner_acceptance": {
+          "owner": "PM",
+          "date": "2026-11-05",
+          "scope": "classification-only"
+        }
+      }
+    }
+  ],
+  "schedules": [
+    {
+      "id": "production:verdaxis-auth-maintenance.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-auth-maintenance.timer"
+    },
+    {
+      "id": "production:verdaxis-demo-activity.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-demo-activity.timer"
+    },
+    {
+      "id": "production:verdaxis-local-db-backup.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-local-db-backup.timer"
+    },
+    {
+      "id": "production:verdaxis-news-refresh.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-news-refresh.timer"
+    },
+    {
+      "id": "production:verdaxis-onboarding-attention.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-onboarding-attention.timer"
+    },
+    {
+      "id": "production:verdaxis-order-expiry-reminders.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-order-expiry-reminders.timer"
+    },
+    {
+      "id": "production:verdaxis-product-analytics-prune.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-product-analytics-prune.timer"
+    },
+    {
+      "id": "production:verdaxis-umami-dump.timer",
+      "host": "production",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-umami-dump.timer"
+    },
+    {
+      "id": "staging:verdaxis-auth-maintenance-staging.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-auth-maintenance-staging.timer"
+    },
+    {
+      "id": "staging:verdaxis-auth-maintenance.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-auth-maintenance.timer"
+    },
+    {
+      "id": "staging:verdaxis-backup.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-backup.timer"
+    },
+    {
+      "id": "staging:verdaxis-demo-activity-staging.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-demo-activity-staging.timer"
+    },
+    {
+      "id": "staging:verdaxis-demo-activity.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-demo-activity.timer"
+    },
+    {
+      "id": "staging:verdaxis-monitor.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-monitor.timer"
+    },
+    {
+      "id": "staging:verdaxis-news-refresh-staging.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-news-refresh-staging.timer"
+    },
+    {
+      "id": "staging:verdaxis-news-refresh.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-news-refresh.timer"
+    },
+    {
+      "id": "staging:verdaxis-onboarding-attention.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-onboarding-attention.timer"
+    },
+    {
+      "id": "staging:verdaxis-order-expiry-reminders-staging.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-order-expiry-reminders-staging.timer"
+    },
+    {
+      "id": "staging:verdaxis-order-expiry-reminders.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-order-expiry-reminders.timer"
+    },
+    {
+      "id": "staging:verdaxis-product-analytics-prune-staging.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-product-analytics-prune-staging.timer"
+    },
+    {
+      "id": "staging:verdaxis-product-analytics-prune.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state disabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-product-analytics-prune.timer"
+    },
+    {
+      "id": "staging:verdaxis-test-guard.timer",
+      "host": "staging",
+      "expression": "installed expression uncollected; unit-file state enabled; preserve unchanged pending owning-task handover",
+      "owner": "verdaxis-test-guard.timer"
+    },
+    {
+      "id": "staging-pull",
+      "host": "staging",
+      "expression": "OnCalendar=*-*-* 03:00:00 Asia/Singapore",
+      "owner": "verdaxis-backup.timer"
+    }
+  ],
+  "credential_references": [
+    "/etc/verdaxis-analytics-relay/id_ed25519",
+    "/etc/verdaxis-analytics-relay/known_hosts",
+    "/home/verdaxis-prod/.ssh/verdaxis-new-prod-backup_ed25519",
+    "/home/verdaxis-prod/.ssh/verdaxis-new-prod-known_hosts"
+  ],
+  "observations": [
+    {
+      "host": "production",
+      "surface": "units",
+      "text": "vmi3623757 2026-11-05T04:59:07Z. App-owned backend/rust/start guards and auth/news/onboarding/order-expiry/prune/demo units belong to Tasks 4, 11-17, 27-30 at W2/W3/W4, not Task 36."
+    },
+    {
+      "host": "staging",
+      "surface": "units",
+      "text": "vmi1840561 2026-11-05T04:58:47Z. Active staging app-owned units stay with their owning tasks; old shared-host production units retire at W5. verdaxis-monitor.service and verdaxis-monitor-verify.service use the old monitor."
+    },
+    {
+      "host": "staging",
+      "surface": "imports",
+      "text": "Backup detail: local reviewed work/p10-t36/backup-db.sh.host; production export is a backup download, not a staging database refresh. B2 credential store and bucket value not collected."
+    }
+  ],
+  "dependency_coverage": "manual-review-required",
+  "manual_collection": {
+    "date": "2026-11-05",
+    "evidence": [
+      "outputs/research/rust-phase10/t36/production-deps.txt sha256:0de2330b017edc39a17f89d8edcad7aa914799700b735fe1b55c1c37eeb4a4f4",
+      "outputs/research/rust-phase10/t36/staging-deps.txt sha256:93e08a0be29437db2575b3201e318e9fa18dfca2bb90bf626e640cbe4eec4e42",
+      "outputs/research/rust-phase10/t36/verdaxis-host-deps.sh sha256:49943e1ddfd3fb29c507a22c2e05b835c63223e2e9929e0f9615b0b0ae090ae3"
+    ],
+    "source_binding": "sha256 of canonical evidence path/digest pairs",
+    "cron_entries": {
+      "production": [],
+      "staging": []
+    },
+    "cron_removals": [],
+    "restore_verified": false,
+    "installed_acceptance": false,
+    "limitations": [
+      "PM manual classification only, not signed installed W0 acceptance; does not authorize W5.",
+      "Installed script digests are null, never fabricated. Unit-file state does not prove timer active state or installed expressions.",
+      "Only backup schedule was supplied by PM: daily 03:00 Asia/Singapore. Other timer expressions remain uncollected; do not use historical cron assumptions.",
+      "Credential references are paths only. No credential contents were read. Backup service credential paths, locks, installed retention overrides and restore helper internals remain uncollected.",
+      "Fleet is Task 25-owned and uncollected here. No browser, scheduler, backup system or app-owned replacement is invented."
+    ]
+  }
 }

@@ -49,7 +49,7 @@ class ReviewContract(unittest.TestCase):
         self.assertIn(hashlib.sha256(unit.encode()).hexdigest(), output)
         self.assertIn('<unparsed>', output)
         transport = load(TRANSPORT)
-        base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
+        base = json.loads(Path(__file__).with_name('observations.json').read_text())
         document = transport.collect_hosts(base, lambda argv, data: (json.dumps(result).encode(), True))
         for secret in secrets:
             self.assertNotIn(secret, json.dumps(document))
@@ -59,7 +59,7 @@ class ReviewContract(unittest.TestCase):
 
     def test_publication_end_to_end_and_refusals(self):
         transport = load(TRANSPORT)
-        base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
+        base = json.loads(Path(__file__).with_name('observations.json').read_text())
         snapshot = self.reader.collect(lambda argv: ('', True), cron_files=[])
         document = transport.collect_hosts(base, lambda argv, data: (json.dumps(snapshot).encode(), True))
         with tempfile.TemporaryDirectory(prefix='w0-publish-') as temp:
@@ -97,13 +97,13 @@ class ReviewContract(unittest.TestCase):
             (root / 'app/hidden.py').write_text('import json\n')
             result = self.reader.inspect_graph([str(entry)], roots=[str(root)])
             self.assertEqual({r['path'] for r in result['scripts']}, {str(entry)})
-            self.assertFalse((result['dependency_coverage'] != 'manual-review-required'))
+            self.assertFalse(result['dependency_coverage'] != 'manual-review-required')
             self.assertTrue(result['blocking_dependencies'])
             transport = load(TRANSPORT)
             snapshot = self.reader.collect(lambda argv: ('', True), cron_files=[])
             snapshot.update(scripts=result['scripts'], blocking_dependencies=result['blocking_dependencies'])
             snapshot['dependency_coverage'] = 'manual-review-required'
-            base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
+            base = json.loads(Path(__file__).with_name('observations.json').read_text())
             document = transport.collect_hosts(base, lambda argv, data: (json.dumps(snapshot).encode(), True))
             self.assertTrue(document['blocking_dependencies'])
             self.assertTrue(all(r['status'] in ('unresolved', 'removed-package') for r in document['blocking_dependencies']))

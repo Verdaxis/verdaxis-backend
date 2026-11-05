@@ -127,7 +127,10 @@ class ReaderContract(unittest.TestCase):
         self.assertFalse(self.reader.allowed(('bash', '/tmp/backup.sh')))
         self.assertFalse(self.reader.allowed(('systemctl', 'restart', 'fixture.service')))
         transport = load(TRANSPORT)
-        base = json.loads((ROOT / 'tests/rust_contract/phase10/host-dependencies.json').read_text())
+        # Keep synthetic transport input independent of the populated PM register.
+        base = json.loads((Path(__file__).with_name('observations.json')).read_text())
+        base['dependencies'] = []
+        base['schedules'] = []
         calls = []
         def runner(argv, data):
             calls.append(argv)

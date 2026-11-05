@@ -27,7 +27,7 @@ def assert_collection(case, reader, result, *, scripts, blocking, markers,
     for observation in observations:
         case.assertEqual(observation['acquired'], acquired[observation['surface']])
     transport = load(TRANSPORT)
-    base = json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
+    base = json.loads((ROOT/'tests/rust_contract/phase10/host_inventory/observations.json').read_text())
     # Exactly the bytes the host would transmit; validation is downstream.
     wire = json.dumps(result, sort_keys=True).encode()
     document = transport.collect_hosts(base, lambda argv, data: (wire, True))

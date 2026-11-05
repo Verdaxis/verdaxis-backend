@@ -1148,8 +1148,14 @@ Task 35 adds the off-host W0 fixture adapter and verifier in
 They share the bounded reader and classification checks in
 `tests/rust_contract/phase10/host_inventory/inventory.py` (CI-only Python, no
 application imports). `host-inventory.schema.json` defines the register;
-`host-dependencies.json` stays empty and marked `uncollected` until separately
-authorized installed evidence exists. Stage 1 accepts sanitized fixtures only,
+`host-dependencies.json` records the PM's 2026-11-05 manual classification as
+`collected-manual`, with evidence digests, explicit missing fields and no installed
+acceptance. Task 36's `deploy/tests/host-automation-contract.sh` runs five register
+fixture checks through `host_inventory/automation_contract.py`; it does not run a
+restore, install replacements or authorize W5. Backup automation stays unchanged,
+including its system-interpreter dependency; legacy host tools have explicit W5
+retirement reasons and owning-task links. The manual validation path is separate
+from the signed installed gate. Stage 1 accepts sanitized fixtures only,
 uses private external evidence directories with SHA-256 sidecars, and disables
 live collection, installed acceptance, signing, and schedule changes.
 Stage 2a adds `deploy/tests/host-inventory-reader.py`, the fixed standard-library
