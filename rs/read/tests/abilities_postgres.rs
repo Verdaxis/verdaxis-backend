@@ -311,12 +311,14 @@ async fn migrated_party_state_matrix() {
         reason(&body, "hit_ask_order"),
         Some("ORGANIZATION_PROVENANCE_UNVERIFIED")
     );
-    sqlx::query("UPDATE users SET role='SUPPLIER',organization_id=$2,kyc_organization_id=$2 WHERE id=$1")
-        .bind(user)
-        .bind(other)
-        .execute(&mut admin)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE users SET role='SUPPLIER',organization_id=$2,kyc_organization_id=$2 WHERE id=$1",
+    )
+    .bind(user)
+    .bind(other)
+    .execute(&mut admin)
+    .await
+    .unwrap();
     let (_, _, body) = get(&app, "/api/auth/me/abilities", Some(&bearer)).await;
     assert_eq!(reason(&body, "place_ask_order"), None);
     assert_eq!(reason(&body, "publish_inventory"), None);

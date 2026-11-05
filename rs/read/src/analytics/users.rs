@@ -335,8 +335,7 @@ async fn list(State(state): State<RouteState>, request: Request) -> Response {
                 let actor = transaction.actor();
                 // Admission order: authenticated and revalidated, administrator,
                 // typed query, quota, then the identified page.
-                if crate::order_write::party_policy::role_denial(actor.role.as_deref(), "ADMIN")
-                    .is_some()
+                if crate::market_party_policy::role_denial(actor.role.as_deref(), "ADMIN").is_some()
                 {
                     return Err(refusal(
                         StatusCode::FORBIDDEN,

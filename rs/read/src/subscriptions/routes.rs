@@ -253,11 +253,8 @@ async fn require_administrator(
         AuthenticatedRequest::new("GET", route_template, false),
         |tx| {
             Box::pin(async move {
-                if crate::order_write::party_policy::role_denial(
-                    tx.actor().role.as_deref(),
-                    "ADMIN",
-                )
-                .is_none()
+                if crate::market_party_policy::role_denial(tx.actor().role.as_deref(), "ADMIN")
+                    .is_none()
                 {
                     Ok(())
                 } else {

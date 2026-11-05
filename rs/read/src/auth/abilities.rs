@@ -1,6 +1,6 @@
 //! User-level hints composed from the enforcing market policies.
 use super::{AuthenticatedError, AuthenticatedRequest, run_authenticated, verify_authorization};
-use crate::order_write::party_policy::{
+use crate::market_party_policy::{
     PartyFacts, execution_denial, indicative_denial, role_denial, support_denial,
     take_provenance_allowed,
 };
@@ -94,9 +94,9 @@ pub fn build_abilities(f: &Facts) -> Abilities {
     // This display precedence does not change the enforcing routes' gate order.
     let administrator = (f.role.as_deref() == Some("ADMIN")).then_some("ADMIN_CANNOT_EXECUTE");
     let execution = administrator.or(execution_denial(f));
-    let create = administrator.or(crate::order_write::party_policy::create_denial(f));
+    let create = administrator.or(crate::market_party_policy::create_denial(f));
     let indicative = indicative_denial(f);
-    let legacy = crate::order_write::party_policy::legacy_admin_denial(
+    let legacy = crate::market_party_policy::legacy_admin_denial(
         f.role.as_deref(),
         f.support_enabled,
         false,
@@ -105,10 +105,10 @@ pub fn build_abilities(f: &Facts) -> Abilities {
         (!take_provenance_allowed(&f.provenance)).then_some("ORGANIZATION_PROVENANCE_UNVERIFIED");
     let mut capabilities = Vec::new();
     if f.listings {
-        capabilities.push(crate::order_write::support::Capability::Listings);
+        capabilities.push(crate::market_support::Capability::Listings);
     }
     if f.authorizations {
-        capabilities.push(crate::order_write::support::Capability::Authorizations);
+        capabilities.push(crate::market_support::Capability::Authorizations);
     }
     let abilities = ACTIONS
         .into_iter()
@@ -132,14 +132,12 @@ pub fn build_abilities(f: &Facts) -> Abilities {
                 "manage_inventory" => indicative.or(role_denial(f.role.as_deref(), "SUPPLIER")),
                 "create_rfq" | "quote_rfq" => Some("ACTION_RETIRED"),
                 "market_support_access" => support_denial(f).or(
-                    (!crate::order_write::support::capabilities_allow_access(&capabilities))
+                    (!crate::market_support::capabilities_allow_access(&capabilities))
                         .then_some("MARKET_SUPPORT_CAPABILITY_REQUIRED"),
                 ),
                 "market_support_assisted_orders" => support_denial(f).or(
-                    (!crate::order_write::support::capabilities_allow_assisted_orders(
-                        &capabilities,
-                    ))
-                    .then_some("MARKET_SUPPORT_CAPABILITY_REQUIRED"),
+                    (!crate::market_support::capabilities_allow_assisted_orders(&capabilities))
+                        .then_some("MARKET_SUPPORT_CAPABILITY_REQUIRED"),
                 ),
                 _ => role_denial(f.role.as_deref(), "ADMIN"),
             };
@@ -215,11 +213,11 @@ async fn read(State(state): State<AppState>, request: Request) -> Response {
                 authorizations: false,
             };
             if support_denial(&facts).is_none() {
-                let capabilities = crate::order_write::support::current_capabilities(
+                let capabilities = crate::market_support::current_capabilities(
                     transaction.connection(), user, now,
                 ).await.map_err(|_| ApiError::database())?;
-                facts.listings = capabilities.contains(&crate::order_write::support::Capability::Listings);
-                facts.authorizations = capabilities.contains(&crate::order_write::support::Capability::Authorizations);
+                facts.listings = capabilities.contains(&crate::market_support::Capability::Listings);
+                facts.authorizations = capabilities.contains(&crate::market_support::Capability::Authorizations);
             }
             Ok(build_abilities(&facts))
         }),

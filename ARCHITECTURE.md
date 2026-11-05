@@ -186,7 +186,8 @@ The following component sections describe their local exports, not activation.
 `GET /api/auth/me/abilities` with schema version 1 and `Cache-Control: no-store`.
 It uses the current authenticated transaction and the same user lock as Rust
 `/auth/me`. `order_write/party_policy.rs` provides extracted admission, role and
-provenance predicates consumed by both commands and hints; `kyc/policy.rs` owns
+provenance predicates consumed by both commands and hints through the narrow
+pure `market_party_policy` export; `kyc/policy.rs` owns
 the shared KYC truth table and `order_write/support.rs` owns current capabilities.
 RFQ action IDs remain but always deny with `ACTION_RETIRED`. The independent
 exact Caddy selector is `deploy/caddy/rust-abilities.caddy`; its route inventory

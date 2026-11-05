@@ -287,8 +287,7 @@ async fn audit_route(State(state): State<RouteState>, request: Request) -> Respo
         move |transaction| {
             Box::pin(async move {
                 let actor = transaction.actor();
-                if crate::order_write::party_policy::role_denial(actor.role.as_deref(), "ADMIN")
-                    .is_some()
+                if crate::market_party_policy::role_denial(actor.role.as_deref(), "ADMIN").is_some()
                 {
                     return Err(refusal(
                         StatusCode::FORBIDDEN,
