@@ -93,10 +93,11 @@ def _expected(release_sha: str, target: str, *lines: str) -> str:
 
 
 def test_producer_checkpoint_list_matches_the_allowed_revisions():
-    """deploy.sh names the producer checkpoint and every later revision."""
+    """M startup admission does not erase historical schema capabilities."""
     allowed = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
     revisions = allowed["revisions"] if isinstance(allowed, dict) else allowed
-    later = revisions[revisions.index(PRODUCER):]
+    assert revisions == ["sqlx_1"]
+    later = [PRODUCER, "p89_20261022_trade_freeze", "ob_20261031_offboarding", "sqlx_1"]
     source = (ROOT / "scripts/deploy.sh").read_text()
     start = source.index("revision_has_watchlist_producer() {")
     case_line = next(
