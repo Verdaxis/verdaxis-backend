@@ -1,25 +1,12 @@
 # Routes
 
-## Rust abilities addition
-
-- `GET /api/auth/me/abilities`: `rs/read/src/auth/abilities.rs`, mounted by
-  `runtime/phase4.rs`; current-account authentication, schema 1, no-store.
-- `deploy/caddy/rust-abilities.caddy` selects exact GET/HEAD/OPTIONS; equal
-  upstream arguments disable ownership. Inventory: `tests/rust_contract/abilities/routes.json`.
-- Shared enforcement: `order_write/party_policy.rs`, `kyc/policy.rs`, and
-  `order_write/support.rs`. RFQ hints always deny with `ACTION_RETIRED`.
-
-
 ## CRUD Resources
 
 - **``** GET | POST | GET/:id | PUT/:id | DELETE/:id
 - **`/inventory`** GET | POST | GET/:id | PATCH/:id | DELETE/:id → Inventory
-- **`/api/orderbook`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Orderbook
 - **`/admin/subscriptions`** GET | GET/:id | PUT/:id → Subscription
 - **`/api/alerts`** GET | POST | GET/:id | DELETE/:id → Alert
 - **`/api/watchlists`** GET | POST | GET/:id | DELETE/:id → Watchlist
-- **`/api/inventory`** GET | POST | GET/:id | PATCH/:id | DELETE/:id → Inventory
-- **`/api/admin/subscriptions`** GET | GET/:id | PUT/:id → Subscription
 
 ## Other Routes
 
@@ -119,15 +106,14 @@
 - `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse
 - `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse
 - `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse
-- `GET` `/api` params() → in: in, out: list [db] ✓
-- `GET` `/api/unread-count` params() → in: in, out: list [db]
-- `PATCH` `/api/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
-- `PATCH` `/api/read-all` params() → in: uuid, out: list [db]
+- `GET` `/unread-count` params() → in: in, out: list [db]
+- `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
+- `PATCH` `/read-all` params() → in: uuid, out: list [db]
 - `GET` `/snapshot` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/bids` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/asks` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/with-ci` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
-- `GET` `/my` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/my` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
 - `GET` `/my/latest-ask-template` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
 - `GET` `/aggregated` params() → in: MarketProduc, out: OrderBookSnapshotResponse ✓
 - `GET` `/product-counts` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
@@ -136,11 +122,12 @@
 - `GET` `/regions` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/fuel-types` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `POST` `/{order_id}/cancel` params(order_id) → out: OrderBookSnapshotResponse [auth, db]
-- `GET` `/api/admin/commissions` params() → in: Use, out: list [db]
-- `GET` `/api/admin/commissions/summary` params() → in: Use, out: list [db]
-- `PUT` `/api/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [db]
+- `GET` `/admin/commissions` params() → in: Use, out: list [db]
+- `GET` `/admin/commissions/summary` params() → in: Use, out: list [db]
+- `PUT` `/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [db]
 - `GET` `/ports` params() → in: Annotated, out: List [db]
 - `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [db]
+- `GET` `/api` params() → in: Use [db] ✓
 - `PUT` `/api/{namespace}` params(namespace) [db]
 - `GET` `/reference` params() → out: PriceDiscoveryResponse [auth]
 - `GET` `/reference/export` params() → out: PriceDiscoveryResponse [auth]
@@ -155,19 +142,20 @@
 - `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse
 - `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [db]
 - `GET` `/api/prices` params() [auth, cache] ✓
+- `GET` `/api/orderbook` params() [cache] ✓
 - `GET` `/api/trades` params() [auth, db, cache] ✓
 - `GET` `/subscriptions/fees` params() → in: Annotated, out: FeeScheduleResponse
 - `GET` `/subscriptions/me` params() → in: Annotated, out: FeeScheduleResponse
 - `POST` `/{offer_id}/withdraw` params(offer_id) → out: SupplierOfferList
 - `POST` `/` params() → out: TradeResponse [db] ✓
-- `GET` `/summary` params() → out: TradeResponse [db] ✓
+- `GET` `/summary` params() → out: TradeResponse [db]
 - `PUT` `/{trade_id}/confirm` params(trade_id) → out: TradeResponse [db]
 - `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse
 - `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth]
 - `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse
 - `GET` `/vessels` params() → in: Annotated, out: List [db]
 - `GET` `/vessels/{vessel_id}` params(vessel_id) → in: Annotated, out: List [db]
-- `POST` `/me` params() → in: Annotated, out: list ✓
+- `POST` `/me` params() → in: Annotated, out: list
 - `POST` `/{watchlist_id}/targets` params(watchlist_id) → in: Annotated, out: list [db]
 - `DELETE` `/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) → in: UUID, out: list [db]
 - `GET` `/{watchlist_id}/events` params(watchlist_id) → in: Annotated, out: list
@@ -177,7 +165,6 @@
 - `GET` `/.well-known/verdaxis-disposable-test` params() [auth] ✓
 - `POST` `/__contract__/order-write` params() [auth, db]
 - `GET` `/owner-cleanup-proof` params() → in: Annotated ✓
-- `GET` `/api/test/cleanup` params() ✓
 - `GET` `/one` params() → out: AlertResponse ✓
 - `GET` `/many` params() → out: AlertResponse ✓
 - `POST` `/upload` params() → in: UploadFile [auth, upload] ✓
@@ -187,36 +174,6 @@
 
 - `GET` `/__contract__/live-benchmarks` [auth, cache] ✓
 - `POST` `/__contract__/phase2/write` [auth, db] ✓
-- `GET` `/api/auth/stream-token` [auth] ✓
-- `GET` `/api/auth/me` [auth] ✓
-- `POST` `/api/test/issue` [auth] ✓
-- `POST` `/api/auth/verify-email` [auth, db, email] ✓
-- `POST` `/api/auth/resend-verification-email` [auth, db, email] ✓
-- `POST` `/api/auth/verify-email/` [auth, db, email]
-- `POST` `/api/auth/resend-verification-email/` [auth, db, email]
-- `POST` `/api/auth/invitations/accept` [auth, db] ✓
-- `POST` `/api/auth/invitations/accept/` [auth, db] ✓
-- `POST` `/api/auth/login` [auth, db] ✓
-- `POST` `/api/auth/login/` [auth, db] ✓
-- `POST` `/api/auth/logout` [auth, db] ✓
-- `POST` `/api/auth/logout/` [auth, db]
-- `PUT` `/api/auth/me/password` [auth, db] ✓
-- `PUT` `/api/auth/me/password/` [auth, db] ✓
-- `POST` `/api/auth/forgot-password` [auth, db] ✓
-- `POST` `/api/auth/reset-password` [auth, db] ✓
-- `POST` `/api/auth/forgot-password/` [auth, db] ✓
-- `POST` `/api/auth/reset-password/` [auth, db]
-- `POST` `/api/auth/refresh` [auth, db] ✓
-- `POST` `/api/auth/refresh/` [auth, db]
-- `POST` `/api/auth/register` [auth, db] ✓
-- `POST` `/api/auth/register/` [auth, db] ✓
-- `POST` `/api/auth/register-with-org` [auth, db] ✓
-- `POST` `/api/auth/register-with-org/` [auth, db] ✓
-- `PUT` `/api/auth/approve/{user_id}` params(user_id) [auth, db, queue] ✓
-- `PUT` `/api/auth/reject/{user_id}` params(user_id) [auth, db, queue] ✓
-- `PUT` `/api/admin/analytics/users/{user_id}/reject` params(user_id) [auth, db, queue] ✓
-- `GET` `/api/auth/admin/review-queue` [auth, db, queue] ✓
-- `GET` `/api/auth/admin/review-queue/{user_id}` params(user_id) [auth, db, queue] ✓
 - `GET` `/api/users/me/preferences` [auth, db] ✓
 - `PUT` `/api/users/me/preferences/{namespace}` params(namespace) [auth, db] ✓
 - `POST` `/api/referrals/my-code` [auth] ✓
@@ -232,54 +189,17 @@
 - `DELETE` `/api/watchlists/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) [auth, db] ✓
 - `GET` `/api/watchlists/{watchlist_id}/events` params(watchlist_id) [auth, db] ✓
 - `PATCH` `/api/watchlists/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) [auth, db] ✓
-- `PUT` `/api/kyc/admin/{user_id}/approve` params(user_id) [auth, db] ✓
-- `PUT` `/api/kyc/admin/{user_id}/reject` params(user_id) [auth, db] ✓
 - `GET` `/api/catalog/products` [db, cache] ✓
 - `GET` `/api/catalog/delivery-points` [db, cache] ✓
-- `GET` `/api/compliance/vessels/{vessel_id}/score` params(vessel_id) [auth, db] ✓
 - `GET` `/api/curves/forward/table` [db] ✓
 - `GET` `/api/curves/forward/slice` [db] ✓
 - `GET` `/api/curves/forward/board` [db] ✓
 - `GET` `/api/curves/forward` [db] ✓
 - `GET` `/api/curves/forward/export` [db] ✓
-- `GET` `/api/orders/admin/commissions` [auth] ✓
-- `GET` `/api/orders/admin/commissions/summary` [auth] ✓
-- `PUT` `/api/orders/admin/commissions/{commission_id}` params(commission_id) [auth]
-- `GET` `/api/admin/trades/frozen` [auth] ✓
-- `POST` `/api/admin/trades/{trade}/freeze` params(trade) [auth] ✓
-- `POST` `/api/admin/trades/{trade}/unfreeze` params(trade) [auth]
-- `POST` `/api/inventory/{item_id}/publish` params(item_id) [auth, db] ✓
-- `GET` `/api/listings/my` [auth, db] ✓
-- `GET` `/api/orderbook/my` [auth, db] ✓
-- `GET` `/api/orderbook/my/latest-ask-template` [auth, db] ✓
-- `POST` `/api/orderbook/{id}/cancel` params(id) [auth, db]
-- `GET` `/api/admin/market-support/capabilities` [auth] ✓
-- `POST` `/api/admin/market-support/capability-assignments` [auth]
-- `POST` `/api/admin/market-support/capability-assignments/{id}/revoke` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations` [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/authorizations` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/authorizations` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/listings` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/listings` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/listings/{order}/cancel` params(id, order) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/authorizations/{authorization}/revoke` params(id, authorization) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/entry` params(id) [auth]
-- `POST` `/api/admin/market-support/contexts` [auth]
-- `GET` `/api/admin/market-support/contexts/active` [auth]
-- `GET` `/api/admin/market-support/contexts/{id}` params(id) [auth]
-- `POST` `/api/admin/market-support/contexts/{id}/exit` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/context` params(id) [auth]
-- `PUT` `/api/trades/{trade_id}/confirm` params(trade_id) [auth, db] ✓
-- `PUT` `/api/trades/{trade_id}/decline` params(trade_id) [auth, db] ✓
-- `PUT` `/api/trades/{trade_id}/deliver` params(trade_id) [auth, db] ✓
-- `POST` `/api/trades/{trade_id}/pay` params(trade_id) [auth, db] ✓
-- `POST` `/api/trades/` [auth, db] ✓
-- `POST` `/api/trades` [auth, db] ✓
-- `GET` `/api/trades/my` [auth, db] ✓
-- `GET` `/api/trades/summary` [auth, db] ✓
 - `GET` `/api/news` [db, cache] ✓
 - `GET` `/api/orderbook/bids` [auth, db, cache] ✓
 - `GET` `/api/orderbook/asks` [auth, db, cache] ✓
+- `POST` `/api/orderbook` [auth, db, cache] ✓
 - `GET` `/api/orderbook/with-ci` [auth, db, cache] ✓
 - `GET` `/api/orderbook/aggregated` [db] ✓
 - `GET` `/api/orderbook/product-counts` [db] ✓
@@ -293,35 +213,11 @@
 - `GET` `/api/prices/reference` [db] ✓
 - `GET` `/api/prices/reference/export` [db] ✓
 - `GET` `/api/trade-tape` [db] ✓
-- `GET` `/api/auth/stream-token/` [auth]
-- `POST` `/api/kyc/submit` [auth, db, upload] ✓
-- `GET` `/api/kyc/status` [auth, db, upload] ✓
-- `GET` `/api/kyc/admin/{user_id}/documents` params(user_id) [auth, db, upload] ✓
-- `GET` `/api/kyc/admin/documents/{document_id}` params(document_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization/{organization_id}/approve` params(organization_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization/{organization_id}/reject` params(organization_id) [auth, db, upload] ✓
-- `GET` `/api/auth/organization-joins` [auth, db, upload] ✓
-- `PUT` `/api/auth/organization-joins/{join_request_id}/approve` params(join_request_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization-joins/{join_request_id}/reject` params(join_request_id) [auth, db, upload] ✓
-- `GET` `/api/admin/analytics/product-analytics/overview` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/activation` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/engagement` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/retention` [auth, db] ✓
-- `GET` `/api/subscriptions/fees` [auth, db] ✓
-- `GET` `/api/subscriptions/me` [auth, db] ✓
-- `GET` `/api/availability` [db] ✓
-- `GET` `/probe` [auth, db, email] ✓
-- `POST` `/api/auth/login/probe` [auth, db] ✓
 - `GET` `/api/notifications/unread-count` [auth, db] ✓
 - `POST` `/emails` [auth, email] ✓
 - `GET` `/fixture` [auth, db] ✓
 - `GET` `/ok` [auth, db] ✓
-- `GET` `/capped` [auth, db] ✓
-- `GET` `/invalid` [auth, db] ✓
-- `POST` `/api/send` [auth, db] ✓
-- `PUT` `/component/organizations/reject` [auth, db] ✓
 - `GET` `/api/admin/analytics` [auth] ✓
-- `POST` `/mail` [auth, db] ✓
 - `GET` `/unhandled` ✓
 - `GET` `/handled` ✓
 - `GET` `/busy` ✓

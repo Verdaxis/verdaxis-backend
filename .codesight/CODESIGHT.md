@@ -2,9 +2,9 @@
 
 > **Stack:** fastapi, axum | sqlalchemy | unknown | python
 
-> 332 routes | 331 models | 0 components | 228 lib files | 182 env vars | 47 middleware | 50% test coverage
-> **Token savings:** this file is ~55,400 tokens. Without it, AI exploration would cost ~406,000 tokens. **Saves ~350,600 tokens per conversation.**
-> **Last scanned:** 2026-11-05 09:32 — re-run after significant changes
+> 230 routes | 330 models | 0 components | 215 lib files | 158 env vars | 20 middleware | 43% test coverage
+> **Token savings:** this file is ~50,900 tokens. Without it, AI exploration would cost ~339,000 tokens. **Saves ~288,200 tokens per conversation.**
+> **Last scanned:** 2026-10-22 20:18 — re-run after significant changes
 
 ---
 
@@ -14,12 +14,9 @@
 
 - **``** GET | POST | GET/:id | PUT/:id | DELETE/:id
 - **`/inventory`** GET | POST | GET/:id | PATCH/:id | DELETE/:id → Inventory
-- **`/api/orderbook`** GET | POST | GET/:id | PUT/:id | DELETE/:id → Orderbook
 - **`/admin/subscriptions`** GET | GET/:id | PUT/:id → Subscription
 - **`/api/alerts`** GET | POST | GET/:id | DELETE/:id → Alert
 - **`/api/watchlists`** GET | POST | GET/:id | DELETE/:id → Watchlist
-- **`/api/inventory`** GET | POST | GET/:id | PATCH/:id | DELETE/:id → Inventory
-- **`/api/admin/subscriptions`** GET | GET/:id | PUT/:id → Subscription
 
 ## Other Routes
 
@@ -119,15 +116,14 @@
 - `POST` `/{negotiation_id}/counter` params(negotiation_id) → out: NegotiationResponse
 - `POST` `/{negotiation_id}/accept` params(negotiation_id) → out: NegotiationResponse
 - `POST` `/{negotiation_id}/decline` params(negotiation_id) → out: NegotiationResponse
-- `GET` `/api` params() → in: in, out: list [db] ✓
-- `GET` `/api/unread-count` params() → in: in, out: list [db]
-- `PATCH` `/api/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
-- `PATCH` `/api/read-all` params() → in: uuid, out: list [db]
+- `GET` `/unread-count` params() → in: in, out: list [db]
+- `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
+- `PATCH` `/read-all` params() → in: uuid, out: list [db]
 - `GET` `/snapshot` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/bids` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/asks` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/with-ci` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
-- `GET` `/my` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
+- `GET` `/my` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
 - `GET` `/my/latest-ask-template` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db]
 - `GET` `/aggregated` params() → in: MarketProduc, out: OrderBookSnapshotResponse ✓
 - `GET` `/product-counts` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
@@ -136,11 +132,12 @@
 - `GET` `/regions` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `GET` `/fuel-types` params() → in: MarketProduc, out: OrderBookSnapshotResponse [db] ✓
 - `POST` `/{order_id}/cancel` params(order_id) → out: OrderBookSnapshotResponse [auth, db]
-- `GET` `/api/admin/commissions` params() → in: Use, out: list [db]
-- `GET` `/api/admin/commissions/summary` params() → in: Use, out: list [db]
-- `PUT` `/api/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [db]
+- `GET` `/admin/commissions` params() → in: Use, out: list [db]
+- `GET` `/admin/commissions/summary` params() → in: Use, out: list [db]
+- `PUT` `/admin/commissions/{commission_id}` params(commission_id) → in: UUID, out: list [db]
 - `GET` `/ports` params() → in: Annotated, out: List [db]
 - `GET` `/ports/{port_id}` params(port_id) → in: Annotated, out: List [db]
+- `GET` `/api` params() → in: Use [db] ✓
 - `PUT` `/api/{namespace}` params(namespace) [db]
 - `GET` `/reference` params() → out: PriceDiscoveryResponse [auth]
 - `GET` `/reference/export` params() → out: PriceDiscoveryResponse [auth]
@@ -155,19 +152,20 @@
 - `POST` `/{rfq_id}/accept/{quote_id}` params(rfq_id, quote_id) → out: RFQResponse
 - `POST` `/{rfq_id}/cancel` params(rfq_id) → out: RFQResponse [db]
 - `GET` `/api/prices` params() [auth, cache] ✓
+- `GET` `/api/orderbook` params() [cache] ✓
 - `GET` `/api/trades` params() [auth, db, cache] ✓
 - `GET` `/subscriptions/fees` params() → in: Annotated, out: FeeScheduleResponse
 - `GET` `/subscriptions/me` params() → in: Annotated, out: FeeScheduleResponse
 - `POST` `/{offer_id}/withdraw` params(offer_id) → out: SupplierOfferList
 - `POST` `/` params() → out: TradeResponse [db] ✓
-- `GET` `/summary` params() → out: TradeResponse [db] ✓
+- `GET` `/summary` params() → out: TradeResponse [db]
 - `PUT` `/{trade_id}/confirm` params(trade_id) → out: TradeResponse [db]
 - `PUT` `/{trade_id}/decline` params(trade_id) → out: TradeResponse
 - `PUT` `/{trade_id}/deliver` params(trade_id) → out: TradeResponse [auth]
 - `POST` `/{trade_id}/pay` params(trade_id) → out: TradeResponse
 - `GET` `/vessels` params() → in: Annotated, out: List [db]
 - `GET` `/vessels/{vessel_id}` params(vessel_id) → in: Annotated, out: List [db]
-- `POST` `/me` params() → in: Annotated, out: list ✓
+- `POST` `/me` params() → in: Annotated, out: list
 - `POST` `/{watchlist_id}/targets` params(watchlist_id) → in: Annotated, out: list [db]
 - `DELETE` `/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) → in: UUID, out: list [db]
 - `GET` `/{watchlist_id}/events` params(watchlist_id) → in: Annotated, out: list
@@ -177,7 +175,6 @@
 - `GET` `/.well-known/verdaxis-disposable-test` params() [auth] ✓
 - `POST` `/__contract__/order-write` params() [auth, db]
 - `GET` `/owner-cleanup-proof` params() → in: Annotated ✓
-- `GET` `/api/test/cleanup` params() ✓
 - `GET` `/one` params() → out: AlertResponse ✓
 - `GET` `/many` params() → out: AlertResponse ✓
 - `POST` `/upload` params() → in: UploadFile [auth, upload] ✓
@@ -187,36 +184,6 @@
 
 - `GET` `/__contract__/live-benchmarks` [auth, cache] ✓
 - `POST` `/__contract__/phase2/write` [auth, db] ✓
-- `GET` `/api/auth/stream-token` [auth] ✓
-- `GET` `/api/auth/me` [auth] ✓
-- `POST` `/api/test/issue` [auth] ✓
-- `POST` `/api/auth/verify-email` [auth, db, email] ✓
-- `POST` `/api/auth/resend-verification-email` [auth, db, email] ✓
-- `POST` `/api/auth/verify-email/` [auth, db, email]
-- `POST` `/api/auth/resend-verification-email/` [auth, db, email]
-- `POST` `/api/auth/invitations/accept` [auth, db] ✓
-- `POST` `/api/auth/invitations/accept/` [auth, db] ✓
-- `POST` `/api/auth/login` [auth, db] ✓
-- `POST` `/api/auth/login/` [auth, db] ✓
-- `POST` `/api/auth/logout` [auth, db] ✓
-- `POST` `/api/auth/logout/` [auth, db]
-- `PUT` `/api/auth/me/password` [auth, db] ✓
-- `PUT` `/api/auth/me/password/` [auth, db] ✓
-- `POST` `/api/auth/forgot-password` [auth, db] ✓
-- `POST` `/api/auth/reset-password` [auth, db] ✓
-- `POST` `/api/auth/forgot-password/` [auth, db] ✓
-- `POST` `/api/auth/reset-password/` [auth, db]
-- `POST` `/api/auth/refresh` [auth, db] ✓
-- `POST` `/api/auth/refresh/` [auth, db]
-- `POST` `/api/auth/register` [auth, db] ✓
-- `POST` `/api/auth/register/` [auth, db] ✓
-- `POST` `/api/auth/register-with-org` [auth, db] ✓
-- `POST` `/api/auth/register-with-org/` [auth, db] ✓
-- `PUT` `/api/auth/approve/{user_id}` params(user_id) [auth, db, queue] ✓
-- `PUT` `/api/auth/reject/{user_id}` params(user_id) [auth, db, queue] ✓
-- `PUT` `/api/admin/analytics/users/{user_id}/reject` params(user_id) [auth, db, queue] ✓
-- `GET` `/api/auth/admin/review-queue` [auth, db, queue] ✓
-- `GET` `/api/auth/admin/review-queue/{user_id}` params(user_id) [auth, db, queue] ✓
 - `GET` `/api/users/me/preferences` [auth, db] ✓
 - `PUT` `/api/users/me/preferences/{namespace}` params(namespace) [auth, db] ✓
 - `POST` `/api/referrals/my-code` [auth] ✓
@@ -232,54 +199,17 @@
 - `DELETE` `/api/watchlists/{watchlist_id}/targets/{target_id}` params(watchlist_id, target_id) [auth, db] ✓
 - `GET` `/api/watchlists/{watchlist_id}/events` params(watchlist_id) [auth, db] ✓
 - `PATCH` `/api/watchlists/{watchlist_id}/events/{event_id}` params(watchlist_id, event_id) [auth, db] ✓
-- `PUT` `/api/kyc/admin/{user_id}/approve` params(user_id) [auth, db] ✓
-- `PUT` `/api/kyc/admin/{user_id}/reject` params(user_id) [auth, db] ✓
 - `GET` `/api/catalog/products` [db, cache] ✓
 - `GET` `/api/catalog/delivery-points` [db, cache] ✓
-- `GET` `/api/compliance/vessels/{vessel_id}/score` params(vessel_id) [auth, db] ✓
 - `GET` `/api/curves/forward/table` [db] ✓
 - `GET` `/api/curves/forward/slice` [db] ✓
 - `GET` `/api/curves/forward/board` [db] ✓
 - `GET` `/api/curves/forward` [db] ✓
 - `GET` `/api/curves/forward/export` [db] ✓
-- `GET` `/api/orders/admin/commissions` [auth] ✓
-- `GET` `/api/orders/admin/commissions/summary` [auth] ✓
-- `PUT` `/api/orders/admin/commissions/{commission_id}` params(commission_id) [auth]
-- `GET` `/api/admin/trades/frozen` [auth] ✓
-- `POST` `/api/admin/trades/{trade}/freeze` params(trade) [auth] ✓
-- `POST` `/api/admin/trades/{trade}/unfreeze` params(trade) [auth]
-- `POST` `/api/inventory/{item_id}/publish` params(item_id) [auth, db] ✓
-- `GET` `/api/listings/my` [auth, db] ✓
-- `GET` `/api/orderbook/my` [auth, db] ✓
-- `GET` `/api/orderbook/my/latest-ask-template` [auth, db] ✓
-- `POST` `/api/orderbook/{id}/cancel` params(id) [auth, db]
-- `GET` `/api/admin/market-support/capabilities` [auth] ✓
-- `POST` `/api/admin/market-support/capability-assignments` [auth]
-- `POST` `/api/admin/market-support/capability-assignments/{id}/revoke` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations` [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/authorizations` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/authorizations` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/listings` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/listings` params(id) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/listings/{order}/cancel` params(id, order) [auth]
-- `POST` `/api/admin/market-support/organizations/{id}/authorizations/{authorization}/revoke` params(id, authorization) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/entry` params(id) [auth]
-- `POST` `/api/admin/market-support/contexts` [auth]
-- `GET` `/api/admin/market-support/contexts/active` [auth]
-- `GET` `/api/admin/market-support/contexts/{id}` params(id) [auth]
-- `POST` `/api/admin/market-support/contexts/{id}/exit` params(id) [auth]
-- `GET` `/api/admin/market-support/organizations/{id}/context` params(id) [auth]
-- `PUT` `/api/trades/{trade_id}/confirm` params(trade_id) [auth, db] ✓
-- `PUT` `/api/trades/{trade_id}/decline` params(trade_id) [auth, db] ✓
-- `PUT` `/api/trades/{trade_id}/deliver` params(trade_id) [auth, db] ✓
-- `POST` `/api/trades/{trade_id}/pay` params(trade_id) [auth, db] ✓
-- `POST` `/api/trades/` [auth, db] ✓
-- `POST` `/api/trades` [auth, db] ✓
-- `GET` `/api/trades/my` [auth, db] ✓
-- `GET` `/api/trades/summary` [auth, db] ✓
 - `GET` `/api/news` [db, cache] ✓
 - `GET` `/api/orderbook/bids` [auth, db, cache] ✓
 - `GET` `/api/orderbook/asks` [auth, db, cache] ✓
+- `POST` `/api/orderbook` [auth, db, cache] ✓
 - `GET` `/api/orderbook/with-ci` [auth, db, cache] ✓
 - `GET` `/api/orderbook/aggregated` [db] ✓
 - `GET` `/api/orderbook/product-counts` [db] ✓
@@ -293,35 +223,11 @@
 - `GET` `/api/prices/reference` [db] ✓
 - `GET` `/api/prices/reference/export` [db] ✓
 - `GET` `/api/trade-tape` [db] ✓
-- `GET` `/api/auth/stream-token/` [auth]
-- `POST` `/api/kyc/submit` [auth, db, upload] ✓
-- `GET` `/api/kyc/status` [auth, db, upload] ✓
-- `GET` `/api/kyc/admin/{user_id}/documents` params(user_id) [auth, db, upload] ✓
-- `GET` `/api/kyc/admin/documents/{document_id}` params(document_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization/{organization_id}/approve` params(organization_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization/{organization_id}/reject` params(organization_id) [auth, db, upload] ✓
-- `GET` `/api/auth/organization-joins` [auth, db, upload] ✓
-- `PUT` `/api/auth/organization-joins/{join_request_id}/approve` params(join_request_id) [auth, db, upload] ✓
-- `PUT` `/api/auth/organization-joins/{join_request_id}/reject` params(join_request_id) [auth, db, upload] ✓
-- `GET` `/api/admin/analytics/product-analytics/overview` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/activation` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/engagement` [auth, db] ✓
-- `GET` `/api/admin/analytics/product-analytics/retention` [auth, db] ✓
-- `GET` `/api/subscriptions/fees` [auth, db] ✓
-- `GET` `/api/subscriptions/me` [auth, db] ✓
-- `GET` `/api/availability` [db] ✓
-- `GET` `/probe` [auth, db, email] ✓
-- `POST` `/api/auth/login/probe` [auth, db] ✓
 - `GET` `/api/notifications/unread-count` [auth, db] ✓
 - `POST` `/emails` [auth, email] ✓
 - `GET` `/fixture` [auth, db] ✓
 - `GET` `/ok` [auth, db] ✓
-- `GET` `/capped` [auth, db] ✓
-- `GET` `/invalid` [auth, db] ✓
-- `POST` `/api/send` [auth, db] ✓
-- `PUT` `/component/organizations/reject` [auth, db] ✓
 - `GET` `/api/admin/analytics` [auth] ✓
-- `POST` `/mail` [auth, db] ✓
 - `GET` `/unhandled` ✓
 - `GET` `/handled` ✓
 - `GET` `/busy` ✓
@@ -819,13 +725,6 @@
 - created_at: DateTime (default)
 - updated_at: DateTime (default)
 - _relations_: trade: Trade
-
-### PasswordResetToken
-- user_id: UUID (fk, pk)
-- token_hash: Text
-- expires_at: DateTime
-- created_at: DateTime
-- used_at: DateTime (nullable)
 
 ### Port
 - id: String (pk)
@@ -4016,18 +3915,12 @@
 - `alembic/versions/neg_2026_04b_negotiation_fixes.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/news_2026_03_add_news_items.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/oa_20260910_auto_real_orgs.py` — function upgrade: () -> None, function downgrade: () -> None
-- `alembic/versions/ob_20261031_individual_offboarding.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_availability_windows.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/ob_2026_04_supplier_listing_metadata.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/obp_20261003_acceptance_priority.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/p0_20261016_union.py` — function upgrade: () -> None, function downgrade: () -> None
-- `alembic/versions/p3_20261020_auth_tokens.py` — function upgrade: (), function downgrade: ()
-- `alembic/versions/p5_20261020_read_indexes.py` — function upgrade: () -> None, function downgrade: () -> None
-- `alembic/versions/p89_20261022_trade_freeze.py` — function upgrade: (), function downgrade: ()
-- `alembic/versions/p89_20261022_watchlist_producer.py` — function upgrade: (), function downgrade: ()
 - `alembic/versions/pa_20260715_add_product_analytics_facts.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/prc_20261018_cache.py` — function upgrade: (), function downgrade: ()
-- `alembic/versions/prc_20261026_changes.py` — function upgrade: (), function downgrade: ()
 - `alembic/versions/pref_20260709_add_user_preferences.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/pw_reset_2026_03_add_password_reset_fields.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/rcp_20261003_command_results.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -4040,7 +3933,6 @@
 - `alembic/versions/sec_20260720_fresh_remediation.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sec_20260720_identity_hardening.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sse_20260720_market_event_stream.py` — function upgrade: () -> None, function downgrade: () -> None
-- `alembic/versions/sse_20261021_replay_floor.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/sub_2026_03_add_subscriptions.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/usr_2026_04_onboarding_survey.py` — function upgrade: () -> None, function downgrade: () -> None
 - `alembic/versions/wl_2026_03_add_watchlists.py` — function upgrade: () -> None, function downgrade: () -> None
@@ -4155,7 +4047,7 @@
   - function checkout_owner: (*, stat_path, lookup_user) -> str
   - function git_command: (arguments) -> str
   - function require_identity: (expected, actual) -> None
-  - _...7 more_
+  - _...6 more_
 - `scripts/phase0/bootstrap.py`
   - function migration_graph_digest: ()
   - function load_policy: ()
@@ -4222,11 +4114,11 @@
   - _...6 more_
 - `scripts/preflight_runtime.py` — function main: () -> int
 - `scripts/prepare_rust_budget.py`
-  - function derive_budget: (settings, rust_pool, cache_listener, stream_listener)
+  - function derive_budget: (settings, rust_pool, cache_listener)
   - function read_regular: (path)
   - function effective_settings: (raw)
-  - function artifact_for: (environment_file, release_sha, cache_listener, stream_listener)
-  - function prepare: (environment_file, release_sha, output, cache_listener, stream_listener)
+  - function artifact_for: (environment_file, release_sha, cache_listener)
+  - function prepare: (environment_file, release_sha, output, cache_listener)
   - function verify: (environment_file, release_sha, artifact)
   - _...1 more_
 - `scripts/prepare_rust_runtime.py`
@@ -4234,9 +4126,9 @@
   - function load_policy: (source_root, environment) -> dict
   - function app_database_url: (values, environment) -> str
   - function kyc_execution_gate: (values) -> str
-  - function offboarding_settings: (values) -> dict
-  - function market_write_settings: (values, environment) -> dict
-  - _...8 more_
+  - function phase2_settings: (values) -> dict
+  - function project_runtime_environment: (environment_file, release_sha, migration_revision, policy) -> dict
+  - _...4 more_
 - `scripts/prune_product_analytics.py`
   - function parse_cli_args: (argv) -> argparse.Namespace
   - function assert_runtime_identity: (*, configured_environment, configured_release_sha, expected_environment, expected_release_sha) -> None
@@ -4286,14 +4178,6 @@
 - `scripts/rust_contract/curve_fixtures.py` — function seed_curve_fixtures: (session)
 - `scripts/rust_contract/explain_benchmark.py` — function main: (), class ExplainBenchmark
 - `scripts/rust_contract/explain_lists.py` — function main: (), class Explain
-- `scripts/rust_contract/explain_routes.py`
-  - function blocks: (node) -> int
-  - function summarize: (plan) -> dict
-  - function default_windows: (day, board) -> list[str]
-  - function curve_keys: (policy, board) -> list[dict]
-  - function bind_literals: (policy, profile, slice_key, str, str] | None) -> list[str]
-  - function composed_statements: (sha) -> dict
-  - _...2 more_
 - `scripts/rust_contract/export_mcp_http.py` — function vectors: (), function main: ()
 - `scripts/rust_contract/export_mcp_protocol.py` — function vectors: ()
 - `scripts/rust_contract/export_mcp_validation.py` — function vectors: ()
@@ -4312,12 +4196,12 @@
 - `scripts/rust_contract/feedback_oracle.py` — function main: ()
 - `scripts/rust_contract/feedback_scenario.py`
   - function setup: (connection)
-  - function volume: (connection, profile)
   - function servers: (context)
   - function rows: (state)
   - function unchanged: (before, after, response, mail)
   - function inserted: (identifier, message, page)
-  - _...2 more_
+  - function actions: (context)
+  - _...1 more_
 - `scripts/rust_contract/frozen_gate.py`
   - function validate_identity: (evidence, Any], reference, Any], *, successor) -> None
   - function route_floors: (reference, Any], declared_rates, offered) -> dict[str, int]
@@ -4334,7 +4218,6 @@
 - `scripts/rust_contract/meaning_runner.py`
   - function route_id: (request)
   - function raw_response: (recording)
-  - function canonicalise_tape_recordings: (entries)
   - function compare_recorded_case: (left, right, profile, digest)
   - function canonical_response: (request, response)
 - `scripts/rust_contract/measure.py`
@@ -4366,14 +4249,6 @@
   - function export: ()
   - function main: ()
 - `scripts/rust_contract/phase2_example.py` — function example_scenario: ()
-- `scripts/rust_contract/phase2_journeys.py`
-  - function require: (condition, message)
-  - function uuid_text: (value, name)
-  - function instant: (value, name)
-  - function integer: (value, name)
-  - function boolean: (value, name)
-  - function text: (value, name)
-  - _...32 more_
 - `scripts/rust_contract/phase2_mail.py` — class MailStub
 - `scripts/rust_contract/phase2_market_vectors.py` — function build_spec: () -> dict[str, object], function main: (argv) -> int
 - `scripts/rust_contract/phase2_meaning.py` — function compare_meaning: (expected, actual, *, route_id, rules_sha256, rules_path, request_id, profile, diagnostic_context)
@@ -4417,19 +4292,15 @@
   - function exact_ids: (values, expected)
   - function verified_path: (directory, reference)
   - _...8 more_
-- `scripts/rust_contract/phase2_routes.py`
-  - function rust_example_path: (root, name) -> Path
-  - function race_selection: (selected, enabled)
-  - function run_registered: (runner, args, selected)
-  - class Context
+- `scripts/rust_contract/phase2_routes.py` — function run_registered: (runner, args, selected), class Context
 - `scripts/rust_contract/phase2_scenarios.py`
-  - function invalid_bearer_pair: ()
   - function register: (scenario)
   - function select_scenarios: (group, names)
   - function run_actions: (actions, cells)
   - function actor_order: (actors, seed)
   - function run_barrier: (actors, invoke, *, seed)
-  - _...8 more_
+  - function run_race: (race, cells)
+  - _...7 more_
 - `scripts/rust_contract/phase2_seed.py`
   - function identifier: (name)
   - function snapshot: (connection)
@@ -4438,13 +4309,6 @@
   - function connect: (port, database, *, app, autocommit)
   - class Rows
   - _...1 more_
-- `scripts/rust_contract/phase2_sizes.py`
-  - function profile: (name) -> SizeProfile
-  - function declared: () -> tuple[str, ...]
-  - function histories: (value) -> dict[str, int]
-  - function describe: (value) -> dict[str, int | str]
-  - class SizeError
-  - class SizeProfile
 - `scripts/rust_contract/phase2_state.py`
   - function expect_cache_invalidations: (expected, statements)
   - function validate_cells: (python, rust, token, target_url)
@@ -4453,13 +4317,6 @@
   - function apply_action: (cell, writes, *, fault)
   - function validate_action: (action)
   - _...2 more_
-- `scripts/rust_contract/phase2_watchlist_activity.py`
-  - function event_key: (instant, identifier)
-  - function setup: (connection)
-  - function volume: (connection, profile)
-  - function actions: (context)
-  - function servers: (context)
-  - function scenario: ()
 - `scripts/rust_contract/phase2_watchlist_asserts.py`
   - function uid: (group, number)
   - function rows: (state, table)
@@ -4482,30 +4339,13 @@
   - function watchlist_targets_gate_off_scenario: ()
   - function watchlist_targets_hidden_scenario: ()
 - `scripts/rust_contract/phase2_watchlists.py` — function watchlist_reads_scenario: (), function watchlist_reads_gate_off_scenario: ()
-- `scripts/rust_contract/phase6_evidence.py`
-  - function require: (condition, reason)
-  - function sha256: (data)
-  - function same_person: (first, second)
-  - function named: (value)
-  - function parse_json: (data)
-  - function load_json: (path)
-  - _...10 more_
-- `scripts/rust_contract/phase6_record.py`
-  - function require: (condition, reason)
-  - function case_status: (outcomes)
-  - function pytest_key: (node_id)
-  - function parse_log: (data)
-  - function main: (argv)
-  - class LogError
-  - _...2 more_
 - `scripts/rust_contract/profile_lists.py` — function main: (), class Profile
 - `scripts/rust_contract/record.py`
   - function perform: (base_url, case, Any]) -> dict[str, Any]
-  - function record: (base_url, token, cases, Any]], *, oracle, group, leg, retries) -> list[dict[str, Any]]
+  - function record: (base_url, token, cases, Any]]) -> list[dict[str, Any]]
   - function stable: (entries, Any]]) -> list[dict[str, Any]]
   - function differences: (first, Any]], second, Any]]) -> list[str]
   - function write_golden: (root, source_sha, entries, Any]], *, meta, Any]) -> None
-  - class OracleUnavailable
 - `scripts/rust_contract/record_mcp.py` — function main: (), class McpRecorder
 - `scripts/rust_contract/referral_addresses.py`
   - function setup: (connection)
@@ -4519,10 +4359,10 @@
   - function setup: (connection)
   - function auth: (actor)
   - function servers: (context)
-  - function assert_cache_change: (expected, after, count)
   - function only_code: (before, after, response, mail)
   - function actions: (context)
-  - _...3 more_
+  - function wait_for: (connection, sql, args, count)
+  - _...2 more_
 - `scripts/rust_contract/referral_dispatch.py` — function main: ()
 - `scripts/rust_contract/referral_email_sweep.py`
   - function selected: (code)
@@ -4590,7 +4430,7 @@
   - function wait_for_port: (port, timeout) -> None
   - function attest: (base_url, token) -> None
   - function main: (argv) -> int
-  - _...3 more_
+  - _...2 more_
 - `scripts/rust_contract/seed_corpus.py`
   - function attest_target: (*, environment, expected_database, connected_database, connected_user, is_superuser, host) -> None
   - function fid: (name)
@@ -4634,12 +4474,6 @@
   - function evaluate: (rows, group, cutover, seconds, ready, before_errors, after_errors)
   - function error_classes: (rows) -> set[str]
   - _...4 more_
-- `scripts/rust_phase5_candidate.py`
-  - function candidate: (original, environment, target) -> str
-  - function staging_candidate: (original, target) -> str
-  - function production_block: () -> str
-  - function production_candidate: (original, target) -> str
-  - function main: () -> int
 - `scripts/scrape_fleet_demand.py`
   - function run_batch: (commands, timeout) -> str
   - function extract_last_value: (raw) -> str
@@ -4699,6 +4533,14 @@
   - function build_verified_unit_archive: (*, source_root, source_ref, environment) -> bytes
   - function main: () -> int
   - class SourceProvenanceError
+- `work/rust-phase2/watchlists-reference.py`
+  - function encode_event_cursor: (created_at, event_id) -> str
+  - function decode_event_cursor: (cursor) -> tuple[datetime, UUID]
+  - function build_watchlist_event_response: (event, target, *, delivery_point_name) -> WatchlistEventResponse
+  - function public_watchlist_orders: ()
+  - function watchlist_target_visibility_clause: ()
+  - function watchlist_event_visibility_clause: ()
+  - _...5 more_
 
 ---
 
@@ -4730,7 +4572,6 @@
 - `BACKUP_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `CADDY_BIN` **required** — scripts/rust_contract/measure.py
 - `CADDYFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `CARGO_TARGET_DIR` (has default) — scripts/rust_contract/phase2_routes.py
 - `CHROMEDRIVER_BIN` **required** — deploy/external_monitor/verdaxis_monitor.py
 - `CHROMIUM_PROFILE_PARENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `CI` (has default) — tests/postgres/conftest.py
@@ -4746,7 +4587,7 @@
 - `DATABASE_NAME` (has default) — .env.example
 - `DATABASE_PASSWORD` (has default) — .env.example
 - `DATABASE_PORT` (has default) — .env.example
-- `DATABASE_URL` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
+- `DATABASE_URL` (has default) — scripts/rust_contract/meaning_runner.py
 - `DATABASE_USER` (has default) — .env.example
 - `DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `DB_LOCK_TIMEOUT_MS` (has default) — .env.example
@@ -4786,7 +4627,7 @@
 - `KYC_MAX_TOTAL_BYTES` (has default) — .env.example
 - `LANG` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `LC_ALL` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `MARKET_INTEGRITY_TEST_DATABASE_URL` **required** — tests/postgres/test_cache_change_migration.py
+- `MARKET_INTEGRITY_TEST_DATABASE_URL` (has default) — tests/postgres/test_market_integrity_concurrency.py
 - `MARKET_REMEDIATION_DATABASE_URL` **required** — scripts/remediate_market_data.py
 - `MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS` **required** — .env.example
 - `MARKET_SUPPORT_CONSENT_REFERENCE` **required** — .env.example
@@ -4803,15 +4644,6 @@
 - `MIN_CADDYFILE_BYTES` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `MIN_DISK_FREE_PERCENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `MONITOR_TOKEN` **required** — deploy/external_monitor/verdaxis_monitor.py
-- `OFFBOARDING_HARNESS_PORT` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
-- `OFFBOARDING_HARNESS_TOKEN` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
-- `ORACLE_CAPTURE_GROUP` (has default) — scripts/rust_contract/record.py
-- `ORACLE_CAPTURE_LEG` (has default) — scripts/rust_contract/record.py
-- `ORACLE_CAPTURE_URL` **required** — scripts/rust_contract/record.py
-- `ORACLE_RETRY_LOG` **required** — scripts/rust_contract/record.py
-- `ORACLE_STARTUP_TIMEOUT_SECONDS` (has default) — scripts/rust_contract/run_disposable.py
-- `P89_PROTOCOL_CHILD` **required** — rs/read/tests/fixtures/sitecustomize.py
-- `P89_PROTOCOL_MARKER` **required** — rs/read/tests/fixtures/sitecustomize.py
 - `PATH` **required** — tests/phase0/http_runner.py
 - `PGPASSFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `PHASE0_CLUSTER_ID` **required** — scripts/phase0/bootstrap.py
@@ -4824,15 +4656,9 @@
 - `PHASE2_DATABASE_URL` **required** — scripts/rust_contract/phase2_alert_dispatch.py
 - `PHASE2_EMIT_EVENTS` **required** — tests/rust_contract/phase2/transport.py
 - `PHASE2_MAIL_URL` (has default) — scripts/rust_contract/phase2_oracle.py
-- `PHASE3_CARGO_LOCK_PATH` **required** — tests/postgres/test_phase3_cross_stack_auth.py
-- `PHASE3_CARGO_LOCK_WRAPPER` **required** — tests/postgres/test_phase3_cross_stack_auth.py
-- `PHASE8_COMPLETENESS` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_DISPOSABLE_ACK` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_DISPOSABLE_DATABASE_URL` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_SCHEMA_BASE` **required** — tests/rust_contract/test_phase8_contract.py
-- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — rs/read/tests/fixtures/phase8_writer_protocols.py
+- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
 - `PYTHON_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
-- `PYTHONPATH` **required** — rs/read/tests/fixtures/phase8_protocol_plugin.py
+- `PYTHONPATH` **required** — tests/unit/test_migration_checkpoint.py
 - `RECOVERY_STATE_DIR` (has default) — deploy/external_monitor/verdaxis_recover.py
 - `RECOVERY_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_recover.py
 - `REFERRAL_CANDIDATE_MAP` (has default) — scripts/rust_contract/referral_oracle.py
@@ -4843,25 +4669,19 @@
 - `RENDER_TIMEOUT_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `RENDERED_PAGE_CHECKS_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `RUN_SHADOW_DISPOSABLE_REPLAY` **required** — tests/rust_contract/test_shadow_replay.py
-- `RUNTIME_TEST_APP_ROLE` **required** — tests/postgres/test_cache_change_migration.py
-- `RUNTIME_TEST_BACKUP_ROLE` **required** — tests/postgres/test_phase3_auth_store.py
+- `RUNTIME_TEST_APP_ROLE` (has default) — tests/postgres/test_fame_rfq.py
+- `RUNTIME_TEST_BACKUP_ROLE` (has default) — tests/postgres/test_runtime_role_policy.py
 - `RUNTIME_TEST_DATABASE_NAME` (has default) — tests/postgres/test_runtime_role_policy.py
-- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_cache_change_migration.py
-- `RUST_COMPLIANCE_TEST_WRITER_URL` **required** — rs/read/tests/phase5_writer.py
+- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_runtime_migration_roundtrip.py
 - `RUST_CONTRACT_CLOCK` **required** — rs/read/tests/legacy_curve_oracle.py
 - `RUST_CONTRACT_PROFILE` **required** — rs/read/tests/prices_oracle.py
-- `RUST_CONTRACT_SERVER_BINARY` **required** — rs/read/tests/orderbook_map_oracle.py
 - `RUST_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
 - `RUST_CORPUS_MANIFEST` (has default) — scripts/rust_contract/meaning_runner.py
 - `RUST_CORPUS_STAGE` **required** — scripts/rust_contract/seed_corpus.py
 - `RUST_DATABASE_URL` **required** — rs/read/tests/orderbook_lists_oracle.py
-- `RUST_LOCK_PROTOCOL_BINARY` **required** — rs/read/tests/fixtures/phase8_protocol_plugin.py
 - `RUST_MARKET_EXPECTED_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
 - `RUST_MARKET_TEST_EXPECTED` **required** — rs/read/tests/market_contract_oracle.py
 - `RUST_MARKET_WRITER_URL` **required** — rs/read/tests/market_contract_oracle.py
-- `RUST_OVERLAY_TEST_CASES` **required** — rs/read/tests/overlay_contract_fixture.py
-- `RUST_TEST_DATABASE_URL` **required** — tests/rust_contract/test_phase8_replay.py
-- `RUST_TEST_MIGRATOR_DATABASE_URL` **required** — rs/read/tests/fixtures/phase8_writer_protocols.py
 - `SEED_DATABASE_URL` **required** — scripts/rust_contract/seed_corpus.py
 - `SEED_TARGET_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
 - `SELLER_FEE_PILOT_PER_MT_USD` (has default) — .env.example
@@ -4870,8 +4690,6 @@
 - `SIGNUP_CANARY_TARGETS` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `STATE_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `SYSTEM_STATUS` (has default) — .env.example
-- `SYSTEM_STATUS_MESSAGE` **required** — .env.example
 - `TELEGRAM_API_BASE` (has default) — app/cli/onboarding_attention.py
 - `TELEGRAM_BOT_TOKEN` (has default) — app/cli/onboarding_attention.py
 - `TELEGRAM_CHAT_ID` (has default) — app/cli/onboarding_attention.py
@@ -4907,46 +4725,19 @@
 - preauth_rate_limit — `app/middleware/preauth_rate_limit.py`
 - rbac — `app/middleware/rbac.py`
 - auth-maintenance-timer — `docs/auth-maintenance-timer.md`
-- authority — `rs/read/src/order_write/authority.rs`
-- auth — `rs/read/src/streams/auth.rs`
-- auth_coexistence_postgres — `rs/read/tests/auth_coexistence_postgres.rs`
-- auth_email_verification — `rs/read/tests/auth_email_verification.rs`
-- auth_email_verification_postgres — `rs/read/tests/auth_email_verification_postgres.rs`
-- auth_expiry — `rs/read/tests/auth_expiry.rs`
-- auth_http — `rs/read/tests/auth_http.rs`
-- auth_invitation_accept — `rs/read/tests/auth_invitation_accept.rs`
-- auth_invitation_accept_postgres — `rs/read/tests/auth_invitation_accept_postgres.rs`
-- auth_issue — `rs/read/tests/auth_issue.rs`
-- auth_login — `rs/read/tests/auth_login.rs`
-- auth_login_postgres — `rs/read/tests/auth_login_postgres.rs`
-- auth_logout — `rs/read/tests/auth_logout.rs`
-- auth_password — `rs/read/tests/auth_password.rs`
-- auth_password_change — `rs/read/tests/auth_password_change.rs`
-- auth_password_reset — `rs/read/tests/auth_password_reset.rs`
-- auth_password_reset_postgres — `rs/read/tests/auth_password_reset_postgres.rs`
-- auth_races_postgres — `rs/read/tests/auth_races_postgres.rs`
-- auth_refresh — `rs/read/tests/auth_refresh.rs`
-- auth_refresh_postgres — `rs/read/tests/auth_refresh_postgres.rs`
-- auth_registration — `rs/read/tests/auth_registration.rs`
-- auth_registration_postgres — `rs/read/tests/auth_registration_postgres.rs`
-- auth_revocation_postgres — `rs/read/tests/auth_revocation_postgres.rs`
-- auth_store_postgres — `rs/read/tests/auth_store_postgres.rs`
-- auth_stream — `rs/read/tests/auth_stream.rs`
-- auth_token_types — `rs/read/tests/auth_token_types.rs`
 - auth_tokens — `rs/read/tests/auth_tokens.rs`
 - auth_transaction_panic — `rs/read/tests/auth_transaction_panic.rs`
 - auth_transactions — `rs/read/tests/auth_transactions.rs`
 - auth_writer — `tests/rust_contract/phase2/auth_writer.py`
 - test_preauth_rate_limit — `tests/unit/test_preauth_rate_limit.py`
+- auth_limits — `work/t22-glm-draft/auth_limits.rs`
 
 ## custom
 - market_support_scope — `app/middleware/market_support_scope.py`
 - public_market_read_admission — `app/middleware/public_market_read_admission.py`
 - subscription — `app/middleware/subscription.py`
 - integrated-migration-cutover — `docs/runbooks/integrated-migration-cutover.md`
-- streams_watchlist_guard — `rs/read/tests/streams_watchlist_guard.rs`
 - verify_deploy_start_guard — `scripts/verify_deploy_start_guard.py`
-- test_phase6_watchlist_guard — `tests/postgres/test_phase6_watchlist_guard.py`
 
 ## error-handler
 - network_guard — `tests/phase0/network_guard.py`
@@ -4963,46 +4754,46 @@
 
 ## Most Imported Files (change these carefully)
 
-- `app/models/user.py` — imported by **174** files
-- `app/database.py` — imported by **129** files
-- `app/models/orderbook.py` — imported by **113** files
-- `app/market_catalog.py` — imported by **93** files
-- `app/config.py` — imported by **72** files
-- `app/models/catalog.py` — imported by **69** files
-- `app/routers/auth_simple.py` — imported by **65** files
-- `app/main.py` — imported by **41** files
+- `app/models/user.py` — imported by **170** files
+- `app/database.py` — imported by **125** files
+- `app/models/orderbook.py` — imported by **112** files
+- `app/market_catalog.py` — imported by **92** files
+- `app/config.py` — imported by **70** files
+- `app/models/catalog.py` — imported by **68** files
+- `app/routers/auth_simple.py` — imported by **61** files
 - `app/services/availability_windows.py` — imported by **38** files
-- `scripts/rust_contract/run_disposable.py` — imported by **35** files
-- `app/model_base.py` — imported by **33** files
+- `app/main.py` — imported by **36** files
 - `app/schemas/market_activity.py` — imported by **33** files
-- `app/core/security.py` — imported by **32** files
-- `rs/read/tests/market_database.rs` — imported by **30** files
-- `app/services/execution_policy.py` — imported by **29** files
+- `app/model_base.py` — imported by **32** files
+- `app/services/execution_policy.py` — imported by **30** files
+- `scripts/rust_contract/run_disposable.py` — imported by **30** files
+- `app/core/security.py` — imported by **29** files
 - `app/schemas/orderbook.py` — imported by **28** files
-- `app/rate_limit.py` — imported by **26** files
+- `app/rate_limit.py` — imported by **25** files
 - `app/services/market_data_eligibility.py` — imported by **25** files
-- `scripts/rust_contract/compare.py` — imported by **25** files
 - `app/routers/orderbook.py` — imported by **24** files
+- `app/services/audit_actions.py` — imported by **24** files
+- `scripts/rust_contract/compare.py` — imported by **24** files
 
 ## Import Map (who imports what)
 
-- `app/models/user.py` ← `app/admin.py`, `app/cli/send_kyc_grace_notices.py`, `app/middleware/execution.py`, `app/middleware/rbac.py`, `app/models/__init__.py` +169 more
-- `app/database.py` ← `alembic/env.py`, `app/admin.py`, `app/cli/auth_maintenance.py`, `app/cli/onboarding_attention.py`, `app/cli/order_expiry_reminders.py` +124 more
-- `app/models/orderbook.py` ← `app/models/__init__.py`, `app/models/live_slice_benchmark.py`, `app/models/user.py`, `app/routers/admin_analytics.py`, `app/routers/compliance_api.py` +108 more
-- `app/market_catalog.py` ← `app/market_constraints.py`, `app/mcp_server.py`, `app/models/catalog.py`, `app/models/orderbook.py`, `app/models/supplier_offer.py` +88 more
-- `app/config.py` ← `alembic/env.py`, `app/admin.py`, `app/cli/onboarding_attention.py`, `app/cli/order_expiry_reminders.py`, `app/cli/send_kyc_grace_notices.py` +67 more
-- `app/models/catalog.py` ← `app/models/__init__.py`, `app/routers/admin_analytics.py`, `app/routers/alerts.py`, `app/routers/availability.py`, `app/routers/catalog.py` +64 more
-- `app/routers/auth_simple.py` ← `app/main.py`, `app/middleware/execution.py`, `app/middleware/rbac.py`, `app/middleware/subscription.py`, `app/routers/activity.py` +60 more
-- `app/main.py` ← `app/services/audit_service.py`, `rs/read/tests/fixtures/offboarding_acceptance_harness.py`, `rs/read/tests/fixtures/offboarding_python_harness.py`, `rs/read/tests/fixtures/offboarding_reassignment_harness.py`, `scripts/export_openapi.py` +36 more
+- `app/models/user.py` ← `app/admin.py`, `app/cli/send_kyc_grace_notices.py`, `app/middleware/execution.py`, `app/middleware/rbac.py`, `app/models/__init__.py` +165 more
+- `app/database.py` ← `alembic/env.py`, `app/admin.py`, `app/cli/auth_maintenance.py`, `app/cli/onboarding_attention.py`, `app/cli/order_expiry_reminders.py` +120 more
+- `app/models/orderbook.py` ← `app/models/__init__.py`, `app/models/live_slice_benchmark.py`, `app/models/user.py`, `app/routers/admin_analytics.py`, `app/routers/compliance_api.py` +107 more
+- `app/market_catalog.py` ← `app/market_constraints.py`, `app/mcp_server.py`, `app/models/catalog.py`, `app/models/orderbook.py`, `app/models/supplier_offer.py` +87 more
+- `app/config.py` ← `alembic/env.py`, `app/admin.py`, `app/cli/onboarding_attention.py`, `app/cli/order_expiry_reminders.py`, `app/cli/send_kyc_grace_notices.py` +65 more
+- `app/models/catalog.py` ← `app/models/__init__.py`, `app/routers/admin_analytics.py`, `app/routers/alerts.py`, `app/routers/availability.py`, `app/routers/catalog.py` +63 more
+- `app/routers/auth_simple.py` ← `app/main.py`, `app/middleware/execution.py`, `app/middleware/rbac.py`, `app/middleware/subscription.py`, `app/routers/activity.py` +56 more
 - `app/services/availability_windows.py` ← `app/mcp_server.py`, `app/models/orderbook.py`, `app/models/rfq.py`, `app/routers/admin_analytics.py`, `app/routers/curves.py` +33 more
-- `scripts/rust_contract/run_disposable.py` ← `rs/read/tests/orderbook_lists_oracle.py`, `rs/read/tests/orderbook_map_oracle.py`, `rs/read/tests/orderbook_snapshot_oracle.py`, `rs/read/tests/public_read_latency.py`, `rs/read/tests/run_curves_canonical.py` +30 more
+- `app/main.py` ← `app/services/audit_service.py`, `scripts/export_openapi.py`, `scripts/rust_contract/feedback_oracle.py`, `scripts/rust_contract/phase2_alert_oracle.py`, `scripts/rust_contract/phase2_auth_vectors.py` +31 more
+- `app/schemas/market_activity.py` ← `app/routers/availability.py`, `app/routers/curves.py`, `app/routers/demand.py`, `app/routers/orderbook.py`, `app/routers/price_discovery.py` +28 more
 
 ---
 
 # Test Coverage
 
-> **50%** of routes and models are covered by tests
-> 768 test files found
+> **43%** of routes and models are covered by tests
+> 457 test files found
 
 ## Covered Routes
 
@@ -5020,58 +4811,29 @@
 - GET:/status
 - POST:/organizations/{organization_id}/listings/{order_id}/cancel
 - POST:
-- GET:/api
 - GET:/snapshot
 - GET:/bids
 - GET:/asks
 - GET:/with-ci
-- GET:/my
 - GET:/aggregated
 - GET:/product-counts
 - GET:/map-summary
 - GET:/map-summary/compact
 - GET:/regions
 - GET:/fuel-types
+- GET:/api
 - GET:/api/prices
 - GET:/api/orderbook
 - GET:/api/trades
 - POST:/
-- GET:/summary
-- POST:/me
 - GET:/.well-known/verdaxis-disposable-test
 - GET:/owner-cleanup-proof
-- GET:/api/test/cleanup
 - GET:/one
 - GET:/many
 - POST:/upload
 - GET:/api/admin/analytics/overview
 - GET:/__contract__/live-benchmarks
 - POST:/__contract__/phase2/write
-- GET:/api/auth/stream-token
-- GET:/api/auth/me
-- POST:/api/test/issue
-- POST:/api/auth/verify-email
-- POST:/api/auth/resend-verification-email
-- POST:/api/auth/invitations/accept
-- POST:/api/auth/invitations/accept/
-- POST:/api/auth/login
-- POST:/api/auth/login/
-- POST:/api/auth/logout
-- PUT:/api/auth/me/password
-- PUT:/api/auth/me/password/
-- POST:/api/auth/forgot-password
-- POST:/api/auth/reset-password
-- POST:/api/auth/forgot-password/
-- POST:/api/auth/refresh
-- POST:/api/auth/register
-- POST:/api/auth/register/
-- POST:/api/auth/register-with-org
-- POST:/api/auth/register-with-org/
-- PUT:/api/auth/approve/{user_id}
-- PUT:/api/auth/reject/{user_id}
-- PUT:/api/admin/analytics/users/{user_id}/reject
-- GET:/api/auth/admin/review-queue
-- GET:/api/auth/admin/review-queue/{user_id}
 - GET:/api/alerts
 - POST:/api/alerts
 - DELETE:/api/alerts/{alert_id}
@@ -5094,41 +4856,17 @@
 - DELETE:/api/watchlists/{watchlist_id}/targets/{target_id}
 - GET:/api/watchlists/{watchlist_id}/events
 - PATCH:/api/watchlists/{watchlist_id}/events/{event_id}
-- PUT:/api/kyc/admin/{user_id}/approve
-- PUT:/api/kyc/admin/{user_id}/reject
 - GET:/api/catalog/products
 - GET:/api/catalog/delivery-points
-- GET:/api/compliance/vessels/{vessel_id}/score
 - GET:/api/curves/forward/table
 - GET:/api/curves/forward/slice
 - GET:/api/curves/forward/board
 - GET:/api/curves/forward
 - GET:/api/curves/forward/export
-- PUT:/api/orderbook/{id}
-- GET:/api/orders/admin/commissions
-- GET:/api/orders/admin/commissions/summary
-- GET:/api/admin/trades/frozen
-- POST:/api/admin/trades/{trade}/freeze
-- POST:/api/inventory/{item_id}/publish
-- GET:/api/inventory
-- POST:/api/inventory
-- GET:/api/listings/my
-- POST:/api/orderbook
-- GET:/api/orderbook/my
-- GET:/api/orderbook/my/latest-ask-template
-- DELETE:/api/orderbook/{id}
-- GET:/api/admin/market-support/capabilities
-- PUT:/api/trades/{trade_id}/confirm
-- PUT:/api/trades/{trade_id}/decline
-- PUT:/api/trades/{trade_id}/deliver
-- POST:/api/trades/{trade_id}/pay
-- POST:/api/trades/
-- POST:/api/trades
-- GET:/api/trades/my
-- GET:/api/trades/summary
 - GET:/api/news
 - GET:/api/orderbook/bids
 - GET:/api/orderbook/asks
+- POST:/api/orderbook
 - GET:/api/orderbook/with-ci
 - GET:/api/orderbook/aggregated
 - GET:/api/orderbook/product-counts
@@ -5142,37 +4880,11 @@
 - GET:/api/prices/reference
 - GET:/api/prices/reference/export
 - GET:/api/trade-tape
-- POST:/api/kyc/submit
-- GET:/api/kyc/status
-- GET:/api/kyc/admin/{user_id}/documents
-- GET:/api/kyc/admin/documents/{document_id}
-- PUT:/api/auth/organization/{organization_id}/approve
-- PUT:/api/auth/organization/{organization_id}/reject
-- GET:/api/auth/organization-joins
-- PUT:/api/auth/organization-joins/{join_request_id}/approve
-- PUT:/api/auth/organization-joins/{join_request_id}/reject
-- GET:/api/admin/analytics/product-analytics/overview
-- GET:/api/admin/analytics/product-analytics/activation
-- GET:/api/admin/analytics/product-analytics/engagement
-- GET:/api/admin/analytics/product-analytics/retention
-- GET:/api/subscriptions/fees
-- GET:/api/subscriptions/me
-- GET:/api/admin/subscriptions
-- GET:/api/admin/subscriptions/{org_id}
-- PUT:/api/admin/subscriptions/{org_id}
-- GET:/api/availability
-- GET:/probe
-- POST:/api/auth/login/probe
 - GET:/api/notifications/unread-count
 - POST:/emails
 - GET:/fixture
 - GET:/ok
-- GET:/capped
-- GET:/invalid
-- POST:/api/send
-- PUT:/component/organizations/reject
 - GET:/api/admin/analytics
-- POST:/mail
 - GET:/unhandled
 - GET:/handled
 - GET:/busy
@@ -5206,7 +4918,6 @@
 - OrderBookOrder
 - Trade
 - Commission
-- PasswordResetToken
 - Port
 - Vessel
 - ProducerProject
@@ -5233,7 +4944,6 @@
 - AdminApproveBody
 - AdminDecisionBody
 - AdminRejectBody
-- AdminUserEntry
 - AggregateCell
 - AggregatedOrderbookResponse
 - AlertCreate
@@ -5242,19 +4952,14 @@
 - AnalyticsDataQuality
 - AnalyticsMeta
 - AnalyticsSourceCoverage
-- AttentionItem
-- AuthoritativeUsage
 - AuthorizationCreate
-- AuthorizationRevoke
 - BehavioralUsage
 - CIAdjustedPrice
-- DecimalMetricValue
 - DeliveryPointResponse
 - DemandSignal
 - FamePublicAskTerms
 - FameQualitySummary
 - FameSustainabilitySummary
-- FameTradeSnapshot
 - FeeScheduleResponse
 - FeedbackSubmission
 - ForwardCurveBoardCell
@@ -5277,15 +4982,11 @@
 - InventoryItemUpdate
 - JoinReviewBody
 - LeaderboardEntry
-- LifecycleStage
-- ListingOverlay
 - LngPublicAskTerms
-- LngTradeSnapshot
 - MapCompactSummaryResponse
 - MapSummaryResponse
 - MarketSupportContextCreate
 - MarketSupportFinalConfirmation
-- MetricValue
 - NegotiationCounterRequest
 - NegotiationCreateRequest
 - NotificationResponse
@@ -5330,7 +5031,6 @@
 - TradeCreate
 - TradeDeliverPayload
 - TradeResponse
-- TradeSummaryResponse
 - TradeTapeEntry
 - TradeTapeResponse
 - UserCreate
@@ -5349,7 +5049,7 @@
 | Workflow | Triggers | Jobs | Deploy | Environments |
 |---|---|---|---|---|
 | Verdaxis Backend CI | push, pull_request | 3 | — | — |
-| Rust read CI | pull_request, push, workflow_dispatch | 4 | — | — |
+| Rust read CI | pull_request, push, workflow_dispatch | 3 | — | — |
 
 ### Verdaxis Backend CI
 
@@ -5369,21 +5069,18 @@
 
 > `.github/workflows/rust-read-ci.yml`
 
-- **offline** on `ubuntu-22.04` — 16 steps
+- **offline** on `ubuntu-22.04` — 15 steps
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830`
   - `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`
   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
-- **contract-checks** on `ubuntu-22.04` — 26 steps (needs: offline)
+- **contract** on `ubuntu-22.04` — 16 steps (needs: offline)
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`
   - `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
-- **contract** on `ubuntu-22.04` — 3 steps (needs: contract-checks)
-  - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
-  - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
-- **publish** on `ubuntu-22.04` — 7 steps (needs: offline, contract-checks, contract)
+- **publish** on `ubuntu-22.04` — 7 steps (needs: offline, contract)
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`

@@ -1,6 +1,6 @@
 # verdaxis-backend — Wiki
 
-_Generated 2026-11-05 — re-run `npx codesight --wiki` if the codebase has changed._
+_Generated 2026-10-22 — re-run `npx codesight --wiki` if the codebase has changed._
 
 Structural map compiled from source code via AST. No LLM — deterministic, 200ms.
 
@@ -14,17 +14,14 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Activity](./activity.md)
 - [Admin](./admin.md)
 - [Admin_analytics](./admin_analytics.md)
-- [Admission_postgres.rs](./admission_postgres.rs.md)
 - [Ai](./ai.md)
 - [Alerts.rs](./alerts.rs.md)
-- [Auth_http.rs](./auth_http.rs.md)
 - [Auth_simple](./auth_simple.md)
 - [Auth_tokens.rs](./auth_tokens.rs.md)
 - [Availability](./availability.md)
 - [Catalog](./catalog.md)
 - [Catalog.rs](./catalog.rs.md)
 - [Compliance_api](./compliance_api.md)
-- [Compliance_scores.rs](./compliance_scores.rs.md)
 - [Contract_server.rs](./contract_server.rs.md)
 - [Crud_referral_invite.rs](./crud_referral_invite.rs.md)
 - [Curves](./curves.md)
@@ -37,9 +34,6 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Inventory](./inventory.md)
 - [Kyc](./kyc.md)
 - [Market_support](./market_support.md)
-- [Market_write](./market_write.md)
-- [Market_write_pg_create.rs](./market_write_pg_create.rs.md)
-- [Market_write_pg_races.rs](./market_write_pg_races.rs.md)
 - [Matchmaking](./matchmaking.md)
 - [Mod.rs](./mod.rs.md)
 - [Monitor](./monitor.md)
@@ -51,9 +45,6 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Orderbook_map.rs](./orderbook_map.rs.md)
 - [Phase2_order_write_oracle](./phase2_order_write_oracle.md)
 - [Phase2_transport.rs](./phase2_transport.rs.md)
-- [Phase3_auth.rs](./phase3_auth.rs.md)
-- [Phase4.rs](./phase4.rs.md)
-- [Phase4_kyc_review.rs](./phase4_kyc_review.rs.md)
 - [Ports](./ports.md)
 - [Ports.rs](./ports.rs.md)
 - [Preferences](./preferences.md)
@@ -64,14 +55,12 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 - [Rbac](./rbac.md)
 - [Referrals](./referrals.md)
 - [Rfq](./rfq.md)
-- [Routes.rs](./routes.rs.md)
 - [Stream](./stream.md)
 - [Subscription](./subscription.md)
 - [Subscriptions](./subscriptions.md)
 - [Supplier_offers](./supplier_offers.md)
 - [Test_account_rejection_sessions](./test_account_rejection_sessions.md)
 - [Test_kyc_upload_limits](./test_kyc_upload_limits.md)
-- [Test_phase3_cross_stack_auth](./test_phase3_cross_stack_auth.md)
 - [Trade_tape.rs](./trade_tape.rs.md)
 - [Trades](./trades.md)
 - [Vessels](./vessels.md)
@@ -81,10 +70,10 @@ Structural map compiled from source code via AST. No LLM — deterministic, 200m
 
 ## Quick Stats
 
-- Routes: **332**
-- Models: **331**
+- Routes: **230**
+- Models: **330**
 - Components: **0**
-- Env vars: **75** required, **107** with defaults
+- Env vars: **52** required, **106** with defaults
 
 ## How to Use
 
@@ -111,4 +100,4 @@ These exist in your codebase but are **not** reflected in wiki articles:
 When in doubt, search the source. The wiki is a starting point, not a complete inventory.
 
 ---
-_Last compiled: 2026-11-05 · 71 articles · [codesight](https://github.com/Houseofmvps/codesight)_
+_Last compiled: 2026-10-22 · 60 articles · [codesight](https://github.com/Houseofmvps/codesight)_

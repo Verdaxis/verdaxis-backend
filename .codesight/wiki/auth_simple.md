@@ -49,7 +49,7 @@ The Auth_simple subsystem handles **18 routes** and touches: auth, db, email.
 
 ## High-Impact Files
 
-- `app/routers/auth_simple.py` — imported by 65 files
+- `app/routers/auth_simple.py` — imported by 61 files
 
 ## Source Files
 

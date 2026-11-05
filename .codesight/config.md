@@ -26,7 +26,6 @@
 - `BACKUP_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `CADDY_BIN` **required** — scripts/rust_contract/measure.py
 - `CADDYFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `CARGO_TARGET_DIR` (has default) — scripts/rust_contract/phase2_routes.py
 - `CHROMEDRIVER_BIN` **required** — deploy/external_monitor/verdaxis_monitor.py
 - `CHROMIUM_PROFILE_PARENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `CI` (has default) — tests/postgres/conftest.py
@@ -42,7 +41,7 @@
 - `DATABASE_NAME` (has default) — .env.example
 - `DATABASE_PASSWORD` (has default) — .env.example
 - `DATABASE_PORT` (has default) — .env.example
-- `DATABASE_URL` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
+- `DATABASE_URL` (has default) — scripts/rust_contract/meaning_runner.py
 - `DATABASE_USER` (has default) — .env.example
 - `DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS` (has default) — .env.example
 - `DB_LOCK_TIMEOUT_MS` (has default) — .env.example
@@ -82,7 +81,7 @@
 - `KYC_MAX_TOTAL_BYTES` (has default) — .env.example
 - `LANG` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `LC_ALL` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `MARKET_INTEGRITY_TEST_DATABASE_URL` **required** — tests/postgres/test_cache_change_migration.py
+- `MARKET_INTEGRITY_TEST_DATABASE_URL` (has default) — tests/postgres/test_market_integrity_concurrency.py
 - `MARKET_REMEDIATION_DATABASE_URL` **required** — scripts/remediate_market_data.py
 - `MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS` **required** — .env.example
 - `MARKET_SUPPORT_CONSENT_REFERENCE` **required** — .env.example
@@ -99,15 +98,6 @@
 - `MIN_CADDYFILE_BYTES` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `MIN_DISK_FREE_PERCENT` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `MONITOR_TOKEN` **required** — deploy/external_monitor/verdaxis_monitor.py
-- `OFFBOARDING_HARNESS_PORT` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
-- `OFFBOARDING_HARNESS_TOKEN` **required** — rs/read/tests/fixtures/offboarding_python_harness.py
-- `ORACLE_CAPTURE_GROUP` (has default) — scripts/rust_contract/record.py
-- `ORACLE_CAPTURE_LEG` (has default) — scripts/rust_contract/record.py
-- `ORACLE_CAPTURE_URL` **required** — scripts/rust_contract/record.py
-- `ORACLE_RETRY_LOG` **required** — scripts/rust_contract/record.py
-- `ORACLE_STARTUP_TIMEOUT_SECONDS` (has default) — scripts/rust_contract/run_disposable.py
-- `P89_PROTOCOL_CHILD` **required** — rs/read/tests/fixtures/sitecustomize.py
-- `P89_PROTOCOL_MARKER` **required** — rs/read/tests/fixtures/sitecustomize.py
 - `PATH` **required** — tests/phase0/http_runner.py
 - `PGPASSFILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `PHASE0_CLUSTER_ID` **required** — scripts/phase0/bootstrap.py
@@ -120,15 +110,9 @@
 - `PHASE2_DATABASE_URL` **required** — scripts/rust_contract/phase2_alert_dispatch.py
 - `PHASE2_EMIT_EVENTS` **required** — tests/rust_contract/phase2/transport.py
 - `PHASE2_MAIL_URL` (has default) — scripts/rust_contract/phase2_oracle.py
-- `PHASE3_CARGO_LOCK_PATH` **required** — tests/postgres/test_phase3_cross_stack_auth.py
-- `PHASE3_CARGO_LOCK_WRAPPER` **required** — tests/postgres/test_phase3_cross_stack_auth.py
-- `PHASE8_COMPLETENESS` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_DISPOSABLE_ACK` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_DISPOSABLE_DATABASE_URL` **required** — tests/rust_contract/test_phase8_contract.py
-- `PHASE8_SCHEMA_BASE` **required** — tests/rust_contract/test_phase8_contract.py
-- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — rs/read/tests/fixtures/phase8_writer_protocols.py
+- `POSTGRES_ADMIN_TEST_DATABASE_URL` **required** — tests/postgres/test_market_integrity_concurrency.py
 - `PYTHON_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
-- `PYTHONPATH` **required** — rs/read/tests/fixtures/phase8_protocol_plugin.py
+- `PYTHONPATH` **required** — tests/unit/test_migration_checkpoint.py
 - `RECOVERY_STATE_DIR` (has default) — deploy/external_monitor/verdaxis_recover.py
 - `RECOVERY_STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_recover.py
 - `REFERRAL_CANDIDATE_MAP` (has default) — scripts/rust_contract/referral_oracle.py
@@ -139,25 +123,19 @@
 - `RENDER_TIMEOUT_SECONDS` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `RENDERED_PAGE_CHECKS_ENABLED` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `RUN_SHADOW_DISPOSABLE_REPLAY` **required** — tests/rust_contract/test_shadow_replay.py
-- `RUNTIME_TEST_APP_ROLE` **required** — tests/postgres/test_cache_change_migration.py
-- `RUNTIME_TEST_BACKUP_ROLE` **required** — tests/postgres/test_phase3_auth_store.py
+- `RUNTIME_TEST_APP_ROLE` (has default) — tests/postgres/test_fame_rfq.py
+- `RUNTIME_TEST_BACKUP_ROLE` (has default) — tests/postgres/test_runtime_role_policy.py
 - `RUNTIME_TEST_DATABASE_NAME` (has default) — tests/postgres/test_runtime_role_policy.py
-- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_cache_change_migration.py
-- `RUST_COMPLIANCE_TEST_WRITER_URL` **required** — rs/read/tests/phase5_writer.py
+- `RUNTIME_TEST_MIGRATOR_ROLE` **required** — tests/postgres/test_runtime_migration_roundtrip.py
 - `RUST_CONTRACT_CLOCK` **required** — rs/read/tests/legacy_curve_oracle.py
 - `RUST_CONTRACT_PROFILE` **required** — rs/read/tests/prices_oracle.py
-- `RUST_CONTRACT_SERVER_BINARY` **required** — rs/read/tests/orderbook_map_oracle.py
 - `RUST_CONTRACT_URL` **required** — rs/read/tests/curves_canonical_oracle.py
 - `RUST_CORPUS_MANIFEST` (has default) — scripts/rust_contract/meaning_runner.py
 - `RUST_CORPUS_STAGE` **required** — scripts/rust_contract/seed_corpus.py
 - `RUST_DATABASE_URL` **required** — rs/read/tests/orderbook_lists_oracle.py
-- `RUST_LOCK_PROTOCOL_BINARY` **required** — rs/read/tests/fixtures/phase8_protocol_plugin.py
 - `RUST_MARKET_EXPECTED_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
 - `RUST_MARKET_TEST_EXPECTED` **required** — rs/read/tests/market_contract_oracle.py
 - `RUST_MARKET_WRITER_URL` **required** — rs/read/tests/market_contract_oracle.py
-- `RUST_OVERLAY_TEST_CASES` **required** — rs/read/tests/overlay_contract_fixture.py
-- `RUST_TEST_DATABASE_URL` **required** — tests/rust_contract/test_phase8_replay.py
-- `RUST_TEST_MIGRATOR_DATABASE_URL` **required** — rs/read/tests/fixtures/phase8_writer_protocols.py
 - `SEED_DATABASE_URL` **required** — scripts/rust_contract/seed_corpus.py
 - `SEED_TARGET_DATABASE` **required** — rs/read/tests/legacy_curve_oracle.py
 - `SELLER_FEE_PILOT_PER_MT_USD` (has default) — .env.example
@@ -166,8 +144,6 @@
 - `SIGNUP_CANARY_TARGETS` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `STATE_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
 - `STATUS_FILE` (has default) — deploy/external_monitor/verdaxis_monitor.py
-- `SYSTEM_STATUS` (has default) — .env.example
-- `SYSTEM_STATUS_MESSAGE` **required** — .env.example
 - `TELEGRAM_API_BASE` (has default) — app/cli/onboarding_attention.py
 - `TELEGRAM_BOT_TOKEN` (has default) — app/cli/onboarding_attention.py
 - `TELEGRAM_CHAT_ID` (has default) — app/cli/onboarding_attention.py
