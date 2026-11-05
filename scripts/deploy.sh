@@ -1406,8 +1406,6 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         sleep "$HEALTH_RETRY_DELAY"
     done
     echo "Rust service is healthy: $RUST_HEALTH_URL"
-    # The native service is exact-ready; a reboot must preserve its selection.
-    sudo -n systemctl enable "$RUST_UNIT_NAME"
 fi
 # Preserve the public-surface gate as well as the native loopback gate.
 for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
@@ -1434,6 +1432,8 @@ if systemctl is-active --quiet "$SERVICE_NAME" \
     || systemctl is-enabled --quiet "$SERVICE_NAME"; then
     echo "Retained backend must remain stopped and disabled." >&2; exit 1
 fi
+# Both surfaces and signed acceptance passed; preserve selection on reboot.
+sudo -n systemctl enable "$RUST_UNIT_NAME"
 publication_boundary before clear
 clear_deploy_state
 publication_boundary after clear
