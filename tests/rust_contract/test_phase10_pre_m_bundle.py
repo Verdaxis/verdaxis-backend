@@ -26,6 +26,12 @@ class PreMReleaseBundle(unittest.TestCase):
         self.assertIn('--workflow-ref "$(jq -r .workflow_ref', source)
         self.assertNotIn('printf prod; else printf staging', source)
 
+    def test_root_git_trust_is_limited_to_the_canonical_checkout(self):
+        source = SCRIPT.read_text()
+        self.assertIn('safe.directory=$checkout', source)
+        self.assertIn('GIT_CONFIG_GLOBAL=/dev/null', source)
+        self.assertIn('core.hooksPath=/dev/null', source)
+
     def test_capture_checks_absent_state_before_restart_lock(self):
         self.assertTrue(SCRIPT.is_file(), "native private bundle entrypoint is required")
         source = SCRIPT.read_text()
