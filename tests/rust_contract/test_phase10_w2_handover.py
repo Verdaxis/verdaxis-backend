@@ -45,6 +45,17 @@ def test_handover_serializes_with_deploy_and_installer():
     assert "/proc/self/fd" in installer
 
 
+def test_stale_deploy_state_is_refused_before_restart_lock():
+    text = HELPER.read_text()
+    main_lock = text.index('/usr/bin/flock -n 8')
+    restart_lock = text.index('exec 7>>', main_lock)
+    guarded_window = text[main_lock:restart_lock]
+    state_path = '$SOURCE_ROOT/.runtime-deploy/$ENVIRONMENT.state'
+    assert f'! -e {state_path}' in guarded_window, "present state must refuse under the main lock"
+    assert f'! -L {state_path}' in guarded_window, "dangling state must refuse before restart lock"
+    assert "return 1" in guarded_window, "state refusal must stop before restart authorization can revive"
+
+
 def test_usage_refuses_unbound_apply():
     result = subprocess.run(["bash", str(HELPER), "--action", "advance"], text=True, capture_output=True)
     assert result.returncode == 2, result.stdout + result.stderr
