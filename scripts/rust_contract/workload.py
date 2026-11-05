@@ -177,3 +177,21 @@ def seconds_for_observations(
     if per_second <= 0:
         raise WorkloadError("a route with no offered traffic can never reach the floor")
     return required / per_second
+
+
+def baseline_reference() -> dict[str, Any]:
+    """The frozen decision-87 Python baseline, refused when unpinned."""
+    from scripts.rust_contract import baseline
+
+    return baseline.load_python_baseline()
+
+
+def representative_weights(
+    manifest: dict[str, Any] | None = None, weight_key: str = "weight_representative"
+) -> dict[str, int]:
+    """The declared representative weight of every route and tool."""
+    manifest = manifest if manifest is not None else load()
+    return {
+        entry["id"]: int(entry[weight_key])
+        for entry in routes(manifest) + tools(manifest)
+    }
