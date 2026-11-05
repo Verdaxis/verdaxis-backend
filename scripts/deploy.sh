@@ -78,7 +78,7 @@ else
     TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
     BINARY_ENV=(/usr/bin/env)
 fi
-for required_tool in jq flock; do
+for required_tool in jq flock openssl sync; do
     command -v "$required_tool" > /dev/null || {
         echo "The deploy requires $required_tool." >&2
         exit 2
@@ -101,7 +101,7 @@ DEPLOY_START_GUARD_HELPER_PATH="deploy/scripts/verify-deploy-start-guard.sh"
 RUST_STAGING_POLICY_PATH="deploy/rust/staging-policy.json"
 RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
 # Production deploys the staging tip and CI signs the artifact on the staging
-# push, so both environments bind provenance to that one ref (PD-P1). The
+# push, so both environments bind provenance to that one ref. The
 # repository, workflow path, exact commit and attestation checks stay exact.
 RUST_WORKFLOW_REF="refs/heads/staging"
 RUST_PROVENANCE_KEY_PATH="deploy/rust/artifact-provenance.pub.pem"
@@ -111,6 +111,12 @@ if [[ "$DEPLOY_ENVIRONMENT" == "production" ]]; then
     RUST_UNIT_NAME="verdaxis-rust.service"
 fi
 HOST_PROVENANCE_KEY_PATH="${HOST_PROVENANCE_KEY_PATH:-/etc/verdaxis/artifact-provenance.pub.pem}"
+# A trusted acceptance producer writes these private files after the native
+# restart. The record must match this transaction's nonce and installed bytes.
+DEPLOY_ACCEPTANCE_RECORD="${DEPLOY_ACCEPTANCE_RECORD:-}"
+DEPLOY_ACCEPTANCE_SIGNATURE="${DEPLOY_ACCEPTANCE_SIGNATURE:-}"
+DEPLOY_PUBLICATION_LOG="${DEPLOY_PUBLICATION_LOG:-}"
+DEPLOY_KILL_POINT="${DEPLOY_KILL_POINT:-}"
 RUST_ARTIFACT_ARCHIVE="${RUST_ARTIFACT_ARCHIVE:-}"
 RUST_PROVENANCE_RECORD="${RUST_PROVENANCE_RECORD:-}"
 RUST_PROVENANCE_SIGNATURE="${RUST_PROVENANCE_SIGNATURE:-}"
@@ -141,11 +147,10 @@ RELEASE_WATCHLIST_PRODUCER_ACTIVATED_AT=""
 DEPLOY_LOCK_FD=""
 DEPLOY_NONCE=""
 STAGED_BINARY=""
+VERIFIED_BINARY_SHA256=""
 RESTART_WINDOW_LOCK_FD=""
 DEPLOY_STARTED=0
 SERVICE_RESTART_ATTEMPTED=0
-RUST_PHASE_STARTED=0
-DEPLOY_PHASE="preflight"
 DRY_RUN_TEMP=""
 ACL_CONVERGENCE_TEMP=""
 MIGRATION_POLICY_TEMP=""
@@ -155,6 +160,71 @@ RUST_SELECTED=0
 RUST_EXTRACT_DIR=""
 RUST_RUNTIME_DIR="$BACKEND_DIR/.runtime-rust"
 ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"
+
+# Publication probes contain identity and boundary names only, never payloads.
+# Kill points are available only in an explicitly disposable noncanonical tree.
+publication_boundary() {
+    local side="$1" name="$2"
+    if [[ -n "$DEPLOY_PUBLICATION_LOG" ]]; then
+        if [[ -L "$DEPLOY_PUBLICATION_LOG" \
+            || ( -e "$DEPLOY_PUBLICATION_LOG" && ! -f "$DEPLOY_PUBLICATION_LOG" ) ]]; then
+            echo "Publication log must be a regular file." >&2; exit 1
+        fi
+        (umask 077; printf '%s %s %s %s\n' "$side" "$name" \
+            "$DEPLOY_ENVIRONMENT" "$APPROVED_RELEASE_SHA" >> "$DEPLOY_PUBLICATION_LOG")
+        sync -f "$DEPLOY_PUBLICATION_LOG"
+    fi
+    if [[ -n "$DEPLOY_KILL_POINT" ]]; then
+        if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" || "${VERDAXIS_DISPOSABLE_DEPLOY:-}" != "1" ]]; then
+            echo "Publication kill points require a disposable checkout." >&2; exit 2
+        fi
+        if [[ "$DEPLOY_KILL_POINT" == "$side:$name" ]]; then
+            kill -KILL "$$"
+        fi
+    fi
+}
+
+verify_window_acceptance() {
+    local record="$DEPLOY_ACCEPTANCE_RECORD" signature="$DEPLOY_ACCEPTANCE_SIGNATURE"
+    local digest
+    [[ -n "$record" && -n "$signature" && -f "$record" && ! -L "$record" \
+        && -f "$signature" && ! -L "$signature" ]] || return 1
+    [[ $(stat -Lc '%s' -- "$record") -le 16384 \
+        && $(stat -Lc '%s' -- "$signature") -le 16384 ]] || return 1
+    # Copy once, then verify and parse the same private immutable snapshot.
+    local directory
+    directory="$(mktemp -d /tmp/verdaxis-window-acceptance.XXXXXXXX)" || return 1
+    if ! chmod 0700 "$directory" \
+        || ! cp -- "$record" "$directory/record.json" \
+        || ! cp -- "$signature" "$directory/signature"; then
+        rm -rf -- "$directory"; return 1
+    fi
+    if [[ $(stat -Lc '%s' -- "$directory/record.json") -gt 16384 \
+        || $(stat -Lc '%s' -- "$directory/signature") -gt 16384 ]]; then
+        rm -rf -- "$directory"; return 1
+    fi
+    if ! openssl pkeyutl -verify -pubin -rawin -inkey "$PROVENANCE_PUBLIC_KEY_PATH" \
+        -sigfile "$directory/signature" -in "$directory/record.json" >/dev/null 2>&1; then
+        rm -rf -- "$directory"; return 1
+    fi
+    if ! verify_binary_digest "$ACTIVE_BINARY"; then
+        rm -rf -- "$directory"; return 1
+    fi
+    digest="$VERIFIED_BINARY_SHA256"
+    local result=0
+    jq -e -s --arg environment "$DEPLOY_ENVIRONMENT" --arg sha "$CURRENT_SHA" \
+        --arg nonce "$DEPLOY_NONCE" --arg current "$MIGRATION_EXPECTED_CURRENT_REVISION" \
+        --arg target "$MIGRATION_TARGET_REVISION" --arg digest "$digest" '
+        length == 1 and (.[0] |
+        keys == ["auth","binary_sha256","deploy_nonce","environment","expected_current",
+                 "monitor","passive_harm","release_sha","session","target"] and
+        .environment == $environment and .release_sha == $sha and
+        .deploy_nonce == $nonce and .expected_current == $current and .target == $target and
+        .binary_sha256 == $digest and .auth == true and .session == true and
+        .monitor == true and .passive_harm == true)' "$directory/record.json" >/dev/null || result=1
+    rm -rf -- "$directory"
+    return "$result"
+}
 
 assert_clean_tree() {
     local phase="$1"
@@ -207,8 +277,8 @@ validate_migration_policy() {
         if [[ -n "$extra" \
             || ! "$current" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127}$ \
             || ! "$target" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127}$ \
-            || "${current,,}" =~ ^(base|head|heads)$ \
-            || "${target,,}" =~ ^(base|head|heads)$ ]]; then
+            || "${current,,}" =~ ^(base|head|heads|latest)$ \
+            || "${target,,}" =~ ^(base|head|heads|latest)$ ]]; then
             echo "Invalid migration checkpoint policy entry." >&2
             exit 1
         fi
@@ -352,6 +422,11 @@ verify_rust_artifact_for_release() {
         echo "Rust artifact verification refused; no service was stopped." >&2
         exit 1
     fi
+    VERIFIED_BINARY_SHA256="$(jq -er '.binary.sha256 | strings | select(test("^[0-9a-f]{64}$"))' \
+        "$extract_dir/artifact-metadata.json")" || {
+        echo "Verified artifact has no exact executable digest." >&2; exit 1;
+    }
+    verify_binary_digest "$extract_dir/verdaxis-read"
 }
 
 cleanup_rust_extract() {
@@ -475,12 +550,17 @@ acquire_restart_window_lock() {
 write_monitor_identity() {
     local release_sha="$1"
     local identity_file="$BACKEND_DIR/.runtime-monitor.env"
-    local temporary_file="${identity_file}.tmp.$$"
+    local temporary_file
+    temporary_file="$(mktemp --tmpdir="$DEPLOY_STATE_DIR" '.monitor.XXXXXXXX')"
 
     printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\n' \
         "$DEPLOY_ENVIRONMENT" "$release_sha" > "$temporary_file"
     chmod 0644 "$temporary_file"
+    sync -f "$temporary_file"
+    publication_boundary before monitor
     mv -- "$temporary_file" "$identity_file"
+    sync -f "$BACKEND_DIR"
+    publication_boundary after monitor
 }
 
 # True when the revision is the watchlist producer checkpoint or a later one.
@@ -488,7 +568,7 @@ write_monitor_identity() {
 # deploy/rust/allowed-revisions.json.
 revision_has_watchlist_producer() {
     case "$1" in
-        p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding) return 0 ;;
+        p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1) return 0 ;;
     esac
     return 1
 }
@@ -579,7 +659,8 @@ resolve_watchlist_producer_keys() {
 write_release_artifact() {
     local release_sha="$1"
     local migration_revision="$2"
-    local temporary_file="${RELEASE_ENV_FILE}.tmp.$$"
+    local temporary_file
+    temporary_file="$(mktemp --tmpdir="$DEPLOY_STATE_DIR" '.release.XXXXXXXX')"
 
     echo "+ write immutable release metadata to $RELEASE_ENV_FILE"
     umask 077
@@ -594,7 +675,11 @@ write_release_artifact() {
             >> "$temporary_file"
     fi
     chmod 0600 "$temporary_file"
+    sync -f "$temporary_file"
+    publication_boundary before release
     mv -- "$temporary_file" "$RELEASE_ENV_FILE"
+    sync -f "$BACKEND_DIR"
+    publication_boundary after release
     # Both identities publish under durable blocked state, before candidate code
     # or a restart. A failed second replacement leaves starts blocked.
     write_monitor_identity "$release_sha"
@@ -624,11 +709,14 @@ write_deploy_state() {
         return 1
     fi
     chmod 0644 "$temporary_file"
+    sync -f "$temporary_file"
     mv -- "$temporary_file" "$DEPLOY_STATE_FILE"
+    sync -f "$DEPLOY_STATE_DIR"
 }
 
 clear_deploy_state() {
     rm -f -- "$DEPLOY_STATE_FILE"
+    sync -f "$DEPLOY_STATE_DIR"
 }
 
 cleanup_dry_run_candidate() {
@@ -728,9 +816,19 @@ prepare_acl_convergence_bundle() {
 
 # Run a verified release binary with the release identity. Each command
 # names the deployed .env itself when it needs it and reads only its own keys.
+verify_binary_digest() {
+    local binary="$1" digest
+    [[ -f "$binary" && ! -L "$binary" ]] || return 1
+    digest="$(sha256sum -- "$binary" | cut -d ' ' -f 1)" || return 1
+    if [[ ! "$VERIFIED_BINARY_SHA256" =~ ^[0-9a-f]{64}$ || "$digest" != "$VERIFIED_BINARY_SHA256" ]]; then
+        echo "Executable bytes differ from the verified artifact." >&2; return 1
+    fi
+}
+
 run_release_binary() {
     local binary="$1"
     shift
+    verify_binary_digest "$binary" || return 1
     "${BINARY_ENV[@]}" DEPLOY_STATE_DIR="$DEPLOY_STATE_DIR" "$binary" "$@" \
         --environment "$DEPLOY_ENVIRONMENT" --release-sha "$APPROVED_RELEASE_SHA"
 }
@@ -752,26 +850,14 @@ preserve_failed_release() {
     cleanup_rust_policy_bundle
     cleanup_rust_extract
     if [[ "$status" != "0" && "$DRY_RUN" == "0" && "$DEPLOY_STARTED" == "1" ]]; then
-        if [[ "$RUST_PHASE_STARTED" == "1" ]] \
-            && systemctl is-active --quiet "$SERVICE_NAME" \
-            && readiness_exact "$HEALTH_URL"; then
-            write_deploy_state "rust-failed" "$CURRENT_SHA" || \
-                echo "WARNING: could not record Rust failure state." >&2
-            sudo -n systemctl stop "$RUST_UNIT_NAME" || echo "WARNING: Rust stop failed." >&2
-            sudo -n systemctl disable "$RUST_UNIT_NAME" || echo "WARNING: Rust disable failed." >&2
-            echo "Rust activation failed; the exact-ready backend service remains serving. Canonical retry required." >&2
-            exit "$status"
-        fi
         if ! write_deploy_state "blocked" "${CURRENT_SHA:-$APPROVED_RELEASE_SHA}"; then
             echo "WARNING: could not restore durable deployment state." >&2
         fi
         if [[ "$SERVICE_RESTART_ATTEMPTED" == "1" ]]; then
-            if ! sudo -n systemctl stop "$SERVICE_NAME"; then
-                echo "WARNING: could not stop the failed backend service." >&2
-            fi
-            if [[ "$RUST_SELECTED" == "1" ]] && ! sudo -n systemctl stop "$RUST_UNIT_NAME"; then
+            if ! sudo -n systemctl stop "$RUST_UNIT_NAME"; then
                 echo "WARNING: could not stop the failed Rust service." >&2
             fi
+            sudo -n systemctl disable "$RUST_UNIT_NAME" || echo "WARNING: Rust disable failed." >&2
         fi
         echo "Deployment failed; code and published identity remain aligned and the durable state stays fail-closed." >&2
     fi
@@ -857,8 +943,16 @@ if [[ "$DRY_RUN" == "1" ]]; then
     done
     load_unit_manifest "$DRY_RUN_TEMP/candidate-units/$UNIT_MANIFEST_PATH"
     load_rust_staging_policy "$REMOTE_SHA" "$DRY_RUN_TEMP/candidate-units"
-    validate_migration_policy \
-        "$DRY_RUN_TEMP/candidate-units/$MIGRATION_POLICY_PATH"
+    if [[ -n "$MIGRATION_EXPECTED_CURRENT_REVISION" || -n "$MIGRATION_TARGET_REVISION" ]]; then
+        if [[ -z "$MIGRATION_EXPECTED_CURRENT_REVISION" || -z "$MIGRATION_TARGET_REVISION" ]]; then
+            echo "Dry-run requires both literal migration current and target, or neither." >&2; exit 1
+        fi
+        validate_migration_policy \
+            "$DRY_RUN_TEMP/candidate-units/$MIGRATION_POLICY_PATH" \
+            "$MIGRATION_EXPECTED_CURRENT_REVISION" "$MIGRATION_TARGET_REVISION"
+    else
+        validate_migration_policy "$DRY_RUN_TEMP/candidate-units/$MIGRATION_POLICY_PATH"
+    fi
     ARCHIVE_PATHS=(
         "$UNIT_MANIFEST_PATH"
         "$MIGRATION_POLICY_PATH"
@@ -885,6 +979,10 @@ if [[ "$DRY_RUN" == "1" ]]; then
 
     echo "Dry-run checks passed for immutable candidate SHA $REMOTE_SHA."
     echo "APPROVED_RELEASE_SHA=$REMOTE_SHA"
+    if [[ -n "$MIGRATION_EXPECTED_CURRENT_REVISION" ]]; then
+        echo "APPROVED_MIGRATION_CURRENT=$MIGRATION_EXPECTED_CURRENT_REVISION"
+        echo "APPROVED_MIGRATION_TARGET=$MIGRATION_TARGET_REVISION"
+    fi
     echo "Migration remains unapproved until the operator also sets:"
     echo "  MIGRATION_APPROVED_SOURCE_SHA=$REMOTE_SHA"
     echo "  MIGRATION_EXPECTED_CURRENT_REVISION=<exact-live-revision>"
@@ -920,10 +1018,18 @@ if [[ "$MIGRATION_APPROVED_SOURCE_SHA" != "$APPROVED_RELEASE_SHA" ]]; then
 fi
 if [[ ! "$MIGRATION_EXPECTED_CURRENT_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127}$ \
     || ! "$MIGRATION_TARGET_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127}$ \
-    || "${MIGRATION_EXPECTED_CURRENT_REVISION,,}" =~ ^(base|head|heads)$ \
-    || "${MIGRATION_TARGET_REVISION,,}" =~ ^(base|head|heads)$ ]]; then
+    || "${MIGRATION_EXPECTED_CURRENT_REVISION,,}" =~ ^(base|head|heads|latest)$ \
+    || "${MIGRATION_TARGET_REVISION,,}" =~ ^(base|head|heads|latest)$ ]]; then
     echo "Exact literal migration current and target revisions are required." >&2
     exit 1
+fi
+if [[ "$MIGRATION_TARGET_REVISION" != "sqlx_1" \
+    || ( "$MIGRATION_EXPECTED_CURRENT_REVISION" != "ob_20261031_offboarding" \
+        && "$MIGRATION_EXPECTED_CURRENT_REVISION" != "sqlx_1" ) ]]; then
+    echo "M deploy requires the exact offboarding adoption or sqlx_1 self-transition." >&2; exit 1
+fi
+if [[ -z "$DEPLOY_ACCEPTANCE_RECORD" || -z "$DEPLOY_ACCEPTANCE_SIGNATURE" ]]; then
+    echo "Signed window acceptance paths are required before mutation." >&2; exit 1
 fi
 if ! resolve_watchlist_producer_keys "$MIGRATION_TARGET_REVISION"; then
     exit 1
@@ -1005,9 +1111,9 @@ fi
 
 # Prove every exact privileged service command before state/source mutation.
 # Noninteractive execution must never discover missing authority at restart.
-for action in restart stop; do
+for action in stop disable; do
     sudo -n -l systemctl "$action" "$SERVICE_NAME" >/dev/null || {
-        echo "Required backend service authority is unavailable." >&2; exit 1;
+        echo "Required retained backend stop/disable authority is unavailable." >&2; exit 1;
     }
 done
 if [[ "$RUST_ENABLED" == "1" ]]; then
@@ -1037,18 +1143,6 @@ if [[ "$RUST_ENABLED" == "1" ]]; then
     fi
     verify_rust_artifact_for_release "$REMOTE_SHA" "$RUST_EXTRACT_DIR"
     RUST_SELECTED=1
-    # The verified policy bytes travel with the deploy so the health URL
-    # cannot drift between selection and readiness.
-    umask 077
-    mkdir -p -- "$RUST_RUNTIME_DIR"
-    if [[ -L "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json" ]] \
-        || ! cp -- "$RUST_POLICY_TEMP/$RUST_POLICY_PATH" \
-            "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json.tmp.$$" \
-        || ! mv -- "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json.tmp.$$" \
-            "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json"; then
-        echo "Could not stage the verified Rust policy bytes." >&2
-        exit 1
-    fi
 fi
 CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
 STAGED_BINARY="$RUST_EXTRACT_DIR/verdaxis-read"
@@ -1077,7 +1171,6 @@ if ! run_release_binary "$STAGED_BINARY" migrate status --check \
     echo "Resuming the interrupted deploy of $APPROVED_RELEASE_SHA; the database is at the approved target."
 fi
 cleanup_migration_policy_bundle
-cleanup_rust_policy_bundle
 
 # This run's nonce names its blocked state; `migrate` accepts only that state
 # while both deploy locks are held. It is an ownership token, not a secret.
@@ -1092,6 +1185,23 @@ write_deploy_state "blocked" "$APPROVED_RELEASE_SHA"
 # locks, and the start guard still denies every start while state is blocked.
 acquire_restart_window_lock
 
+# The retained runtime is idle throughout M; a retry repeats these fences.
+# Do not restart it, even on a failed native activation.
+sudo -n systemctl stop "$SERVICE_NAME"
+sudo -n systemctl disable "$SERVICE_NAME"
+if systemctl is-active --quiet "$SERVICE_NAME" \
+    || systemctl is-enabled --quiet "$SERVICE_NAME"; then
+    echo "Retained backend did not become stopped and disabled." >&2; exit 1
+fi
+sudo -n systemctl stop "$RUST_UNIT_NAME"
+# Revoke every cached-read lease before source/identity changes. The native
+# operation waits for the lease drain; activation below binds a fresh database
+# incarnation and publishes authority only after the bind commits.
+publication_boundary before cache-revoke
+run_release_binary "$STAGED_BINARY" ops cache-authority revoke \
+    --runtime-dir "$RUST_RUNTIME_DIR"
+publication_boundary after cache-revoke
+publication_boundary before source
 "${GIT[@]}" fetch origin "refs/heads/$TARGET_BRANCH"
 REMOTE_SHA="$("${GIT[@]}" rev-parse 'FETCH_HEAD^{commit}')"
 if [[ "$REMOTE_SHA" != "$APPROVED_RELEASE_SHA" ]]; then
@@ -1100,6 +1210,8 @@ if [[ "$REMOTE_SHA" != "$APPROVED_RELEASE_SHA" ]]; then
 fi
 "${GIT[@]}" checkout "$TARGET_BRANCH"
 "${GIT[@]}" merge --ff-only FETCH_HEAD
+sync -f "$BACKEND_DIR"
+publication_boundary after source
 
 CURRENT_BRANCH="$("${GIT[@]}" branch --show-current)"
 CURRENT_SHA="$("${GIT[@]}" rev-parse HEAD)"
@@ -1117,11 +1229,8 @@ assert_clean_tree "Selected release"
 assert_release_tree_regular "$CURRENT_SHA"
 prepare_acl_convergence_bundle "$CURRENT_SHA"
 
-# Publish the selected tree's exact identity before invoking any executable
-# from that tree. The durable state lets units remain fail-closed during this
-# transition and through any restart/readiness failure.
-write_release_artifact "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION"
-
+# The selected native artifact is already provenance-verified. Keep starts
+# blocked until migration and ACLs complete, then publish runtime identities.
 # The deployed identity and the app database role, attested by the staged
 # release binary on one connection (it replaces the runtime preflight).
 run_release_binary "$STAGED_BINARY" ops preflight --environment-file "$BACKEND_DIR/.env"
@@ -1155,8 +1264,9 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     # list equal to that part of deploy/rust/allowed-revisions.json.
     RUST_STREAM_LISTENER="0"
     case "$MIGRATION_TARGET_REVISION" in
-        sse_20261021_replay_floor|p5_20261020_read_indexes|p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding) RUST_STREAM_LISTENER="1" ;;
+        sse_20261021_replay_floor|p5_20261020_read_indexes|p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1) RUST_STREAM_LISTENER="1" ;;
     esac
+    publication_boundary before budget
     if ! run_release_binary "$STAGED_BINARY" ops prepare-budget \
         --cache-listener "$RUST_CACHE_LISTENER" \
         --stream-listener "$RUST_STREAM_LISTENER" \
@@ -1165,6 +1275,9 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         echo "Rust runtime budget preparation refused." >&2
         exit 1
     fi
+    sync -f "$RUST_RUNTIME_DIR/budget.json"
+    sync -f "$RUST_RUNTIME_DIR"
+    publication_boundary after budget
 fi
 
 # The one approved transition, as the migrator, owned by this deploy's
@@ -1185,6 +1298,21 @@ run_release_binary "$STAGED_BINARY" migrate status --check \
     --bundle-root "$ACL_CONVERGENCE_TEMP"
 cleanup_acl_convergence_bundle
 
+write_release_artifact "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION"
+# Carry the exact immutable policy into the selected runtime only under blocked
+# state; failure between copies cannot authorize any service start.
+publication_boundary before policy
+if [[ -L "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json" ]]; then
+    echo "Runtime policy must not be a symlink." >&2; exit 1
+fi
+cp -- "$RUST_POLICY_TEMP/$RUST_POLICY_PATH" "$RUST_RUNTIME_DIR/.policy.tmp.$$"
+chmod 0600 "$RUST_RUNTIME_DIR/.policy.tmp.$$"
+sync -f "$RUST_RUNTIME_DIR/.policy.tmp.$$"
+mv -- "$RUST_RUNTIME_DIR/.policy.tmp.$$" "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json"
+sync -f "$RUST_RUNTIME_DIR"
+publication_boundary after policy
+cleanup_rust_policy_bundle
+
 # Freeze the migrator-verified checkpoint for the app-only Rust startup.
 if [[ "$RUST_SELECTED" == "1" ]]; then
     if [[ -L "$RUST_RUNTIME_DIR/revision.json" ]]; then
@@ -1193,7 +1321,11 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     REVISION_TEMP="$(mktemp "$RUST_RUNTIME_DIR/.revision.XXXXXXXX")"
     printf '{"release_sha":"%s","revision":"%s"}\n' "$CURRENT_SHA" "$MIGRATION_TARGET_REVISION" > "$REVISION_TEMP"
     chmod 0600 "$REVISION_TEMP"
+    sync -f "$REVISION_TEMP"
+    publication_boundary before revision
     mv -- "$REVISION_TEMP" "$RUST_RUNTIME_DIR/revision.json"
+    sync -f "$RUST_RUNTIME_DIR"
+    publication_boundary after revision
 fi
 
 assert_clean_tree "Deploy steps"
@@ -1203,6 +1335,7 @@ assert_clean_tree "Deploy steps"
 # database settings, runtime identity and the Phase 2 verification/invite
 # settings (Task 23), never the migrator URL.
 if [[ "$RUST_SELECTED" == "1" ]]; then
+    publication_boundary before runtime
     if ! run_release_binary "$STAGED_BINARY" ops prepare-runtime \
         --environment-file "$BACKEND_DIR/.env" \
         --output-dir "$RUST_RUNTIME_DIR" \
@@ -1210,22 +1343,37 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         echo "Rust runtime environment preparation refused." >&2
         exit 1
     fi
+    sync -f "$RUST_RUNTIME_DIR"
+    publication_boundary after runtime
 fi
+
+# Rebind only after migration, ACL and matching runtime publications. The
+# native command revokes/drains again and leaves caching revoked on failure.
+publication_boundary before cache-bind
+run_release_binary "$STAGED_BINARY" ops cache-authority activate --apply \
+    --runtime-dir "$RUST_RUNTIME_DIR" --environment-file "$BACKEND_DIR/.env"
+publication_boundary after cache-bind
 
 # Publish the artifact selection under blocked state: a regular-file active
 # binary installed by atomic rename from the verified staged release, never a
 # source-tree symlink. The Rust unit's ExecStart resolves this path.
 if [[ "$RUST_SELECTED" == "1" ]]; then
-    if [[ -e "$ACTIVE_BINARY" && ! -f "$ACTIVE_BINARY" ]]; then
+    if [[ -L "$ACTIVE_BINARY" || ( -e "$ACTIVE_BINARY" && ! -f "$ACTIVE_BINARY" ) ]]; then
         echo "The active Rust binary path is not a regular file." >&2
         exit 1
     fi
+    publication_boundary before binary
     if ! cp -- "$STAGED_BINARY" "$ACTIVE_BINARY.tmp.$$" \
         || ! chmod 0755 "$ACTIVE_BINARY.tmp.$$" \
+        || ! verify_binary_digest "$ACTIVE_BINARY.tmp.$$" \
+        || ! sync -f "$ACTIVE_BINARY.tmp.$$" \
         || ! mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"; then
         echo "Could not install the active Rust binary by atomic rename." >&2
         exit 1
     fi
+    verify_binary_digest "$ACTIVE_BINARY"
+    sync -f "$RUST_RUNTIME_DIR"
+    publication_boundary after binary
 fi
 
 # Recheck drift under the same deploy lock without giving the Rust unit .env.
@@ -1235,31 +1383,13 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         --environment-file "$BACKEND_DIR/.env" --output "$RUST_RUNTIME_DIR/budget.json"
 fi
 
-DEPLOY_PHASE="restart-authorized"
-write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
-SERVICE_RESTART_ATTEMPTED=1
-sudo -n systemctl restart "$SERVICE_NAME"
-DEPLOY_PHASE="readiness-pending"
-write_deploy_state "$DEPLOY_PHASE" "$CURRENT_SHA"
-
-systemctl is-active --quiet "$SERVICE_NAME"
-for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
-    if readiness_exact "$HEALTH_URL"; then
-        break
-    fi
-    if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
-        echo "Backend health check failed after ${HEALTH_ATTEMPTS} attempts: ${HEALTH_URL}" >&2
-        exit 1
-    fi
-    echo "Backend not ready (${attempt}/${HEALTH_ATTEMPTS}); retrying in ${HEALTH_RETRY_DELAY}s..."
-    sleep "$HEALTH_RETRY_DELAY"
-done
-
-echo "Backend is healthy: $HEALTH_URL"
 if [[ "$RUST_SELECTED" == "1" ]]; then
-    RUST_PHASE_STARTED=1
+    SERVICE_RESTART_ATTEMPTED=1
+    publication_boundary before authorization
     write_deploy_state "restart-authorized" "$CURRENT_SHA"
+    publication_boundary after authorization
     sudo -n systemctl restart "$RUST_UNIT_NAME"
+    write_deploy_state "readiness-pending" "$CURRENT_SHA"
     RUST_HEALTH_URL="$(jq -e -r '.health_url | strings' \
         "$RUST_RUNTIME_DIR/$DEPLOY_ENVIRONMENT-policy.json")" \
         || { echo "The staged Rust policy does not name a health URL." >&2; exit 1; }
@@ -1276,11 +1406,37 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
         sleep "$HEALTH_RETRY_DELAY"
     done
     echo "Rust service is healthy: $RUST_HEALTH_URL"
-    # Both services are exact-ready, so enable the Rust unit before the deploy
-    # records success: a host reboot must not leave the activated unit stopped.
+    # The native service is exact-ready; a reboot must preserve its selection.
     sudo -n systemctl enable "$RUST_UNIT_NAME"
 fi
+# Preserve the public-surface gate as well as the native loopback gate.
+for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
+    if readiness_exact "$HEALTH_URL"; then break; fi
+    if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
+        echo "Public readiness failed: $HEALTH_URL" >&2; exit 1
+    fi
+    sleep "$HEALTH_RETRY_DELAY"
+done
+# The rehearsal/window producer signs fresh acceptance for this nonce. These
+# identifiers are not credentials; the signer keeps its private key off-host.
+echo "DEPLOY_ACCEPTANCE_NONCE=$DEPLOY_NONCE"
+echo "DEPLOY_ACCEPTANCE_BINARY_SHA256=$(sha256sum -- "$ACTIVE_BINARY" | cut -d ' ' -f 1)"
+# Exact readiness alone does not establish auth/session or passive safety.
+for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
+    if verify_window_acceptance; then break; fi
+    if [[ "$attempt" == "$HEALTH_ATTEMPTS" ]]; then
+        echo "Signed auth/session/monitor/passive acceptance is missing or mismatched; canonical retry required." >&2
+        exit 1
+    fi
+    sleep "$HEALTH_RETRY_DELAY"
+done
+if systemctl is-active --quiet "$SERVICE_NAME" \
+    || systemctl is-enabled --quiet "$SERVICE_NAME"; then
+    echo "Retained backend must remain stopped and disabled." >&2; exit 1
+fi
+publication_boundary before clear
 clear_deploy_state
+publication_boundary after clear
 echo "=== Backend Deployment Complete ==="
 DEPLOY_STARTED=0
 cleanup_acl_convergence_bundle

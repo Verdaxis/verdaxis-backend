@@ -11,12 +11,12 @@
 # ownership the way `migrate` does, and validates readiness bodies the way
 # `guard health` does. Nothing contacts a network, a database or systemd.
 #
-# Part 1 holds the named Task 7 cases. Part 2 replaces, one case per test and
-# under the same name, every Python deploy test that exercised scripts/deploy.sh
+# Part 1 holds the named Task 7 cases. Part 2 replaces every Python deploy
+# test through an explicit gate-map entry. Those tests exercised scripts/deploy.sh
 # through a fake interpreter (plan section 10.4a: no gate is lost).
 #
 # Linux only (the deploy reads /proc/self/fd); CI runs it in the shellcheck
-# job, and a Mac runs it in a container.
+# job. Do not run this suite directly on macOS.
 # Usage: bash deploy/tests/deploy-transaction.sh (from the repository root)
 #
 # Many checks match the literal text of scripts/deploy.sh, so single-quoted
@@ -31,7 +31,7 @@ cd "$ROOT"
     echo 'deploy-transaction.sh needs Linux (the deploy reads /proc/self/fd)' >&2
     exit 2
 }
-for tool in git flock jq stat mktemp sha256sum tar; do
+for tool in git flock jq stat mktemp sha256sum tar openssl; do
     command -v "$tool" > /dev/null || {
         echo "missing tool: $tool" >&2
         exit 2
@@ -67,7 +67,7 @@ check() {
     fi
 }
 
-CURRENT_REVISION=p89_20261022_trade_freeze
+CURRENT_REVISION=ob_20261031_offboarding
 ADOPTION_ROW=$(printf '%s\tsqlx_1' "$CURRENT_REVISION")
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
@@ -93,6 +93,7 @@ FIXTURE_FILES=(
 # new_host <name> [environment] [extra checkpoint row]: a fresh host. Sets H
 # (harness dir), BE (checkout), ENVIRONMENT_NAME, A and B (commit SHAs).
 new_host() {
+    unset APPROVED_RELEASE_SHA MIGRATION_APPROVED_SOURCE_SHA MIGRATION_EXPECTED_CURRENT_REVISION MIGRATION_TARGET_REVISION
     H="$work/$1"
     rm -rf -- "$H"
     ENVIRONMENT_NAME=${2:-staging}
@@ -108,9 +109,17 @@ new_host() {
     while IFS=$'\t' read -r _ unit; do
         [[ -n ${unit:-} ]] && cp -- "deploy/systemd/$unit" "$H/src/deploy/systemd/$unit"
     done < <(grep -v '^#' deploy/systemd/runtime-units.manifest)
-    if [[ -n $extra_row ]]; then
-        printf '%s\n' "$extra_row" >> "$H/src/deploy/migration-checkpoints.tsv"
-    fi
+    for relative in "$ADOPTION_ROW" "$(printf 'sqlx_1\tsqlx_1')" "$extra_row"; do
+        if [[ -n $relative ]] && ! grep -q -F -x -- "$relative" "$H/src/deploy/migration-checkpoints.tsv"; then
+            printf '%s\n' "$relative" >> "$H/src/deploy/migration-checkpoints.tsv"
+        fi
+    done
+    # The disposable release pins its own Ed25519 public key. Only this host's
+    # acceptance producer receives the matching private key.
+    openssl genpkey -algorithm Ed25519 -out "$H/acceptance-private.pem" 2> /dev/null
+    chmod 0600 "$H/acceptance-private.pem"
+    openssl pkey -in "$H/acceptance-private.pem" -pubout \
+        -out "$H/src/deploy/rust/artifact-provenance.pub.pem" 2> /dev/null
     write_fixture_verifier "$H/src/deploy/scripts/verify-artifact.sh"
     git -C "$H/src" init -q -b staging
     git -C "$H/src" add -A
@@ -141,10 +150,11 @@ EOF
     health_body "$B"
     for input in archive record signature; do echo "$input" > "$H/$input"; done
     : > "$H/calls.log"
+    touch "$H/python-active" "$H/python-enabled"
     write_stubs
 }
 
-# The readiness body both services return: exactly the four deployed keys.
+# Both Rust readiness surfaces return exactly the four deployed keys.
 health_body() {
     printf '{"status":"ok","db":"ok","environment":"%s","release_sha":"%s"}' \
         "$ENVIRONMENT_NAME" "$1" > "$H/health-body"
@@ -179,6 +189,9 @@ done
 mkdir -p -- "$output"
 cp -- "$DEPLOY_HARNESS_DIR/fake-binary" "$output/verdaxis-read"
 chmod 0755 "$output/verdaxis-read"
+digest=$(sha256sum "$output/verdaxis-read" | cut -d ' ' -f1)
+jq -n --arg digest "$digest" '{binary:{sha256:$digest}}' > "$output/artifact-metadata.json"
+if [[ -f $H/tamper-staged ]]; then printf '\n# changed after verification\n' >> "$output/verdaxis-read"; fi
 EOF
 }
 
@@ -235,6 +248,24 @@ case "\$*" in
         record "systemctl \$*"
         if matches unloaded "\$*"; then echo not-found; else echo loaded; fi
         ;;
+    stop*verdaxis-backend*)
+        record "systemctl \$*"
+        rm -f "\$H/python-active"
+        ;;
+    disable*verdaxis-backend*)
+        record "systemctl \$*"
+        rm -f "\$H/python-enabled"
+        ;;
+    is-active*verdaxis-backend*)
+        record "systemctl \$*"
+        [[ -f \$H/python-active ]]
+        exit \$?
+        ;;
+    is-enabled*verdaxis-backend*)
+        record "systemctl \$*"
+        [[ -f \$H/python-enabled ]]
+        exit \$?
+        ;;
     *) record "systemctl \$*" ;;
 esac
 EOF
@@ -261,6 +292,32 @@ if [[ \$url == http://127.0.0.1:* ]]; then
     [[ ! -f "\$H/rust-unready" ]] || exit 22
 else
     [[ ! -f "\$H/backend-unready" ]] || exit 22
+fi
+# The disposable acceptance producer runs after the restart, just as an
+# operator gathers evidence during the blocked window. It is not the verifier.
+if [[ -f "\$H/acceptance-context" && ! -f "\$H/no-acceptance" ]]; then
+    IFS=' ' read -r current target nonce sha < "\$H/acceptance-context"
+    digest=\$(sha256sum "\$BE/.runtime-rust/verdaxis-read" | cut -d ' ' -f1)
+    jq -n --arg environment "\$ENVIRONMENT_NAME" --arg sha "\$sha" \
+        --arg current "\$current" --arg target "\$target" --arg nonce "\$nonce" --arg digest "\$digest" \
+        '{environment:\$environment, release_sha:\$sha, expected_current:\$current,
+          target:\$target, deploy_nonce:\$nonce, binary_sha256:\$digest,
+          auth:true, session:true, monitor:true, passive_harm:true}' > "\$H/acceptance.json"
+    if [[ -f "\$H/acceptance-filter" ]]; then
+        jq "\$(cat "\$H/acceptance-filter")" "\$H/acceptance.json" > "\$H/acceptance.tmp"
+        mv "\$H/acceptance.tmp" "\$H/acceptance.json"
+    fi
+    if [[ -f "\$H/acceptance-stream" ]]; then
+        cp "\$H/acceptance.json" "\$H/acceptance.json.copy"
+        cat "\$H/acceptance.json.copy" >> "\$H/acceptance.json"
+    fi
+    openssl pkeyutl -sign -rawin -inkey "\$H/acceptance-private.pem" \
+        -in "\$H/acceptance.json" -out "\$H/acceptance.signature"
+    if [[ -f "\$H/bad-signature" ]]; then
+        printf tampered >> "\$H/acceptance.json"
+    fi
+    chmod 0600 "\$H/acceptance.json" "\$H/acceptance.signature"
+    record 'acceptance record prepared'
 fi
 cat "\$H/health-body"
 EOF
@@ -297,6 +354,7 @@ case "\$1 \$2" in
         target=\$(option --target "\$@")
         nonce=\$(option --deploy-nonce "\$@")
         sha=\$(option --release-sha "\$@")
+        printf '%s %s %s %s\\n' "\$current" "\$target" "\$nonce" "\$sha" > "\$H/acceptance-context"
         expected_state=\$(printf 'DEPLOYMENT_STATE=blocked\nENVIRONMENT=%s\nRELEASE_SHA=%s\nDEPLOY_NONCE=%s' "\$ENVIRONMENT_NAME" "\$sha" "\$nonce")
         if [[ "\$(cat "\$BE/.runtime-deploy/\$ENVIRONMENT_NAME.state")" == "\$expected_state" ]] \\
             && [[ \$nonce =~ ^[0-9a-f]{32,128}\$ ]] && locks_held; then
@@ -315,8 +373,21 @@ case "\$1 \$2" in
             record "at target \$target"
         fi
         ;;
+    "ops cache-authority")
+        [[ \$(state_phase) == blocked ]] && locks_held || exit 3
+        if [[ \$3 == revoke ]]; then
+            echo revoked > "\$H/cache-authority"
+        elif [[ \$3 == activate ]]; then
+            [[ \$(cat "\$H/cache-authority") == revoked ]] || exit 3
+            echo active > "\$H/cache-authority"
+        else
+            exit 3
+        fi
+        ;;
     "ops preflight")
-        record "identity=\$(sed -n 's/^RELEASE_SHA=//p' "\$BE/.runtime-release.env" 2> /dev/null)"
+        [[ \$(state_phase) == blocked ]] && locks_held || exit 3
+        [[ \$(sed -n 's/^RELEASE_SHA=//p' "\$BE/.env") == \$(option --release-sha "\$@") ]] || exit 3
+        record 'preflight=blocked-owned-exact-env'
         ;;
     "ops prepare-budget")
         output=\$(option --output "\$@")
@@ -358,6 +429,8 @@ deploy() {
         export HOST_PROVENANCE_KEY_PATH="${HOST_KEY:-$H/no-host-key.pem}"
         export RUST_ARTIFACT_ARCHIVE="$H/archive" RUST_PROVENANCE_RECORD="$H/record"
         export RUST_PROVENANCE_SIGNATURE="$H/signature"
+        export DEPLOY_ACCEPTANCE_RECORD="$H/acceptance.json" DEPLOY_ACCEPTANCE_SIGNATURE="$H/acceptance.signature"
+        export DEPLOY_PUBLICATION_LOG="$H/publications.log" VERDAXIS_DISPOSABLE_DEPLOY=1
         export HEALTH_ATTEMPTS=1 HEALTH_RETRY_DELAY=0
         local word
         for word in ${DEPLOY_EXTRA_ENVIRONMENT:-}; do export "${word?}"; done
@@ -395,7 +468,7 @@ said() { grep -q -F -- "$1" "$H/stdout" "$H/stderr"; }
 approved_host() {
     new_host "$1" "${2:-staging}" "${3:-}"
     deploy --dry-run
-    approve "${4:-$CURRENT_REVISION}" "${5:-$CURRENT_REVISION}"
+    approve "${4:-$CURRENT_REVISION}" "${5:-sqlx_1}"
 }
 
 # The real run was refused before any change: nonzero, the checkout still at
@@ -405,7 +478,20 @@ refused_before_any_change() {
         && ! called '^systemctl (restart|stop|disable|enable)'
 }
 
-stopped() { grep -E '^systemctl stop ' "$H/calls.log" | awk '{print $3}' | sort | tr '\n' ' '; }
+python_retired_before_migration_guard() {
+    local unit=verdaxis-backend-staging.service
+    [[ $ENVIRONMENT_NAME == production ]] && unit=verdaxis-backend.service
+    called "^systemctl stop $unit\$" && called "^systemctl disable $unit\$" \
+        && ! called '^systemctl (restart|enable) verdaxis-backend'
+}
+
+python_retired_before_migration() {
+    local unit=verdaxis-backend-staging.service
+    [[ $ENVIRONMENT_NAME == production ]] && unit=verdaxis-backend.service
+    python_retired_before_migration_guard \
+        && before "^systemctl stop $unit\$" 'binary\(staged\) migrate run' \
+        && before "^systemctl disable $unit\$" 'binary\(staged\) migrate run'
+}
 
 # ---- part 1: the Task 7 cases -----------------------------------------------------------
 
@@ -418,6 +504,16 @@ case_no_python() {
 }
 check deploy_script_has_no_python_or_pip_reference case_no_python
 
+case_python_retired_before_source() {
+    local stop disable source
+    stop=$(grep -n -m 1 -F 'sudo -n systemctl stop "$SERVICE_NAME"' scripts/deploy.sh | cut -d: -f1)
+    disable=$(grep -n -m 1 -F 'sudo -n systemctl disable "$SERVICE_NAME"' scripts/deploy.sh | cut -d: -f1)
+    source=$(grep -n -m 1 -F 'publication_boundary before source' scripts/deploy.sh | cut -d: -f1)
+    [[ -n $stop && -n $disable && -n $source && $stop -lt $source && $disable -lt $source ]] \
+        && ! grep -q -F 'sudo -n systemctl restart "$SERVICE_NAME"' scripts/deploy.sh
+}
+check python_is_stopped_and_disabled_before_source_publication case_python_retired_before_source
+
 case_full_deploy() {
     approved_host happy && deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]]
 }
@@ -427,6 +523,33 @@ check migrate_runs_before_any_restart before 'binary\(staged\) migrate run' '^sy
 
 case_acl_order() { before 'binary\(staged\) migrate run' 'acl converge' && before 'acl converge' '^systemctl restart'; }
 check acl_convergence_runs_between_migrate_and_restart case_acl_order
+
+case_cache_handoff() {
+    called 'ops cache-authority revoke --runtime-dir ' \
+        && ! called 'ops cache-authority revoke .*--environment-file' \
+        && before 'ops cache-authority revoke' 'ops preflight' \
+        && before 'migrate run' 'ops cache-authority activate --apply' \
+        && before 'ops prepare-runtime' 'ops cache-authority activate --apply' \
+        && before 'ops cache-authority activate --apply' '^systemctl restart' \
+        && [[ $(cat "$H/cache-authority") == active ]]
+}
+check cache_authority_revokes_before_source_and_binds_before_restart case_cache_handoff
+
+case_cache_failure() {
+    local operation
+    for operation in revoke activate; do
+        approved_host "cache-$operation-failed"
+        printf 'ops cache-authority %s' "$operation" > "$H/fail-at"
+        ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
+            && ! called '^systemctl restart' \
+            && ! called '^systemctl enable verdaxis-backend' || return 1
+        if [[ $operation == revoke ]]; then
+            [[ $(head_sha) == "$A" ]] || return 1
+        else
+            [[ $(cat "$H/cache-authority") == revoked ]] || return 1
+        fi
+    done
+}
 
 case_staged_only() {
     # Every binary call before the active copy exists is the verified staged
@@ -440,13 +563,14 @@ case_staged_only() {
 check staged_binary_is_the_only_artifact_executed_before_install case_staged_only
 
 case_locks_before_restart() {
-    called '^systemctl restart verdaxis-backend-staging.service locks=held state=restart-authorized$' \
+    called '^systemctl restart verdaxis-rust-staging.service locks=held state=restart-authorized$' \
         && ! called '^systemctl restart .* locks=free'
 }
 check main_and_restart_locks_precede_authorization case_locks_before_restart
 
 case_ownership() { called '^ownership=deploy-owned$' && ! called '^ownership=refused$'; }
 check deploy_owned_migration_accepts_only_its_blocked_state_and_held_locks case_ownership
+check cache_authority_failure_blocks_activation case_cache_failure
 
 case_binding() {
     approved_host adoption staging "$ADOPTION_ROW" "$CURRENT_REVISION" sqlx_1 && deploy \
@@ -455,7 +579,7 @@ case_binding() {
         && before 'migrate run' 'migrate status .*--expected-current sqlx_1' \
         && grep -q '^MIGRATION_REVISION=sqlx_1$' "$BE/.runtime-release.env" \
         && jq -e '.revision == "sqlx_1"' "$BE/.runtime-rust/revision.json" > /dev/null \
-        && [[ $(cat "$H/db-revision") == sqlx_1 ]]
+        && [[ $(cat "$H/db-revision") == sqlx_1 ]] && ! called 'migrate baseline'
 }
 check dry_run_real_run_and_postcheck_bind_the_same_exact_transition case_binding
 
@@ -474,7 +598,7 @@ case_interruptions() {
     # denies a backend start, and a rerun with the same approval resumes.
     local ok=0 crash=0 point
     for point in 'ops preflight' 'acl converge' 'ops prepare-runtime' '--verify' \
-        'restart verdaxis-backend-staging'; do
+        'restart verdaxis-rust-staging'; do
         crash=$((crash + 1))
         approved_host "crash-$crash" staging "$ADOPTION_ROW" "$CURRENT_REVISION" sqlx_1
         printf '%s' "$point" > "$H/kill-at"
@@ -498,12 +622,78 @@ case_interruptions() {
 }
 check interruption_at_each_state_identity_revision_and_binary_publication_fails_closed case_interruptions
 
+case_publication_kills() {
+    local name side
+    for name in cache-revoke source release monitor policy budget revision runtime cache-bind binary authorization clear; do
+        for side in before after; do
+            approved_host "publication-$side-$name"
+            DEPLOY_EXTRA_ENVIRONMENT="DEPLOY_KILL_POINT=$side:$name" deploy && return 1
+            grep -q "^$side $name staging $B$" "$H/publications.log" || return 1
+            # A clear that has completed is the only safe absent-state point.
+            if [[ $side == after && $name == clear ]]; then
+                [[ ! -e $(state_file) ]] || return 1
+                continue
+            fi
+            [[ -f $(state_file) ]] || return 1
+            flock -n "$BE/.runtime-deploy/staging.lock" true \
+                && flock -n "$BE/.runtime-deploy/staging.restart.lock" true || return 1
+            if bash "$BE/deploy/scripts/verify-deploy-start-guard.sh" --environment staging \
+                --expected-release-sha "$B" 2> /dev/null; then return 1; fi
+            deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
+                && [[ $(cat "$H/db-revision") == sqlx_1 ]] \
+                && ! called '^systemctl restart verdaxis-backend' || return 1
+        done
+    done
+}
+check publication_boundary_kills_keep_guarded_state_and_resume case_publication_kills
+
 case_exact_readiness() {
     approved_host extra-key
     printf '{"status":"ok","db":"ok","environment":"staging","release_sha":"%s","extra":1}' "$B" > "$H/health-body"
     ! deploy && [[ -f $(state_file) ]] && called 'guard health'
 }
 check readiness_requires_the_exact_four_key_body case_exact_readiness
+
+case_signed_acceptance() {
+    approved_host acceptance-ok && deploy && [[ ! -e $(state_file) ]] \
+        && called '^acceptance record prepared$' \
+        && ! grep -q -E 'MIGRATOR-SECRET|DATABASE_URL|MIGRATOR_DATABASE_URL' "$H/publications.log"
+}
+check signed_window_acceptance_follows_readiness_before_state_clear case_signed_acceptance
+
+case_acceptance_binding() {
+    local filter count=0
+    for filter in '.environment = "production"' '.release_sha = "wrong"' \
+        '.deploy_nonce = "wrong"' '.expected_current = "wrong"' '.target = "wrong"' \
+        '.binary_sha256 = "wrong"' '.auth = false' '.session = false' \
+        '.monitor = false' '.passive_harm = false' '.auth = "true"' \
+        'del(.session)' '.extra = true'; do
+        count=$((count + 1))
+        approved_host "acceptance-binding-$count"
+        printf '%s' "$filter" > "$H/acceptance-filter"
+        ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
+            && called '^acceptance record prepared$' && called '^systemctl stop verdaxis-rust-staging.service$' \
+            && called '^systemctl disable verdaxis-rust-staging.service$' \
+            && ! called '^systemctl restart verdaxis-backend' || return 1
+    done
+}
+check signed_acceptance_binds_every_transaction_field_and_true_result case_acceptance_binding
+
+case_acceptance_missing_or_unsigned() {
+    local kind
+    for kind in missing signature stream; do
+        approved_host "acceptance-$kind"
+        case $kind in
+            missing) touch "$H/no-acceptance" ;;
+            signature) touch "$H/bad-signature" ;;
+            stream) touch "$H/acceptance-stream" ;;
+        esac
+        ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
+            && called '^systemctl stop verdaxis-rust-staging.service$' \
+            && ! called '^systemctl restart verdaxis-backend' || return 1
+    done
+}
+check missing_or_unverified_acceptance_never_clears_state case_acceptance_missing_or_unsigned
 
 case_dependency_change() {
     approved_host requirements
@@ -512,7 +702,7 @@ case_dependency_change() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve "$CURRENT_REVISION" "$CURRENT_REVISION"
+    approve "$CURRENT_REVISION" sqlx_1
     refused_before_any_change && ! called 'migrate run' && said 'installs no dependency'
 }
 check 'a backend dependency change is refused before any state' case_dependency_change
@@ -548,16 +738,21 @@ case_static_dirty_and_archive() {
 }
 check test_deploy_rejects_dirty_release_and_uses_json_health_gate case_static_dirty_and_archive
 
-case_static_identity_first() {
+case_static_guarded_staged_execution() {
     local s=scripts/deploy.sh publish
     publish=$(source_line 'write_release_artifact "$CURRENT_SHA"')
-    (($(source_line 'ops preflight --environment-file') > publish)) \
-        && (($(source_line 'migrate run \') > publish)) \
+    (($(source_line 'migrate run \') < publish)) \
+        && (($(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"') < publish)) \
+        && ((publish < $(source_line 'sudo -n systemctl restart "$RUST_UNIT_NAME"'))) \
+        && grep -q -F 'verify_binary_digest "$binary"' "$s" \
         && ! grep -q -F 'alembic upgrade head' "$s" && ! grep -q -F 'reset --hard' "$s" \
         && ! grep -q -F '"${GIT[@]}" checkout --' "$s" \
-        && approved_host identity-first && deploy && called 'identity='"$B"
+        && approved_host guarded-staged && deploy \
+        && called '^preflight=blocked-owned-exact-env$' && called '^ownership=deploy-owned$' \
+        && grep -q "^RELEASE_SHA=$B$" "$BE/.runtime-release.env" \
+        && ! called '^systemctl restart verdaxis-backend'
 }
-check test_deploy_publishes_identity_before_selected_tree_execution case_static_identity_first
+check test_deploy_guards_verified_staged_execution_and_publishes_before_restart case_static_guarded_staged_execution
 
 case_static_no_head_traversal() {
     local s=scripts/deploy.sh
@@ -571,7 +766,7 @@ check test_deploy_contains_no_unconditional_head_traversal case_static_no_head_t
 case_static_acl_order() {
     local s=scripts/deploy.sh
     (($(source_line 'migrate run \') < $(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"'))) \
-        && (($(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"') < $(source_line 'sudo -n systemctl restart "$SERVICE_NAME"'))) \
+        && (($(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"') < $(source_line 'sudo -n systemctl restart "$RUST_UNIT_NAME"'))) \
         && grep -q -F deploy/postgres/converge_runtime_object_acls.sql "$s" \
         && grep -q -F deploy/postgres/app_acl_policy.sql "$s" && ! grep -q bootstrap_roles.sql "$s"
 }
@@ -591,6 +786,13 @@ case_static_staging_ref() {
         && ! grep -q -F 'refs/heads/prod' scripts/deploy.sh
 }
 check test_production_artifact_ref_is_the_staging_push_and_staging_is_unchanged case_static_staging_ref
+
+case_staged_digest_changed() {
+    approved_host staged-digest-changed
+    touch "$H/tamper-staged"
+    refused_before_any_change && ! called '^binary' && said 'Executable bytes differ from the verified artifact'
+}
+check changed_staged_binary_digest_refuses_before_execution case_staged_digest_changed
 
 # Dry run.
 case_dry_run_attests() {
@@ -655,6 +857,19 @@ case_dry_run_producer_keys() {
 }
 check test_dry_run_prints_the_producer_keys case_dry_run_producer_keys
 
+case_dry_run_checkpoint_pair() {
+    new_host dry-pair
+    MIGRATION_EXPECTED_CURRENT_REVISION=$CURRENT_REVISION MIGRATION_TARGET_REVISION=sqlx_1 deploy --dry-run \
+        && said "APPROVED_MIGRATION_CURRENT=$CURRENT_REVISION" && said 'APPROVED_MIGRATION_TARGET=sqlx_1' || return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION=$CURRENT_REVISION MIGRATION_TARGET_REVISION='' deploy --dry-run && return 1
+    said 'both literal migration current and target' || return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION='' MIGRATION_TARGET_REVISION=sqlx_1 deploy --dry-run && return 1
+    said 'both literal migration current and target' || return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION=$CURRENT_REVISION MIGRATION_TARGET_REVISION=head deploy --dry-run && return 1
+    [[ $(head_sha) == "$A" && ! -e $(state_file) ]] && ! called '^binary'
+}
+check dry_run_attests_optional_exact_checkpoint_pair_without_candidate_execution case_dry_run_checkpoint_pair
+
 # Refusals before any source change or state.
 case_missing_approval() {
     new_host missing-approval
@@ -682,7 +897,7 @@ check test_moved_sha_refuses_before_source_mutation case_moved_remote
 case_unallowlisted() {
     approved_host unallowlisted
     export MIGRATION_TARGET_REVISION=pref_20260709_user_preferences
-    refused_before_any_change && said 'not allowlisted'
+    refused_before_any_change && said 'exact offboarding adoption or sqlx_1 self-transition'
 }
 check test_real_deploy_refuses_unallowlisted_checkpoint_before_source_mutation case_unallowlisted
 
@@ -766,14 +981,14 @@ case_policy_off() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve "$CURRENT_REVISION" "$CURRENT_REVISION"
+    approve "$CURRENT_REVISION" sqlx_1
     refused_before_any_change && said 'does not enable the Rust service' && ! called '^binary'
 }
-check test_python_only_deploy_matches_the_pre_rust_command_ledger case_policy_off staging
-check test_python_only_deploy_never_enables_the_rust_unit case_policy_off staging
-check test_golden_python_ledger_is_recorded_completely case_policy_off staging
-check test_production_policy_off_preserves_python_only_deploy case_policy_off production
-check test_bootstrap_release_deploys_without_the_rust_unit_or_an_artifact case_policy_off staging
+check test_policy_off_refuses_before_any_service_change case_policy_off staging
+check test_policy_off_never_enables_either_runtime case_policy_off staging
+check test_policy_off_has_no_mutating_command_ledger case_policy_off staging
+check test_production_policy_off_refuses_without_python_fallback case_policy_off production
+check test_bootstrap_release_requires_rust_unit_and_artifact case_policy_off staging
 
 case_manifest_without_rust() {
     new_host manifest-without-rust
@@ -783,14 +998,14 @@ case_manifest_without_rust() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve "$CURRENT_REVISION" "$CURRENT_REVISION"
+    approve "$CURRENT_REVISION" sqlx_1
     refused_before_any_change && said 'not manifest-selected'
 }
-check test_no_rust_unit_manifest_entry_disables_rust_even_if_policy_enabled case_manifest_without_rust
+check test_missing_rust_manifest_entry_refuses_before_service_change case_manifest_without_rust
 
 case_activation_requirements() {
-    # Production: the unit must be loaded, the artifact verified and both
-    # services exact-ready; every check precedes the first mutation.
+    # Production: verify the loaded Rust unit and artifact before mutation;
+    # both Rust readiness surfaces must pass after its only restart.
     local first_mutation
     approved_host production-ok production && deploy && [[ ! -e $(state_file) ]] \
         && called '^sudo-check systemctl enable verdaxis-rust.service$' \
@@ -799,14 +1014,16 @@ case_activation_requirements() {
     first_mutation=$(first_line '^binary\(staged\) migrate run')
     (($(first_line '^verifier ') < first_mutation)) \
         && (($(first_line '^systemctl show') < first_mutation)) \
-        && before '^systemctl restart verdaxis-backend.service' 'curl https://api-production' \
-        && before 'curl https://api-production' '^systemctl restart verdaxis-rust.service' || return 1
+        && before '^systemctl stop verdaxis-backend.service' '^binary\(staged\) migrate run' \
+        && before '^systemctl disable verdaxis-backend.service' '^binary\(staged\) migrate run' \
+        && before '^systemctl restart verdaxis-rust.service' 'curl https://api-production' \
+        && ! called '^systemctl restart verdaxis-backend' || return 1
     approved_host production-unloaded production && echo verdaxis-rust.service > "$H/unloaded"
     refused_before_any_change || return 1
     approved_host production-unverified production && echo verifier > "$H/fail-at"
     refused_before_any_change || return 1
     approved_host production-unready production && touch "$H/rust-unready"
-    ! deploy && grep -q '^DEPLOYMENT_STATE=rust-failed$' "$(state_file)"
+    ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)"
 }
 check test_production_activation_requires_its_unit_provenance_and_readiness case_activation_requirements
 check test_activation_requires_the_manifest_unit_and_a_verified_artifact case_activation_requirements
@@ -820,10 +1037,17 @@ case_failure_alignment() {
         approved_host "aligned-$count"
         printf '%s' "$point" > "$H/fail-at"
         if deploy || [[ $(head_sha) != "$B" ]] \
-            || ! grep -q "^RELEASE_SHA=$B\$" "$BE/.runtime-release.env" \
             || ! grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
             || ! said 'durable state stays fail-closed' || called '^systemctl restart'; then
             echo "    a failure at $point did not keep code, identity and state aligned" >&2
+            ok=1
+        fi
+        # Before publication a failed staged operation leaves the prior identity;
+        # after publication it must match the selected source. Neither may serve.
+        if [[ $point == 'ops prepare-runtime' ]]; then
+            grep -q "^RELEASE_SHA=$B\$" "$BE/.runtime-release.env" || ok=1
+        elif [[ -e $BE/.runtime-release.env ]]; then
+            echo "    identity was published before migration and ACL completion" >&2
             ok=1
         fi
     done
@@ -838,9 +1062,9 @@ case_post_restart_health() {
     touch "$H/backend-unready"
     ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
         && grep -q "^RELEASE_SHA=$B\$" "$BE/.runtime-release.env" \
-        && before '^systemctl restart verdaxis-backend-staging' '^systemctl stop verdaxis-backend-staging' \
-        && [[ $(stopped) == 'verdaxis-backend-staging.service verdaxis-rust-staging.service ' ]] \
-        && called "migrate run .*--expected-current $CURRENT_REVISION --target $CURRENT_REVISION" \
+        && (($(first_line '^systemctl restart verdaxis-rust-staging') < $(last_line '^systemctl stop verdaxis-rust-staging'))) \
+        && python_retired_before_migration && ! called '^systemctl restart verdaxis-backend' \
+        && called "migrate run .*--expected-current $CURRENT_REVISION --target sqlx_1" \
         && before 'migrate run' 'acl converge' && before 'acl converge' '^systemctl restart'
 }
 check test_failed_post_restart_health_stops_service_and_restores_guard case_post_restart_health
@@ -849,7 +1073,7 @@ case_changed_budget() {
     approved_host changed-budget
     touch "$H/budget-changed"
     ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
-        && [[ -z $(stopped) ]] && ! called '^systemctl restart'
+        && python_retired_before_migration_guard && ! called '^systemctl restart'
 }
 check test_changed_budget_refuses_and_blocks case_changed_budget
 
@@ -885,7 +1109,7 @@ case_kill_in_restart_window() {
     # readiness) keeps the authorization or readiness state, frees both
     # locks, and the real start guard then denies a start.
     local point
-    for point in 'restart verdaxis-backend-staging' 'curl https://api-staging'; do
+    for point in 'restart verdaxis-rust-staging' 'curl https://api-staging'; do
         approved_host "window-${point%% *}"
         printf '%s' "$point" > "$H/kill-at"
         deploy
@@ -903,15 +1127,15 @@ check test_sigkill_in_restart_window_releases_both_locks_and_closes_authorizatio
 check test_interrupted_restart_window_releases_locks_and_keeps_state case_kill_in_restart_window
 
 # Rust activation.
-case_both_services() {
+case_rust_only_service() {
     approved_host both-services && deploy && [[ ! -e $(state_file) ]] \
-        && before '^systemctl restart verdaxis-backend-staging' '^systemctl restart verdaxis-rust-staging' \
-        && [[ $(grep -c '^systemctl restart' "$H/calls.log") == 2 ]] \
+        && python_retired_before_migration && ! called '^systemctl restart verdaxis-backend' \
+        && [[ $(grep -c '^systemctl restart' "$H/calls.log") == 1 ]] \
         && called 'binary\(staged\) ops prepare-runtime .*--output-dir '"$BE"'/.runtime-rust' \
         && ! called 'prepare-runtime .*MIGRATOR'
 }
-check test_rust_deploy_restarts_both_services_and_clears_state case_both_services
-check test_runtime_environment_carries_only_the_projected_settings case_both_services
+check test_rust_deploy_restarts_only_rust_and_clears_state case_rust_only_service
+check test_runtime_environment_carries_only_the_projected_settings case_rust_only_service
 
 case_enable_once() {
     approved_host enable-once && deploy \
@@ -926,26 +1150,27 @@ case_loopback_url() { approved_host loopback && deploy && called '^curl http://1
 check test_rust_health_uses_loopback_identity_url case_loopback_url
 
 case_rust_failure() {
-    # A Rust start or readiness failure keeps the exact-ready backend serving:
-    # rust-failed state, only the Rust unit stopped and disabled. A retry and
-    # the next release then deploy normally.
+    # A Rust start or readiness failure blocks and disables Rust. Python stays
+    # stopped and disabled through failure, retry and the next release.
     approved_host "rust-$1" "${2:-staging}"
     local unit=verdaxis-rust-staging.service
     [[ ${2:-staging} == production ]] && unit=verdaxis-rust.service
     if [[ $1 == start ]]; then echo "systemctl restart $unit" > "$H/fail-at"; else touch "$H/rust-unready"; fi
-    ! deploy && grep -q '^DEPLOYMENT_STATE=rust-failed$' "$(state_file)" \
-        && [[ $(stopped) == "$unit " ]] && called "^systemctl disable $unit\$" || return 1
+    ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)" \
+        && python_retired_before_migration && ! called '^systemctl restart verdaxis-backend' \
+        && called "^systemctl stop $unit\$" && called "^systemctl disable $unit\$" || return 1
     rm -f -- "$H/fail-at" "$H/rust-unready"
     deploy && [[ ! -e $(state_file) ]] || return 1
     push_release
-    approve "$CURRENT_REVISION" "$CURRENT_REVISION"
-    deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]]
+    approve sqlx_1 sqlx_1
+    deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
+        && ! called '^systemctl restart verdaxis-backend'
 }
-check test_rust_start_failure_preserves_python case_rust_failure start
-check test_rust_readiness_failure_keeps_python_and_disables_rust case_rust_failure readiness
-check test_both_health_results_are_required case_rust_failure readiness
+check test_rust_start_failure_blocks_without_python_restart case_rust_failure start
+check test_rust_readiness_failure_blocks_and_disables_rust case_rust_failure readiness
+check test_public_and_loopback_rust_health_are_required case_rust_failure readiness
 check test_retry_after_rust_failure_then_second_release case_rust_failure readiness
-check test_production_rust_failure_retry_and_next_release_keep_python case_rust_failure readiness production
+check test_production_rust_failure_retry_and_next_release_never_restart_python case_rust_failure readiness production
 
 # The connection budget listeners.
 case_listener() {
@@ -974,11 +1199,10 @@ check test_deploy_refuses_an_invalid_listener_value_before_schema_change case_in
 
 case_stream_listener() {
     approved_host stream-listener && deploy \
-        && called "ops prepare-budget --cache-listener 0 --stream-listener 1 " \
-        && approved_host no-stream-listener staging '' \
-            p3_20261020_auth_tokens p3_20261020_auth_tokens \
-        && printf 'p3_20261020_auth_tokens' > "$H/db-revision" && deploy \
-        && called "ops prepare-budget --cache-listener 0 --stream-listener 0 "
+        && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 ' || return 1
+    approved_host stream-self-loop staging '' sqlx_1 sqlx_1
+    printf sqlx_1 > "$H/db-revision"
+    deploy && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 '
 }
 check test_canonical_stream_release_prepares_enabled_budget case_stream_listener
 
@@ -1039,7 +1263,7 @@ case_metadata_pause() {
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == legacy-python ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]] || return 1
     push_release
-    approve "$CURRENT_REVISION" "$CURRENT_REVISION"
+    approve sqlx_1 sqlx_1
     DEPLOY_EXTRA_ENVIRONMENT='WATCHLIST_EVENT_PRODUCER=rust-market-v1' deploy \
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == rust-market-v1 ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]]
@@ -1047,17 +1271,12 @@ case_metadata_pause() {
 check test_release_metadata_allows_pause_and_reactivation_with_the_same_instant case_metadata_pause
 
 case_metadata_below_checkpoint() {
-    # The policy already allows the no-change p3 deploy.
     approved_host metadata-below staging '' p3_20261020_auth_tokens p3_20261020_auth_tokens
     printf 'p3_20261020_auth_tokens' > "$H/db-revision"
     printf 'WATCHLIST_EVENT_PRODUCER=rust-market-v1\nWATCHLIST_PRODUCER_ACTIVATED_AT=%s\n' "$INSTANT" \
         > "$BE/.runtime-release.env"
-    deploy && [[ -z $(release_value WATCHLIST_EVENT_PRODUCER) ]] \
-        && [[ $(release_value MIGRATION_REVISION) == p3_20261020_auth_tokens ]] || return 1
-    approved_host metadata-below-refused staging '' p3_20261020_auth_tokens p3_20261020_auth_tokens
-    printf 'p3_20261020_auth_tokens' > "$H/db-revision"
-    DEPLOY_EXTRA_ENVIRONMENT='WATCHLIST_EVENT_PRODUCER=rust-market-v1' refused_before_any_change \
-        && said 'require the producer checkpoint'
+    cp -- "$BE/.runtime-release.env" "$H/metadata-before"
+    refused_before_any_change && cmp -s "$BE/.runtime-release.env" "$H/metadata-before"
 }
 check test_release_metadata_drops_producer_keys_below_the_producer_checkpoint case_metadata_below_checkpoint
 

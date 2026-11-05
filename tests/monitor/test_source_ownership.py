@@ -37,11 +37,13 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # stream listener connection (--stream-listener 1) in that same budget preparation.
 # The deploy script also records the watchlist producer activation (a real UTC
 # instant, refused otherwise) and keeps it across deploys.
+# M selects sqlx_1, retains both locks/cache fences and signed acceptance, and
+# leaves the retained backend stopped/disabled while restarting only Rust.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "4ff87c9c68264cf02000aa2f27cfa9b70d101431",
+    "scripts/deploy.sh": "3da82d0ae02ca64d1e118f566818bbf4849982ce",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 

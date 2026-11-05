@@ -11,7 +11,7 @@ installed, stopped and disabled through soak. W5 is separate.
 |---|---|---|
 | W2, W4 | Ordered activation after immutable unit installation; record active timers, stop/drain/fence direct launchers, run each unit once, accept each group and provide its rollback | `scripts/install_systemd_units.sh:3,23-25,61-67`; `deploy/scripts/install-host-automation.sh:2`; installer deliberately does not activate |
 | W2, W4 | Alert ownership transfer in both directions, including pending/uncertain journal reconciliation and direct-launcher fences | `deploy/monitor/README.md:201-219`; `deploy/tests/alert-handoff-contract.sh:2-18`; individual alert commands are not a window driver |
-| W2, W4 | Native recovery activation prerequisite | `rs/read/src/cli/mod.rs:274-279,674-678`: recovery arguments exist but dispatch returns unavailable; `deploy/external_monitor/verdaxis_recover.py` is the retained old implementation. The window must refuse an unimplemented replacement, not start Python |
+| W2, W4 | Verify retired recovery remains inactive and replacement restart/watchdog controls are installed | `tests/rust_contract/phase10/removal-ledger.json:74-88` retires automatic recovery; `rs/read/src/cli/mod.rs:274-279,674-678` retains unavailable argument parsing, not an activation target. Verify the recorded service-manager replacement, never start the retained Python recovery |
 | W3, W4 | Source-bound adoption and repeat-deploy policy rows | `deploy/migration-checkpoints.tsv:63-64` ends at the offboarding self-transition; `rs/read/src/cli/migrate.rs:487-532` requires an allowlisted pair and does not adopt on an Alembic self-transition |
 | W3, W4 | M startup identity: production literal, artifact list and compiled drift assertion | `rs/read/src/runtime/config.rs:11-20`; `rs/read/src/runtime/artifact.rs:23-34`; `deploy/rust/allowed-revisions.json`: existing lists name Alembic checkpoints, not `sqlx_1` |
 | W3, W4 | Baseline/run integration under both locks, blocked state and exact approval; retained startup controls without a Python restart | `rs/read/src/cli/migrate.rs:538-598,692-707`; `scripts/deploy.sh:1008-1011,1238-1258` still requires and restarts the Python service |
@@ -40,10 +40,10 @@ installed, stopped and disabled through soak. W5 is separate.
   and `--release CHECK`; release only after producers stop and journals drain.
   Reuse `bash deploy/tests/alert-handoff-contract.sh`; the
   `--disposable-identities` suite is Linux-only and is not local Mac evidence.
-- **Task 30:** reuse the bounded recovery contract and ownership constraints,
-  but no runnable native recovery command exists at this baseline. Do not
-  describe argument parsing as implementation. External/recovery handover
-  remains blocked until the replacement is executable and accepted.
+- **Task 30:** reuse the recorded retirement contract: verify old recovery and
+  diagnosis cannot start, and verify exact installed restart drop-ins and Rust
+  watchdog controls. No native recovery command is required by that disposition.
+  Argument parsing is not implementation or authority to reactivate recovery.
 - **Caddy:** reuse both candidate modules above. Preserve exact saved rollback
   bytes, already-live abilities/offboarding, preauth ordering and environment
   differences. Do not treat a fixture site as installed inventory.
