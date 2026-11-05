@@ -1,0 +1,15 @@
+# Fixture CI: post-deletion state. No job imports the deleted application;
+# the retained checks run the Rust service and the committed data fixtures.
+name: Fixture Backend CI
+on: [push]
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --manifest-path rs/Cargo.toml --locked --workspace
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pytest tests/unit/test_data_fixture_only.py -q

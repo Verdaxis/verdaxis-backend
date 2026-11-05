@@ -89,8 +89,13 @@ def source_units(root=ROOT):
 
 
 def source_scripts(root=ROOT):
-    return sorted(str(path.relative_to(root)) for path in (root / "scripts").iterdir()
-                  if path.suffix in {".py", ".sh"})
+    # One nested script has its own disposition row (the Task 32 deletion
+    # manifest generator); the rest of scripts/rust_contract/ is off-host test
+    # tooling inventoried by group, not per file.
+    return sorted(
+        [str(path.relative_to(root)) for path in (root / "scripts").iterdir()
+         if path.suffix in {".py", ".sh"} and path.name != "rust_contract"]
+        + ["scripts/rust_contract/deletion_manifest.py"])
 
 
 def unique_rows(rows):
@@ -172,9 +177,10 @@ def test_phase10_units_are_exactly_41():
 def test_phase10_scripts_are_exactly_41():
     rows = document("scripts")["artifacts"]
     # 35 Python + 5 shell at the plan checkpoint, plus the Phase 5 read-route
-    # Caddy candidate (scripts/rust_phase5_candidate.py) added on staging.
-    assert len(rows) == 41, "missing script disposition rows"
-    assert sum(row["source"].endswith(".py") for row in rows) == 36
+    # Caddy candidate (scripts/rust_phase5_candidate.py) added on staging, and
+    # the Task 32 deletion manifest generator (scripts/rust_contract/).
+    assert len(rows) == 42, "missing script disposition rows"
+    assert sum(row["source"].endswith(".py") for row in rows) == 37
     ledger = document("removal-ledger")
     if ledger["phase"] == "pre-removal":
         assert sorted(row["source"] for row in rows) == source_scripts()
@@ -714,7 +720,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '4554852cea059640cca3a8383fde7a9d80789abe94f5dc6076f9f9afc3c23946'
+PINNED_SOURCE_IDENTITIES = '93ed712bda7b353b015386008ccac6024fef7fb897fa44572c388ee7dccc745d'
 
 
 def validate_inventory_contract(ledger, manifest):

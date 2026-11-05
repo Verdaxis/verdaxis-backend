@@ -18,3 +18,4 @@ deploy/tests/deploy-transaction.sh
 deploy/tests/units-contract.sh
 deploy/scripts/install-host-automation.sh
 scripts/install_systemd_units.sh
+deploy/tests/deletion-contract.sh

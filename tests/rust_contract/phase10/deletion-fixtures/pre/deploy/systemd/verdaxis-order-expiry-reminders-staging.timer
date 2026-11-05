@@ -1,0 +1,4 @@
+[Timer]
+Unit=verdaxis-order-expiry-reminders-staging.service
+OnCalendar=*-*-* 04:30:00
+Persistent=true
