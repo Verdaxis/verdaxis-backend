@@ -490,6 +490,13 @@
 - updated_at: DateTime (default)
 - _relations_: trade: Trade
 
+### PasswordResetToken
+- user_id: UUID (fk, pk)
+- token_hash: Text
+- expires_at: DateTime
+- created_at: DateTime
+- used_at: DateTime (nullable)
+
 ### Port
 - id: String (pk)
 - name: String

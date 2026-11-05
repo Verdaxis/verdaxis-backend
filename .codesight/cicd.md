@@ -5,7 +5,7 @@
 | Workflow | Triggers | Jobs | Deploy | Environments |
 |---|---|---|---|---|
 | Verdaxis Backend CI | push, pull_request | 3 | — | — |
-| Rust read CI | pull_request, push, workflow_dispatch | 3 | — | — |
+| Rust read CI | pull_request, push, workflow_dispatch | 4 | — | — |
 
 ### Verdaxis Backend CI
 
@@ -25,18 +25,21 @@
 
 > `.github/workflows/rust-read-ci.yml`
 
-- **offline** on `ubuntu-22.04` — 15 steps
+- **offline** on `ubuntu-22.04` — 16 steps
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830`
   - `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`
   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
-- **contract** on `ubuntu-22.04` — 16 steps (needs: offline)
+- **contract-checks** on `ubuntu-22.04` — 26 steps (needs: offline)
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`
   - `actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
-- **publish** on `ubuntu-22.04` — 7 steps (needs: offline, contract)
+- **contract** on `ubuntu-22.04` — 3 steps (needs: contract-checks)
+  - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
+  - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02`
+- **publish** on `ubuntu-22.04` — 7 steps (needs: offline, contract-checks, contract)
   - `actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
   - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`

@@ -2,7 +2,7 @@
 
 > **Navigation aid.** Schema shapes and field types extracted via AST. Read the actual schema source files before writing migrations or query logic.
 
-**sqlalchemy, unknown** — 330 models
+**sqlalchemy, unknown** — 331 models
 
 ## sqlalchemy
 
@@ -583,6 +583,16 @@ pk: `id` (UUID) · fk: trade_id
 - `created_at`: DateTime _(default)_
 - `updated_at`: DateTime _(default)_
 - _relations_: trade: Trade
+
+### PasswordResetToken
+
+pk: `user_id` (UUID) · fk: user_id
+
+- `user_id`: UUID _(fk, pk)_
+- `token_hash`: Text
+- `expires_at`: DateTime
+- `created_at`: DateTime
+- `used_at`: DateTime _(nullable)_
 
 ### Port
 
@@ -4069,11 +4079,11 @@ pk: `id` (UUID) · fk: watchlist_id, watchlist_target_id
 
 Read and edit these files when adding columns, creating migrations, or changing relations:
 
-- `app/models/user.py` — imported by **170** files
-- `app/models/orderbook.py` — imported by **112** files
-- `app/models/catalog.py` — imported by **68** files
+- `app/models/user.py` — imported by **174** files
+- `app/models/orderbook.py` — imported by **113** files
+- `app/models/catalog.py` — imported by **69** files
+- `app/model_base.py` — imported by **33** files
 - `app/schemas/market_activity.py` — imported by **33** files
-- `app/model_base.py` — imported by **32** files
 - `app/schemas/orderbook.py` — imported by **28** files
 
 ---

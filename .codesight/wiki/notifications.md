@@ -2,15 +2,17 @@
 
 > **Navigation aid.** Route list and file locations extracted via AST. Read the source files listed below before implementing or modifying this subsystem.
 
-The Notifications subsystem handles **3 routes** and touches: db.
+The Notifications subsystem handles **4 routes** and touches: db.
 
 ## Routes
 
-- `GET` `/unread-count` → in: in, out: list [db]
+- `GET` `/api` → in: in, out: list [db]
   `app/routers/notifications.py`
-- `PATCH` `/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
+- `GET` `/api/unread-count` → in: in, out: list [db]
   `app/routers/notifications.py`
-- `PATCH` `/read-all` → in: uuid, out: list [db]
+- `PATCH` `/api/{notification_id}/read` params(notification_id) → in: uuid, out: list [db]
+  `app/routers/notifications.py`
+- `PATCH` `/api/read-all` → in: uuid, out: list [db]
   `app/routers/notifications.py`
 
 ## Source Files
