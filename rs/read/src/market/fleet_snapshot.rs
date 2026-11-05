@@ -162,6 +162,22 @@ fn open_regular_file(path: &Path) -> Result<std::fs::File, ApiError> {
 mod tests {
     use super::*;
 
+    /// The published fleet file in `data/` is the file the service reads in
+    /// the deploy checkout, so it must pass the same validation.
+    #[test]
+    fn published_fleet_file_decodes() {
+        let bytes = include_bytes!("../../../../data/fleet_demand.json");
+        let snapshot = decode_snapshot(bytes).expect("data/fleet_demand.json decodes");
+        assert!(
+            !snapshot.entries.is_empty(),
+            "the published file has no entries"
+        );
+        assert!(
+            !snapshot.sources.is_empty(),
+            "the published file names no source"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn fleet_document_change_cases() {
