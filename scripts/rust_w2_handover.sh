@@ -4,7 +4,7 @@ set -euo pipefail
 
 fail() { printf 'W2 NO_GO: %s\n' "$*" >&2; return 1; }
 usage() {
-    printf 'usage: %s --action install|advance|accept|rollback|status --environment production|staging --source-ref FULL_SHA --binary-sha256 DIGEST [--group GROUP] [--evidence FILE] [--timer-inventory FILE]\n' "$0" >&2
+    printf 'usage: %s --action install|advance|accept|rollback|status --environment production|staging --source-ref FULL_SHA --binary-sha256 DIGEST [--group GROUP] [--evidence FILE] [--timer-inventory FILE] [--host-scope environment|host]\n' "$0" >&2
     exit 2
 }
 load_groups() {
@@ -481,6 +481,9 @@ main() {
     done
     exec 8>>"$SOURCE_ROOT/.runtime-deploy/$ENVIRONMENT.lock"
     /usr/bin/flock -n 8 || { fail 'deployment is busy'; return 1; }
+    # Check under the main lock before taking the restart lock. Otherwise an
+    # interrupted deploy's old restart authorization could briefly become live.
+    [[ ! -e $SOURCE_ROOT/.runtime-deploy/$ENVIRONMENT.state && ! -L $SOURCE_ROOT/.runtime-deploy/$ENVIRONMENT.state ]] || { fail 'deploy state is present'; return 1; }
     exec 7>>"$SOURCE_ROOT/.runtime-deploy/$ENVIRONMENT.restart.lock"
     /usr/bin/flock -n 7 || { fail 'restart window is busy'; return 1; }
     lock_path="/run/lock/verdaxis-systemd-units-${ENVIRONMENT}.lock"
