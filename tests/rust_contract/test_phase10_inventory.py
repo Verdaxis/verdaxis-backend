@@ -280,15 +280,19 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "fingerprint_changes_when_a_column_is_added",
         "fingerprint_excludes_extension_members",
         "fingerprint_ignores_acls_and_owners",
+        "fingerprint_is_independent_of_the_schema_owner",
         "fingerprint_is_stable_across_two_reads",
     ],
     6: [
+        "absent_bundle_reader_receives_nothing",
+        "adoption_binds_schema_owners_to_the_environment_migrator",
         "adoption_checksum_matches_sqlx",
         "adoption_commit_then_interruption_resumes_each_publication_boundary",
         "adoption_row_matches_sqlx_created_table",
         "app_role_is_denied_sqlx_control_table",
         "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it",
         "baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history",
+        "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence",
         "deploy_owned_requires_exact_state_nonce_sha_and_both_locks",
         "exact_adoption_resume_is_read_only_and_idempotent",
         "migrate_and_app_request_do_not_half_apply",
@@ -747,7 +751,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = 'eac5bf66c55ea774b2738b7a7a2c37fbc57718f7a0436c49531b5bc6432761e0'
+PINNED_SOURCE_IDENTITIES = 'f09a0580c4255e44c9fbfdc70302853d46111e2e1c87968fdafd1214784c6fa5'
 
 
 def validate_inventory_contract(ledger, manifest):

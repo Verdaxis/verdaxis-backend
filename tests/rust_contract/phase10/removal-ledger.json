@@ -6219,7 +6219,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 6,
-      "source_sha256": "002609ce8d40130b7177614145d0c7a26e5033c3ad01db644220ad8c22343767",
+      "source_sha256": "8ce7f1bffc1dac41aa3cd781c5e04d5da0b742d7e4aa0bc1641454b1c59e85ba",
       "status": "planned",
       "evidence": [
         "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",

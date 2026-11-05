@@ -4,8 +4,10 @@
   "source_checkpoint": "sha256 of each source file; no branch-name identity",
   "phase7_decision": "retire-routes-preserve-tables",
   "required_scenarios": [
+    "absent_bundle_reader_receives_nothing",
     "acceptance_is_signed_bound_and_follows_readiness_before_clear",
     "acl_convergence_runs_between_migrate_and_restart",
+    "adoption_binds_schema_owners_to_the_environment_migrator",
     "adoption_checksum_matches_sqlx",
     "adoption_commit_then_interruption_resumes_each_publication_boundary",
     "adoption_row_matches_sqlx_created_table",
@@ -54,6 +56,7 @@
     "baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history",
     "baseline_restores_into_an_empty_database",
     "budget_matches_configured_authority_not_measured_load",
+    "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence",
     "cache_activate_revokes_then_binds_the_row_then_publishes",
     "cache_activate_uses_the_migrator_role_only",
     "cache_authority_revoke_drain_and_bind_surround_the_transition",
@@ -123,6 +126,7 @@
     "fingerprint_changes_when_a_column_is_added",
     "fingerprint_excludes_extension_members",
     "fingerprint_ignores_acls_and_owners",
+    "fingerprint_is_independent_of_the_schema_owner",
     "fingerprint_is_stable_across_two_reads",
     "fleet_disposition_record_is_complete_and_bound_to_green_w0",
     "fleet_disposition_requires_installed_evidence",
@@ -378,6 +382,12 @@
   "evidence_location": "private external evidence directory; no host inventories or personal data committed",
   "scenario_catalog": [
     {
+      "id": "absent_bundle_reader_receives_nothing",
+      "owner_task": 6,
+      "plan_requirement": "M-lane bundle-reader grant: the reader is optional like the Task 21 operator.",
+      "required_result": "A convergence without the reader variable grants nothing and succeeds; a named reader that does not exist refuses."
+    },
+    {
       "id": "acceptance_is_signed_bound_and_follows_readiness_before_clear",
       "owner_task": 7,
       "plan_requirement": "Task 7; M release-window source contract",
@@ -388,6 +398,12 @@
       "owner_task": 7,
       "plan_requirement": "Task 7, test assertions",
       "required_result": "acl convergence runs between migrate and restart."
+    },
+    {
+      "id": "adoption_binds_schema_owners_to_the_environment_migrator",
+      "owner_task": 6,
+      "plan_requirement": "M-lane owner binding: adoption asserts the environment's migrator role before the catalog comparison.",
+      "required_result": "Production adopts a production-owned database and refuses a staging- or third-owned one; staging adopts a staging-owned database and refuses any other owner; every refusal happens before any history write."
     },
     {
       "id": "adoption_checksum_matches_sqlx",
@@ -676,6 +692,12 @@
       "owner_task": 9,
       "plan_requirement": "Task 9, test assertions",
       "required_result": "budget matches configured authority not measured load."
+    },
+    {
+      "id": "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence",
+      "owner_task": 6,
+      "plan_requirement": "Plan §8.7: rollback and backup may read alembic_version; the pre-M bundle reads the retained head through its reader role.",
+      "required_result": "ACL convergence keeps the bundle reader's SELECT on alembic_version, twice, with no other privilege on any table and no write on the control table."
     },
     {
       "id": "cache_activate_revokes_then_binds_the_row_then_publishes",
@@ -1089,7 +1111,13 @@
       "id": "fingerprint_ignores_acls_and_owners",
       "owner_task": 5,
       "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
-      "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires."
+      "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. The projection carries one normalized schema-owner placeholder and one manifest serves production and staging; adoption separately asserts every live schema owner against the adopting environment's migrator role."
+    },
+    {
+      "id": "fingerprint_is_independent_of_the_schema_owner",
+      "owner_task": 5,
+      "plan_requirement": "M-lane owner binding: the projection carries one normalized schema-owner placeholder; the environment binds the live owner.",
+      "required_result": "A catalog copy whose schema owner is the staging migrator fingerprints exactly like the production-owned baseline, so the committed manifest fingerprints hold for either environment."
     },
     {
       "id": "fingerprint_is_stable_across_two_reads",

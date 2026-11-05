@@ -47,7 +47,7 @@ def test_adopted_self_loop_revalidates_the_final_alembic_baseline():
     source = (ROOT / "rs/read/src/cli/migrate.rs").read_text()
     transition = source.split("pub async fn run_transition(", 1)[1].split("/// What a deploy-owned", 1)[0]
     assert "expected_current == ADOPTED_REVISION && target == ADOPTED_REVISION" in transition
-    assert "check_adoption(connection, &baseline.alembic_head, baseline).await" in transition
+    assert "check_adoption(\n            connection,\n            baseline.environment,\n            &baseline.record.alembic_head,\n            baseline.record,\n        )\n        .await" in transition
 
 
 def test_schema_capabilities_do_not_depend_on_startup_admissions():
