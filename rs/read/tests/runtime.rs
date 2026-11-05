@@ -745,11 +745,8 @@ fn deployed_environment_reads_the_watchlist_event_producer() {
     )
     .unwrap();
     assert_eq!(activation.release_sha(), config.release_sha);
-    // The deployed revision here predates the producer schema: still inactive.
-    assert_eq!(
-        ProducerActivation::from_config(&config),
-        Err(ActivationRefusal::SchemaTooOld)
-    );
+    // The M baseline retains the producer schema and its recorded activation.
+    assert_eq!(ProducerActivation::from_config(&config), Ok(activation));
     environment.insert("WATCHLIST_EVENT_PRODUCER".into(), "legacy-python".into());
     let config = config_from_deployed_environment(&environment, bind, &budget).unwrap();
     assert_eq!(

@@ -13,7 +13,7 @@ use verdaxis_read::{AppState, Config, compiled_sha};
 fn config() -> Config {
     serde_json::from_value(serde_json::json!({
         "environment":"test", "release_sha":compiled_sha(),
-        "migration_revision":"sse_20261021_replay_floor",
+        "migration_revision":"sqlx_1",
         "database_url":"postgresql://verdaxis_app_test:fixture@127.0.0.1:1/verdaxis_analytics_test",
         "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
         "read_admission_slots":2, "pool_max":3, "python_budget":52,
