@@ -160,6 +160,71 @@ def test_failed_validation_cannot_publish_acceptance_manifest(tmp_path, monkeypa
     assert not list(output.glob(".caddy-check-*"))
 
 
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_preauth_mark_is_removed_before_live_route_dispatch(environment):
+    m = module()
+    updated = m.candidate(saved_site(environment), environment)
+    route = m.public.one(m.public.one(m.public.blocks(updated), "api.verdaxis.exchange" if environment == "production" else "api-staging.verdaxis.exchange")["children"], "route")
+    first = updated[route["body"]:].lstrip().splitlines()[0]
+    assert first == "request_header -X-Verdaxis-Preauth-Counted"
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_directive_after_fallback_is_not_discarded(environment):
+    m = module()
+    original = saved_site(environment)
+    route = m.public.one(m.public.one(m.public.blocks(original), "api.verdaxis.exchange" if environment == "production" else "api-staging.verdaxis.exchange")["children"], "route")
+    fallback = m.public.one(route["children"], "handle")
+    changed = original[:fallback["end"]] + "\t\theader X-Saved-Tail retained\n" + original[fallback["end"]:]
+    with pytest.raises(ValueError, match="directive"):
+        m.candidate(changed, environment)
+
+
+@pytest.mark.parametrize("writer", ["output file {path}", 'output file "{path}"', "output file {path} {{\\n roll_size 1MiB\\n }}"])
+def test_real_validator_keeps_every_file_writer_private(writer, tmp_path):
+    binary = os.environ.get("PHASE10_CADDY_BIN") or shutil.which("caddy")
+    if not binary:
+        pytest.skip("trusted local Caddy executable unavailable")
+    m = module()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    log = outside / "must-not-open.jsonl"
+    private = tmp_path / "private"
+    private.mkdir()
+    config = private / "candidate.caddy"
+    directive = writer.format(path=log).replace("\\n", "\n")
+    config.write_text("http://localhost:12345 {\n log {\n " + directive + "\n }\n respond 200\n}\n")
+    result = m.validate(config, Path(binary), hashlib.sha256(Path(binary).read_bytes()).hexdigest())
+    assert result["validate"] == "passed"
+    assert not log.exists()
+    assert str(log) in result["private_log_destinations"]
+    assert Path(result["private_log_destinations"][str(log)]).is_relative_to(private)
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_catchall_swap_changes_only_the_upstream_token(environment):
+    m = module()
+    python, rust = m.UPSTREAMS[environment]
+    old = "localhost:" + python.rsplit(":", 1)[1]
+    header = "header_up X-Origin-Authority " + old
+    original = saved_site(environment).replace("reverse_proxy " + old + " {", "reverse_proxy " + old + " {\n\t\t\t\t" + header)
+    updated = m.candidate(original, environment)
+    assert header in updated
+    assert "reverse_proxy " + rust + " {" in updated
+
+
+def test_real_validator_refuses_network_log_writer(tmp_path):
+    binary = os.environ.get("PHASE10_CADDY_BIN") or shutil.which("caddy")
+    if not binary:
+        pytest.skip("trusted local Caddy executable unavailable")
+    m = module()
+    config = tmp_path / "candidate.caddy"
+    config.write_text("http://localhost:12345 {\n log {\n output net 127.0.0.1:1\n }\n respond 200\n}\n")
+    with pytest.raises(ValueError, match="unsupported validation log writer"):
+        m.validate(config, Path(binary), hashlib.sha256(Path(binary).read_bytes()).hexdigest())
+    assert not (tmp_path / "validation.json").exists()
+
+
 def test_existing_public_and_crud_groups_can_be_composed():
     m = module()
     helpers = importlib.import_module("scripts.rust_caddy_candidate")

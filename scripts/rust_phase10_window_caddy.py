@@ -144,6 +144,9 @@ def candidate(original: str, environment: str) -> str:
         if any(line not in standalone for line in code(original[cursor:node["start"]]).splitlines()):
             raise ValueError("unreviewed directive outside route handles")
         cursor = node["end"]
+    closing_line = original.rfind("\n", route["body"], route["end"] - 1) + 1
+    if code(original[cursor:closing_line]):
+        raise ValueError("unreviewed directive after final catch-all")
     fallback_text = original[fallback["start"]:fallback["end"]]
     proxies = public.python_proxies(fallback_text, python.rsplit(":", 1)[1])
     if len(proxies) != 1:
@@ -195,9 +198,10 @@ def candidate(original: str, environment: str) -> str:
         line = match.group(0)
         return re.sub(r"[ \t]+(?:127\.0\.0\.1|localhost):" + python.rsplit(":", 1)[1] + r"\b", "", line)
     groups = re.sub(r"^[ \t]*reverse_proxy[^\n]*", remove_python, groups, flags=re.MULTILINE)
-    fallback_text = fallback_text.replace(proxies[0]["upstreams"], rust)
-    body = "".join(keep) + groups + fallback_text
-    closing_line = original.rfind("\n", route["body"], route["end"] - 1) + 1
+    proxy = proxies[0]
+    fallback_text = fallback_text[:proxy.start("upstreams")] + rust + fallback_text[proxy.end("upstreams"):]
+    # Strip client-supplied internal marks before any preserved terminal handle.
+    body = "\t\trequest_header -X-Verdaxis-Preauth-Counted\n" + "".join(keep) + groups + fallback_text
     updated = original[:route["body"]] + body + original[closing_line:]
     # No include or active dial may retain the stopped process.
     for line in updated.splitlines():
@@ -222,32 +226,49 @@ def validate(config: Path, binary: Path, digest: str) -> dict:
         raise ValueError("Caddy must not be group/world writable and must be executable")
     if not re.fullmatch(r"[0-9a-f]{64}", digest) or hashlib.sha256(binary.read_bytes()).hexdigest() != digest:
         raise ValueError("Caddy binary digest mismatch")
+    config = config.resolve(strict=True)
     result = {"binary": str(binary), "binary_sha256": digest}
-    # Private HOME/XDG paths prevent Caddy from writing source or using an
-    # operator's certificate storage. Validation does not start the server.
+    # Isolate default HOME/XDG storage and remap file log writers below.
+    # This is not a filesystem sandbox for arbitrary Caddy modules.
+    # Validation does not start the server.
     env = {"PATH": "/usr/bin:/bin", "HOME": str(config.parent),
            "XDG_DATA_HOME": str(config.parent / "data"),
            "XDG_CONFIG_HOME": str(config.parent / "config")}
-    validation_config = config.parent / "validation.caddy"
-    mappings = {}
-    def private_log(match):
-        destination = config.parent / f"validation-log-{len(mappings)}.jsonl"
-        mappings[match.group(1)] = str(destination)
-        return "output file " + str(destination) + " {"
-    validation_text = re.sub(r"output file ([^\s{}]+) \{", private_log, config.read_text())
-    private_write(validation_config, validation_text.encode())
-    result["private_log_destinations"] = mappings
-    for action in ("adapt", "validate"):
-        checked_config = config if action == "adapt" else validation_config
-        completed = subprocess.run([str(binary), action, "--config", str(checked_config), "--adapter", "caddyfile"],
-                                   cwd=config.parent, env=env, capture_output=True, timeout=60)
+    def run(action: str, checked_config: Path, adapter: bool = False) -> bytes:
+        command = [str(binary), action, "--config", str(checked_config)]
+        if adapter:
+            command += ["--adapter", "caddyfile"]
+        completed = subprocess.run(command, cwd=config.parent, env=env,
+                                   capture_output=True, timeout=60)
         if completed.returncode:
             raise ValueError("Caddy " + action + " failed: " + completed.stderr.decode(errors="replace"))
-        result[action] = "passed"
-        if action == "adapt":
-            adapted = json.loads(completed.stdout)
-            if "apps" not in adapted:
-                raise ValueError("Caddy adapt returned no applications")
+        return completed.stdout
+
+    # Adapt the exact candidate first. Operate on typed JSON writer modules,
+    # not Caddyfile spelling: blockless, quoted and multiline file writers all
+    # become the same module. Only known non-file writers can remain active.
+    adapted = json.loads(run("adapt", config, adapter=True))
+    if "apps" not in adapted:
+        raise ValueError("Caddy adapt returned no applications")
+    result["adapt"] = "passed"
+    mappings = {}
+    for logger in adapted.get("logging", {}).get("logs", {}).values():
+        writer = logger.get("writer", {})
+        output = writer.get("output", "stderr")
+        if output == "file":
+            filename = writer.get("filename")
+            if not isinstance(filename, str) or not filename:
+                raise ValueError("file log writer has no filename")
+            destination = config.parent / f"validation-log-{len(mappings)}.jsonl"
+            mappings[filename] = str(destination)
+            writer["filename"] = str(destination)
+        elif output not in {"stdout", "stderr", "discard"}:
+            raise ValueError("unsupported validation log writer: " + str(output))
+    validation_config = config.parent / "validation.json"
+    private_write(validation_config, json.dumps(adapted).encode())
+    run("validate", validation_config)
+    result["private_log_destinations"] = mappings
+    result["validate"] = "passed"
     return result
 
 
