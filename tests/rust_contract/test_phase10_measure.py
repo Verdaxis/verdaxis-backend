@@ -37,15 +37,15 @@ def write_seed(tmp_path, document):
     return path
 
 
-def tmp_config_with_pin(config_path, digest):
-    """A config copy whose `seed_sha256` is replaced with the given digest."""
+def tmp_config_with_pin(tmp_path, config_path, digest):
+    """A config copy in tmp_path whose `seed_sha256` is replaced with the given digest."""
     import re
 
     text = re.sub(
         r'seed_sha256 = "[0-9a-f]{64}"', f'seed_sha256 = "{digest}"',
         config_path.read_text(),
     )
-    copy_path = config_path.with_name("measure-final-" + digest[:8] + ".toml")
+    copy_path = tmp_path / ("measure-final-" + digest[:8] + ".toml")
     copy_path.write_text(text)
     return copy_path
 
@@ -103,7 +103,7 @@ def test_python_memory_baseline_pins_the_private_evidence():
 # ---------------------------------------------------------------------------
 
 
-def test_measure_refuses_without_the_pinned_seed():
+def test_measure_refuses_without_the_pinned_seed(tmp_path):
     from scripts.rust_contract import measure
 
     with pytest.raises(ValueError, match="seed"):
@@ -123,7 +123,7 @@ def test_measure_refuses_without_the_pinned_seed():
         "the committed placeholder refuses until the PM records the real digest"
     )
     assert measure.load_measure_config(MEASURE_FINAL)["size"] == "small"
-    wrong = tmp_config_with_pin(MEASURE_FINAL, "0" * 64)
+    wrong = tmp_config_with_pin(tmp_path, MEASURE_FINAL, "0" * 64)
     with pytest.raises(ValueError, match="seed pin"):
         measure.load_measure_config(wrong)
 
