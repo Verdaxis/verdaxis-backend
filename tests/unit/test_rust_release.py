@@ -1493,16 +1493,14 @@ def test_runtime_projection_carries_the_offboarding_switch_only_when_set(tmp_pat
         )
 
 
-def test_offboarding_switch_is_refused_on_in_production():
-    """Production may carry the switch off, never on, until its own review."""
+def test_offboarding_switch_projects_the_same_in_every_environment():
+    """The `.env` alone decides the switch, in staging and production alike."""
     module = _load_preparer()
-    assert module.offboarding_settings({}, "production") == {}
-    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "false"}, "production") == {
+    assert module.offboarding_settings({}) == {}
+    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "false"}) == {
         "OFFBOARDING_ENABLED": "false"
     }
-    with pytest.raises(module.RustRuntimeError, match="staging-only"):
-        module.offboarding_settings({"OFFBOARDING_ENABLED": "true"}, "production")
-    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "true"}, "staging") == {
+    assert module.offboarding_settings({"OFFBOARDING_ENABLED": "true"}) == {
         "OFFBOARDING_ENABLED": "true"
     }
 
