@@ -53,7 +53,7 @@ fn token(user: Uuid) -> String {
     .unwrap()
 }
 
-async fn application(url: &str, gate: bool) -> (Router, sqlx::PgPool, sqlx::PgPool) {
+async fn application(url: &str, gate: bool, support: bool) -> (Router, sqlx::PgPool, sqlx::PgPool) {
     let config: Config = serde_json::from_value(json!({
         "environment":"test", "release_sha":compiled_sha(),
         "migration_revision":"ob_20261031_offboarding", "database_url":url,
@@ -61,7 +61,8 @@ async fn application(url: &str, gate: bool) -> (Router, sqlx::PgPool, sqlx::PgPo
         "pool_max":5, "read_admission_slots":4, "python_budget":52, "configured_max_connections":100,
         "phase2":{"jwt_secret":SECRET,"jwt_issuer":"abilities-test","jwt_audience":"abilities-test",
         "frontend_url":"https://app.example.test","email_from":"team@example.test",
-        "resend_api_key":"synthetic","auth_domain_datasets":"null"}
+        "resend_api_key":"synthetic","auth_domain_datasets":"null",
+        "market_write":{"support_enabled":support,"support_consent_version":"test-v1","support_consent_reference":"https://example.test/consent"}}
     })).unwrap();
     let read = PgPoolOptions::new()
         .max_connections(4)
@@ -128,7 +129,7 @@ async fn authenticated_shape_policy_switch_and_password_boundary() {
         .bind(user).bind(org).execute(&mut admin).await.unwrap();
     let bearer = token(user);
     for gate in [false, true] {
-        let (app, read, health) = application(&database.runtime_url, gate).await;
+        let (app, read, health) = application(&database.runtime_url, gate, false).await;
         assert_eq!(
             get(&app, "/api/auth/me/abilities", None).await.0,
             StatusCode::UNAUTHORIZED
@@ -193,6 +194,35 @@ async fn authenticated_shape_policy_switch_and_password_boundary() {
             reason(&staff, "market_support_access"),
             Some("MARKET_SUPPORT_DISABLED")
         );
+        let (support_app, support_read, support_health) =
+            application(&database.runtime_url, gate, true).await;
+        for capability in ["MARKET_SUPPORT_LISTINGS", "MARKET_SUPPORT_AUTHORIZATIONS"] {
+            sqlx::query("INSERT INTO staff_capability_assignments(id,user_id,capability,reason,granted_by_user_id,granted_at) VALUES($1,$2,$3,'Abilities fixture',$2,now()) ON CONFLICT(user_id,capability) DO UPDATE SET revoked_at=NULL,expires_at=NULL")
+                .bind(Uuid::new_v4()).bind(user).bind(capability).execute(&mut admin).await.unwrap();
+        }
+        let (status, _, staff) = get(&support_app, "/api/auth/me/abilities", Some(&bearer)).await;
+        assert_eq!(status, StatusCode::OK, "{staff}");
+        assert_eq!(reason(&staff, "market_support_access"), None);
+        assert_eq!(reason(&staff, "market_support_assisted_orders"), None);
+        sqlx::query("UPDATE staff_capability_assignments SET expires_at=now()-interval '1 second' WHERE user_id=$1 AND capability='MARKET_SUPPORT_AUTHORIZATIONS'").bind(user).execute(&mut admin).await.unwrap();
+        let (_, _, staff) = get(&support_app, "/api/auth/me/abilities", Some(&bearer)).await;
+        assert_eq!(reason(&staff, "market_support_access"), None);
+        assert_eq!(
+            reason(&staff, "market_support_assisted_orders"),
+            Some("MARKET_SUPPORT_CAPABILITY_REQUIRED")
+        );
+        sqlx::query("UPDATE staff_capability_assignments SET revoked_at=now() WHERE user_id=$1")
+            .bind(user)
+            .execute(&mut admin)
+            .await
+            .unwrap();
+        let (_, _, staff) = get(&support_app, "/api/auth/me/abilities", Some(&bearer)).await;
+        assert_eq!(
+            reason(&staff, "market_support_access"),
+            Some("MARKET_SUPPORT_CAPABILITY_REQUIRED")
+        );
+        support_read.close().await;
+        support_health.close().await;
         sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1")
             .bind(user)
             .execute(&mut admin)
