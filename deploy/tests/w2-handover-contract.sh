@@ -92,7 +92,10 @@ grep -Fxq 'native health bytes' "$UNIT_DIR/verdaxis-health.service"
     }
     release_alert_ownership() { printf 'released health backup\n' >> "$LOG"; }
     jq '.groups["external-recovery"].rollback = {native_launchers_disabled:true,direct_schedulers_disabled:true,permission_restore_accepted:true}' "$EVIDENCE" > "$stage/external-evidence"
+    # The redirected evidence applies to this rollback attempt only.
+    # shellcheck disable=SC2030
     EVIDENCE=$stage/external-evidence
+    # shellcheck disable=SC2031
     rollback_group external-recovery
     if grep -Fxq 'released health backup' "$LOG"; then
         printf 'external rollback released active local-monitor journals\n' >&2
@@ -169,6 +172,8 @@ mkdir -p "$STATE_DIR/news"
 printf 'awaiting-acceptance\n' > "$STATE_DIR/news/phase"
 printf 'verdaxis-news-refresh-staging.timer\n' > "$STATE_DIR/news/active-timers"
 printf 'verdaxis-news-refresh-staging.service\tnew-run\n' > "$STATE_DIR/news/runs.tsv"
+# Top-level rewrite of the shared evidence file for the news acceptance block.
+# shellcheck disable=SC2031
 printf '%s\n' '{"groups":{"news":{"no_duplicate_effect":true}},"runs":{"verdaxis-news-refresh-staging.service":"new-run"}}' > "$EVIDENCE"
 service_ctl() { printf '%s\n' "$*" >> "$LOG"; return 1; }
 if (accept_group news) 2>/dev/null; then exit 1; fi

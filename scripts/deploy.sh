@@ -74,6 +74,9 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     fi
     TARGET_BRANCH="$DEFAULT_BRANCH"
 else
+    # Ambient Git routing must stay inert outside the canonical layout too;
+    # the boundary helper also clears it inside its own subshell.
+    # shellcheck disable=SC2031
     export GIT_NO_REPLACE_OBJECTS=1
     # Disposable fixtures use the same Git boundary as deployed checkouts.
     # shellcheck source=deploy/scripts/safe-root-git.sh

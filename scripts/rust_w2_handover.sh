@@ -514,7 +514,11 @@ main() {
     case $action in install|advance|accept|rollback|status) ;; *) usage ;; esac
     case $group in ''|news|auth-prune|reminders|onboarding|demo|local-monitor|external-recovery) ;; *) usage ;; esac
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
+    # Ambient Git routing must stay cleared for every later command in this
+    # function; the boundary helper also clears it inside its own subshell.
+    # shellcheck disable=SC2031
     for arg in "${!GIT_@}"; do unset "$arg"; done
+    # shellcheck disable=SC2031
     export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1
     SOURCE_ROOT=/home/verdaxis-prod/verdaxis/prod/be
     [[ $ENVIRONMENT == production ]] || SOURCE_ROOT=/home/verdaxis-prod/verdaxis/staging/be
