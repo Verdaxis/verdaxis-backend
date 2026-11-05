@@ -68,10 +68,10 @@ fn environment_line(line: &str) -> (String, String) {
 /// The deployed `.env` alone decides the switch. A fresh deploy whose `.env`
 /// does not set it projects nothing, and the Rust process reads an absent
 /// switch as off; an `.env` that sets it reaches the Rust process in normal
-/// form. The projection refuses `true` in production (unit tests in
-/// `tests/unit/test_rust_release.py`). The Caddy snippet that routes the group
-/// to Rust is imported only on the host's site file, never by a deploy source,
-/// and no unit or deploy script other than the projection names the switch.
+/// form, in every environment (unit tests in `tests/unit/test_rust_release.py`).
+/// The Caddy snippet that routes the group to Rust is imported only on the
+/// host's site file, never by a deploy source, and no unit or deploy script
+/// other than the projection names the switch.
 #[test]
 fn switch_follows_the_deployed_environment() {
     let root = repository_root();
