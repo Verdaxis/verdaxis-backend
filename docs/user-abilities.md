@@ -39,6 +39,12 @@ both; advisory mode refuses rejected or differently bound reviews. Inventory
 management always uses advisory KYC. Grace is not returned here; `/auth/me`
 provides execution eligibility and its grace deadline.
 
+For ADMIN accounts, execution hints report `ADMIN_CANNOT_EXECUTE` instead of
+asking the administrator to complete KYC. This is display-only reason precedence;
+the enforcing routes retain their existing order. Amendment keeps the more
+specific `LEGACY_ADMIN_MUTATION_RETIRED` hint when Market Support is enabled.
+The table below describes the remaining gates for non-administrator execution.
+
 | Action | Flat gate, in order |
 | --- | --- |
 | place_bid_order | KYC, execution account admission, BUYER |

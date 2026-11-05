@@ -90,7 +90,11 @@ fn message(code: &str) -> &'static str {
 }
 
 pub fn build_abilities(f: &Facts) -> Abilities {
-    let execution = execution_denial(f);
+    // ADMIN cannot execute at all: show the role restriction, not a KYC task.
+    // This display precedence does not change the enforcing routes' gate order.
+    let administrator = (f.role.as_deref() == Some("ADMIN")).then_some("ADMIN_CANNOT_EXECUTE");
+    let execution = administrator.or(execution_denial(f));
+    let create = administrator.or(crate::order_write::party_policy::create_denial(f));
     let indicative = indicative_denial(f);
     let legacy = crate::order_write::party_policy::legacy_admin_denial(
         f.role.as_deref(),
@@ -110,12 +114,9 @@ pub fn build_abilities(f: &Facts) -> Abilities {
         .into_iter()
         .map(|action| {
             let denial = match action {
-                "place_bid_order" => crate::order_write::party_policy::create_denial(f)
-                    .or(role_denial(f.role.as_deref(), "BUYER")),
-                "place_ask_order" => crate::order_write::party_policy::create_denial(f)
-                    .or(role_denial(f.role.as_deref(), "SUPPLIER")),
-                "publish_inventory" => crate::order_write::party_policy::create_denial(f)
-                    .or(role_denial(f.role.as_deref(), "SUPPLIER")),
+                "place_bid_order" => create.or(role_denial(f.role.as_deref(), "BUYER")),
+                "place_ask_order" => create.or(role_denial(f.role.as_deref(), "SUPPLIER")),
+                "publish_inventory" => create.or(role_denial(f.role.as_deref(), "SUPPLIER")),
                 "amend_order" => legacy.or(execution),
                 "cancel_order" => legacy
                     .or((f.role.as_deref() == Some("ADMIN")).then_some("ADMIN_CANNOT_EXECUTE")),
@@ -125,9 +126,7 @@ pub fn build_abilities(f: &Facts) -> Abilities {
                 "hit_bid_order" => execution
                     .or(role_denial(f.role.as_deref(), "SUPPLIER"))
                     .or(provenance),
-                "confirm_trade" => (f.role.as_deref() == Some("ADMIN"))
-                    .then_some("ADMIN_CANNOT_EXECUTE")
-                    .or(crate::order_write::party_policy::create_denial(f)),
+                "confirm_trade" => create,
                 "deliver_trade" => None,
                 "pay_trade" => role_denial(f.role.as_deref(), "SUPPLIER"),
                 "manage_inventory" => indicative.or(role_denial(f.role.as_deref(), "SUPPLIER")),
