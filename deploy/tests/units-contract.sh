@@ -80,6 +80,7 @@ fake_metadata() {
 # The installer calls `sudo stat -c <format> -- <path>` and
 # `sudo test -e|-L <path>`; anything else is a contract break.
 sudo() {
+    [[ $1 != -n ]] || shift
     case "$1 $2" in
         'stat -c')
             [[ "$4" == -- ]] || fail "$CASE" "unexpected stat call: $*"
@@ -275,7 +276,7 @@ installer_restart_and_revert_preserve_admitted_alert_state() {
         installer=/fixture/release/deploy/scripts/install-host-automation.sh
         binary_a=/fixture/release/.runtime-rust/verdaxis-read
         binary_b=/fixture/release/.runtime-rust/verdaxis-read-b
-        bash "$installer" --binary "$binary_a" --binary-sha256 "$DIGEST_A"
+        bash "$installer" --environment staging --scope host --binary "$binary_a" --binary-sha256 "$DIGEST_A"
         entry=/var/lib/verdaxis-health/alert-handoff/1.json
         cursor=/var/lib/verdaxis-health/health.sequence.json
         lock=/var/lib/verdaxis-health/.health.journal.lock
@@ -289,7 +290,7 @@ installer_restart_and_revert_preserve_admitted_alert_state() {
         # Restart A, promote B, revert A. Check state after every installation.
         for step in restart forward revert; do
             if [[ $step == forward ]]; then binary=$binary_b; digest=$DIGEST_B; else binary=$binary_a; digest=$DIGEST_A; fi
-            bash "$installer" --binary "$binary" --binary-sha256 "$digest"
+            bash "$installer" --environment staging --scope host --binary "$binary" --binary-sha256 "$digest"
             sha256sum --check /tmp/state.sums
             test "$(stat -c %i "$lock")" = "$inode"
             test "$(sha256sum /usr/local/libexec/verdaxis/verdaxis-read | cut -d " " -f 1)" = "$digest"
@@ -309,7 +310,7 @@ installer_enforces_per_check_handoff_acl_and_identity_boundary() {
         apt-get update -qq >/dev/null
         apt-get install -y -qq systemd acl jq >/dev/null
         groupadd verdaxis-prod; useradd -g verdaxis-prod verdaxis-prod
-        bash /fixture/release/deploy/scripts/install-host-automation.sh --binary-sha256 "$BINARY_DIGEST"
+        bash /fixture/release/deploy/scripts/install-host-automation.sh --environment staging --scope host --binary-sha256 "$BINARY_DIGEST"
     ' || return 1
     # Missing binary, identity, systemd or ACL support fails; never skip.
     bash "$ROOT/deploy/tests/alert-handoff-contract.sh" --disposable-identities

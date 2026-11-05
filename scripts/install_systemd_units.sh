@@ -18,6 +18,7 @@ MODE_SET=0
 DEPLOY_ENVIRONMENT=""
 SOURCE_REF=""
 BINARY_SHA256=""
+HOST_SCOPE="environment"
 UNIT_MANIFEST_PATH="deploy/systemd/runtime-units.manifest"
 
 usage() {
@@ -35,6 +36,11 @@ while [[ $# -gt 0 ]]; do
             MODE="${1#--}"
             MODE_SET=1
             shift
+            ;;
+        --host-scope)
+            [[ $# -ge 2 && $2 =~ ^(environment|host)$ ]] || { usage; exit 2; }
+            HOST_SCOPE=$2
+            shift 2
             ;;
         --environment)
             [[ $# -ge 2 && -z "$DEPLOY_ENVIRONMENT" ]] || { usage; exit 2; }
@@ -88,15 +94,27 @@ if [[ "$(realpath -e "$BACKEND_ROOT")" != "$(realpath -e "$SOURCE_ROOT")" ]]; th
     exit 1
 fi
 
-if [[ "$MODE" == "apply" \
+INHERITED_INSTALL_LOCK=0
+if [[ ${VERDAXIS_SYSTEMD_INSTALL_LOCK_FD:-} == 6 && $EUID == 0 ]]; then
+    LOCK_PATH="/run/lock/verdaxis-systemd-units-${DEPLOY_ENVIRONMENT}.lock"
+    if [[ -f $LOCK_PATH && ! -L $LOCK_PATH \
+        && $(stat -Lc '%d:%i' /proc/self/fd/6) == $(stat -c '%d:%i' "$LOCK_PATH") ]] \
+        && /usr/bin/flock --exclusive --nonblock 6; then
+        INHERITED_INSTALL_LOCK=1
+    else
+        echo 'invalid inherited systemd installer lock' >&2
+        exit 1
+    fi
+fi
+if [[ "$MODE" == "apply" && "$INHERITED_INSTALL_LOCK" == 0 \
     && ( "$EUID" -ne 0 || "${VERDAXIS_SYSTEMD_INSTALL_LOCKED:-}" != "1" ) ]]; then
-    exec sudo /usr/bin/env -i \
+    exec sudo -n /usr/bin/env -i \
         PATH="$PATH" VERDAXIS_SYSTEMD_INSTALL_LOCKED=1 \
         /usr/bin/flock --exclusive --nonblock \
         "/run/lock/verdaxis-systemd-units-${DEPLOY_ENVIRONMENT}.lock" \
         "$SCRIPT_DIR/install_systemd_units.sh" --apply \
         --environment "$DEPLOY_ENVIRONMENT" --source-ref "$SOURCE_REF" \
-        --binary-sha256 "$BINARY_SHA256"
+        --binary-sha256 "$BINARY_SHA256" --host-scope "$HOST_SCOPE"
 fi
 
 SOURCE_GIT=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
@@ -120,20 +138,20 @@ verify_staged_blob() {
     local staged="$STAGING_DIR/$relative"
     local committed_digest staged_digest
 
-    if ! sudo test -f "$staged" || sudo test -L "$staged"; then
+    if ! sudo -n test -f "$staged" || sudo -n test -L "$staged"; then
         echo "approved artifact must be a regular committed file: $relative" >&2
         exit 1
     fi
     committed_digest="$("${SOURCE_GIT[@]}" show "$SOURCE_REF:$relative" \
         | sha256sum | awk '{print $1}')"
-    staged_digest="$(sudo sha256sum -- "$staged" | awk '{print $1}')"
+    staged_digest="$(sudo -n sha256sum -- "$staged" | awk '{print $1}')"
     if [[ "$staged_digest" != "$committed_digest" ]]; then
         echo "staged artifact differs from the approved committed blob: $relative" >&2
         exit 1
     fi
 }
 
-STAGING_DIR="$(sudo mktemp -d /run/verdaxis-systemd-units.XXXXXXXX)"
+STAGING_DIR="$(sudo -n mktemp -d /run/verdaxis-systemd-units.XXXXXXXX)"
 APPLY_STARTED=0
 REPLACEMENTS_COMMITTED=0
 DESTINATION_TEMPS=()
@@ -150,7 +168,7 @@ esac
 cleanup_staging() {
     case "$STAGING_DIR" in
         /run/verdaxis-systemd-units.*)
-            sudo rm -rf -- "$STAGING_DIR"
+            sudo -n rm -rf -- "$STAGING_DIR"
             ;;
         *)
             echo "refusing unsafe systemd staging cleanup path" >&2
@@ -164,12 +182,12 @@ rollback_replacements() {
         unit_name="${APPLIED_UNIT_NAMES[$index]}"
         existed="${APPLIED_EXISTED[$index]}"
         if [[ "$existed" == "1" ]]; then
-            sudo cp -a -- "$STAGING_DIR/previous/$unit_name" "$destination"
+            sudo -n cp -a -- "$STAGING_DIR/previous/$unit_name" "$destination"
         else
-            sudo rm -f -- "$destination"
+            sudo -n rm -f -- "$destination"
         fi
     done
-    sudo systemctl daemon-reload || \
+    sudo -n systemctl daemon-reload || \
         echo "WARNING: daemon-reload failed after unit rollback." >&2
 }
 cleanup_install() {
@@ -180,21 +198,21 @@ cleanup_install() {
         rollback_replacements
     fi
     if [[ "${#DESTINATION_TEMPS[@]}" -gt 0 ]]; then
-        sudo rm -f -- "${DESTINATION_TEMPS[@]}"
+        sudo -n rm -f -- "${DESTINATION_TEMPS[@]}"
     fi
     cleanup_staging
     exit "$status"
 }
 trap cleanup_install EXIT
-sudo chmod 0700 "$STAGING_DIR"
-if [[ "$(sudo stat -c '%u:%g:%a' "$STAGING_DIR")" != "0:0:700" ]]; then
+sudo -n chmod 0700 "$STAGING_DIR"
+if [[ "$(sudo -n stat -c '%u:%g:%a' "$STAGING_DIR")" != "0:0:700" ]]; then
     echo "systemd staging directory must be private and root-owned" >&2
     exit 1
 fi
 
 "${SOURCE_GIT[@]}" cat-file -e "$SOURCE_REF:$UNIT_MANIFEST_PATH"
 "${SOURCE_GIT[@]}" archive --format=tar "$SOURCE_REF" "$UNIT_MANIFEST_PATH" \
-    | sudo tar --extract --file=- --directory="$STAGING_DIR"
+    | sudo -n tar --extract --file=- --directory="$STAGING_DIR"
 verify_staged_blob "$UNIT_MANIFEST_PATH"
 
 UNIT_NAMES=()
@@ -214,7 +232,7 @@ while IFS=$'\t' read -r manifest_environment unit_name extra; do
     if [[ "$manifest_environment" == "$DEPLOY_ENVIRONMENT" ]]; then
         UNIT_NAMES+=("$unit_name")
     fi
-done < <(sudo /bin/cat "$STAGING_DIR/$UNIT_MANIFEST_PATH")
+done < <(sudo -n /bin/cat "$STAGING_DIR/$UNIT_MANIFEST_PATH")
 if [[ "${#UNIT_NAMES[@]}" == 0 ]]; then
     echo "runtime unit manifest has no entries for $DEPLOY_ENVIRONMENT" >&2
     exit 1
@@ -242,20 +260,20 @@ for unit_name in "${UNIT_NAMES[@]}"; do
     ARCHIVE_PATHS+=("$relative")
 done
 "${SOURCE_GIT[@]}" archive --format=tar "$SOURCE_REF" "${ARCHIVE_PATHS[@]}" \
-    | sudo tar --extract --file=- --directory="$STAGING_DIR"
+    | sudo -n tar --extract --file=- --directory="$STAGING_DIR"
 for relative in "${ARCHIVE_PATHS[@]}"; do
     verify_staged_blob "$relative"
 done
-sudo /bin/sh -c 'cd "$1" && shift && /usr/bin/sha256sum "$@" > SHA256SUMS' \
+sudo -n /bin/sh -c 'cd "$1" && shift && /usr/bin/sha256sum "$@" > SHA256SUMS' \
     systemd-unit-digest-manifest "$STAGING_DIR" "${ARCHIVE_PATHS[@]}"
-sudo /bin/sh -c 'cd "$1" && /usr/bin/sha256sum --check SHA256SUMS' \
+sudo -n /bin/sh -c 'cd "$1" && /usr/bin/sha256sum --check SHA256SUMS' \
     systemd-unit-digest-check "$STAGING_DIR"
 
 UNIT_SOURCES=()
 for unit_name in "${UNIT_NAMES[@]}"; do
     UNIT_SOURCES+=("$STAGING_DIR/deploy/systemd/$unit_name")
 done
-sudo systemd-analyze verify "${UNIT_SOURCES[@]}"
+sudo -n systemd-analyze verify "${UNIT_SOURCES[@]}"
 
 # BEGIN kyc-key-source-preflight (deploy/tests/units-contract.sh runs these lines)
 # Inspect metadata only, as root. Never read or execute candidate key contents.
@@ -270,9 +288,9 @@ kyc_key_source_metadata() {
     local source="$1" directory metadata type uid gid mode
     # Writable or redirected ancestors are refused even when the key is absent.
     for directory in / /etc /etc/verdaxis; do
-        if ! metadata="$(sudo stat -c '%F:%u:%a' -- "$directory" 2>/dev/null)"; then
+        if ! metadata="$(sudo -n stat -c '%F:%u:%a' -- "$directory" 2>/dev/null)"; then
             if [[ "$directory" == /etc/verdaxis ]] \
-                && ! sudo test -e "$directory" && ! sudo test -L "$directory"; then
+                && ! sudo -n test -e "$directory" && ! sudo -n test -L "$directory"; then
                 return "$KYC_KEY_SOURCE_MISSING"
             fi
             return 1
@@ -283,8 +301,8 @@ kyc_key_source_metadata() {
             return 1
         fi
     done
-    if ! metadata="$(sudo stat -c '%F:%u:%g:%a' -- "$source" 2>/dev/null)"; then
-        if ! sudo test -e "$source" && ! sudo test -L "$source"; then
+    if ! metadata="$(sudo -n stat -c '%F:%u:%g:%a' -- "$source" 2>/dev/null)"; then
+        if ! sudo -n test -e "$source" && ! sudo -n test -L "$source"; then
             return "$KYC_KEY_SOURCE_MISSING"
         fi
         return 1
@@ -311,9 +329,9 @@ elif [[ "$kyc_key_source_status" != 0 ]]; then
 fi
 # END kyc-key-source-preflight
 
-HOST_INSTALL_ARGS=(--binary "$SOURCE_ROOT/.runtime-rust/verdaxis-read" --binary-sha256 "$BINARY_SHA256")
+HOST_INSTALL_ARGS=(--environment "$DEPLOY_ENVIRONMENT" --scope "$HOST_SCOPE" --binary "$SOURCE_ROOT/.runtime-rust/verdaxis-read" --binary-sha256 "$BINARY_SHA256")
 [[ "$MODE" != "dry-run" ]] || HOST_INSTALL_ARGS+=(--dry-run)
-sudo /bin/bash "$STAGING_DIR/deploy/scripts/install-host-automation.sh" "${HOST_INSTALL_ARGS[@]}"
+sudo -n /bin/bash "$STAGING_DIR/deploy/scripts/install-host-automation.sh" "${HOST_INSTALL_ARGS[@]}"
 
 echo "Verdaxis systemd unit installation mode: $MODE"
 echo "Environment: $DEPLOY_ENVIRONMENT"
@@ -325,41 +343,41 @@ fi
 
 PENDING_DIR="/var/lib/verdaxis/systemd-units"
 PENDING_STATE="$PENDING_DIR/${DEPLOY_ENVIRONMENT}.pending"
-sudo install -d -m 0750 -o root -g root "$PENDING_DIR"
+sudo -n install -d -m 0750 -o root -g root "$PENDING_DIR"
 printf 'ENVIRONMENT=%s\nSOURCE_REF=%s\n' "$DEPLOY_ENVIRONMENT" "$SOURCE_REF" \
-    | sudo tee "${PENDING_STATE}.tmp.$$" >/dev/null
-sudo chmod 0644 "${PENDING_STATE}.tmp.$$"
-sudo mv -- "${PENDING_STATE}.tmp.$$" "$PENDING_STATE"
+    | sudo -n tee "${PENDING_STATE}.tmp.$$" >/dev/null
+sudo -n chmod 0644 "${PENDING_STATE}.tmp.$$"
+sudo -n mv -- "${PENDING_STATE}.tmp.$$" "$PENDING_STATE"
 APPLY_STARTED=1
-sudo install -d -m 0700 -o root -g root "$STAGING_DIR/previous"
+sudo -n install -d -m 0700 -o root -g root "$STAGING_DIR/previous"
 
 for index in "${!UNIT_NAMES[@]}"; do
     unit_name="${UNIT_NAMES[$index]}"
     source="${UNIT_SOURCES[$index]}"
     destination="$SYSTEMD_DIR/$unit_name"
-    if sudo test -f "$destination" \
-        && sudo test ! -L "$destination" \
-        && sudo cmp -s "$source" "$destination"; then
+    if sudo -n test -f "$destination" \
+        && sudo -n test ! -L "$destination" \
+        && sudo -n cmp -s "$source" "$destination"; then
         echo "$unit_name is already current"
         continue
     fi
     destination_temp="${destination}.verdaxis-pending.$$"
     DESTINATION_TEMPS+=("$destination_temp")
-    if sudo test -e "$destination"; then
-        sudo cp -a -- "$destination" "$STAGING_DIR/previous/$unit_name"
+    if sudo -n test -e "$destination"; then
+        sudo -n cp -a -- "$destination" "$STAGING_DIR/previous/$unit_name"
         existed=1
     else
         existed=0
     fi
-    sudo install -m 0644 -o root -g root "$source" "$destination_temp"
+    sudo -n install -m 0644 -o root -g root "$source" "$destination_temp"
     APPLIED_DESTINATIONS+=("$destination")
     APPLIED_UNIT_NAMES+=("$unit_name")
     APPLIED_EXISTED+=("$existed")
 done
 for index in "${!APPLIED_DESTINATIONS[@]}"; do
-    sudo mv -- "${DESTINATION_TEMPS[$index]}" "${APPLIED_DESTINATIONS[$index]}"
+    sudo -n mv -- "${DESTINATION_TEMPS[$index]}" "${APPLIED_DESTINATIONS[$index]}"
 done
 REPLACEMENTS_COMMITTED=1
-sudo systemctl daemon-reload
-sudo rm -f -- "$PENDING_STATE"
+sudo -n systemctl daemon-reload
+sudo -n rm -f -- "$PENDING_STATE"
 echo "Unit files installed; services and timers were left unchanged."

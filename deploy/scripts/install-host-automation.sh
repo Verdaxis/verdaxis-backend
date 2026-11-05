@@ -8,9 +8,13 @@ ROOT=""
 DRY_RUN=0
 BINARY="$SOURCE_ROOT/.runtime-rust/verdaxis-read"
 BINARY_SHA256=""
+DEPLOY_ENVIRONMENT=""
+HOST_SCOPE="environment"
 fail() { printf 'host automation: %s\n' "$*" >&2; exit 1; }
 while (( $# )); do
     case $1 in
+        --scope) [[ $# -ge 2 && $2 =~ ^(environment|host)$ ]] || fail 'invalid scope'; HOST_SCOPE=$2; shift 2 ;;
+        --environment) [[ $# -ge 2 && -z $DEPLOY_ENVIRONMENT && $2 =~ ^(production|staging)$ ]] || fail 'invalid or repeated environment'; DEPLOY_ENVIRONMENT=$2; shift 2 ;;
         --root) [[ $# -ge 2 && -n $2 && $2 == /* ]] || fail 'root must be absolute'; ROOT=${2%/}; shift 2 ;;
         --binary) [[ $# -ge 2 ]] || fail 'binary argument missing'; BINARY=$2; shift 2 ;;
         --binary-sha256) [[ $# -ge 2 && -z $BINARY_SHA256 ]] || fail 'binary digest argument missing or repeated'; BINARY_SHA256=$2; shift 2 ;;
@@ -41,6 +45,23 @@ allowed_destination() {
         *) return 1 ;;
     esac
 }
+# An omitted environment is retained only for existing disposable --root tests.
+[[ -n $DEPLOY_ENVIRONMENT || -n $ROOT ]] || fail '--environment is required for installed paths'
+artifact_in_environment() {
+    if [[ $HOST_SCOPE == environment ]]; then
+        case $1 in
+            verdaxis-demo-activity-staging.*) [[ $DEPLOY_ENVIRONMENT == staging ]] ;;
+            verdaxis-demo-activity.*|../external_monitor/systemd/verdaxis-onboarding-attention.*) [[ $DEPLOY_ENVIRONMENT == production ]] ;;
+            *) return 1 ;;
+        esac
+        return
+    fi
+    case $1 in
+        verdaxis-demo-activity-staging.*) [[ $DEPLOY_ENVIRONMENT != production ]] ;;
+        verdaxis-demo-activity.*|../external_monitor/systemd/verdaxis-onboarding-attention.*) [[ $DEPLOY_ENVIRONMENT != staging ]] ;;
+        *) return 0 ;;
+    esac
+}
 hash() { local digest; digest=$(sha256sum -- "$1"); printf '%s' "${digest%% *}"; }
 verify() {
     [[ -f $1 && ! -L $1 ]] || fail "not a regular source: $1"
@@ -59,15 +80,21 @@ jq -e 'keys == ["artifacts","binary","schema_version"] and .schema_version == 1
     and all(.artifacts[]; keys == ["destination","mode","sha256","source"]
         and .mode == "0644" and (.sha256 | type == "string" and test("^[a-f0-9]{64}$")))' "$MANIFEST" >/dev/null || fail 'invalid manifest'
 verify "$BINARY" "$BINARY_SHA256"
-SOURCES=("$BINARY")
-DESTINATIONS=(/usr/local/libexec/verdaxis/verdaxis-read)
-MODES=(0755)
+SOURCES=()
+DESTINATIONS=()
+MODES=()
+if [[ $HOST_SCOPE == host ]]; then
+    SOURCES+=("$BINARY")
+    DESTINATIONS+=(/usr/local/libexec/verdaxis/verdaxis-read)
+    MODES+=(0755)
+fi
 while IFS=$'\t' read -r source destination mode digest; do
     expected=$(allowed_destination "$source") || fail "unapproved artifact: $source"
     [[ $destination == "$expected" ]] || fail "unapproved destination: $source"
-    source="$SOURCE_ROOT/deploy/monitor/$source"
-    verify "$source" "$digest"
-    SOURCES+=("$source"); DESTINATIONS+=("$destination"); MODES+=("$mode")
+    source_path="$SOURCE_ROOT/deploy/monitor/$source"
+    verify "$source_path" "$digest"
+    artifact_in_environment "$source" || continue
+    SOURCES+=("$source_path"); DESTINATIONS+=("$destination"); MODES+=("$mode")
 done < <(jq -r '.artifacts[] | [.source,.destination,.mode,.sha256] | @tsv' "$MANIFEST")
 # Refuse symlink ancestors before writes, including when a --root is used.
 for destination in "${DESTINATIONS[@]}" /var/lib/verdaxis-monitor /var/lib/verdaxis-render; do
@@ -93,13 +120,17 @@ for index in "${!SOURCES[@]}"; do
     TEMP=$(mktemp "${destination}.pending.XXXXXXXX")
     install -o root -g root -m "${MODES[$index]}" "${SOURCES[$index]}" "$TEMP"
     [[ $(hash "$TEMP") == $(hash "${SOURCES[$index]}") ]] || fail 'copy changed'
-    if (( index == 0 )); then expected=$BINARY_SHA256; else
+    if [[ ${DESTINATIONS[$index]} == /usr/local/libexec/verdaxis/verdaxis-read ]]; then expected=$BINARY_SHA256; else
         expected=$(jq -r --arg destination "${DESTINATIONS[$index]}" '.artifacts[] | select(.destination == $destination) | .sha256' "$MANIFEST")
     fi
     verify "$TEMP" "$expected"
     mv -f -- "$TEMP" "$destination"
     TEMP=""
 done
+if [[ $HOST_SCOPE == environment ]]; then
+    printf 'host-automation: environment units installed; host policy unchanged; no units activated\n'
+    exit 0
+fi
 ROOT_ARGS=()
 [[ -z $ROOT ]] || ROOT_ARGS=(--root "$ROOT")
 systemd-sysusers "${ROOT_ARGS[@]}" /usr/lib/sysusers.d/verdaxis-monitor.conf /usr/lib/sysusers.d/verdaxis-render.conf
