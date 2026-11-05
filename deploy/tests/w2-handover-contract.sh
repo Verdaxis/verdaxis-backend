@@ -75,6 +75,34 @@ printf 'native health bytes\n' > "$UNIT_DIR/verdaxis-health.service"
 release_alert_ownership() { return 5; }
 if (rollback_group local-monitor) 2>/dev/null; then exit 1; fi
 grep -Fxq 'native health bytes' "$UNIT_DIR/verdaxis-health.service"
+# External recovery does not own the health/backup journals. Its rollback must
+# leave those journals native while local-monitor timers can still produce work.
+(
+    set_phase local-monitor accepted
+    snapshot_group external-recovery
+    set_phase external-recovery accepted
+    service_value() {
+        case $2 in
+            ActiveState)
+                case $1 in verdaxis-health.*|verdaxis-backup-verify.*) printf active ;; *) printf inactive ;; esac ;;
+            Job) printf 0 ;;
+            DropInPaths) printf '' ;;
+            *) return 1 ;;
+        esac
+    }
+    release_alert_ownership() { printf 'released health backup\n' >> "$LOG"; }
+    jq '.groups["external-recovery"].rollback = {native_launchers_disabled:true,direct_schedulers_disabled:true,permission_restore_accepted:true}' "$EVIDENCE" > "$stage/external-evidence"
+    EVIDENCE=$stage/external-evidence
+    rollback_group external-recovery
+    if grep -Fxq 'released health backup' "$LOG"; then
+        printf 'external rollback released active local-monitor journals\n' >&2
+        exit 1
+    fi
+    [[ $(group_phase local-monitor) == accepted ]]
+    [[ $(service_value verdaxis-health.timer ActiveState) == active ]]
+    [[ $(service_value verdaxis-backup-verify.timer ActiveState) == active ]]
+)
+rm -rf "$STATE_DIR/external-recovery"
 # Retired recovery is never started; missing installed replacement proof refuses.
 if (run_group external-recovery) 2>/dev/null; then exit 1; fi
 if grep -q 'start verdaxis-recover' "$LOG"; then exit 1; fi

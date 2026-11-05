@@ -383,7 +383,9 @@ rollback_group() {
     fi
     quiesce_group "$group" || return
     verify_direct_fences "$group" || return
-    if [[ $group == local-monitor || $group == external-recovery ]]; then
+    # Only local-monitor owns the health/backup producers and their journals.
+    # External recovery can roll back while those native producers stay active.
+    if [[ $group == local-monitor ]]; then
         release_alert_ownership || { fail 'native alert work blocks rollback; retained commands remain fenced'; return 1; }
     fi
     set_phase "$group" rolling-back || return
