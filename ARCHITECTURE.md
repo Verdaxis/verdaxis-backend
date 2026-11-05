@@ -1155,7 +1155,16 @@ fixture checks through `host_inventory/automation_contract.py`; it does not run 
 restore, install replacements or authorize W5. Backup automation stays unchanged,
 including its system-interpreter dependency; legacy host tools have explicit W5
 retirement reasons and owning-task links. The manual validation path is separate
-from the signed installed gate. Stage 1 accepts sanitized fixtures only,
+from the signed installed gate. Task 25's `phase10/fleet-disposition.json` binds
+this unchanged register and the PM fleet probe by digest. Fleet capture belongs
+to the PM/founder's manual macOS workstation, not either Verdaxis host. The
+stdlib-only `scripts/scrape_fleet_demand.py` stays outside `deploy/` after W5 for
+audit/manual use, excluded from release artifacts and host installation. Only a
+reviewed commit of `data/fleet_demand.json` publishes its output to the existing
+Rust fleet reader; this checkout has no copy of that data file. No fleet port,
+browser or schedule is added. The four Task 25 Python contracts verify the
+record and predecessor fixture without claiming signed installed acceptance.
+Stage 1 accepts sanitized fixtures only,
 uses private external evidence directories with SHA-256 sidecars, and disables
 live collection, installed acceptance, signing, and schedule changes.
 Stage 2a adds `deploy/tests/host-inventory-reader.py`, the fixed standard-library

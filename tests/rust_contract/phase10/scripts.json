@@ -402,19 +402,22 @@
       "source": "scripts/scrape_fleet_demand.py",
       "kind": "script",
       "end_state": "retired-offhost",
-      "owner": "Task 25 conditional fleet owner",
+      "owner": "PM/founder workstation",
       "task": 25,
       "source_sha256": "21f3352361f2ac1d77a769d71c6c046c6579eab7d51a1cf612b9853543942317",
-      "status": "planned",
+      "status": "accepted",
       "evidence": [
-        "fleet_installed_dependency_is_classified"
+        "fleet_offhost_is_not_installed_or_ported",
+        "fleet_disposition_requires_installed_evidence",
+        "fleet_disposition_record_is_complete_and_bound_to_green_w0",
+        "fleet_retained_tool_has_no_deleted_package_dependency"
       ],
       "deleting_task": null,
-      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
-      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
-      "offhost_location": "repository: CI/disposable tooling only; excluded from deployed artifact",
-      "retirement_reason": "Not an installed Verdaxis runtime command; retain only off-host audit or disposable use.",
-      "condition": "Task 35 W0 must prove off-host/no removed-package dependency; otherwise Task 25 ports only the proved dependency."
+      "rollback": "Retained off-host source needs no runtime rollback; publication changes require a reviewed data commit.",
+      "installed_check": "PM fleet probe 2026-11-05 09:49Z is digest-bound in fleet-disposition.json; Tasks 31/33 still require signed installed evidence before W5.",
+      "offhost_location": "founder's macOS workstation",
+      "retirement_reason": "Off-host, not installed, not ported. Retain scripts/scrape_fleet_demand.py outside deploy/ after W5 for audit/manual workstation use only; exclude it from the release artifact and all host installations.",
+      "condition": "Task 25 fleet-disposition.json binds the unchanged Task 36 manual register and PM probe; stdlib-only imports. Publish only through a reviewed commit of data/fleet_demand.json. No browser or schedule is installed."
     },
     {
       "id": "script.security_preflight.py",
