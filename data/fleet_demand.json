@@ -1,0 +1,36 @@
+{
+  "entries": [
+    {
+      "fuel": "Methanol",
+      "ordered_vessels": 323,
+      "delivered_vessels": 112,
+      "avg_consumption_mt": 9500,
+      "color": "#5DADE2"
+    },
+    {
+      "fuel": "Biofuel",
+      "ordered_vessels": 20,
+      "delivered_vessels": 11,
+      "avg_consumption_mt": 6800,
+      "color": "#4CAF50"
+    },
+    {
+      "fuel": "Ammonia",
+      "ordered_vessels": 45,
+      "delivered_vessels": 2,
+      "avg_consumption_mt": 12000,
+      "color": "#9C27B0"
+    },
+    {
+      "fuel": "LNG",
+      "ordered_vessels": 1010,
+      "delivered_vessels": 632,
+      "avg_consumption_mt": 7500,
+      "color": "#FF9800"
+    }
+  ],
+  "last_updated": "2026-11-05",
+  "sources": [
+    "DNV AFI annual report (https://www.dnv.com/news/2026/LNG-fuelled-container-ships-sustain-alternative-fuel-share-of-global-orderbook-amid-industry-slowdown/)"
+  ]
+}
