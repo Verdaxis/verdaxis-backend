@@ -203,10 +203,24 @@ verify_native_unit() {
     fi
 }
 verify_ready() {
-    local port=8000
-    [[ $ENVIRONMENT == production ]] || port=8001
-    /usr/bin/curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:$port/health/ready" |
-        jq -e --arg environment "$ENVIRONMENT" --arg sha "$SOURCE_REF" 'keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $environment and .release_sha == $sha' >/dev/null
+    local local_url public_url url
+    local_url=$(jq -er --arg environment "$ENVIRONMENT" '
+        select(.environment == $environment and .rust_enabled == true)
+        | .health_url | select(type == "string" and length > 0)
+        ' "$SOURCE_ROOT/deploy/rust/$ENVIRONMENT-policy.json") || return
+    case $ENVIRONMENT in
+        production) public_url=https://api.verdaxis.exchange/health/ready ;;
+        staging) public_url=https://api-staging.verdaxis.exchange/health/ready ;;
+        *) fail 'unknown readiness environment'; return 1 ;;
+    esac
+    for url in "$local_url" "$public_url"; do
+        /usr/bin/curl --fail --silent --show-error --max-time 5 "$url" |
+            jq -se --arg environment "$ENVIRONMENT" --arg sha "$SOURCE_REF" '
+                length == 1 and (.[0] | type == "object"
+                and keys == ["db","environment","release_sha","status"]
+                and .status == "ok" and .db == "ok"
+                and .environment == $environment and .release_sha == $sha)' >/dev/null || return
+    done
 }
 verify_fence_inventory() {
     local group=$1 path digest metadata actual

@@ -1,6 +1,10 @@
 """Portable subprocess contracts for the shell-owned job handover."""
+import json
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/rust_w2_handover.sh"
@@ -10,6 +14,50 @@ FIXTURE = ROOT / "deploy/tests/w2-handover-contract.sh"
 def test_shell_handover_contract():
     result = subprocess.run(["bash", str(FIXTURE)], cwd=ROOT, text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("environment", ["production", "staging"])
+@pytest.mark.parametrize("failed_surface", ["", "local", "public"])
+def test_ready_checks_rust_policy_and_public_identity(tmp_path, environment, failed_surface):
+    policy = json.loads((ROOT / f"deploy/rust/{environment}-policy.json").read_text())
+    public_host = "api.verdaxis.exchange" if environment == "production" else "api-staging.verdaxis.exchange"
+    public_url = f"https://{public_host}/health/ready"
+    calls = tmp_path / "calls"
+    ready = dict(status="ok", db="ok", environment=environment, release_sha="a" * 40)
+    shell = r'''
+source "$HELPER"
+function /usr/bin/curl() {
+    local url=${@: -1}
+    printf '%s\n' "$url" >> "$CALLS"
+    if [[ $FAILED_SURFACE == local && $url == http://* || $FAILED_SURFACE == public && $url == https://* ]]; then
+        printf '%s\n' "$BAD_READY"
+    else
+        printf '%s\n' "$READY"
+    fi
+}
+verify_ready
+'''
+    env = dict(os.environ, HELPER=str(HELPER), SOURCE_ROOT=str(ROOT), ENVIRONMENT=environment,
+               SOURCE_REF="a" * 40, CALLS=str(calls), READY=json.dumps(ready),
+               BAD_READY=json.dumps(dict(ready, release_sha="b" * 40)), FAILED_SURFACE=failed_surface)
+    result = subprocess.run(["bash", "-c", shell], cwd=ROOT, env=env, text=True, capture_output=True)
+    if failed_surface:
+        assert result.returncode != 0, "readiness accepted a different release"
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert calls.read_text().splitlines() == [policy["health_url"], public_url]
+
+
+@pytest.mark.parametrize("payload", ["", "{}", "[]", '{"status":"ok"}', "not-json"])
+def test_ready_refuses_incomplete_local_document(payload):
+    env = dict(os.environ, HELPER=str(HELPER), SOURCE_ROOT=str(ROOT), ENVIRONMENT="staging",
+               SOURCE_REF="a" * 40, PAYLOAD=payload)
+    result = subprocess.run(["bash", "-c", r'''
+source "$HELPER"
+function /usr/bin/curl() { printf '%s' "$PAYLOAD"; }
+verify_ready
+'''], cwd=ROOT, env=env, text=True, capture_output=True)
+    assert result.returncode != 0, "incomplete readiness document was accepted"
 
 
 def test_no_deployed_python_dependency():
