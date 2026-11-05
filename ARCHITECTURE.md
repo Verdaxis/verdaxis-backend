@@ -1232,7 +1232,10 @@ transfer. It records exact unit/drop-in/launcher bytes before installation,
 stops timers and drains active work, fences inventoried direct launchers, and
 requires fresh service InvocationIDs and bound acceptance. Rollback restores
 one group's saved ABI and permissions only after native work is drained; alert
-rollback additionally reconciles both journals. Environment scope is the default;
+rollback reconciles both journals only for their local-monitor owner, after its
+producers drain. External-monitor rollback retains that ownership. Acceptance
+checks the selected Rust-policy loopback and public readiness identities.
+Environment scope is the default;
 host-global monitor/binary/ACL changes require separate explicit host scope.
 Retired recovery stays masked/absent, with restart/watchdog controls checked.
 The active source job inventory is production six/staging four; the requested
@@ -1243,12 +1246,20 @@ release, then restores it under the same stable locks with startup blocked.
 Independent inventory/manifest approvals bind source objects, executable,
 units/drop-ins, guards, private runtime/credential references, monitor/Caddy
 bytes, owners/modes and native dependency closure. It withdraws old migrator
-credential routes rather than resuming a schema interpreter. Restore starts the
-actual old Rust executable; signed acceptance checks process digest, exact
-readiness, invocation/session/monitor evidence before clearing state. A durable
+credential routes rather than resuming a schema interpreter. Restore enables and
+starts both Python and the actual old Rust executable under lock-held restart
+authorization. Both exact loopback readiness responses precede saved Caddy reload;
+public readiness and the Python OpenAPI route follow it. Signed acceptance checks
+process digest, readiness, invocation/session/monitor evidence before clearing state. A durable
 accepted journal resumes only the saved timer-start tail. Unsupported dynamic
 inputs, Caddy imports, package symlinks or cross-filesystem publication refuse;
 Task 31 must prove the intended installed layout and old runtime package.
+
+`deploy/scripts/safe-root-git.sh` is the shared privileged Git boundary for deploy,
+unit installation, W2 and private bundle tooling. It refuses non-inert checkout
+configuration and metadata redirection, clears ambient Git routing, and disables
+hooks and filesystem monitors. Install the bundle helper and this sibling together
+in a root-controlled tooling directory; bundle loading checks ownership and modes.
 
 Python remains installed through soak. W5 deletion, installed-host authorization
 and the complete disposable rehearsal driver remain separate.

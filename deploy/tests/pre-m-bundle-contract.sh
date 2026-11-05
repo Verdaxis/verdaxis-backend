@@ -107,6 +107,7 @@ case $1 in
     start)
         if [[ ${KILL_TIMER_START:-} == 1 ]]; then kill -KILL "$PPID"; exit 1; fi ;;
     stop) rm -f "$FIXTURE_WORK/active-$2" ;;
+    enable) : > "$FIXTURE_WORK/enabled-$2" ;;
     restart)
         state=/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
         grep -qx 'DEPLOYMENT_STATE=restart-authorized' "$state" || exit 1
@@ -129,6 +130,9 @@ if [[ ${KILL_SERVICE_BOUNDARY:-} == "before:caddy:$1" ]]; then kill -KILL "$(cat
 if [[ $1 == reload ]]; then
     [[ -f $FIXTURE_WORK/active-verdaxis-backend-staging.service && -f $FIXTURE_WORK/active-verdaxis-rust-staging.service ]] || {
         printf 'FAIL saved Caddy reload precedes both restored services\n' >&2; exit 1;
+    }
+    [[ -f $FIXTURE_WORK/enabled-verdaxis-backend-staging.service ]] || {
+        printf 'FAIL saved Caddy reload precedes retained enable-state restore\n' >&2; exit 1;
     }
     [[ -f $FIXTURE_WORK/ready-python && -f $FIXTURE_WORK/ready-rust ]] || exit 1
     : > "$FIXTURE_WORK/caddy-restored"
@@ -291,12 +295,13 @@ for when in before after; do
 done
 printf 'ok before/after every restore publication (%s boundaries)\n' "$count"
 # Each externally visible transition may be interrupted on either side.
-for boundary in 'restart:verdaxis-backend-staging.service' 'restart:verdaxis-rust-staging.service' \
+for boundary in 'enable:verdaxis-backend-staging.service' 'restart:verdaxis-backend-staging.service' \
+    'restart:verdaxis-rust-staging.service' \
     'curl:http://127.0.0.1:8001/health/ready' 'curl:http://127.0.0.1:8011/health/ready' \
     'caddy:reload' 'curl:https://api-staging.verdaxis.exchange/health/ready' \
     'curl:https://api-staging.verdaxis.exchange/openapi.json'; do
     for when in before after; do
-        rm -f "$work/ready-python" "$work/ready-rust" "$work/caddy-restored"
+        rm -f "$work/ready-python" "$work/ready-rust" "$work/caddy-restored" "$work/enabled-verdaxis-backend-staging.service"
         if KILL_SERVICE_BOUNDARY=$when:$boundary run restore --manifest-sha256 "$approval"; then
             printf 'FAIL missed service boundary %s:%s\n' "$when" "$boundary" >&2; exit 1
         fi

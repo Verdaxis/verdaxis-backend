@@ -38,6 +38,12 @@ class PreMReleaseBundle(unittest.TestCase):
         self.assertIn('canonical Git directory must be a real directory', source)
         self.assertIn('Git configuration outside the inert recovery allowlist', source)
 
+    def test_restore_reenables_python_before_restart(self):
+        source = SCRIPT.read_text()
+        restore = source[source.index('    write_state restart-authorized', source.index('if [[ $mode == restore ]]; then')):]
+        self.assertLess(restore.index('systemctl enable "$python_backend"'),
+                        restore.index('restart_service "$python_backend"'))
+
     def test_capture_checks_absent_state_before_restart_lock(self):
         self.assertTrue(SCRIPT.is_file(), "native private bundle entrypoint is required")
         source = SCRIPT.read_text()
@@ -111,12 +117,13 @@ class PreMReleaseBundle(unittest.TestCase):
         source = SCRIPT.read_text()
         restore = source[source.index('    check_runtime_credentials\n    systemctl daemon-reload'):source.index('# Accept is a new lock-held attempt.')]
         tail = restore[restore.index('    write_state restart-authorized'):restore.index("    printf 'RESTORED")]
-        expected = ["authorize", "restart:python", "restart:rust", "ready:python",
+        expected = ["authorize", "enable:python", "restart:python", "restart:rust", "ready:python",
                     "ready:rust", "reload", "ready:public", "python-route"]
         fixture = '''set -e
 fail() { exit 1; }
 record() { printf '%s\\n' "$1"; [[ $STOP != "$1" ]]; }
 write_state() { record authorize; }
+systemctl() { record "enable:$2"; }
 restart_service() { record "restart:$1"; }
 check_ready() { record "ready:$1"; }
 runuser() { record reload; }

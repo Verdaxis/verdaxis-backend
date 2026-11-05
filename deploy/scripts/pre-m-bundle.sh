@@ -588,6 +588,10 @@ if [[ $mode == restore ]]; then
     if grep -qE '^[[:space:]]*import[[:space:]]' "$caddy"; then fail 'saved Caddy import closure unsupported'; fi
     runuser -u caddy -- caddy validate --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy bytes are not valid'
     write_state restart-authorized
+    # The M deploy disabled the retained backend, not only stopped it. Undo the
+    # enable-state half of that fence under the same restart authorization, or a
+    # host reboot after restore leaves the retained runtime down.
+    systemctl enable "$python_backend"
     restart_service "$python_backend"
     restart_service "$backend"
     check_ready "$python_ready"
