@@ -31,6 +31,9 @@ class PreMReleaseBundle(unittest.TestCase):
         self.assertIn('safe.directory=$checkout', source)
         self.assertIn('GIT_CONFIG_GLOBAL=/dev/null', source)
         self.assertIn('core.hooksPath=/dev/null', source)
+        self.assertIn('core.fsmonitor=false', source)
+        self.assertIn('canonical Git directory must be a real directory', source)
+        self.assertIn('Git configuration outside the inert recovery allowlist', source)
 
     def test_capture_checks_absent_state_before_restart_lock(self):
         self.assertTrue(SCRIPT.is_file(), "native private bundle entrypoint is required")
