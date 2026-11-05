@@ -714,7 +714,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '15d537d7fadeaba0f4588f15420353872222b30a88ddeecb579d14622db8e45c'
+PINNED_SOURCE_IDENTITIES = 'a96a1fa366cbd988d4843bb4d08644978ea77ec82f42d6169768b8b5d83f2f86'
 
 
 def validate_inventory_contract(ledger, manifest):

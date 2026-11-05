@@ -6139,7 +6139,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 34 final measurement offline checks (off-host test source; never installed)",
       "task": 34,
-      "source_sha256": "73f5ebbea48cdf99252f574899890c5e771cafa3a9687c470e5cc2a2b0114101",
+      "source_sha256": "277d69f01a8943f68cf944dcd7e94c5ba8ed141cd43daf8361eb8a17a161c685",
       "status": "planned",
       "evidence": [
         "measure_refuses_without_the_pinned_seed",
