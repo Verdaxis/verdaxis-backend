@@ -208,6 +208,9 @@ pub enum AdoptionRefusal {
     BaselineHead,
     /// The sqlx history holds anything but the exact adoption row.
     History,
+    /// An application schema is owned by a role other than the environment's
+    /// migrator.
+    SchemaOwner,
     /// The live catalog differs from the baseline's Alembic-built catalog.
     Fingerprint,
     /// The embedded baseline file or migration list differs from the manifest.
@@ -246,16 +249,45 @@ fn baseline_migration() -> Result<&'static sqlx::migrate::Migration, AdoptionRef
     }
 }
 
+/// Every application schema is owned by exactly this environment's migrator
+/// role. The projection normalizes the owner (one manifest serves production
+/// and staging), so this separate exact assertion is what binds the owner.
+async fn schemas_owned_by_migrator(
+    connection: &mut PgConnection,
+    migrator_role: &str,
+) -> Result<bool, sqlx::Error> {
+    let mismatched = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) \
+         FROM pg_catalog.pg_namespace AS schema \
+         WHERE schema.nspname NOT LIKE 'pg\\_%' \
+           AND schema.nspname <> 'information_schema' \
+           AND NOT EXISTS ( \
+               SELECT 1 FROM pg_catalog.pg_depend AS dependency \
+               WHERE dependency.classid = 'pg_namespace'::regclass \
+                 AND dependency.objid = schema.oid AND dependency.deptype = 'e' \
+           ) \
+           AND pg_get_userbyid(schema.nspowner) <> $1",
+    )
+    .bind(migrator_role)
+    .fetch_one(&mut *connection)
+    .await?;
+    Ok(mismatched == 0)
+}
+
 /// Adopt an Alembic-built database into the sqlx history (plan section 8.4):
 /// every check runs before the first write, then one transaction creates the
 /// history table with sqlx's own definition and records version 1 with the
 /// embedded checksum. An exact earlier adoption is reported without a write.
+/// The database must be the named environment's: every application schema
+/// owner must equal that environment's migrator role (production
+/// `verdaxis_migrator`, staging `verdaxis_migrator_staging`).
 pub async fn adopt(
     connection: &mut PgConnection,
+    environment: super::Environment,
     expected_current: &str,
     baseline: &BaselineRecord,
 ) -> Result<Adoption, AdoptionRefusal> {
-    if check_adoption(connection, expected_current, baseline).await? {
+    if check_adoption(connection, environment, expected_current, baseline).await? {
         return Ok(Adoption::AlreadyAdopted);
     }
     let migration = baseline_migration()?;
@@ -276,7 +308,7 @@ pub async fn adopt(
     .await?;
     transaction.commit().await?;
     // Re-read and validate the committed adoption through the same gates.
-    if check_adoption(connection, expected_current, baseline).await? {
+    if check_adoption(connection, environment, expected_current, baseline).await? {
         Ok(Adoption::Adopted)
     } else {
         Err(AdoptionRefusal::History)
@@ -286,6 +318,7 @@ pub async fn adopt(
 /// Validate adoption without writing; true means the exact row is present.
 async fn check_adoption(
     connection: &mut PgConnection,
+    environment: super::Environment,
     expected_current: &str,
     baseline: &BaselineRecord,
 ) -> Result<bool, AdoptionRefusal> {
@@ -315,6 +348,12 @@ async fn check_adoption(
         [row] if exact_adoption(row) => true,
         _ => return Err(AdoptionRefusal::History),
     };
+    // The environment's own migrator must own the schemas before the catalog
+    // is compared: production and staging share one owner-normalized manifest.
+    let expected_roles = super::acl::roles(environment);
+    if !schemas_owned_by_migrator(connection, expected_roles.migrator_role).await? {
+        return Err(AdoptionRefusal::SchemaOwner);
+    }
     if fingerprint(connection).await? != baseline.fingerprint {
         return Err(AdoptionRefusal::Fingerprint);
     }
@@ -471,6 +510,15 @@ pub async fn run_to_target(
 /// The revision literal adoption moves an Alembic-built database to.
 pub const ADOPTED_REVISION: &str = "sqlx_1";
 
+/// The compiled baseline and the environment it adopts: one manifest serves
+/// production and staging, and the environment's migrator role is the only
+/// accepted schema owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdoptionBaseline<'a> {
+    pub record: &'a BaselineRecord,
+    pub environment: super::Environment,
+}
+
 /// One approved deploy transition (plan section 8.5), from any current
 /// literal the checkpoint policy names:
 ///
@@ -487,7 +535,7 @@ pub async fn run_transition(
     connection: &mut PgConnection,
     migrator: &Migrator,
     policy: &TransitionPolicy,
-    baseline: &BaselineRecord,
+    baseline: AdoptionBaseline<'_>,
     expected_current: &str,
     target: &str,
     apply: bool,
@@ -499,11 +547,19 @@ pub async fn run_transition(
     // retained final Alembic head, exact history and unchanged catalog. This
     // path must not create history, even when called with --apply.
     if expected_current == ADOPTED_REVISION && target == ADOPTED_REVISION {
-        return match check_adoption(connection, &baseline.alembic_head, baseline).await {
+        return match check_adoption(
+            connection,
+            baseline.environment,
+            &baseline.record.alembic_head,
+            baseline.record,
+        )
+        .await
+        {
             Ok(true) => Ok(RunOutcome::AtTarget),
             Ok(false) => Err(RunRefusal::CurrentRevision),
             Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
             Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
+            Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
             Err(_) => Err(RunRefusal::History),
         };
     }
@@ -532,21 +588,37 @@ pub async fn run_transition(
         }
         (None, Some(_)) if target == ADOPTED_REVISION => {
             if !apply {
-                return match check_adoption(connection, expected_current, baseline).await {
+                return match check_adoption(
+                    connection,
+                    baseline.environment,
+                    expected_current,
+                    baseline.record,
+                )
+                .await
+                {
                     Ok(false) => Ok(RunOutcome::WouldApply(vec![1])),
                     Ok(true) => Ok(RunOutcome::AtTarget),
                     Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
                     Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
                     Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
+                    Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
                     Err(_) => Err(RunRefusal::History),
                 };
             }
-            match adopt(connection, expected_current, baseline).await {
+            match adopt(
+                connection,
+                baseline.environment,
+                expected_current,
+                baseline.record,
+            )
+            .await
+            {
                 Ok(Adoption::Adopted) => Ok(RunOutcome::Applied(vec![1])),
                 Ok(Adoption::AlreadyAdopted) => Ok(RunOutcome::AtTarget),
                 Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
                 Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
                 Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
+                Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
                 Err(_) => Err(RunRefusal::History),
             }
         }
@@ -763,7 +835,14 @@ where
         },
         MigrationAction::Baseline => {
             let expected = args.expected_current.as_deref().unwrap_or_default();
-            match adopt(&mut connection, expected, &compiled_baseline()).await {
+            match adopt(
+                &mut connection,
+                args.identity.environment,
+                expected,
+                &compiled_baseline(),
+            )
+            .await
+            {
                 Ok(Adoption::Adopted) => {
                     report("baseline", "adopted");
                     Exit::Ok
@@ -784,7 +863,10 @@ where
                 &mut connection,
                 &MIGRATOR,
                 &TransitionPolicy::compiled(),
-                &compiled_baseline(),
+                AdoptionBaseline {
+                    record: &compiled_baseline(),
+                    environment: args.identity.environment,
+                },
                 args.expected_current.as_deref().unwrap_or_default(),
                 args.target.as_deref().unwrap_or_default(),
                 args.apply,

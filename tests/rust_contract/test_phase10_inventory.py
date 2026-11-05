@@ -656,7 +656,7 @@ FINGERPRINT_REQUIREMENTS = {
     "fingerprint_ignores_acls_and_owners": {
         "owner_task": 5,
         "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
-        "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires.",
+        "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. The projection carries one normalized schema-owner placeholder and one manifest serves production and staging; adoption separately asserts every live schema owner against the adopting environment's migrator role.",
     },
     "fingerprint_excludes_extension_members": {
         "owner_task": 5,

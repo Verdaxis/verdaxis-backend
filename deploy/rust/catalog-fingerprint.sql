@@ -5,10 +5,14 @@
 -- "\n" (no trailing newline). The generator, the baseline tests and
 -- `migrate baseline` all read this file, so the projection has one definition.
 --
--- Included: application schemas and their owner names; tables, views,
+-- Included: application schemas and their owner slot; tables, views,
 -- materialized views and sequences with their persistence; columns (type,
 -- nullability, default); constraints; indexes; functions and triggers; enum
 -- labels in order; extension names and versions.
+-- The schema owner slot is one normalized placeholder, not the live owner
+-- name: one baseline manifest serves production and staging, and adoption
+-- separately asserts every live schema owner against the adopting
+-- environment's migrator role (plan sections 8.3 and 8.4).
 -- Excluded: alembic_version, _sqlx_migrations, temporary objects, objects that
 -- belong to an extension, ACLs, column owners, statistics and physical layout.
 -- Run it inside one REPEATABLE READ transaction so every part sees one snapshot.
@@ -16,7 +20,7 @@ WITH extension_members AS (
     SELECT classid, objid FROM pg_depend WHERE deptype = 'e'
 ),
 app_schemas AS (
-    SELECT n.oid, n.nspname, pg_get_userbyid(n.nspowner) AS owner
+    SELECT n.oid, n.nspname
     FROM pg_namespace n
     WHERE n.nspname NOT LIKE 'pg\_%'
       AND n.nspname <> 'information_schema'
@@ -57,7 +61,7 @@ app_types AS (
       )
 ),
 lines AS (
-    SELECT format('schema|%s|owner=%s', nspname, owner) AS line
+    SELECT format('schema|%s|owner=migrator', nspname) AS line
     FROM app_schemas
     UNION ALL
     SELECT format('relation|%s.%s|kind=%s|persistence=%s', nspname, relname, relkind, relpersistence)
