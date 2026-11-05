@@ -138,6 +138,17 @@ state=$state_dir/$environment.state
 backend=$(jq -r .backend_unit "$work/inventory.json")
 [[ $backend == verdaxis-rust.service && $environment == production || $backend == verdaxis-rust-staging.service && $environment == staging ]] || fail 'actual old Rust service required'
 ready=$(jq -r .ready_url "$work/inventory.json")
+python_backend=verdaxis-backend.service
+python_ready=http://127.0.0.1:8000/health/ready
+rust_ready=http://127.0.0.1:8010/health/ready
+if [[ $environment == staging ]]; then
+    [[ $ready == https://api-staging.verdaxis.exchange/health/ready ]] || fail 'staging readiness URL differs'
+    python_backend=verdaxis-backend-staging.service
+    python_ready=http://127.0.0.1:8001/health/ready
+    rust_ready=http://127.0.0.1:8011/health/ready
+else
+    [[ $ready == https://api.verdaxis.exchange/health/ready ]] || fail 'production readiness URL differs'
+fi
 final_alembic=$(jq -r .final_alembic "$work/inventory.json")
 file_of_kind() {
     jq -er --arg kind "$1" '[.files[] | select(.kind == $kind) | .path] | if length == 1 then .[0] else error("one file required") end' "$work/inventory.json"
@@ -329,6 +340,22 @@ write_state() {
     [[ $phase != blocked ]] || printf 'DEPLOY_NONCE=%s\n' "$nonce" >> "$work/state"
     publish "$work/state" "$state" "$deploy_uid" "$(stat -c %g "$state_dir")" 0644
 }
+# The parent retains both deployment locks. Service clients must not pass lock
+# descriptors to systemd or its children.
+restart_service() (
+    for fd in "${lock_fds[@]}"; do exec {fd}>&-; done
+    systemctl restart "$1"
+)
+check_ready() {
+    timeout 15 curl --fail --silent --show-error --max-time 10 "$1" > "$work/ready" 2>"$work/curl-error" || fail 'readiness request failed'
+    jq -se --arg env "$environment" --arg sha "$release" 'length == 1 and (.[0] | type == "object" and keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $env and .release_sha == $sha)' "$work/ready" >/dev/null || fail 'exact readiness differs'
+}
+# /openapi.json remains a Python-only pre-M route. Bind the response to the
+# Python API title and authentication schema, not a generic HTTP success.
+check_python_route() {
+    timeout 15 curl --fail --silent --show-error --max-time 10 "${ready%/health/ready}/openapi.json" > "$work/python-route" 2>"$work/curl-error" || fail 'Python route request failed'
+    jq -se 'length == 1 and (.[0] | .openapi == "3.1.0" and .paths["/api/auth/login"].post != null and .info.title == "Verdaxis Intelligence Cockpit")' "$work/python-route" >/dev/null || fail 'Python route response differs'
+}
 verify_signed_artifact() {
     local artifact provenance sig pub output=$work/verified
     artifact=$(file_of_kind artifact); provenance=$(file_of_kind provenance)
@@ -449,6 +476,10 @@ if [[ $mode == accept && $resume_accepted == true ]]; then
     # saved timer-start tail while the actual accepted process is unchanged.
     invocation=$(systemctl show "$backend" -p InvocationID --value)
     jq -e --arg invocation "$invocation" '.invocation_id == $invocation' "$state_dir/$environment.rollback-accepted" >/dev/null || fail 'accepted service changed before timer resume'
+    check_ready "$python_ready"
+    check_ready "$rust_ready"
+    check_ready "$ready"
+    check_python_route
     while IFS= read -r unit; do
         [[ $unit =~ ^verdaxis-[a-z0-9-]+\.timer$ ]] || fail 'invalid saved timer name'
         jq -e --arg unit "$unit" '.timers | index($unit) != null' "$work/inventory.json" >/dev/null || fail 'saved timer not approved'
@@ -493,12 +524,13 @@ if [[ $mode == restore ]]; then
         [[ $unit =~ ^verdaxis-[a-z0-9-]+\.service$ ]] || fail 'invalid job name'
         [[ $(systemctl show "$unit" -p ActiveState --value) == inactive ]] || fail 'direct job has not drained'
     done < <(jq -r '.jobs[]' "$work/inventory.json")
-    # All other consumers must already be quiescent. Never kill an active
-    # oneshot to manufacture a drained state or auto-start legacy Python.
+    # Background consumers must already be quiescent. Both serving processes
+    # are stopped explicitly, including Python left running after an interruption.
     while IFS= read -r unit; do
-        [[ $unit == "$backend" ]] && continue
+        [[ $unit == "$backend" || $unit == "$python_backend" ]] && continue
         [[ $(systemctl show "$unit" -p ActiveState --value) == inactive ]] || fail 'non-serving consumer must be quiesced before restore'
     done < <(jq -r '.consumer_units[].name' "$work/inventory.json")
+    systemctl stop "$python_backend"
     systemctl stop "$backend"
     read_database
     check_package_closure
@@ -551,14 +583,14 @@ if [[ $mode == restore ]]; then
     check_consumers
     if grep -qE '^[[:space:]]*import[[:space:]]' "$caddy"; then fail 'saved Caddy import closure unsupported'; fi
     runuser -u caddy -- caddy validate --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy bytes are not valid'
-    runuser -u caddy -- caddy reload --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy reload failed'
     write_state restart-authorized
-    # systemd does not inherit these descriptors. Close them in the client so
-    # a fixture child cannot retain deploy ownership after this process exits.
-    (
-        for fd in "${lock_fds[@]}"; do exec {fd}>&-; done
-        systemctl restart "$backend"
-    )
+    restart_service "$python_backend"
+    restart_service "$backend"
+    check_ready "$python_ready"
+    check_ready "$rust_ready"
+    runuser -u caddy -- caddy reload --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy reload failed'
+    check_ready "$ready"
+    check_python_route
     printf 'RESTORED acceptance_required nonce=%s manifest_sha256=%s\n' "$nonce" "$approval"
     exit 0
 fi
@@ -597,8 +629,10 @@ pid=$(systemctl show "$backend" -p MainPID --value)
 invocation=$(systemctl show "$backend" -p InvocationID --value)
 [[ $pid =~ ^[1-9][0-9]*$ && $invocation =~ ^[0-9a-f]{32}$ ]] || fail 'old service did not start'
 [[ $(hash "/proc/$pid/exe") == "$(hash "$(payload_of "$binary")")" ]] || fail 'running executable is not the captured old executable'
-timeout 15 curl --fail --silent --show-error --max-time 10 "$ready" > "$work/ready" 2>"$work/curl-error" || fail 'readiness request failed'
-jq -e --arg env "$environment" --arg sha "$release" 'keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $env and .release_sha == $sha' "$work/ready" >/dev/null || fail 'exact readiness differs'
+check_ready "$python_ready"
+check_ready "$rust_ready"
+check_ready "$ready"
+check_python_route
 for unit in verdaxis-health.service verdaxis-backup-verify.service; do
     monitor_invocation=$(systemctl show "$unit" -p InvocationID --value)
     [[ $monitor_invocation =~ ^[0-9a-f]{32}$ ]] || fail 'captured monitor has no accepted invocation'
