@@ -46,6 +46,12 @@ class SafeRootGit(unittest.TestCase):
                     subprocess.run(["git", "config", "--file", str(repo / ".git/config"), "--no-includes", "--unset", key], check=True)
             self.assertEqual(self.run_git(repo, "status", "--porcelain").returncode, 0)
 
+    def test_bundle_checks_installed_helper_ownership_before_loading(self):
+        source = (ROOT / "deploy/scripts/pre-m-bundle.sh").read_text()
+        self.assertIn("trusted_helper=", source)
+        check = source.index("installed Git helper must be root controlled")
+        self.assertLess(check, source.index('source "$trusted_helper"'))
+
     def test_ambient_git_configuration_cannot_execute(self):
         self.assertTrue(HELPER.is_file(), "shared privileged Git wrapper required")
         with tempfile.TemporaryDirectory() as directory:

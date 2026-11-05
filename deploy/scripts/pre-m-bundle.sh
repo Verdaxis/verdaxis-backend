@@ -125,8 +125,17 @@ safe_path "$checkout/.git"
 for git_input in config index HEAD objects refs; do safe_path "$checkout/.git/$git_input"; done
 [[ ! -e $checkout/.git/objects/info/alternates ]] || fail 'Git object alternates are unsupported'
 # The installed bundle tooling includes this sibling trusted helper.
+trusted_helper=$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")/safe-root-git.sh
+regular "$trusted_helper"
+trusted_parent=$trusted_helper
+while [[ $trusted_parent != / ]]; do
+    [[ ! -L $trusted_parent && $(stat -c %u "$trusted_parent") == 0 ]] || fail 'installed Git helper must be root controlled'
+    trusted_permissions=$(stat -c %a "$trusted_parent")
+    (( (8#$trusted_permissions & 0022) == 0 )) || fail 'installed Git helper must not be writable by other users'
+    trusted_parent=$(dirname "$trusted_parent")
+done
 # shellcheck source=deploy/scripts/safe-root-git.sh
-source "$(dirname "${BASH_SOURCE[0]}")/safe-root-git.sh"
+source "$trusted_helper"
 safe_root_git "$checkout" rev-parse --git-dir >/dev/null || fail 'Git configuration outside the inert recovery allowlist'
 state_dir=$checkout/.runtime-deploy
 state=$state_dir/$environment.state
