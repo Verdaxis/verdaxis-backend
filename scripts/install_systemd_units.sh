@@ -117,7 +117,9 @@ if [[ "$MODE" == "apply" && "$INHERITED_INSTALL_LOCK" == 0 \
         --binary-sha256 "$BINARY_SHA256" --host-scope "$HOST_SCOPE"
 fi
 
-SOURCE_GIT=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
+# shellcheck source=deploy/scripts/safe-root-git.sh
+source "$BACKEND_ROOT/deploy/scripts/safe-root-git.sh"
+SOURCE_GIT=(safe_root_git "$SOURCE_ROOT")
 if [[ "$("${SOURCE_GIT[@]}" rev-parse --show-toplevel)" != "$SOURCE_ROOT" \
     || "$("${SOURCE_GIT[@]}" rev-parse HEAD)" != "$SOURCE_REF" ]]; then
     echo "selected deploy checkout is not the exact approved source ref" >&2

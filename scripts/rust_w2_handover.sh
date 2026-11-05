@@ -416,7 +416,9 @@ rollback_group() {
     restore_active_timers "$group"
 }
 verify_release() {
-    local -a source_git=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$SOURCE_ROOT/deploy/scripts/safe-root-git.sh"
+    local -a source_git=(safe_root_git "$SOURCE_ROOT")
     [[ $("${source_git[@]}" rev-parse --show-toplevel) == "$SOURCE_ROOT" && $("${source_git[@]}" rev-parse HEAD) == "$SOURCE_REF" ]] || { fail 'source identity differs'; return 1; }
     [[ -z $("${source_git[@]}" status --porcelain --untracked-files=all) && -z $("${source_git[@]}" replace -l) ]] || { fail 'source is not clean'; return 1; }
     if "${source_git[@]}" ls-files -v -- | awk '$1 ~ /^[a-zS]$/ { found=1 } END { exit found ? 0 : 1 }'; then fail 'hidden tracked-file index flags'; return 1; fi

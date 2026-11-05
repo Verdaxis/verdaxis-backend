@@ -64,7 +64,9 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     unset DATABASE_URL MIGRATOR_DATABASE_URL DATABASE_HOST DATABASE_PORT \
         DATABASE_NAME DATABASE_USER DATABASE_PASSWORD
     BINARY_ENV=(/usr/bin/env -i PATH="$PATH")
-    GIT=(/usr/bin/git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$BACKEND_DIR/deploy/scripts/safe-root-git.sh"
+    GIT=(safe_root_git "$BACKEND_DIR")
     DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"
     if [[ -n "${TARGET_BRANCH:-}" && "$TARGET_BRANCH" != "$DEFAULT_BRANCH" ]]; then
         echo "Canonical deploy checkout refuses a different target branch." >&2
@@ -73,7 +75,10 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     TARGET_BRANCH="$DEFAULT_BRANCH"
 else
     export GIT_NO_REPLACE_OBJECTS=1
-    GIT=(git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
+    # Disposable fixtures use the same Git boundary as deployed checkouts.
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$BACKEND_DIR/deploy/scripts/safe-root-git.sh"
+    GIT=(safe_root_git "$BACKEND_DIR")
     DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$BACKEND_DIR/.runtime-deploy}"
     TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
     BINARY_ENV=(/usr/bin/env)
