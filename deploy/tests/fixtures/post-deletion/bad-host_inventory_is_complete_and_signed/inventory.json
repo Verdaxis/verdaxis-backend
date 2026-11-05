@@ -1,0 +1,127 @@
+{
+  "collected_at": "2026-11-06T00:00:00Z",
+  "hosts": [
+    {
+      "id": "production",
+      "surfaces": {
+        "unit_files": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-health.service",
+            "verdaxis-backup-verify.timer"
+          ]
+        },
+        "unit_dropins": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-health.service.d/limits.conf"
+          ]
+        },
+        "timers": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-local-db-backup.timer",
+            "staging-pull.timer"
+          ]
+        },
+        "cron": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "25 3 * * * root /usr/local/sbin/verdaxis-nightly-backup"
+          ]
+        },
+        "processes": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-read",
+            "verdaxis-migrate",
+            "caddy"
+          ]
+        },
+        "usr_local": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "/usr/local/libexec/verdaxis/verdaxis-read"
+          ]
+        }
+      }
+    },
+    {
+      "id": "staging",
+      "surfaces": {
+        "unit_files": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-health.service",
+            "verdaxis-backup-verify.timer"
+          ]
+        },
+        "unit_dropins": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-health.service.d/limits.conf"
+          ]
+        },
+        "timers": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-local-db-backup.timer",
+            "staging-pull.timer"
+          ]
+        },
+        "cron": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "25 3 * * * root /usr/local/sbin/verdaxis-nightly-backup"
+          ]
+        },
+        "processes": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "verdaxis-read",
+            "verdaxis-migrate",
+            "caddy"
+          ]
+        },
+        "usr_local": {
+          "observed_at": "2026-11-06T00:00:00Z",
+          "entries": [
+            "/usr/local/libexec/verdaxis/verdaxis-read"
+          ]
+        }
+      }
+    }
+  ],
+  "paths": [
+    {
+      "path": "/home/verdaxis-prod/app",
+      "sha256": "33eb78c2975ccb3f2de440662a0037a594f4b3c872da248db066fc7ff1ad27c4",
+      "present": false
+    },
+    {
+      "path": "/home/verdaxis-prod/app/runtime_server.py",
+      "sha256": "97bfa608de62cedf3939c17bf294aae8344b46b3017a44efb36edb95f93f36b2",
+      "present": false
+    },
+    {
+      "path": "/home/verdaxis-prod/venv",
+      "sha256": "8006f121f27a56722bc532d84f3c441d92aa1756e0c690d42f7b0b908981b10a",
+      "present": false
+    },
+    {
+      "path": "/etc/systemd/system/verdaxis-backend.service",
+      "sha256": "46365b6d85c718c16d0de5a1f7aafec79d31fd5e66b6653101c6d32ae9b64530",
+      "present": false
+    },
+    {
+      "path": "/etc/systemd/system/verdaxis-monitor.timer",
+      "sha256": "5947fe4d4c6bc62d11006354dc3412c3b305ed9576926f454431e47335f0fa74",
+      "present": false
+    }
+  ],
+  "signature": {
+    "deleted_paths_sha256": "479ccb70a95c6dd9631020324e4fc4d25ae841fffe38038d7b8f3ffdc164ede4",
+    "key_id": "post-deletion-fixture-key",
+    "scheme": "openssl-dgst-sha256-detached"
+  }
+}
