@@ -1132,7 +1132,9 @@ binary. Task 1 pins the removal inventory under
 `scripts`, `evidence-manifest`, `offhost-tools`) and `tests/rust_contract/test_phase10_inventory.py`,
 a standalone harness that parses source as data (never imports the
 application) and keeps the 188-route/41-unit/41-script/14-helper snapshot with
-per-artifact end states. The integration owner re-pins source digests when an
+per-artifact end states. M window tooling extends the script inventory to 43;
+new helper, fixture and document rows remain planned until installed acceptance.
+The integration owner re-pins source digests when an
 accepted staging change edits an inventoried file, and adds a disposition row
 for every new inventoried file. Task 2 adds `rs/read/src/cli/`: `mod.rs` owns the
 clap-derived `Command` tree (`serve`, `migrate`, `acl`, `job`, `monitor`,
@@ -1196,6 +1198,60 @@ script text never crosses SSH. Local Python/shell references use bounded
 transitive no-follow inspection; unresolved, dynamic and removed-package
 references are explicit blocking register rows. Publication is fixture-tested
 through the JSON and SHA-256 pair; installed acceptance remains disabled.
+
+## M release window tools
+
+The M binary admits exactly `sqlx_1`; schema capabilities remain separate from
+startup admission so streams and the watchlist producer remain available. The
+source-bound checkpoint policy permits the final offboarding head to `sqlx_1`
+and the explicit `sqlx_1` self-transition. Adoption and repeat adoption validate
+the retained Alembic audit row, full embedded history/checksum and catalog.
+
+`scripts/deploy.sh` keeps the canonical immutable-source and artifact gates,
+both stable locks and blocked startup state. It stops/disables the retained
+backend, revokes/drains cache authority, runs native adoption and ACL convergence,
+publishes matching runtime identity, rebinds cache authority and restarts only
+Rust. It never installs dependencies or invokes a schema interpreter. Acceptance
+requires exact loopback/public readiness plus an Ed25519-signed record bound to
+the fresh deploy nonce, environment, full SHA, current/target and verified binary
+digest. Auth, session, monitor and passive checks must all pass. Task 31 produces
+that evidence; missing evidence keeps starts blocked. Disposable-only kill points
+surround each named publication, including cache, identity and state release.
+
+`scripts/rust_phase10_window_caddy.py` is an off-host saved-site composer. It
+reuses the released candidate helpers/snippets, retains live abilities and
+offboarding, includes all CRUD groups in production, and routes the catch-all to
+Rust with no active Python dial. Its private output includes byte-exact rollback,
+a probe list and digest-bound Caddy validation. It adapts the exact candidate;
+validation redirects file logs into its private workspace and does not establish
+installed log permissions. It never installs or reloads Caddy.
+
+`scripts/rust_w2_handover.sh` separates immutable installation from ordered
+news, auth/prune, reminders, onboarding, demo, local-monitor and external-monitor
+transfer. It records exact unit/drop-in/launcher bytes before installation,
+stops timers and drains active work, fences inventoried direct launchers, and
+requires fresh service InvocationIDs and bound acceptance. Rollback restores
+one group's saved ABI and permissions only after native work is drained; alert
+rollback additionally reconciles both journals. Environment scope is the default;
+host-global monitor/binary/ACL changes require separate explicit host scope.
+Retired recovery stays masked/absent, with restart/watchdog controls checked.
+The active source job inventory is production six/staging four; the requested
+seven/five count remains an explicit reconciliation gate, not a fabricated timer.
+
+`deploy/scripts/pre-m-bundle.sh` captures and verifies a private full-SHA old
+release, then restores it under the same stable locks with startup blocked.
+Independent inventory/manifest approvals bind source objects, executable,
+units/drop-ins, guards, private runtime/credential references, monitor/Caddy
+bytes, owners/modes and native dependency closure. It withdraws old migrator
+credential routes rather than resuming a schema interpreter. Restore starts the
+actual old Rust executable; signed acceptance checks process digest, exact
+readiness, invocation/session/monitor evidence before clearing state. A durable
+accepted journal resumes only the saved timer-start tail. Unsupported dynamic
+inputs, Caddy imports, package symlinks or cross-filesystem publication refuse;
+Task 31 must prove the intended installed layout and old runtime package.
+
+Python remains installed through soak. W5 deletion, installed-host authorization
+and the complete disposable rehearsal driver remain separate.
 
 ## File Map
 

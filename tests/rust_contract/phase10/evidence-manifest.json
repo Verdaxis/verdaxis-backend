@@ -4,6 +4,7 @@
   "source_checkpoint": "sha256 of each source file; no branch-name identity",
   "phase7_decision": "retire-routes-preserve-tables",
   "required_scenarios": [
+    "acceptance_is_signed_bound_and_follows_readiness_before_clear",
     "acl_convergence_runs_between_migrate_and_restart",
     "adoption_checksum_matches_sqlx",
     "adoption_commit_then_interruption_resumes_each_publication_boundary",
@@ -55,6 +56,7 @@
     "budget_matches_configured_authority_not_measured_load",
     "cache_activate_revokes_then_binds_the_row_then_publishes",
     "cache_activate_uses_the_migrator_role_only",
+    "cache_authority_revoke_drain_and_bind_surround_the_transition",
     "cache_failure_between_steps_leaves_the_record_revoked",
     "cache_lease_and_fence_match_the_reader",
     "cache_record_is_bounded_atomic_and_0600",
@@ -70,10 +72,13 @@
     "canary_retained_kyc_documents_block_both_deletions_with_409",
     "canary_token_unset_returns_404_without_opening_a_transaction",
     "canary_wrong_token_returns_401_and_the_token_never_appears_in_output",
+    "capture_checks_absent_state_before_restart_lock",
     "ci_harness_does_not_import_the_deleted_application",
     "cleanup_and_approval_claim_do_not_double_send",
     "cleanup_deletes_expired_refresh_sessions_without_successor",
     "cleanup_does_not_clear_a_token_renewed_under_lock",
+    "cli_refuses_incomplete_capture_without_python",
+    "complete_site_keeps_live_groups_and_removes_python_dials",
     "daily_backup_and_staging_pull_still_run",
     "deleted_paths_are_absent_on_both_hosts",
     "demo_coverage_and_order_write_do_not_deadlock",
@@ -112,6 +117,7 @@
     "external_monitor_state_and_status_keep_existing_keys",
     "external_monitor_telegram_disabled_suppresses_alerts",
     "extra_member_and_path_traversal_are_refused",
+    "failed_m_deploy_has_no_serving_python_fallback",
     "failure_after_migrate_leaves_durable_blocked_state",
     "failure_leaves_the_output_directory_empty",
     "fingerprint_changes_when_a_column_is_added",
@@ -135,6 +141,7 @@
     "gena_unknown_status_defaults_to_announced",
     "gena_zero_coordinate_is_preserved",
     "guard_scripts_contain_no_python",
+    "handover_serializes_with_deploy_and_installer",
     "health_503_body_has_no_provenance",
     "health_guard_accepts_exactly_four_keys",
     "health_quarantines_a_malformed_previous_status",
@@ -173,6 +180,9 @@
     "kyc_notice_skips_expired_grace",
     "kyc_notice_skips_rejected_and_keeps_eligible_bound_users",
     "legacy_bind_form_still_serves",
+    "m_deploy_never_restarts_the_retained_backend",
+    "m_policy_names_adoption_and_no_change_without_schema_changes",
+    "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",
     "mail_transport_logs_recipient_digest_never_address",
     "main_and_restart_locks_precede_authorization",
     "manifest_counts_are_16_canonical_11_local_5_external",
@@ -239,6 +249,8 @@
     "phase7_routes_have_their_recorded_end_state",
     "preflight_rejects_wrong_database_role_and_environment",
     "previous_release_artifact_still_starts",
+    "private_bundle_exact_rollback_and_source_unchanged",
+    "production_identity_and_trusted_tool_routing",
     "production_literal_and_allowlist_move_together",
     "prune_is_idempotent_on_the_same_day",
     "prune_keeps_exactly_800_utc_dates",
@@ -268,17 +280,21 @@
     "retry_stops_after_three_attempts",
     "rollback_interruption_at_each_publication_never_starts_a_mixed_bundle",
     "root_does_not_touch_the_database",
+    "root_git_trust_is_limited_to_the_canonical_checkout",
     "root_health_snippet_has_one_argument_and_exact_paths",
     "root_is_get_only",
     "root_returns_the_exact_python_body",
     "run_to_exact_approved_target_is_idempotent",
     "runtime_files_are_regular_0600_and_never_symlinks",
+    "runtime_is_not_a_callback_runner",
     "rust_start_requires_regular_budget_and_revision_files",
+    "schema_capabilities_do_not_depend_on_startup_admissions",
     "seed_and_remediation_tools_are_not_installed_by_any_script",
     "serve_env_carries_the_monitor_token_only_when_configured",
     "serve_env_contains_only_reviewed_http_credentials",
     "serve_env_has_no_migrator_or_job_only_key",
     "serve_env_requires_auth_keys_and_issues_and_verifies_sessions",
+    "shell_handover_contract",
     "shellcheck_job_pins_version_digest_and_checks_every_reviewed_script",
     "signal_csv_headers_are_exact_per_family",
     "signal_dry_run_writes_nothing_and_reports_would_insert",
@@ -301,7 +317,7 @@
     "test_phase10_helpers_are_exactly_14",
     "test_phase10_no_row_is_ownerless_or_untested",
     "test_phase10_routes_are_exactly_188",
-    "test_phase10_scripts_are_exactly_41",
+    "test_phase10_scripts_are_exactly_43",
     "test_phase10_units_are_exactly_41",
     "the_rust_backup_verify_monitor_accepts_the_nightly_artifact",
     "timer_catch_up_after_restart_runs_once",
@@ -361,6 +377,12 @@
   },
   "evidence_location": "private external evidence directory; no host inventories or personal data committed",
   "scenario_catalog": [
+    {
+      "id": "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+      "owner_task": 7,
+      "plan_requirement": "Task 7; M release-window source contract",
+      "required_result": "acceptance is signed bound and follows readiness before clear."
+    },
     {
       "id": "acl_convergence_runs_between_migrate_and_restart",
       "owner_task": 7,
@@ -668,6 +690,12 @@
       "required_result": "cache activate uses the migrator role only."
     },
     {
+      "id": "cache_authority_revoke_drain_and_bind_surround_the_transition",
+      "owner_task": 7,
+      "plan_requirement": "Task 7; M release-window source contract",
+      "required_result": "cache authority revoke drain and bind surround the transition."
+    },
+    {
       "id": "cache_failure_between_steps_leaves_the_record_revoked",
       "owner_task": 24,
       "plan_requirement": "Task 24, test assertions",
@@ -758,6 +786,12 @@
       "required_result": "canary wrong token returns 401 and the token never appears in output."
     },
     {
+      "id": "capture_checks_absent_state_before_restart_lock",
+      "owner_task": 7,
+      "plan_requirement": "Task 7 complete release rollback; docs/phase10/window-gaps.md W3/W4 pre-M capture row; tests/rust_contract/test_phase10_pre_m_bundle.py::PreMReleaseBundle::test_capture_checks_absent_state_before_restart_lock",
+      "required_result": "capture checks absent state before restart lock."
+    },
+    {
       "id": "ci_harness_does_not_import_the_deleted_application",
       "owner_task": 32,
       "plan_requirement": "Task 32, test assertions",
@@ -780,6 +814,18 @@
       "owner_task": 12,
       "plan_requirement": "Task 12, test assertions",
       "required_result": "cleanup does not clear a token renewed under lock."
+    },
+    {
+      "id": "cli_refuses_incomplete_capture_without_python",
+      "owner_task": 7,
+      "plan_requirement": "Task 7 complete release rollback; docs/phase10/window-gaps.md W3/W4 pre-M capture row; tests/rust_contract/test_phase10_pre_m_bundle.py::PreMReleaseBundle::test_cli_refuses_incomplete_capture_without_python",
+      "required_result": "cli refuses incomplete capture without python."
+    },
+    {
+      "id": "complete_site_keeps_live_groups_and_removes_python_dials",
+      "owner_task": 32,
+      "plan_requirement": "Task 32 pre-removal; docs/phase10/window-gaps.md W3/W4 Caddy row; outputs/phase10-m-implementation-plan.md step 5",
+      "required_result": "complete site keeps live groups and removes python dials."
     },
     {
       "id": "daily_backup_and_staging_pull_still_run",
@@ -1010,6 +1056,12 @@
       "required_result": "extra member and path traversal are refused."
     },
     {
+      "id": "failed_m_deploy_has_no_serving_python_fallback",
+      "owner_task": 7,
+      "plan_requirement": "Task 7; M release-window source contract",
+      "required_result": "failed m deploy has no serving python fallback."
+    },
+    {
       "id": "failure_after_migrate_leaves_durable_blocked_state",
       "owner_task": 7,
       "plan_requirement": "Task 7, test assertions",
@@ -1146,6 +1198,12 @@
       "owner_task": 4,
       "plan_requirement": "Task 4, test assertions",
       "required_result": "guard scripts contain no python."
+    },
+    {
+      "id": "handover_serializes_with_deploy_and_installer",
+      "owner_task": 10,
+      "plan_requirement": "Task 10 immutable installation and W2/W4 ownership transfer; docs/phase10/window-gaps.md W2/W4 rows; outputs/phase10-m-implementation-plan.md step 6",
+      "required_result": "handover serializes with deploy and installer."
     },
     {
       "id": "health_503_body_has_no_provenance",
@@ -1374,6 +1432,24 @@
       "owner_task": 2,
       "plan_requirement": "Task 2, test assertions",
       "required_result": "legacy bind form still serves."
+    },
+    {
+      "id": "m_deploy_never_restarts_the_retained_backend",
+      "owner_task": 7,
+      "plan_requirement": "Task 7; M release-window source contract",
+      "required_result": "m deploy never restarts the retained backend."
+    },
+    {
+      "id": "m_policy_names_adoption_and_no_change_without_schema_changes",
+      "owner_task": 6,
+      "plan_requirement": "Task 6; M release-window source contract",
+      "required_result": "m policy names adoption and no change without schema changes."
+    },
+    {
+      "id": "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",
+      "owner_task": 6,
+      "plan_requirement": "Task 6; M release-window source contract",
+      "required_result": "m startup lists are exact and do not admit old bundle pins."
     },
     {
       "id": "mail_transport_logs_recipient_digest_never_address",
@@ -1772,6 +1848,18 @@
       "required_result": "previous release artifact still starts."
     },
     {
+      "id": "private_bundle_exact_rollback_and_source_unchanged",
+      "owner_task": 32,
+      "plan_requirement": "Task 32 pre-removal; docs/phase10/window-gaps.md W3/W4 Caddy row; outputs/phase10-m-implementation-plan.md step 5",
+      "required_result": "private bundle exact rollback and source unchanged."
+    },
+    {
+      "id": "production_identity_and_trusted_tool_routing",
+      "owner_task": 7,
+      "plan_requirement": "Task 7 complete release rollback; docs/phase10/window-gaps.md W3/W4 pre-M capture row; tests/rust_contract/test_phase10_pre_m_bundle.py::PreMReleaseBundle::test_production_identity_and_trusted_tool_routing",
+      "required_result": "production identity and trusted tool routing."
+    },
+    {
       "id": "production_literal_and_allowlist_move_together",
       "owner_task": 6,
       "plan_requirement": "Task 6, test assertions",
@@ -1946,6 +2034,12 @@
       "required_result": "root does not touch the database."
     },
     {
+      "id": "root_git_trust_is_limited_to_the_canonical_checkout",
+      "owner_task": 7,
+      "plan_requirement": "Task 7 complete release rollback; docs/phase10/window-gaps.md W3/W4 pre-M capture row; tests/rust_contract/test_phase10_pre_m_bundle.py::PreMReleaseBundle::test_root_git_trust_is_limited_to_the_canonical_checkout",
+      "required_result": "root git trust is limited to the canonical checkout."
+    },
+    {
       "id": "root_health_snippet_has_one_argument_and_exact_paths",
       "owner_task": 18,
       "plan_requirement": "Task 18, test assertions",
@@ -1976,10 +2070,22 @@
       "required_result": "runtime files are regular 0600 and never symlinks."
     },
     {
+      "id": "runtime_is_not_a_callback_runner",
+      "owner_task": 7,
+      "plan_requirement": "Task 7 complete release rollback; docs/phase10/window-gaps.md W3/W4 pre-M capture row; tests/rust_contract/test_phase10_pre_m_bundle.py::PreMReleaseBundle::test_runtime_is_not_a_callback_runner",
+      "required_result": "runtime is not a callback runner."
+    },
+    {
       "id": "rust_start_requires_regular_budget_and_revision_files",
       "owner_task": 4,
       "plan_requirement": "Task 4, test assertions",
       "required_result": "rust start requires regular budget and revision files."
+    },
+    {
+      "id": "schema_capabilities_do_not_depend_on_startup_admissions",
+      "owner_task": 6,
+      "plan_requirement": "Task 6; M release-window source contract",
+      "required_result": "schema capabilities do not depend on startup admissions."
     },
     {
       "id": "seed_and_remediation_tools_are_not_installed_by_any_script",
@@ -2010,6 +2116,12 @@
       "owner_task": 9,
       "plan_requirement": "Task 9, test assertions",
       "required_result": "serve env requires auth keys and issues and verifies sessions."
+    },
+    {
+      "id": "shell_handover_contract",
+      "owner_task": 10,
+      "plan_requirement": "Task 10 immutable installation and W2/W4 ownership transfer; docs/phase10/window-gaps.md W2/W4 rows; outputs/phase10-m-implementation-plan.md step 6",
+      "required_result": "shell handover contract."
     },
     {
       "id": "shellcheck_job_pins_version_digest_and_checks_every_reviewed_script",
@@ -2144,10 +2256,10 @@
       "required_result": "test phase10 routes are exactly 188."
     },
     {
-      "id": "test_phase10_scripts_are_exactly_41",
+      "id": "test_phase10_scripts_are_exactly_43",
       "owner_task": 1,
       "plan_requirement": "Task 1, test assertions",
-      "required_result": "test phase10 scripts are exactly 41."
+      "required_result": "The source snapshot contains exactly 43 scripts: 37 Python and 6 shell."
     },
     {
       "id": "test_phase10_units_are_exactly_41",

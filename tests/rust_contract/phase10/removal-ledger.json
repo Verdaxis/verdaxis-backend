@@ -355,7 +355,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "c3c80305a24b39ec58aa9e6df9b881830b38ce7e0f95d30da15f3e36f2279baf",
+      "source_sha256": "d002ff6ac42e12de75347f5b225470e9f0a4ad2172cc454df1e791c138ad987a",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -4650,7 +4650,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "31a898f35324719c6e30d98210e9a9b5faed3eae67ecfd6e9be88dfa2860e7e5",
+      "source_sha256": "a20f0b3670a06b82d05f0f3b7a017423a53935612f807f76940e547af3125b5a",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -4739,7 +4739,7 @@
       "end_state": "shell",
       "owner": "Task 10 installer owner",
       "task": 10,
-      "source_sha256": "d6172bb6817570d97395dff6e682d5f825ffabb8940acf4dd90b737d9e20d02b",
+      "source_sha256": "a1c0babdd294855948d9511a0b82049874f70e3e4678886955561b0dc52a1227",
       "status": "planned",
       "evidence": [
         "installer_refuses_a_manifest_digest_mismatch"
@@ -4787,7 +4787,7 @@
       "end_state": "rust",
       "owner": "ops prepare-runtime",
       "task": 9,
-      "source_sha256": "c3c80305a24b39ec58aa9e6df9b881830b38ce7e0f95d30da15f3e36f2279baf",
+      "source_sha256": "d002ff6ac42e12de75347f5b225470e9f0a4ad2172cc454df1e791c138ad987a",
       "status": "planned",
       "evidence": [
         "serve_env_contains_only_reviewed_http_credentials"
@@ -6131,6 +6131,256 @@
       "rollback": "Retain regression tests with the signed release source; no installed application dependency.",
       "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
       "offhost_location": "Repository tests/rust_contract/test_abilities_routing.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.docs/phase10/window-gaps.md",
+      "source": "docs/phase10/window-gaps.md",
+      "kind": "document",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "f9b4b1df3bc1ce43fe2268ebc99c6cfa6a43f6eebb80768b6ed0a3bcbaf4da18",
+      "status": "planned",
+      "evidence": [
+        "m_deploy_never_restarts_the_retained_backend",
+        "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+        "cache_authority_revoke_drain_and_bind_surround_the_transition",
+        "failed_m_deploy_has_no_serving_python_fallback"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository docs/phase10/window-gaps.md; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.outputs/phase10-m-implementation-plan.md",
+      "source": "outputs/phase10-m-implementation-plan.md",
+      "kind": "document",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "eafb92427e0e3c5fff90862a7b79162eeb65d1611da778c0642f2ea23bdce4d0",
+      "status": "planned",
+      "evidence": [
+        "m_deploy_never_restarts_the_retained_backend",
+        "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+        "cache_authority_revoke_drain_and_bind_surround_the_transition",
+        "failed_m_deploy_has_no_serving_python_fallback"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository outputs/phase10-m-implementation-plan.md; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.outputs/phase10-m-release-window-tooling-2026-11-05.md",
+      "source": "outputs/phase10-m-release-window-tooling-2026-11-05.md",
+      "kind": "document",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "78cad3d913236985e479f1cace25867834ae50a2381c7f84b3eecad2843d832f",
+      "status": "planned",
+      "evidence": [
+        "m_deploy_never_restarts_the_retained_backend",
+        "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+        "cache_authority_revoke_drain_and_bind_surround_the_transition",
+        "failed_m_deploy_has_no_serving_python_fallback"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository outputs/phase10-m-release-window-tooling-2026-11-05.md; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.tests/rust_contract/test_phase10_m_deploy.py",
+      "source": "tests/rust_contract/test_phase10_m_deploy.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "d6ba1fe49f6ade4136c9150bd864074161e63bfaeb97bdcb8cdf39aaa4a9e814",
+      "status": "planned",
+      "evidence": [
+        "m_deploy_never_restarts_the_retained_backend",
+        "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+        "cache_authority_revoke_drain_and_bind_surround_the_transition",
+        "failed_m_deploy_has_no_serving_python_fallback"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_m_deploy.py; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.tests/rust_contract/test_phase10_m_identity.py",
+      "source": "tests/rust_contract/test_phase10_m_identity.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 6,
+      "source_sha256": "002609ce8d40130b7177614145d0c7a26e5033c3ad01db644220ad8c22343767",
+      "status": "planned",
+      "evidence": [
+        "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",
+        "m_policy_names_adoption_and_no_change_without_schema_changes",
+        "schema_capabilities_do_not_depend_on_startup_admissions"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_m_identity.py; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "script.rust_phase10_window_caddy.py",
+      "source": "scripts/rust_phase10_window_caddy.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 pre-removal Caddy planning; off-host source only",
+      "task": 32,
+      "source_sha256": "b460ebc0b66634d195cedbdc11ead08eda267893022b4f859a5e66a58a46bd3e",
+      "status": "planned",
+      "evidence": [
+        "complete_site_keeps_live_groups_and_removes_python_dials",
+        "private_bundle_exact_rollback_and_source_unchanged"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository scripts/rust_phase10_window_caddy.py; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.tests/rust_contract/test_phase10_window_caddy.py",
+      "source": "tests/rust_contract/test_phase10_window_caddy.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 pre-removal Caddy planning; off-host source only",
+      "task": 32,
+      "source_sha256": "4c5911be1b6fc6bf3805f2eafe9c7a73d6e5e51d8ddd8813018a65826c718a78",
+      "status": "planned",
+      "evidence": [
+        "complete_site_keeps_live_groups_and_removes_python_dials",
+        "private_bundle_exact_rollback_and_source_unchanged"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_window_caddy.py; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "script.rust_w2_handover.sh",
+      "source": "scripts/rust_w2_handover.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
+      "task": 10,
+      "source_sha256": "90e8cf7cf70fee8f1d5befce655d2ea4b7d4e592ec98ccd3f6c3216d2b2d098d",
+      "status": "planned",
+      "evidence": [
+        "shell_handover_contract",
+        "handover_serializes_with_deploy_and_installer"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance."
+    },
+    {
+      "id": "window-source.deploy/tests/w2-handover-contract.sh",
+      "source": "deploy/tests/w2-handover-contract.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
+      "task": 10,
+      "source_sha256": "0c78159a04b9b6645aebfc4c3df7e6b267376cc4bd7f3bf1a453443938d2da95",
+      "status": "planned",
+      "evidence": [
+        "shell_handover_contract",
+        "handover_serializes_with_deploy_and_installer"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository deploy/tests/w2-handover-contract.sh; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.tests/rust_contract/test_phase10_w2_handover.py",
+      "source": "tests/rust_contract/test_phase10_w2_handover.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
+      "task": 10,
+      "source_sha256": "ee2d929d3a953c4138bde669a2f238cfa50489be50432111776d2817a39cd89d",
+      "status": "planned",
+      "evidence": [
+        "shell_handover_contract",
+        "handover_serializes_with_deploy_and_installer"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_w2_handover.py; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.deploy/scripts/pre-m-bundle.sh",
+      "source": "deploy/scripts/pre-m-bundle.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "6f58d5b950e50cfb5fb6b408f1e1f498337c07bbbca73a32f8a28bb720952cb2",
+      "status": "planned",
+      "evidence": [
+        "cli_refuses_incomplete_capture_without_python",
+        "production_identity_and_trusted_tool_routing",
+        "root_git_trust_is_limited_to_the_canonical_checkout",
+        "capture_checks_absent_state_before_restart_lock",
+        "runtime_is_not_a_callback_runner"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance."
+    },
+    {
+      "id": "window-source.deploy/tests/pre-m-bundle-contract.sh",
+      "source": "deploy/tests/pre-m-bundle-contract.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "0836dc75161e4dff18e8f9cb3992d683944ecefc54eed270efbe1193ac796bee",
+      "status": "planned",
+      "evidence": [
+        "cli_refuses_incomplete_capture_without_python",
+        "production_identity_and_trusted_tool_routing",
+        "root_git_trust_is_limited_to_the_canonical_checkout",
+        "capture_checks_absent_state_before_restart_lock",
+        "runtime_is_not_a_callback_runner"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository deploy/tests/pre-m-bundle-contract.sh; operator planning and disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "window-source.tests/rust_contract/test_phase10_pre_m_bundle.py",
+      "source": "tests/rust_contract/test_phase10_pre_m_bundle.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "0442657946c73a3bdfae5f94d99fd1c4d60f3e7dfa61a822a916a4c6aa845ec7",
+      "status": "planned",
+      "evidence": [
+        "cli_refuses_incomplete_capture_without_python",
+        "production_identity_and_trusted_tool_routing",
+        "root_git_trust_is_limited_to_the_canonical_checkout",
+        "capture_checks_absent_state_before_restart_lock",
+        "runtime_is_not_a_callback_runner"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_pre_m_bundle.py; operator planning and disposable CI only, never installed on serving hosts."
     }
   ],
   "phase": "pre-removal",

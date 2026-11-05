@@ -169,12 +169,12 @@ def test_phase10_units_are_exactly_41():
     validate_source(rows, ledger)
 
 
-def test_phase10_scripts_are_exactly_41():
+def test_phase10_scripts_are_exactly_43():
     rows = document("scripts")["artifacts"]
-    # 35 Python + 5 shell at the plan checkpoint, plus the Phase 5 read-route
-    # Caddy candidate (scripts/rust_phase5_candidate.py) added on staging.
-    assert len(rows) == 41, "missing script disposition rows"
-    assert sum(row["source"].endswith(".py") for row in rows) == 36
+    # The release-window additions are the off-host Caddy planner and W2 shell helper.
+    assert len(rows) == 43, "missing script disposition rows"
+    assert sum(row["source"].endswith(".py") for row in rows) == 37
+    assert sum(row["source"].endswith(".sh") for row in rows) == 6
     ledger = document("removal-ledger")
     if ledger["phase"] == "pre-removal":
         assert sorted(row["source"] for row in rows) == source_scripts()
@@ -245,7 +245,7 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "test_phase10_helpers_are_exactly_14",
         "test_phase10_no_row_is_ownerless_or_untested",
         "test_phase10_routes_are_exactly_188",
-        "test_phase10_scripts_are_exactly_41",
+        "test_phase10_scripts_are_exactly_43",
         "test_phase10_units_are_exactly_41",
     ],
     2: [
@@ -297,6 +297,9 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "run_to_exact_approved_target_is_idempotent",
         "sqlx_control_acl_converges_twice_with_migrator_only_writes",
         "unapproved_transition_or_pending_version_refuses_before_mutation",
+        "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",
+        "m_policy_names_adoption_and_no_change_without_schema_changes",
+        "schema_capabilities_do_not_depend_on_startup_admissions",
     ],
     7: [
         "acl_convergence_runs_between_migrate_and_restart",
@@ -309,6 +312,15 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "migrate_runs_before_any_restart",
         "readiness_requires_the_exact_four_key_body",
         "staged_binary_is_the_only_artifact_executed_before_install",
+        "m_deploy_never_restarts_the_retained_backend",
+        "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+        "cache_authority_revoke_drain_and_bind_surround_the_transition",
+        "failed_m_deploy_has_no_serving_python_fallback",
+        "cli_refuses_incomplete_capture_without_python",
+        "production_identity_and_trusted_tool_routing",
+        "root_git_trust_is_limited_to_the_canonical_checkout",
+        "capture_checks_absent_state_before_restart_lock",
+        "runtime_is_not_a_callback_runner",
     ],
     8: [
         "artifact_verifier_rejects_tampering",
@@ -337,6 +349,8 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "serve_env_requires_auth_keys_and_issues_and_verifies_sessions",
     ],
     10: [
+        "shell_handover_contract",
+        "handover_serializes_with_deploy_and_installer",
         "every_unit_exec_start_is_the_release_binary_or_a_shell_guard",
         "installer_dispatcher_effective_acl_survives_producer_restart_and_boot",
         "installer_enforces_per_check_handoff_acl_and_identity_boundary",
@@ -573,6 +587,8 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "rollback_interruption_at_each_publication_never_starts_a_mixed_bundle",
     ],
     32: [
+        "complete_site_keeps_live_groups_and_removes_python_dials",
+        "private_bundle_exact_rollback_and_source_unchanged",
         "alembic_history_is_inert_and_unreferenced",
         "ci_harness_does_not_import_the_deleted_application",
         "daily_backup_and_staging_pull_still_run",
@@ -674,6 +690,21 @@ ROUND4_REQUIREMENTS = {
 
 
 SUPPLEMENTAL_GROUPS = {
+    'release-window': {
+        'window-source.docs/phase10/window-gaps.md': 'docs/phase10/window-gaps.md',
+        'window-source.outputs/phase10-m-implementation-plan.md': 'outputs/phase10-m-implementation-plan.md',
+        'window-source.outputs/phase10-m-release-window-tooling-2026-11-05.md': 'outputs/phase10-m-release-window-tooling-2026-11-05.md',
+        'window-source.tests/rust_contract/test_phase10_m_deploy.py': 'tests/rust_contract/test_phase10_m_deploy.py',
+        'window-source.tests/rust_contract/test_phase10_m_identity.py': 'tests/rust_contract/test_phase10_m_identity.py',
+        'script.rust_phase10_window_caddy.py': 'scripts/rust_phase10_window_caddy.py',
+        'window-source.tests/rust_contract/test_phase10_window_caddy.py': 'tests/rust_contract/test_phase10_window_caddy.py',
+        'script.rust_w2_handover.sh': 'scripts/rust_w2_handover.sh',
+        'window-source.deploy/tests/w2-handover-contract.sh': 'deploy/tests/w2-handover-contract.sh',
+        'window-source.tests/rust_contract/test_phase10_w2_handover.py': 'tests/rust_contract/test_phase10_w2_handover.py',
+        'window-source.deploy/scripts/pre-m-bundle.sh': 'deploy/scripts/pre-m-bundle.sh',
+        'window-source.deploy/tests/pre-m-bundle-contract.sh': 'deploy/tests/pre-m-bundle-contract.sh',
+        'window-source.tests/rust_contract/test_phase10_pre_m_bundle.py': 'tests/rust_contract/test_phase10_pre_m_bundle.py',
+    },
     'abilities-tests': {
         'test-source.rs/read/tests/abilities_http.rs': 'rs/read/tests/abilities_http.rs',
         'test-source.rs/read/tests/abilities_policy.rs': 'rs/read/tests/abilities_policy.rs',
@@ -714,7 +745,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '4554852cea059640cca3a8383fde7a9d80789abe94f5dc6076f9f9afc3c23946'
+PINNED_SOURCE_IDENTITIES = '77d31a4c54ccf06421772368a5f0382e769ad511a893a70bd401c607db13d51a'
 
 
 def validate_inventory_contract(ledger, manifest):
@@ -743,6 +774,57 @@ def validate_inventory_contract(ledger, manifest):
             "source membership changed in supplemental group"
         )
     validate_dispositions(rows, set(scenarios))
+
+
+def test_phase10_release_window_sources_remain_planned_and_offhost_except_shell_helpers():
+    ledger = unique_rows(document("removal-ledger")["artifacts"])
+    retained_helpers = {"scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh"}
+    for identity, source in SUPPLEMENTAL_GROUPS["release-window"].items():
+        row = ledger[identity]
+        assert row["status"] == "planned", "source integration is not installed acceptance"
+        assert row["deleting_task"] is None
+        if source in retained_helpers:
+            assert row["end_state"] == "shell"
+        else:
+            assert row["end_state"] == "retired-offhost"
+            assert row["offhost_location"]
+    assert document("evidence-manifest")["results"] == []
+
+
+def test_phase10_release_window_evidence_names_resolve_to_source_tests():
+    contracts = {
+        "test_phase10_m_deploy.py": {
+            "m_deploy_never_restarts_the_retained_backend",
+            "acceptance_is_signed_bound_and_follows_readiness_before_clear",
+            "cache_authority_revoke_drain_and_bind_surround_the_transition",
+            "failed_m_deploy_has_no_serving_python_fallback",
+        },
+        "test_phase10_m_identity.py": {
+            "m_startup_lists_are_exact_and_do_not_admit_old_bundle_pins",
+            "m_policy_names_adoption_and_no_change_without_schema_changes",
+            "schema_capabilities_do_not_depend_on_startup_admissions",
+        },
+        "test_phase10_window_caddy.py": {
+            "complete_site_keeps_live_groups_and_removes_python_dials",
+            "private_bundle_exact_rollback_and_source_unchanged",
+        },
+        "test_phase10_w2_handover.py": {
+            "shell_handover_contract",
+            "handover_serializes_with_deploy_and_installer",
+        },
+        "test_phase10_pre_m_bundle.py": {
+            "cli_refuses_incomplete_capture_without_python",
+            "production_identity_and_trusted_tool_routing",
+            "root_git_trust_is_limited_to_the_canonical_checkout",
+            "capture_checks_absent_state_before_restart_lock",
+            "runtime_is_not_a_callback_runner",
+        },
+    }
+    for filename, required in contracts.items():
+        tree = ast.parse((ROOT / "tests/rust_contract" / filename).read_text())
+        names = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        assert {"test_" + name for name in required} <= names
+        assert required <= REQUIRED_SCENARIOS
 
 
 def test_phase10_required_scenarios_match_the_reviewed_catalog():

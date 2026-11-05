@@ -18,3 +18,7 @@ deploy/tests/deploy-transaction.sh
 deploy/tests/units-contract.sh
 deploy/scripts/install-host-automation.sh
 scripts/install_systemd_units.sh
+scripts/rust_w2_handover.sh
+deploy/tests/w2-handover-contract.sh
+deploy/scripts/pre-m-bundle.sh
+deploy/tests/pre-m-bundle-contract.sh
