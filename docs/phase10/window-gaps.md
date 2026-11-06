@@ -52,7 +52,16 @@ installed, stopped and disabled through soak. W5 is separate.
 
 1. Pin M identity and source-bound transitions with failing contracts first.
 2. Complete the Python-free deploy transaction without removing standing gates.
-3. Add protected bundle capture/verify/restore with publication kill points.
+3. Before pre-M capture, install the reviewed root-owned
+   `deploy/scripts/provision-bundle-reader.sh` at
+   `/usr/local/libexec/verdaxis/provision-bundle-reader.sh`. Provision and check
+   each environment's reader, then run the approved existing ACL convergence
+   for its retained Alembic SELECT. See the protected bundle runbook in
+   `outputs/phase10-m-release-window-tooling-2026-11-05.md`. The helper creates
+   no grants. Its host-generated password stays in the root-owned 0600 service
+   under `/etc/verdaxis-bundle-readers/`; never copy it into window evidence.
+   The deploy now checks this independent service and LOGIN before any stop.
+   Then add protected bundle capture/verify/restore with publication kill points.
 4. Add complete Caddy tooling and ordered W2 transfer with group rollback.
 5. Add every new file to the removal ledger and every changed shell entry point
    to the ShellCheck list. Review and commit each complete step locally.

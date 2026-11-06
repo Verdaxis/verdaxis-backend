@@ -123,6 +123,43 @@ mismatch. No timer was invented or silently enabled to satisfy a count.
 
 ### Protected pre-M bundle
 
+Before capture, install the reviewed `deploy/scripts/provision-bundle-reader.sh`
+as root-owned mode 0755 at
+`/usr/local/libexec/verdaxis/provision-bundle-reader.sh`, under root-owned parents
+that are not writable by group or other. It requires `/usr/bin/python3` (standard
+library only), `psql`, `runuser` and local PostgreSQL peer administration as
+`postgres`. Do not run a checkout-writable helper through sudo. Authorize only
+the installed helper's exact `--environment production|staging --check` command
+for the deploy operator; provisioning itself stays a separate root operation.
+
+Run for each independently approved environment before pre-M capture:
+
+```bash
+sudo -n /usr/local/libexec/verdaxis/provision-bundle-reader.sh --environment "$ENVIRONMENT"
+sudo -n /usr/local/libexec/verdaxis/provision-bundle-reader.sh --environment "$ENVIRONMENT" --check
+PRIVATE_READER_SERVICE_FILE="/etc/verdaxis-bundle-readers/$ENVIRONMENT-bundle-reader.pg_service.conf"
+```
+
+The helper creates only `verdaxis_bundle_reader[_staging]` as a plain LOGIN
+with NOINHERIT and no memberships or grants. A host-generated password is
+published atomically in that root-owned 0600 `[pre_m_reader]` service file;
+only a client-generated SCRAM verifier reaches PostgreSQL. No password is
+printed or supplied in arguments or environment. Reruns preserve the service
+bytes and role password. A retry after file publication but before role creation
+uses the saved password. A role without its service, a wrong endpoint, unsafe
+role attributes, memberships or a nonprivate path refuses; investigate rather
+than rotate or broaden authority automatically. Keep the service separate from
+runtime credentials and evidence. `--check` authenticates the exact role on
+`127.0.0.1:5432` and the canonical database without creating a role or granting.
+The deploy runs that installed check before state/source mutation or any stop.
+
+Before capture, also run the independently approved existing ACL convergence
+with `bundle_reader_role=verdaxis_bundle_reader[_staging]` for this environment.
+Provisioning intentionally grants nothing; convergence owns the retained
+`public.alembic_version` SELECT, schema USAGE and database CONNECT policy.
+Verify the capture with this private service; do not use runtime or migrator
+credentials as the capture reader.
+
 Run a trusted root-owned copy of `deploy/scripts/pre-m-bundle.sh` outside the
 checkout, with its reviewed `verify-artifact.sh` and catalog SQL siblings.
 Commands are `capture`, `verify`, `restore`, `accept`:
