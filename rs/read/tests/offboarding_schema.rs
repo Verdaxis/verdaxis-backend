@@ -172,20 +172,35 @@ fn checkpoint_requires_exact_transition() {
         assert!(known.contains(target), "unknown revision {target}");
     }
 
-    // The real validator, which the deploy uses, accepts and refuses the same
-    // pairs. The M rows are the final step of the shared chain
-    // (offboarding -> adoption) and the runtime no-change row; everything
-    // else, including the retained parent checkpoint and a wrong heads set,
-    // refuses.
+    // The M rows are not Alembic transitions: the deploy validates them
+    // through the release binary's compiled policy (`migrate run`), while the
+    // retained Alembic checkpoint rows stay under the Python validator the
+    // schema tool uses. Assert each side with its own gate.
+    let policy = verdaxis_read::cli::migrate::TransitionPolicy::compiled();
+    assert!(policy.allows(REVISION, ADOPTED), "the adoption row");
+    assert!(policy.allows(ADOPTED, ADOPTED), "the runtime no-change row");
+    // The retained offboarding self row keeps its approval: a database the
+    // schema tool paused at the head stays startable by the pre-M release.
+    assert!(policy.allows(REVISION, REVISION), "the retained self row");
+    for (current, target) in [
+        (PARENT, ADOPTED),
+        (ADOPTED, REVISION),
+        (ADOPTED, PARENT),
+        (REVISION, PARENT),
+    ] {
+        assert!(
+            !policy.allows(current, target),
+            "{current} -> {target} must refuse"
+        );
+    }
+
+    // The real Alembic validator, which the deploy uses for the schema-tool
+    // transitions, accepts and refuses the same retained rows as before M.
     let upper_parent = PARENT.to_ascii_uppercase();
     let upper_revision = REVISION.to_ascii_uppercase();
     let padded_parent = format!("{PARENT} ");
     let cases = serde_json::json!([
-        [REVISION, ADOPTED, null],
-        [ADOPTED, ADOPTED, null],
         [PARENT, REVISION, null],
-        [PARENT, ADOPTED, null],
-        [ADOPTED, REVISION, null],
         [REVISION, REVISION, null],
         ["sse_20261021_replay_floor", REVISION, null],
         ["p3_20261020_auth_tokens", REVISION, null],
@@ -198,21 +213,10 @@ fn checkpoint_requires_exact_transition() {
         [REVISION, PARENT, null],
         [PARENT, REVISION, [REVISION]],
         [PARENT, REVISION, [PARENT, REVISION]],
-        [ADOPTED, ADOPTED, [REVISION]],
-        [ADOPTED, ADOPTED, [REVISION, ADOPTED]],
     ]);
     let verdicts = checkpoint_verdicts(&cases);
     let expected_verdicts = [
-        // The two M rows are approved.
-        true, true,
-        // The retained parent checkpoint rows keep their approvals, but the
-        // parent never skips straight to the runtime revision.
-        true, false, false, false,
-        // No earlier revision, alias, case change or padding reaches the
-        // offboarding revision, and it never moves backwards.
-        false, false, false, false, false, false, false, false, false, false,
-        // A wrong heads set refuses even an approved pair.
-        false, false, false, false,
+        true, true, false, false, false, false, false, false, false, false, false, false, false,
     ];
     assert_eq!(verdicts, expected_verdicts);
 }
