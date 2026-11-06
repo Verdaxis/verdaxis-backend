@@ -4650,7 +4650,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "c4f0110bafe0c8b24d1bf7bc20484e1738c4e2ecef0bad60602ed378ebcf81ea",
+      "source_sha256": "6e4fbe8490fd28f69af44c0e584545cf4e552ea0bde2d970b55615e8ca692fbe",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -6190,7 +6190,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "f9b4b1df3bc1ce43fe2268ebc99c6cfa6a43f6eebb80768b6ed0a3bcbaf4da18",
+      "source_sha256": "d9edb9bc58bbc6b0064414c63684d99246c1f9e09946b812f74795825d50816d",
       "status": "planned",
       "evidence": [
         "m_deploy_never_restarts_the_retained_backend",
@@ -6230,7 +6230,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "78cad3d913236985e479f1cace25867834ae50a2381c7f84b3eecad2843d832f",
+      "source_sha256": "5879647683df9687c1601c409c79d89f13e69c8fc0a2247c0e99439cf7cd6b96",
       "status": "planned",
       "evidence": [
         "m_deploy_never_restarts_the_retained_backend",
@@ -6378,7 +6378,7 @@
       "end_state": "shell",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "88ac7411bbb43b9502a4640ddd6535a2ac2d1870296ed819f5de097ac6f0feb7",
+      "source_sha256": "75a7ebe2778f6fe4ef3391eee3e9b403ba701c8c0d1390ecd78bc302d7d33c37",
       "status": "planned",
       "evidence": [
         "cli_refuses_incomplete_capture_without_python",
@@ -6398,7 +6398,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "de2a0442469fa7f473365c7a858a5226d3c8281d798f899b6911c2dc093e9703",
+      "source_sha256": "6597ca511cce5abcb55b06ed20b864265d6e225f2cf6d3b9f4c1c368323ffd04",
       "status": "planned",
       "evidence": [
         "cli_refuses_incomplete_capture_without_python",
@@ -6831,6 +6831,39 @@
       "deleting_task": null,
       "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
       "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
+    },
+    {
+      "id": "window-source.deploy/scripts/provision-bundle-reader.sh",
+      "source": "deploy/scripts/provision-bundle-reader.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 7 release-window tooling; source plan only",
+      "task": 7,
+      "source_sha256": "63d3b6739fa0ac0da7714f9b9c2629df79fc42c8356f39339887e1a25a14e044",
+      "status": "planned",
+      "evidence": [
+        "production_identity_and_trusted_tool_routing"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance."
+    },
+    {
+      "id": "test-source.deploy/tests/bundle-reader-contract.sh",
+      "source": "deploy/tests/bundle-reader-contract.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 7 release-window bundle reader contract (off-host test source; never installed)",
+      "task": 7,
+      "source_sha256": "d66073e3899e847e2dacd483b11665a1806245540d232b7296783601982c58b7",
+      "status": "planned",
+      "evidence": [
+        "root_git_trust_is_limited_to_the_canonical_checkout"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the fixture checker with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
+      "offhost_location": "Repository deploy/tests/bundle-reader-contract.sh; disposable CI only, never installed on serving hosts."
     }
   ],
   "phase": "pre-removal",
