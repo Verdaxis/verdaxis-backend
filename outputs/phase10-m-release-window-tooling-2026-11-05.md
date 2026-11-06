@@ -156,7 +156,8 @@ The deploy runs that installed check before state/source mutation or any stop.
 Before capture, also run the independently approved existing ACL convergence
 with `bundle_reader_role=verdaxis_bundle_reader[_staging]` for this environment.
 Provisioning intentionally grants nothing; convergence owns the retained
-`public.alembic_version` SELECT, schema USAGE and database CONNECT policy.
+`public.alembic_version` SELECT. Existing database CONNECT and public-schema
+USAGE policy must already admit the reader; do not broaden it in this helper.
 Verify the capture with this private service; do not use runtime or migrator
 credentials as the capture reader.
 
