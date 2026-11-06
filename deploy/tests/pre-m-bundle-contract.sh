@@ -222,7 +222,7 @@ for legacy_environment in staging production; do
     database=verdaxis_prod; role_suffix=''
     if [[ $legacy_environment == staging ]]; then database=verdaxis_staging; role_suffix=_staging; fi
     legacy_file=$work/installed/legacy-$legacy_environment.env
-    printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\nDATABASE_NAME=%s\nDATABASE_USER=verdaxis_app%s\nJWT_SECRET=fixture-private-jwt-key-at-least-32-characters\nDATABASE_URL=postgresql://verdaxis_app%s:private-app-fixture@127.0.0.1:5432/%s\nMIGRATOR_DATABASE_URL=postgresql://verdaxis_migrator%s:private-migration-fixture@127.0.0.1:5432/%s\n' \
+    printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\nDATABASE_NAME=%s\nDATABASE_USER=verdaxis_app%s\nJWT_SECRET=fixture-private-jwt-key-at-least-32-characters\nJWT_ISSUER=fixture-issuer\nJWT_AUDIENCE=fixture-audience\nDATABASE_URL=postgresql://verdaxis_app%s:private-app-fixture@127.0.0.1:5432/%s\nMIGRATOR_DATABASE_URL=postgresql://verdaxis_migrator%s:private-migration-fixture@127.0.0.1:5432/%s\n' \
         "$legacy_environment" "$sha" "$database" "$role_suffix" "$role_suffix" "$database" "$role_suffix" "$database" > "$legacy_file"
     chmod 0600 "$legacy_file"
     chown 1234:1234 "$legacy_file"
@@ -244,7 +244,10 @@ for path in sys.argv[2:]:
         settings = namespace["Settings"](_env_file=path)
         assert settings.ENVIRONMENT in {"staging", "production"}
         assert settings.MIGRATOR_DATABASE_URL
-    except Exception:
+    except Exception as error:
+        if hasattr(error, "errors"):
+            for item in error.errors():
+                print("Settings field:", item["loc"], "type:", item["type"], file=sys.stderr)
         # Settings errors can contain input values. Never print them.
         raise SystemExit("FAIL restored previous-release Settings did not validate") from None
 SETTINGS
@@ -383,6 +386,16 @@ printf 'changed helper\n' > "$checkout/scripts/deploy.sh"
 if acceptance_file=$work/private/acceptance acceptance_sig=$work/private/acceptance-sig run accept --manifest-sha256 "$approval"; then exit 1; fi
 grep -q 'checkout identity or bytes differ' "$work/err"
 printf 'old helper\n' > "$checkout/scripts/deploy.sh"
+# Signed acceptance cannot waive captured migration input bytes or metadata.
+legacy_file=$work/installed/legacy-staging.env
+printf '\n' >> "$legacy_file"
+if acceptance_file=$work/private/acceptance acceptance_sig=$work/private/acceptance-sig run accept --manifest-sha256 "$approval"; then exit 1; fi
+grep -q 'bytes differ' "$work/err"
+cp "$work/private/saved-staging.env" "$legacy_file"
+chown 0:0 "$legacy_file"
+if acceptance_file=$work/private/acceptance acceptance_sig=$work/private/acceptance-sig run accept --manifest-sha256 "$approval"; then exit 1; fi
+grep -q 'metadata differs' "$work/err"
+chown 1234:1234 "$legacy_file"
 chmod 0644 "$checkout/.runtime-rust/runtime.env"
 if acceptance_file=$work/private/acceptance acceptance_sig=$work/private/acceptance-sig run accept --manifest-sha256 "$approval"; then exit 1; fi
 grep -q 'metadata differs' "$work/err"

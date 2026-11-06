@@ -148,10 +148,14 @@ The key digest is pinned in the independently approved inventory. Signed
 closure evidence binds environment, old SHA and the recomputed concrete closure
 digest, with `runtime_dependencies`, `credential_sources`, `unit_inputs` equal
 to `PASS`. Restore rechecks the read-only catalog and old compiled pin, acquires
-both stable locks with blocked state before the restart lock, withdraws old
-migrator credential routes, restores matching source/runtime/units/guards,
-monitor copy/identity, Caddy and the actual old executable. It restarts that
-Rust executable only and leaves state present for acceptance.
+both stable locks with blocked state before the restart lock, and restores
+matching source/runtime/units/guards, monitor copy/identity, Caddy and the actual
+old executable. Every private credential input, including migration URLs needed
+by the previous release, returns with its captured bytes, owner and mode before
+either backend starts. The forward M deploy still projects a Rust runtime with
+no migration authority. Restore enables the retained Python backend, restarts
+both backends, checks their exact readiness, then reloads saved Caddy bytes and
+checks public readiness and the Python route. It leaves state present for acceptance.
 
 `accept` requires signed environment/SHA/manifest/restore-nonce binding,
 current Rust InvocationID, exact-ready identity, actual `/proc/PID/exe` digest,
@@ -168,8 +172,9 @@ symlinks and unresolved native dependencies refuse. Linked Git worktrees,
 redirected metadata and local Git configuration outside the inert recovery
 allowlist also refuse. The trusted operator must quiesce other source writers;
 root recovery does not grant an untrusted deploy account concurrent mutation
-authority. Non-serving consumers must already be inactive/drained. Existing Python unit/package bytes may be retained
-but Python is not restarted. Task 31 must provide approved closure evidence and
+authority. Non-serving consumers must already be inactive/drained. The captured
+Python unit/package and credential inputs must support startup. Task 31 must
+provide approved closure evidence and
 prove actual old-release startup on the intended installed layout. These
 restrictions can require a pre-M compatibility release; local fixture success
 is not full host compatibility or installed recovery acceptance.

@@ -162,8 +162,8 @@ binary=$(file_of_kind binary); caddy=$(file_of_kind caddy)
    $(file_of_kind revision) == "$checkout/.runtime-rust/revision.json" && $(file_of_kind budget) == "$checkout/.runtime-rust/budget.json" &&
    $(file_of_kind release) == "$checkout/.runtime-release.env" && $(file_of_kind monitor_identity) == "$checkout/.runtime-monitor.env" &&
    $(file_of_kind policy) == "$checkout/.runtime-rust/$environment-policy.json" ]] || fail 'canonical release input path differs'
-# Freeze means old code has no migrator credential route. Migrator credential
-# files are escrowed but never restored. Runtime envs with such keys refuse.
+# Capture preserves the previous release inputs, including migration authority
+# required by its Settings. The forward Rust runtime projection stays separate.
 check_consumers() {
     local row unit digest
     # Bind the actual Rust-serving unit, not merely the legacy backend unit.
@@ -226,7 +226,7 @@ check_package_closure() {
     done < <(jq -r '.runtime_package_roots[]' "$work/inventory.json")
 }
 check_runtime_credentials() {
-    local row kind path runtime_url
+    local path runtime_url
     path=$(file_of_kind runtime)
     runtime_url=$(grep '^DATABASE_URL=' "$path")
     [[ $runtime_url != *$'\n'* ]] || fail 'runtime database URL repeated'
@@ -244,15 +244,6 @@ check_runtime_credentials() {
     fi
     # A legacy .env can otherwise remain as an untracked source of authority.
     [[ ! -e $checkout/.env ]] || jq -e --arg path "$checkout/.env" 'any(.files[]; .path == $path and (.kind == "credential" or .kind == "migrator_credential"))' "$work/inventory.json" >/dev/null || fail 'legacy env is not fenced or captured'
-    while IFS= read -r row; do
-        kind=$(jq -r .kind <<< "$row"); path=$(jq -r .path <<< "$row")
-        case $kind in
-            runtime|release|credential)
-                if grep -qiE '(migrator|PGSERVICE|PGPASSFILE|PGPASSWORD|PGUSER)' "$path"; then
-                    fail 'runtime still has a migrator credential reference'
-                fi ;;
-        esac
-    done < <(jq -c '.files[]' "$work/inventory.json")
 }
 # Native catalog projection is shared with sqlx. Credentials remain in an
 # independent private libpq service file, not process arguments or evidence.
@@ -504,11 +495,6 @@ fi
 if [[ $mode == restore ]]; then
     printf '%s\n' "$nonce" > "$work/nonce"
     publish "$work/nonce" "$state_dir/$environment.rollback-nonce" "$deploy_uid" "$(stat -c %g "$state_dir")" 0600
-    # Remove all old migration credential paths before any source publication.
-    while IFS= read -r path; do
-        safe_path "$path"
-        [[ ! -e $path ]] || { regular "$path"; rm -- "$path"; sync -f "$(dirname "$path")"; }
-    done < <(jq -r '.files[] | select(.kind == "migrator_credential") | .path' "$work/inventory.json")
     # Publish the complete pre-stop snapshot first. A killed stop cannot lose
     # an originally active timer, and a retry retains the same snapshot.
     timers=$state_dir/$environment.rollback-timers
@@ -578,7 +564,6 @@ if [[ $mode == restore ]]; then
     printf '%s\n' "$release" > "$work/source-ref"
     publish "$work/source-ref" "$git_dir/refs/heads/$branch" "$deploy_uid" "$(stat -c %g "$checkout")" 0644
     while IFS= read -r row; do
-        [[ $(jq -r .kind <<< "$row") != migrator_credential ]] || continue
         publish "$bundle/payload/$(jq -r .id <<< "$row")" "$(jq -r .path <<< "$row")" \
             "$(jq -r .uid <<< "$row")" "$(jq -r .gid <<< "$row")" "$(jq -r .mode <<< "$row")"
     done < <(jq -c '.files[]' "$work/manifest.json")
@@ -624,14 +609,10 @@ while IFS=$'\t' read -r metadata source_path; do
     [[ $(stat -c '%u:%g:%a:%s' "$checkout/$source_path") == "$metadata" ]] || fail 'restored source metadata differs'
 done < "$bundle/source-metadata"
 while IFS= read -r row; do
-    path=$(jq -r .path <<< "$row"); kind=$(jq -r .kind <<< "$row")
-    if [[ $kind == migrator_credential ]]; then
-        [[ ! -e $path && ! -L $path ]] || fail 'migration credential fence absent'
-    else
-        regular "$path"
-        [[ $(hash "$path") == "$(jq -r .sha256 <<< "$row")" ]] || fail 'installed release bytes differ'
-        [[ $(stat -c '%u:%g:%a:%s' "$path") == "$(jq -r '[.uid,.gid,.mode,.size] | map(tostring) | join(":")' <<< "$row")" ]] || fail 'installed release metadata differs'
-    fi
+    path=$(jq -r .path <<< "$row")
+    regular "$path"
+    [[ $(hash "$path") == "$(jq -r .sha256 <<< "$row")" ]] || fail 'installed release bytes differ'
+    [[ $(stat -c '%u:%g:%a:%s' "$path") == "$(jq -r '[.uid,.gid,.mode,.size] | map(tostring) | join(":")' <<< "$row")" ]] || fail 'installed release metadata differs'
 done < <(jq -c '.files[]' "$work/manifest.json")
 pid=$(systemctl show "$backend" -p MainPID --value)
 invocation=$(systemctl show "$backend" -p InvocationID --value)
