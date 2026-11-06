@@ -79,7 +79,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "f0aceafc2d80ebdd692d15d3c04ede68ee94a842cddc4bd637cd32b9ca5a74b6",
+      "source_sha256": "c4f0110bafe0c8b24d1bf7bc20484e1738c4e2ecef0bad60602ed378ebcf81ea",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -439,7 +439,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "3e1b7dba88b6c296e262e40139ceb55d15879b2d2d199ac106c77dceb320a99e",
+      "source_sha256": "3e296ca27ce45012d715a7204b331798e93352bfe8768a080a4dfdf05027a74b",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",

@@ -4650,7 +4650,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "f0aceafc2d80ebdd692d15d3c04ede68ee94a842cddc4bd637cd32b9ca5a74b6",
+      "source_sha256": "c4f0110bafe0c8b24d1bf7bc20484e1738c4e2ecef0bad60602ed378ebcf81ea",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -6325,7 +6325,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "3e1b7dba88b6c296e262e40139ceb55d15879b2d2d199ac106c77dceb320a99e",
+      "source_sha256": "3e296ca27ce45012d715a7204b331798e93352bfe8768a080a4dfdf05027a74b",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6360,7 +6360,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "62348fba2a98d4dfb36730bd9004d27e83802b091b54d9b334fbcdf2adf2d2c9",
+      "source_sha256": "d16bf136f44e14bc70d3766b46258b7b80e3af7fbb61b64e5f21c2760ca59ed5",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6378,7 +6378,7 @@
       "end_state": "shell",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "faa8f2e78f5e1efd9f33b6bc16ff67cb6376e153fb90198b271bc2cb08aec9c3",
+      "source_sha256": "88ac7411bbb43b9502a4640ddd6535a2ac2d1870296ed819f5de097ac6f0feb7",
       "status": "planned",
       "evidence": [
         "cli_refuses_incomplete_capture_without_python",
@@ -6592,7 +6592,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 31 disposable rehearsal; no live-host authority",
       "task": 31,
-      "source_sha256": "83297cfcb6ee50ce54f54cd7691b90b4e867a373447c3d96663d949c52a7c533",
+      "source_sha256": "73b485fb3278cdfa2faaf7aebd84d06d5b8734dedef0b694c7381a188dac75ad",
       "status": "planned",
       "evidence": [
         "every_required_scenario_has_evidence"
@@ -6626,7 +6626,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 31 disposable rehearsal; no live-host authority",
       "task": 31,
-      "source_sha256": "17ac2b4709c903748645b549380890b5d6e83fe4d2eefae215fb1a85d49f93e8",
+      "source_sha256": "6860cb27f9533a9815b625f901e1a749eae114a981ea8c2e0c5b76781dd3a795",
       "status": "planned",
       "evidence": [
         "every_required_scenario_has_evidence"
@@ -6643,7 +6643,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 31 disposable rehearsal; no live-host authority",
       "task": 31,
-      "source_sha256": "d9b9c4c56447600d063d59a8a71715dd2ec31ff6e2a24fd9eda870e9cd15dce8",
+      "source_sha256": "bb5ba2e04fb70dc2b349690350add4370b05401f88596a8ea7791f22a4ab172d",
       "status": "planned",
       "evidence": [
         "every_required_scenario_has_evidence"

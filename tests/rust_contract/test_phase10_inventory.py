@@ -89,8 +89,13 @@ def source_units(root=ROOT):
 
 
 def source_scripts(root=ROOT):
-    return sorted(str(path.relative_to(root)) for path in (root / "scripts").iterdir()
-                  if path.suffix in {".py", ".sh"})
+    # One nested script has its own disposition row (the Task 32 deletion
+    # manifest generator); the rest of scripts/rust_contract/ is off-host test
+    # tooling inventoried by group, not per file.
+    return sorted(
+        [str(path.relative_to(root)) for path in (root / "scripts").iterdir()
+         if path.suffix in {".py", ".sh"} and path.name != "rust_contract"]
+        + ["scripts/rust_contract/deletion_manifest.py"])
 
 
 def unique_rows(rows):
@@ -770,7 +775,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = 'd879052a03150c507e203d3cb401b35580ece5cc0d71c56e1ee30da730077766'
+PINNED_SOURCE_IDENTITIES = 'f2840eebb2641813fbedb260e192ff1835e66eba71cb6b258cf2d7f1b0ef7500'
 
 
 def validate_inventory_contract(ledger, manifest):
