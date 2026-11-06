@@ -337,7 +337,7 @@ def test_acl_policy_declares_only_select_insert_and_five_updates(freeze_database
         assert sql(f"SELECT has_table_privilege('{app}','{table}','DELETE')") == "f"
 
 
-def test_preparer_accepts_reviewed_production_checkpoints(tmp_path):
+def test_preparer_requires_adopted_production_baseline(tmp_path):
     from tests.unit.test_rust_release import _load_preparer
 
     preparer = _load_preparer()
@@ -352,27 +352,25 @@ def test_preparer_accepts_reviewed_production_checkpoints(tmp_path):
         "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\nRESEND_API_KEY=re_fixture_key\n"
     )
     policy = {"environment": "production", "db_session_time_zone": "UTC"}
-    assert preparer.project_runtime_environment(environment, release, REVISION, policy)["MIGRATION_REVISION"] == REVISION
-    for revision in (PARENT, "p0_20261016_union", "p5_20261020_read_indexes"):
-        assert preparer.project_runtime_environment(environment, release, revision, policy)["MIGRATION_REVISION"] == revision
-    for revision in ("kycg_20261014_staging", "prc_20261018_cache", "*", "head", "unlisted_revision"):
-        with pytest.raises(preparer.RustRuntimeError):
+    assert preparer.project_runtime_environment(environment, release, "sqlx_1", policy)["MIGRATION_REVISION"] == "sqlx_1"
+    # Retained Alembic checkpoints are upgrade inputs, not M startup revisions.
+    for revision in (*ALEMBIC_CHECKPOINTS, *NON_LITERAL_REVISIONS, "sqlx_2"):
+        with pytest.raises(preparer.RustRuntimeError, match="requires the adopted sqlx baseline"):
             preparer.project_runtime_environment(environment, release, revision, policy)
 
 
-def test_release_pin_lists_the_new_head():
+def test_release_pin_lists_only_the_adopted_baseline():
     revisions = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert revisions == ["kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", PARENT, REVISION, HEAD]
+    assert revisions == ["sqlx_1"]
     checkpoints = {tuple(line.split()) for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
                    if line and not line.startswith("#")}
     assert (PARENT, REVISION) in checkpoints
     assert (REVISION, REVISION) in checkpoints
     for path in ("rs/read/src/runtime/config.rs", "scripts/prepare_rust_runtime.py"):
         source = (ROOT / path).read_text()
-        assert f'"{REVISION}"' in source
-        assert f'"{PARENT}"' in source
+        assert '"sqlx_1"' in source
     artifact = (ROOT / "rs/read/src/runtime/artifact.rs").read_text()
-    assert f'"{REVISION}"' in artifact
+    assert '"sqlx_1"' in artifact
 
 
 @pytest.mark.parametrize("status", ["CONFIRMED", "DELIVERED", "PAID", "DECLINED", "CANCELLED"])
@@ -523,15 +521,12 @@ STAGING_ROLES = (STAGING_APP, STAGING_MIGRATOR, STAGING_BACKUP)
 DEPLOYED_DATABASES = {STAGING_DATABASE, "verdaxis_prod"}
 DEPLOYED_ROLES = {*STAGING_ROLES, "verdaxis_app", "verdaxis_migrator", "verdaxis_backup"}
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-RELEASE_ALLOWLIST = [
+RELEASE_ALLOWLIST = ["sqlx_1"]
+ALEMBIC_CHECKPOINTS = [
     "kycg_20261014_staging", "p0_20261016_union", "prc_20261018_cache",
     "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor",
     READ_INDEXES, PARENT, REVISION, HEAD,
 ]
-PRODUCTION_CHECKPOINTS = {
-    "p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens",
-    "sse_20261021_replay_floor", READ_INDEXES, PARENT, REVISION, HEAD,
-}
 NON_LITERAL_REVISIONS = ("*", "head", "heads", "", "unlisted_revision", f"{REVISION}_next")
 FREEZE_FUNCTIONS = {"trades_freeze_guard", "trade_freezes_history_guard"}
 NON_OWNER_TABLE_ACL = """
@@ -948,17 +943,13 @@ def test_release_pin_is_an_exact_equality(tmp_path):
         return preparer.project_runtime_environment(environment_file, release, revision, policy)
 
     for revision in RELEASE_ALLOWLIST:
-        if revision in PRODUCTION_CHECKPOINTS:
-            assert project("production", revision)["MIGRATION_REVISION"] == revision
-        else:
-            with pytest.raises(preparer.RustRuntimeError, match="reviewed union checkpoint"):
-                project("production", revision)
-    for revision in NON_LITERAL_REVISIONS:
-        with pytest.raises(preparer.RustRuntimeError, match="reviewed union checkpoint"):
+        assert project("production", revision)["MIGRATION_REVISION"] == revision
+    for revision in (*ALEMBIC_CHECKPOINTS, *NON_LITERAL_REVISIONS, "sqlx_2"):
+        with pytest.raises(preparer.RustRuntimeError, match="requires the adopted sqlx baseline"):
             project("production", revision)
     # The staging preparer copies the revision; the compiled Rust allowlist and the
     # checkpoint helper are the staging admission boundaries.
-    for revision in (*RELEASE_ALLOWLIST, "unlisted_revision"):
+    for revision in (*RELEASE_ALLOWLIST, *ALEMBIC_CHECKPOINTS, "unlisted_revision"):
         assert project("staging", revision)["MIGRATION_REVISION"] == revision
 
 

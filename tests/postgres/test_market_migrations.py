@@ -1312,10 +1312,10 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     """The cache checkpoints retain a linear path from production's revision.
 
     ``prc_20261026_changes`` must hang directly off ``prc_20261018_cache``,
-    which hangs directly off the revision production runs
-    (``p0_20261016_union``), and be named by the release allowlist, so the
-    literal upgrade below is the deployed cache path. Later revisions chain
-    after it; the single-head rule is pinned by the newest revision's own test.
+    which hangs directly off the retained production checkpoint
+    (``p0_20261016_union``). These literal upgrade paths remain available for
+    adoption; M startup and release metadata admit only ``sqlx_1``. Later
+    revisions chain after it; the newest revision pins the single-head rule.
     """
     database_url, _database_name = migration_database
 
@@ -1328,18 +1328,8 @@ async def test_cache_checkpoint_follows_production_revision(migration_database):
     allowlist = json.loads(
         (_BACKEND_ROOT / "deploy/rust/allowed-revisions.json").read_text()
     )
-    assert allowlist == [
-        "kycg_20261014_staging",
-        "p0_20261016_union",
-        "prc_20261018_cache",
-        "prc_20261026_changes",
-        "p3_20261020_auth_tokens",
-        "sse_20261021_replay_floor",
-        "p5_20261020_read_indexes",
-        "p89_20261022_watchlist_producer",
-        "p89_20261022_trade_freeze",
-        "ob_20261031_offboarding",
-    ]
+    # Historical upgrade paths remain reviewed; M startup admits only adoption.
+    assert allowlist == ["sqlx_1"]
     policy = (_BACKEND_ROOT / "deploy/migration-checkpoints.tsv").read_text()
     assert "prc_20261018_cache\tprc_20261026_changes" in policy
     assert "p0_20261016_union\tprc_20261026_changes" in policy
