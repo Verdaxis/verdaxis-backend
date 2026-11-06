@@ -395,6 +395,9 @@ rollback_group() {
         restore_active_timers "$group"
         return
     fi
+    # A prior attempt may have restored some or all launcher permissions.
+    # Fence again before draining so a retry starts from known ownership.
+    if [[ $(group_phase "$group") == rolling-back ]]; then refence_launchers "$group" || return; fi
     quiesce_group "$group" || return
     verify_direct_fences "$group" || return
     # Only local-monitor owns the health/backup producers and their journals.
@@ -465,16 +468,26 @@ validate_timer_inventory() {
         digest=$(jq -r --arg name "$timer" '.timers[] | select(.name == $name) | .sha256' "$INVENTORY")
         [[ -f $source && ! -L $UNIT_DIR/$timer ]] || { fail 'timer source unavailable or installed path redirected'; return 1; }
         [[ $(file_digest "$source") == "$digest" ]] || { fail 'timer digest does not bind reviewed source'; return 1; }
-        local candidate saved='' was_absent=0
+        local candidate phase saved='' was_absent=0 rolling_back=0
         for candidate in "${GROUPS_ORDER[@]}"; do
-            if [[ $(group_phase "$candidate") == rolled-back && -f $STATE_DIR/$candidate/previous/$timer ]]; then
+            phase=$(group_phase "$candidate")
+            case $phase in rolled-back|rolling-back) ;; *) continue ;; esac
+            if [[ -f $STATE_DIR/$candidate/previous/$timer ]]; then
                 verify_snapshot "$candidate" || return
                 saved=$STATE_DIR/$candidate/previous/$timer
-            elif [[ $(group_phase "$candidate") == rolled-back && -f $STATE_DIR/$candidate/absent ]] && grep -Fxq "$timer" "$STATE_DIR/$candidate/absent"; then
+            elif [[ -f $STATE_DIR/$candidate/absent ]] && grep -Fxq "$timer" "$STATE_DIR/$candidate/absent"; then
                 verify_snapshot "$candidate" || return
                 was_absent=1
+            else
+                continue
             fi
+            [[ $phase != rolling-back ]] || rolling_back=1
         done
+        # Each rename/removal can be interrupted independently. During rollback,
+        # accept only the reviewed release or that timer's verified saved state.
+        if (( rolling_back )) && [[ -f $UNIT_DIR/$timer && $(file_digest "$UNIT_DIR/$timer") == "$digest" ]]; then
+            continue
+        fi
         if (( was_absent )); then
             [[ ! -e $UNIT_DIR/$timer ]] || { fail 'previously absent timer reappeared'; return 1; }
         elif [[ -n $saved ]]; then

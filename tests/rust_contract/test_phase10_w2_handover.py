@@ -32,10 +32,11 @@ ROLLBACK_CASES = [
 ]
 
 
+@pytest.mark.parametrize("active_state", ["active", "inactive"])
 @pytest.mark.parametrize("saved_timer,point", ROLLBACK_CASES)
-def test_rollback_retry_after_interruption(tmp_path, saved_timer, point):
+def test_rollback_retry_after_interruption(tmp_path, saved_timer, point, active_state):
     result = subprocess.run(
-        ["bash", str(FIXTURE), "--rollback-interruption", point, saved_timer],
+        ["bash", str(FIXTURE), "--rollback-interruption", point, saved_timer, "", active_state],
         cwd=ROOT, env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
