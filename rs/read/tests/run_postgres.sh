@@ -272,8 +272,8 @@ export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
 # Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
 # the baseline applied by the staging migrator, then the real ACL convergence
 # with the operator role. Each ingestion case clones it as verdaxis_staging.
+# The staging migrator role is created once, above, for every template.
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_migrator_pw';
 CREATE ROLE verdaxis_backup_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_backup_pw';
 CREATE ROLE verdaxis_operator_staging LOGIN NOINHERIT PASSWORD 'disposable_operator_pw';
 CREATE DATABASE verdaxis_ingest_template OWNER verdaxis_migrator_staging;

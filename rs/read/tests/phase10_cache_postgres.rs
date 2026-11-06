@@ -13,10 +13,7 @@ use verdaxis_read::cli::ops::cache::{RECORD_NAME, Record, read_record};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const DATABASE: &str = "verdaxis_staging";
-const MIGRATOR: (&str, &str) = (
-    "verdaxis_migrator_staging",
-    "disposable_staging_migrator_pw",
-);
+const MIGRATOR: (&str, &str) = ("verdaxis_migrator_staging", "disposable_migrator_pw");
 const APP: (&str, &str) = ("verdaxis_app_staging", "disposable_staging_pw");
 
 fn admin_options() -> PgConnectOptions {
