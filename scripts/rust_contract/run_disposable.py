@@ -283,6 +283,9 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             check=True,
         )
         self.adopt_database(run)
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+               "-v", "ON_ERROR_STOP=1", "-c",
+               "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
         if not self.seed:
             return
         if self.seed_mode == "corpus":
@@ -440,9 +443,6 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             **self.urls(port),
         }
         self.migrate_and_seed(base_env)
-        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
-               "-v", "ON_ERROR_STOP=1", "-c",
-               "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
 
         python_port = ephemeral_port()
         rust_port = ephemeral_port()

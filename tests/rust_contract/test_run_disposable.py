@@ -37,6 +37,7 @@ def _runner(monkeypatch, *, seed: bool, seed_mode: str = "corpus"):
     # Drop the constructor's own `git rev-parse HEAD` probe.
     calls.clear()
     monkeypatch.setattr(runner, "adopt_database", lambda env: None)
+    monkeypatch.setattr(run_disposable, "docker", lambda *args, **kwargs: "")
     return runner, calls
 
 
@@ -310,3 +311,12 @@ def test_migration_uses_the_disposable_migrator_not_the_runtime_role(monkeypatch
     runner.migrate_and_seed(environment)
     assert captured["DATABASE_URL"] == environment["MIGRATOR_DATABASE_URL"]
     assert captured["DATABASE_URL"] != environment["DATABASE_URL"]
+
+
+def test_statistics_extension_follows_adoption_for_every_runner_consumer(monkeypatch):
+    runner, _ = _runner(monkeypatch, seed=False)
+    events = []
+    monkeypatch.setattr(runner, "adopt_database", lambda env: events.append("adopt"))
+    monkeypatch.setattr(run_disposable, "docker", lambda *args, **kwargs: events.append(args[-1]))
+    runner.migrate_and_seed(_env())
+    assert events == ["adopt", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"]
