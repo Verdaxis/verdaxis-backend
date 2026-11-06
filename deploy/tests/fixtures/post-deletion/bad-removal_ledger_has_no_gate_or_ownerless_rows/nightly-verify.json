@@ -1,0 +1,16 @@
+{
+  "monitor": {
+    "kind": "rust"
+  },
+  "artifact": {
+    "kind": "nightly",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "verdict": "accepted",
+  "checks": {
+    "archive_digest_matches_manifest": true,
+    "manifest_member_digests": true,
+    "retention_window_named": true,
+    "dump_restores_in_disposable_database": true
+  }
+}

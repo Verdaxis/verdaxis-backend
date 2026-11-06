@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "id": "artifact.app/main.py",
+      "end_state": "gone",
+      "owner": "Task 32 /mcp /admin /docs /redoc removal",
+      "status": "accepted",
+      "deletion_evidence": {
+        "path": "private-evidence-root/inventory.json"
+      }
+    },
+    {
+      "id": "script.deploy.sh",
+      "end_state": "shell",
+      "owner": "Task 7 deploy owner",
+      "status": "planned"
+    }
+  ]
+}

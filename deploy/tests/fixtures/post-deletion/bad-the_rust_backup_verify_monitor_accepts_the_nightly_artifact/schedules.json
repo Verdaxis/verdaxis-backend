@@ -1,0 +1,16 @@
+{
+  "retained": [
+    {
+      "id": "staging:verdaxis-backup.timer",
+      "expression_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "target_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "id": "production:staging-pull.timer",
+      "expression_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "target_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "added": [],
+  "removed": []
+}

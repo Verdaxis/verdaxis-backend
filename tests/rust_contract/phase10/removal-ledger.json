@@ -6737,6 +6737,54 @@
       "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
       "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
       "offhost_location": "Repository deploy/tests/rehearsal/caddy.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "test-source.deploy/tests/post-deletion-contract.sh",
+      "source": "deploy/tests/post-deletion-contract.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 33 post-deletion fixture checker (off-host test source; never installed)",
+      "task": 33,
+      "source_sha256": "02190df9e8e45933cfb5ade84f4a92bada10e075bdfe613a0b722f315fe2d77b",
+      "status": "planned",
+      "evidence": [
+        "host_inventory_is_complete_and_signed",
+        "no_python_process_unit_timer_or_cron_on_either_host",
+        "backup_and_staging_pull_schedules_are_unchanged",
+        "passive_harm_checks_are_clean_for_each_group",
+        "independent_review_findings_are_closed",
+        "removal_ledger_has_no_gate_or_ownerless_rows",
+        "deleted_paths_are_absent_on_both_hosts",
+        "the_rust_backup_verify_monitor_accepts_the_nightly_artifact"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the fixture checker with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
+      "offhost_location": "Repository deploy/tests/post-deletion-contract.sh; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
+      "id": "test-source.tests/rust_contract/test_phase10_post_deletion.py",
+      "source": "tests/rust_contract/test_phase10_post_deletion.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 33 post-deletion fixture contract (off-host test source; never installed)",
+      "task": 33,
+      "source_sha256": "9eccc2815eb07afbf18d5cad6bc8097aafc11c1497517d14c0ee777fe367c81d",
+      "status": "planned",
+      "evidence": [
+        "host_inventory_is_complete_and_signed",
+        "no_python_process_unit_timer_or_cron_on_either_host",
+        "backup_and_staging_pull_schedules_are_unchanged",
+        "passive_harm_checks_are_clean_for_each_group",
+        "independent_review_findings_are_closed",
+        "removal_ledger_has_no_gate_or_ownerless_rows",
+        "deleted_paths_are_absent_on_both_hosts",
+        "the_rust_backup_verify_monitor_accepts_the_nightly_artifact"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the fixture contract with the signed release source; no installed application dependency.",
+      "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_post_deletion.py; CI and disposable test environments only, never installed on serving hosts."
     }
   ],
   "phase": "pre-removal",
