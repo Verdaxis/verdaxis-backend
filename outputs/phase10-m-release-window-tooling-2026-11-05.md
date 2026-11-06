@@ -123,6 +123,43 @@ mismatch. No timer was invented or silently enabled to satisfy a count.
 
 ### Protected pre-M bundle
 
+Before capture, install the reviewed `deploy/scripts/provision-bundle-reader.sh`
+as root-owned mode 0755 at
+`/usr/local/libexec/verdaxis/provision-bundle-reader.sh`, under root-owned parents
+that are not writable by group or other. It requires `/usr/bin/python3` (standard
+library only), `psql`, `runuser` and local PostgreSQL peer administration as
+`postgres`. Do not run a checkout-writable helper through sudo. Authorize only
+the installed helper's exact `--environment production|staging --check` command
+for the deploy operator; provisioning itself stays a separate root operation.
+
+Run for each independently approved environment before pre-M capture:
+
+```bash
+sudo -n /usr/local/libexec/verdaxis/provision-bundle-reader.sh --environment "$ENVIRONMENT"
+sudo -n /usr/local/libexec/verdaxis/provision-bundle-reader.sh --environment "$ENVIRONMENT" --check
+PRIVATE_READER_SERVICE_FILE="/etc/verdaxis-bundle-readers/$ENVIRONMENT-bundle-reader.pg_service.conf"
+```
+
+The helper creates only `verdaxis_bundle_reader[_staging]` as a plain LOGIN
+with NOINHERIT and no memberships or grants. A host-generated password is
+published atomically in that root-owned 0600 `[pre_m_reader]` service file;
+only a client-generated SCRAM verifier reaches PostgreSQL. No password is
+printed or supplied in arguments or environment. Reruns preserve the service
+bytes and role password. A retry after file publication but before role creation
+uses the saved password. A role without its service, a wrong endpoint, unsafe
+role attributes, memberships or a nonprivate path refuses; investigate rather
+than rotate or broaden authority automatically. Keep the service separate from
+runtime credentials and evidence. `--check` authenticates the exact role on
+`127.0.0.1:5432` and the canonical database without creating a role or granting.
+The deploy runs that installed check before state/source mutation or any stop.
+
+Before capture, also run the independently approved existing ACL convergence
+with `bundle_reader_role=verdaxis_bundle_reader[_staging]` for this environment.
+Provisioning intentionally grants nothing; convergence owns the retained
+`public.alembic_version` SELECT, schema USAGE and database CONNECT policy.
+Verify the capture with this private service; do not use runtime or migrator
+credentials as the capture reader.
+
 Run a trusted root-owned copy of `deploy/scripts/pre-m-bundle.sh` outside the
 checkout, with its reviewed `verify-artifact.sh` and catalog SQL siblings.
 Commands are `capture`, `verify`, `restore`, `accept`:
@@ -148,10 +185,14 @@ The key digest is pinned in the independently approved inventory. Signed
 closure evidence binds environment, old SHA and the recomputed concrete closure
 digest, with `runtime_dependencies`, `credential_sources`, `unit_inputs` equal
 to `PASS`. Restore rechecks the read-only catalog and old compiled pin, acquires
-both stable locks with blocked state before the restart lock, withdraws old
-migrator credential routes, restores matching source/runtime/units/guards,
-monitor copy/identity, Caddy and the actual old executable. It restarts that
-Rust executable only and leaves state present for acceptance.
+both stable locks with blocked state before the restart lock, and restores
+matching source/runtime/units/guards, monitor copy/identity, Caddy and the actual
+old executable. Every private credential input, including migration URLs needed
+by the previous release, returns with its captured bytes, owner and mode before
+either backend starts. The forward M deploy still projects a Rust runtime with
+no migration authority. Restore enables the retained Python backend, restarts
+both backends, checks their exact readiness, then reloads saved Caddy bytes and
+checks public readiness and the Python route. It leaves state present for acceptance.
 
 `accept` requires signed environment/SHA/manifest/restore-nonce binding,
 current Rust InvocationID, exact-ready identity, actual `/proc/PID/exe` digest,
@@ -168,8 +209,9 @@ symlinks and unresolved native dependencies refuse. Linked Git worktrees,
 redirected metadata and local Git configuration outside the inert recovery
 allowlist also refuse. The trusted operator must quiesce other source writers;
 root recovery does not grant an untrusted deploy account concurrent mutation
-authority. Non-serving consumers must already be inactive/drained. Existing Python unit/package bytes may be retained
-but Python is not restarted. Task 31 must provide approved closure evidence and
+authority. Non-serving consumers must already be inactive/drained. The captured
+Python unit/package and credential inputs must support startup. Task 31 must
+provide approved closure evidence and
 prove actual old-release startup on the intended installed layout. These
 restrictions can require a pre-M compatibility release; local fixture success
 is not full host compatibility or installed recovery acceptance.

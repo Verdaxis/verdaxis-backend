@@ -31,3 +31,5 @@ deploy/tests/rehearsal/w5.sh
 deploy/tests/final-measure.sh
 deploy/tests/deletion-contract.sh
 deploy/tests/post-deletion-contract.sh
+deploy/scripts/provision-bundle-reader.sh
+deploy/tests/bundle-reader-contract.sh

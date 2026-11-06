@@ -281,6 +281,7 @@
 - **Trigger:** Review found that a mocked backup writer concealed `pg_dump` bypassing `gzip.GzipFile`, while deploy and installer tests did not prove checkout/identity alignment or byte-safe rollback.
 - **Rule:** For subprocess streams and artifact promotion, add regression tests using real child processes and real staged filesystem transactions; never infer correctness from callback writes, self-reported contracts, or metadata-only rollback.
 - **Why:** File-descriptor inheritance and partial promotion behave below the mocked API boundary, so unit-shaped tests can report green while publishing corrupt or provenance-ambiguous artifacts.
+- **2026-11-06:** Recovery must restore the previous release's complete private inputs, not the forward release's reduced authority set. Validate previous-release Settings with restored files, and test interruptions in both directions after a completed rollback. Ownership fixtures must reach each checkpoint as root and non-root.
 
 ### Keep Operational Branches Inside Their Owner Boundary
 - **Date:** 2026-07-20
