@@ -331,12 +331,17 @@ run_group() {
         jq -e '.groups.demo.market_groups_accepted == true' "$EVIDENCE" >/dev/null || { fail 'demo requires market-group acceptance before any run'; return 1; }
     fi
     check_order "$group" || return
-    [[ $(group_phase "$group") == captured || $(group_phase "$group") == rolled-back ]] || { fail 'group is not ready for a run'; return 1; }
+    local phase
+    phase=$(group_phase "$group")
+    case $phase in captured|rolled-back|advancing) ;; *) fail 'group is not ready for a run'; return 1 ;; esac
+    # Mark the transition before changing any saved ownership or unit bytes.
+    # No job runs in this phase, so publication can be repeated after a stop.
+    if [[ $phase == rolled-back ]]; then set_phase "$group" advancing || return; phase=advancing; fi
+    if [[ $phase == advancing ]]; then refence_launchers "$group" || return; fi
     quiesce_group "$group" || return
-    if [[ $(group_phase "$group") == rolled-back ]]; then refence_launchers "$group" || return; fi
     verify_direct_fences "$group" || return
     capture_launcher_permissions "$group" || return
-    if [[ $(group_phase "$group") == rolled-back ]]; then publish_native_group "$group" || return; fi
+    if [[ $phase == advancing ]]; then publish_native_group "$group" || return; fi
     set_phase "$group" running || return
     : > "$STATE_DIR/$group/runs.tsv" || return
     while IFS= read -r unit; do
@@ -386,7 +391,7 @@ rollback_group() {
         if [[ $candidate == "$group" ]]; then seen=1; continue; fi
         if (( seen )); then
             phase=$(group_phase "$candidate")
-            case $phase in running|awaiting-acceptance|accepted|rolling-back) fail 'roll back dependent later groups first'; return 1 ;; esac
+            case $phase in advancing|running|awaiting-acceptance|accepted|rolling-back) fail 'roll back dependent later groups first'; return 1 ;; esac
         fi
     done
     verify_snapshot "$group" || return
@@ -397,7 +402,9 @@ rollback_group() {
     fi
     # A prior attempt may have restored some or all launcher permissions.
     # Fence again before draining so a retry starts from known ownership.
-    if [[ $(group_phase "$group") == rolling-back ]]; then refence_launchers "$group" || return; fi
+    case $(group_phase "$group") in
+        advancing|rolling-back) refence_launchers "$group" || return ;;
+    esac
     quiesce_group "$group" || return
     verify_direct_fences "$group" || return
     # Only local-monitor owns the health/backup producers and their journals.
@@ -468,10 +475,10 @@ validate_timer_inventory() {
         digest=$(jq -r --arg name "$timer" '.timers[] | select(.name == $name) | .sha256' "$INVENTORY")
         [[ -f $source && ! -L $UNIT_DIR/$timer ]] || { fail 'timer source unavailable or installed path redirected'; return 1; }
         [[ $(file_digest "$source") == "$digest" ]] || { fail 'timer digest does not bind reviewed source'; return 1; }
-        local candidate phase saved='' was_absent=0 rolling_back=0
+        local candidate phase saved='' was_absent=0 transitioning=0
         for candidate in "${GROUPS_ORDER[@]}"; do
             phase=$(group_phase "$candidate")
-            case $phase in rolled-back|rolling-back) ;; *) continue ;; esac
+            case $phase in rolled-back|rolling-back|advancing) ;; *) continue ;; esac
             if [[ -f $STATE_DIR/$candidate/previous/$timer ]]; then
                 verify_snapshot "$candidate" || return
                 saved=$STATE_DIR/$candidate/previous/$timer
@@ -481,11 +488,11 @@ validate_timer_inventory() {
             else
                 continue
             fi
-            [[ $phase != rolling-back ]] || rolling_back=1
+            [[ $phase == rolled-back ]] || transitioning=1
         done
-        # Each rename/removal can be interrupted independently. During rollback,
-        # accept only the reviewed release or that timer's verified saved state.
-        if (( rolling_back )) && [[ -f $UNIT_DIR/$timer && $(file_digest "$UNIT_DIR/$timer") == "$digest" ]]; then
+        # Each publication can stop independently in either direction. Accept
+        # only the reviewed release or that timer's verified saved state.
+        if (( transitioning )) && [[ -f $UNIT_DIR/$timer && $(file_digest "$UNIT_DIR/$timer") == "$digest" ]]; then
             continue
         fi
         if (( was_absent )); then

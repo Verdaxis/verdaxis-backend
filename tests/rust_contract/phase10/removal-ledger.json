@@ -6230,7 +6230,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
-      "source_sha256": "5879647683df9687c1601c409c79d89f13e69c8fc0a2247c0e99439cf7cd6b96",
+      "source_sha256": "7598785331e84f336914b1aabe0e9ffa01551e1d3fe690476141a1f8029ef5e8",
       "status": "planned",
       "evidence": [
         "m_deploy_never_restarts_the_retained_backend",
@@ -6325,7 +6325,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "3e296ca27ce45012d715a7204b331798e93352bfe8768a080a4dfdf05027a74b",
+      "source_sha256": "7c2384ec5ca414074f81a1dafa75c1693ea001c6fb5c2cdd85d4c907c5278c8f",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6342,7 +6342,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "d183e1ddb30163e1ab8d8fedc3d272e137299b6da58ca92223d1b51626f1b90f",
+      "source_sha256": "f64de8ae9b596c644e3c7c827d6a1963419770aa76e6acb66e3e6c208389bc6d",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6360,7 +6360,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "d16bf136f44e14bc70d3766b46258b7b80e3af7fbb61b64e5f21c2760ca59ed5",
+      "source_sha256": "c22f94ab76305aeac600bc5ef364a72bd9e0ad4922cf2f9fc298bd134d82036c",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6842,27 +6842,27 @@
       "source_sha256": "63d3b6739fa0ac0da7714f9b9c2629df79fc42c8356f39339887e1a25a14e044",
       "status": "planned",
       "evidence": [
-        "production_identity_and_trusted_tool_routing"
+        "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence"
       ],
       "deleting_task": null,
       "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
       "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance."
     },
     {
-      "id": "test-source.deploy/tests/bundle-reader-contract.sh",
+      "id": "window-source.deploy/tests/bundle-reader-contract.sh",
       "source": "deploy/tests/bundle-reader-contract.sh",
       "kind": "script",
       "end_state": "retired-offhost",
-      "owner": "Task 7 release-window bundle reader contract (off-host test source; never installed)",
+      "owner": "Task 7 release-window tooling; source plan only",
       "task": 7,
       "source_sha256": "d66073e3899e847e2dacd483b11665a1806245540d232b7296783601982c58b7",
       "status": "planned",
       "evidence": [
-        "root_git_trust_is_limited_to_the_canonical_checkout"
+        "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence"
       ],
       "deleting_task": null,
-      "rollback": "Retain the fixture checker with the signed release source; no installed application dependency.",
-      "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
+      "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
+      "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
       "offhost_location": "Repository deploy/tests/bundle-reader-contract.sh; disposable CI only, never installed on serving hosts."
     }
   ],

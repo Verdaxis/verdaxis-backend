@@ -730,6 +730,8 @@ SUPPLEMENTAL_GROUPS = {
         'window-source.deploy/tests/w2-handover-contract.sh': 'deploy/tests/w2-handover-contract.sh',
         'window-source.tests/rust_contract/test_phase10_w2_handover.py': 'tests/rust_contract/test_phase10_w2_handover.py',
         'window-source.deploy/scripts/pre-m-bundle.sh': 'deploy/scripts/pre-m-bundle.sh',
+        'window-source.deploy/scripts/provision-bundle-reader.sh': 'deploy/scripts/provision-bundle-reader.sh',
+        'window-source.deploy/tests/bundle-reader-contract.sh': 'deploy/tests/bundle-reader-contract.sh',
         'window-source.deploy/scripts/safe-root-git.sh': 'deploy/scripts/safe-root-git.sh',
         'window-source.tests/rust_contract/test_phase10_safe_git.py': 'tests/rust_contract/test_phase10_safe_git.py',
         'window-source.deploy/tests/pre-m-bundle-contract.sh': 'deploy/tests/pre-m-bundle-contract.sh',
@@ -775,7 +777,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '4365c4c4c63fafe2acdf9e8620c3f9a2c7380f42c919329f1315b6478d2ae3b1'
+PINNED_SOURCE_IDENTITIES = 'af0d7b68ebc6544c1411e59291b926345275045ad99b0504b81e1361932a010b'
 
 
 def validate_inventory_contract(ledger, manifest):
@@ -808,7 +810,7 @@ def validate_inventory_contract(ledger, manifest):
 
 def test_phase10_release_window_sources_remain_planned_and_offhost_except_shell_helpers():
     ledger = unique_rows(document("removal-ledger")["artifacts"])
-    retained_helpers = {"scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh", "deploy/scripts/safe-root-git.sh"}
+    retained_helpers = {"scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh", "deploy/scripts/safe-root-git.sh", "deploy/scripts/provision-bundle-reader.sh"}
     for identity, source in SUPPLEMENTAL_GROUPS["release-window"].items():
         row = ledger[identity]
         assert row["status"] == "planned", "source integration is not installed acceptance"
