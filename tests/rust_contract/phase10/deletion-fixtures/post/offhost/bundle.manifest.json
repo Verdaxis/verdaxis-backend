@@ -1,0 +1,11 @@
+{
+ "schema_version": 1,
+ "storage": "private-evidence-root:offhost-tools/offhost-tools-bundle.tar",
+ "members": [
+  {
+   "path": "tests/unit/test_app_report.py",
+   "sha256": "8f8c97661ccf72cc7e45d1b1a638285420a588ae3abb7c3bc8dc80ed47962abc",
+   "reason": "imports the deleted application; retained off-host for audit"
+  }
+ ]
+}

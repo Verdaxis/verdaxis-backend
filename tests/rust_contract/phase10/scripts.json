@@ -357,6 +357,23 @@
       "retirement_reason": "Builds generated Caddy candidates for the staged read-route cutovers. Committed per-group snippets and a Caddy validate step replace generated candidates, so it stays only for CI and audit."
     },
     {
+      "id": "script.scripts/rust_contract/deletion_manifest.py",
+      "source": "scripts/rust_contract/deletion_manifest.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 32 deletion manifest owner",
+      "task": 32,
+      "source_sha256": "e3b8a455cb395612d495748302c2a29a1038a94907534d2f5e13ed6c83f12b54",
+      "status": "planned",
+      "evidence": [
+        "python_tests_that_import_app_are_removed_or_offhost"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "Repository scripts/rust_contract/deletion_manifest.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
       "id": "script.rust_passive_no_harm.py",
       "source": "scripts/rust_passive_no_harm.py",
       "kind": "script",

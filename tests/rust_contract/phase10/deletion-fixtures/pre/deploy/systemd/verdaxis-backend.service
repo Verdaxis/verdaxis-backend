@@ -1,0 +1,15 @@
+[Unit]
+Description=Verdaxis Backend API (fixture)
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fixture-verdaxis
+WorkingDirectory=/home/fixture/verdaxis/be
+EnvironmentFile=/home/fixture/verdaxis/be/.env
+ExecStartPre=/home/fixture/verdaxis/be/venv/bin/python scripts/verify_migration_revision.py --expected ${MIGRATION_REVISION}
+ExecStart=/home/fixture/verdaxis/be/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

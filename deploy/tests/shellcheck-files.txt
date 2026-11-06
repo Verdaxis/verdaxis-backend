@@ -28,3 +28,4 @@ deploy/tests/rehearsal-ci-setup.sh
 deploy/tests/rehearsal/driver.sh
 deploy/tests/rehearsal/schedules.sh
 deploy/tests/rehearsal/w5.sh
+deploy/tests/deletion-contract.sh

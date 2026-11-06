@@ -171,9 +171,10 @@ def test_phase10_units_are_exactly_41():
 
 def test_phase10_scripts_are_exactly_43():
     rows = document("scripts")["artifacts"]
-    # The release-window additions are the off-host Caddy planner and W2 shell helper.
-    assert len(rows) == 43, "missing script disposition rows"
-    assert sum(row["source"].endswith(".py") for row in rows) == 37
+    # The release-window additions are the off-host Caddy planner and W2 shell
+    # helper; Task 32 adds the deletion manifest generator and its contract.
+    assert len(rows) == 44, "missing script disposition rows"
+    assert sum(row["source"].endswith(".py") for row in rows) == 38
     assert sum(row["source"].endswith(".sh") for row in rows) == 6
     ledger = document("removal-ledger")
     if ledger["phase"] == "pre-removal":
