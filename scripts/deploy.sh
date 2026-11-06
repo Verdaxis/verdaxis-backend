@@ -64,7 +64,9 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     unset DATABASE_URL MIGRATOR_DATABASE_URL DATABASE_HOST DATABASE_PORT \
         DATABASE_NAME DATABASE_USER DATABASE_PASSWORD
     BINARY_ENV=(/usr/bin/env -i PATH="$PATH")
-    GIT=(/usr/bin/git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$BACKEND_DIR/deploy/scripts/safe-root-git.sh"
+    GIT=(safe_root_git "$BACKEND_DIR")
     DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"
     if [[ -n "${TARGET_BRANCH:-}" && "$TARGET_BRANCH" != "$DEFAULT_BRANCH" ]]; then
         echo "Canonical deploy checkout refuses a different target branch." >&2
@@ -72,8 +74,14 @@ if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]; then
     fi
     TARGET_BRANCH="$DEFAULT_BRANCH"
 else
+    # Ambient Git routing must stay inert outside the canonical layout too;
+    # the boundary helper also clears it inside its own subshell.
+    # shellcheck disable=SC2031
     export GIT_NO_REPLACE_OBJECTS=1
-    GIT=(git -c "safe.directory=$BACKEND_DIR" -c core.hooksPath=/dev/null)
+    # Disposable fixtures use the same Git boundary as deployed checkouts.
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$BACKEND_DIR/deploy/scripts/safe-root-git.sh"
+    GIT=(safe_root_git "$BACKEND_DIR")
     DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-$BACKEND_DIR/.runtime-deploy}"
     TARGET_BRANCH="${TARGET_BRANCH:-$DEFAULT_BRANCH}"
     BINARY_ENV=(/usr/bin/env)
@@ -104,6 +112,36 @@ RUST_POLICY_PATH="deploy/rust/$DEPLOY_ENVIRONMENT-policy.json"
 # push, so both environments bind provenance to that one ref. The
 # repository, workflow path, exact commit and attestation checks stay exact.
 RUST_WORKFLOW_REF="refs/heads/staging"
+HOSTED_REHEARSAL=0
+ARTIFACT_VERIFIER_ENV=("${BINARY_ENV[@]}")
+if [[ -n ${REHEARSAL_WORKFLOW_REF:-} ]]; then
+    # Preserve the actual attested feature ref only inside the disposable VM.
+    # Normal deploys remain bound to the promoted staging artifact.
+    [[ ${CI:-} == true && ${GITHUB_ACTIONS:-} == true &&
+       ${RUNNER_ENVIRONMENT:-} == github-hosted &&
+       ( $EUID == 0 || ( $EUID == "$(id -u verdaxis-prod)" && $EUID == "$(stat -c %u "$BACKEND_DIR")" ) ) &&
+       ${VERDAXIS_DISPOSABLE_DEPLOY:-} == 1 && $(uname -s) == Linux &&
+       $(</proc/1/comm) == systemd &&
+       $REHEARSAL_WORKFLOW_REF =~ ^refs/heads/[A-Za-z0-9._/-]+$ &&
+       ${GITHUB_RUN_ID:-} =~ ^[0-9]+$ &&
+       ${REHEARSAL_CHECKOUT:-} == "$BACKEND_DIR" &&
+       $BACKEND_DIR =~ ^/home/verdaxis-prod/verdaxis/(prod|staging)/be$ &&
+       -f /run/verdaxis-disposable-rehearsal && ! -L /run/verdaxis-disposable-rehearsal &&
+       $(stat -c '%u:%a' /run/verdaxis-disposable-rehearsal) == 0:644 ]] || {
+        printf 'Disposable artifact source requires a hosted rehearsal.\n' >&2
+        exit 2
+    }
+    grep -Fxq "$GITHUB_RUN_ID:$BACKEND_DIR" /run/verdaxis-disposable-rehearsal || {
+        printf 'Disposable source marker differs.\n' >&2
+        exit 2
+    }
+    RUST_WORKFLOW_REF=$REHEARSAL_WORKFLOW_REF
+    HOSTED_REHEARSAL=1
+    # These values reach only the trusted verifier, never a candidate binary.
+    ARTIFACT_VERIFIER_ENV+=(CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted
+        VERDAXIS_DISPOSABLE_DEPLOY=1 "REHEARSAL_WORKFLOW_REF=$REHEARSAL_WORKFLOW_REF"
+        "REHEARSAL_CHECKOUT=$REHEARSAL_CHECKOUT" "GITHUB_RUN_ID=$GITHUB_RUN_ID")
+fi
 RUST_PROVENANCE_KEY_PATH="deploy/rust/artifact-provenance.pub.pem"
 RUST_ARTIFACT_VERIFIER_PATH="deploy/scripts/verify-artifact.sh"
 RUST_UNIT_NAME="verdaxis-rust-staging.service"
@@ -175,7 +213,16 @@ publication_boundary() {
         sync -f "$DEPLOY_PUBLICATION_LOG"
     fi
     if [[ -n "$DEPLOY_KILL_POINT" ]]; then
-        if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" || "${VERDAXIS_DISPOSABLE_DEPLOY:-}" != "1" ]]; then
+        local hosted_rehearsal=0
+        if [[ ${CI:-} == true && ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted &&
+              ( $EUID == 0 || ( $EUID == "$(id -u verdaxis-prod)" && $EUID == "$(stat -c %u "$BACKEND_DIR")" ) ) && $(uname -s) == Linux && $(</proc/1/comm) == systemd &&
+              -f /run/verdaxis-disposable-rehearsal && ! -L /run/verdaxis-disposable-rehearsal &&
+              $(stat -c '%u:%a' /run/verdaxis-disposable-rehearsal) == 0:644 ]]; then
+            if grep -Fxq "${GITHUB_RUN_ID:-missing}:$BACKEND_DIR" /run/verdaxis-disposable-rehearsal; then
+                hosted_rehearsal=1
+            fi
+        fi
+        if [[ ( "$CANONICAL_DEPLOY_LAYOUT" == "1" && $hosted_rehearsal == 0 ) || "${VERDAXIS_DISPOSABLE_DEPLOY:-}" != "1" ]]; then
             echo "Publication kill points require a disposable checkout." >&2; exit 2
         fi
         if [[ "$DEPLOY_KILL_POINT" == "$side:$name" ]]; then
@@ -361,6 +408,19 @@ resolve_provenance_public_key() {
     local tree_key="$BACKEND_DIR/$RUST_PROVENANCE_KEY_PATH"
     local expected_digest host_digest
 
+    if [[ -n ${REHEARSAL_PUBLIC_KEY:-} ]]; then
+        # The hosted VM uses its own key, not the serving-host release key.
+        # HOSTED_REHEARSAL is set only after the complete marker/ref gate above.
+        [[ $HOSTED_REHEARSAL == 1 && $REHEARSAL_PUBLIC_KEY == /etc/verdaxis/artifact-provenance.pub.pem &&
+           -f $REHEARSAL_PUBLIC_KEY && ! -L $REHEARSAL_PUBLIC_KEY &&
+           $(stat -c '%u:%a' "$REHEARSAL_PUBLIC_KEY") == 0:644 &&
+           ! -L /etc/verdaxis && $(stat -c '%u:%a' /etc/verdaxis) == 0:755 ]] || {
+            printf 'Disposable provenance key requires the hosted rehearsal.\n' >&2
+            exit 2
+        }
+        PROVENANCE_PUBLIC_KEY_PATH=$REHEARSAL_PUBLIC_KEY
+        return 0
+    fi
     expected_digest="$("${GIT[@]}" show "$source_sha:$RUST_PROVENANCE_KEY_PATH" \
         | sha256sum | awk '{print $1}')"
     if [[ -e "$HOST_PROVENANCE_KEY_PATH" ]]; then
@@ -410,7 +470,7 @@ verify_rust_artifact_for_release() {
     done
     resolve_provenance_public_key "$source_sha"
     echo "+ verify the separately approved Rust artifact"
-    if ! "${BINARY_ENV[@]}" bash "$RUST_ARTIFACT_VERIFIER_PATH" \
+    if ! "${ARTIFACT_VERIFIER_ENV[@]}" bash "$RUST_ARTIFACT_VERIFIER_PATH" \
         --archive "$RUST_ARTIFACT_ARCHIVE" \
         --source-sha "$source_sha" \
         --workflow-ref "$RUST_WORKFLOW_REF" \

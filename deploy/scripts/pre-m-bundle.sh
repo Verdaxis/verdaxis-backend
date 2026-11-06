@@ -66,6 +66,7 @@ if [[ $mode == capture ]]; then
     [[ -n $inventory ]] || fail 'inventory required'
     deploy_uid=0
     private_file "$inventory"
+    (( $(stat -c %s "$inventory") <= 64 * 1024 * 1024 )) || fail 'inventory exceeds bounded size'
     [[ $approval =~ ^[0-9a-f]{64}$ && $(hash "$inventory") == "$approval" ]] || fail 'independently approved inventory digest required'
     cp -- "$inventory" "$work/inventory.json"
 else
@@ -80,7 +81,7 @@ fi
 jq -e --arg env "$environment" --arg sha "$release" '
     . as $inventory | .schema == 1 and .environment == $env and .release_sha == $sha and
     (.checkout | type == "string") and (.deploy_uid | type == "number") and
-    (.files | type == "array" and length > 0 and length < 4096) and
+    (.files | type == "array" and length > 0 and length <= 131072) and
     (.timers | type == "array") and (.jobs | type == "array") and
     (.backend_unit | test("^verdaxis-[a-z0-9-]+\\.service$")) and
     (.ready_url | test("^https://api(-staging)?\\.verdaxis\\.exchange/health/ready$")) and
@@ -124,20 +125,35 @@ safe_path "$checkout/.git"
 [[ -d $checkout/.git && ! -L $checkout/.git ]] || fail 'canonical Git directory must be a real directory'
 for git_input in config index HEAD objects refs; do safe_path "$checkout/.git/$git_input"; done
 [[ ! -e $checkout/.git/objects/info/alternates ]] || fail 'Git object alternates are unsupported'
-git_configuration=$(git config --file "$checkout/.git/config" --no-includes --list) || fail 'Git local configuration is unreadable'
-while IFS= read -r config_line; do
-    [[ -n $config_line ]] || continue
-    config_name=${config_line%%=*}
-    case $config_name in
-        core.repositoryformatversion|core.filemode|core.bare|core.logallrefupdates|remote.origin.url|remote.origin.fetch|branch.staging.remote|branch.staging.merge|branch.prod.remote|branch.prod.merge) ;;
-        *) fail 'Git configuration outside the inert recovery allowlist' ;;
-    esac
-done <<< "$git_configuration"
+# The installed bundle tooling includes this sibling trusted helper.
+trusted_helper=$(dirname "$(realpath -e "${BASH_SOURCE[0]}")")/safe-root-git.sh
+regular "$trusted_helper"
+trusted_parent=$trusted_helper
+while [[ $trusted_parent != / ]]; do
+    [[ ! -L $trusted_parent && $(stat -c %u "$trusted_parent") == 0 ]] || fail 'installed Git helper must be root controlled'
+    trusted_permissions=$(stat -c %a "$trusted_parent")
+    (( (8#$trusted_permissions & 0022) == 0 )) || fail 'installed Git helper must not be writable by other users'
+    trusted_parent=$(dirname "$trusted_parent")
+done
+# shellcheck source=deploy/scripts/safe-root-git.sh
+source "$trusted_helper"
+safe_root_git "$checkout" rev-parse --git-dir >/dev/null || fail 'Git configuration outside the inert recovery allowlist'
 state_dir=$checkout/.runtime-deploy
 state=$state_dir/$environment.state
 backend=$(jq -r .backend_unit "$work/inventory.json")
 [[ $backend == verdaxis-rust.service && $environment == production || $backend == verdaxis-rust-staging.service && $environment == staging ]] || fail 'actual old Rust service required'
 ready=$(jq -r .ready_url "$work/inventory.json")
+python_backend=verdaxis-backend.service
+python_ready=http://127.0.0.1:8000/health/ready
+rust_ready=http://127.0.0.1:8010/health/ready
+if [[ $environment == staging ]]; then
+    [[ $ready == https://api-staging.verdaxis.exchange/health/ready ]] || fail 'staging readiness URL differs'
+    python_backend=verdaxis-backend-staging.service
+    python_ready=http://127.0.0.1:8001/health/ready
+    rust_ready=http://127.0.0.1:8011/health/ready
+else
+    [[ $ready == https://api.verdaxis.exchange/health/ready ]] || fail 'production readiness URL differs'
+fi
 final_alembic=$(jq -r .final_alembic "$work/inventory.json")
 file_of_kind() {
     jq -er --arg kind "$1" '[.files[] | select(.kind == $kind) | .path] | if length == 1 then .[0] else error("one file required") end' "$work/inventory.json"
@@ -175,10 +191,28 @@ check_consumers() {
         # present in the approved inventory (source files are captured as Git).
         while IFS= read -r input; do
             if [[ $input == "$checkout" ]]; then continue; fi
-            if [[ $input == "$checkout/"* ]] && git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-files --error-unmatch "${input#"$checkout/"}" >/dev/null 2>&1; then continue; fi
+            if [[ $input == "$checkout/"* ]] && safe_root_git "$checkout" ls-files --error-unmatch "${input#"$checkout/"}" >/dev/null 2>&1; then continue; fi
             case $input in
+                /var/lib/verdaxis-health/status.json|/var/lib/verdaxis-backup-verify/status.json|/home/verdaxis-prod/backups|/home/verdaxis-prod/backups/status.json|/home/verdaxis-prod/backups/attempts)
+                    # These exact old monitor arguments are durable output or
+                    # backup-state locations, not executable/credential inputs.
+                    # Never capture and rewind status/journal state on restore.
+                    safe_path "$input"
+                    jq -e --arg path "$input" '.durable_outputs | index($path) != null' "$work/inventory.json" >/dev/null || fail 'durable monitor state is not approved'
+                    if [[ -e $input ]]; then
+                        [[ -f $input || -d $input ]] || fail 'durable monitor state type differs'
+                        [[ $(stat -c %u "$input") =~ ^[0-9]+$ ]] || fail 'durable monitor state owner missing'
+                    fi
+                    continue ;;
                 /usr/bin/*|/bin/*|/usr/lib/*)
-                    jq -e --arg path "$input" 'any(.native_dependency_files[]; .path == $path)' "$work/inventory.json" >/dev/null || fail 'native consumer executable not in dependency closure'
+                    # Distribution executable aliases
+                    # may be links. Bind the alias chain and resolved regular
+                    # bytes separately; never dereference an unreviewed alias.
+                    resolved=$(readlink -f -- "$input") || fail 'native input cannot resolve'
+                    jq -e --arg path "$resolved" 'any(.native_dependency_files[]; .path == $path)' "$work/inventory.json" >/dev/null || fail 'native consumer executable not in dependency closure'
+                    if [[ $resolved != "$input" ]]; then
+                        jq -e --arg path "$input" --arg resolved "$resolved" 'any(.native_dependency_aliases[]?; .path == $path and .resolved == $resolved)' "$work/inventory.json" >/dev/null || fail 'native input alias not in dependency closure'
+                    fi
                     continue ;;
             esac
             jq -e --arg path "$input" 'any(.files[]; .path == $path)' "$work/inventory.json" >/dev/null || fail 'installed consumer input missing from inventory'
@@ -187,7 +221,7 @@ check_consumers() {
 }
 check_package_closure() {
     local root path row
-    jq -cS '{consumer_units,native_dependency_files,runtime_package_roots,files}' "$work/inventory.json" > "$work/closure-inputs"
+    jq -cS '{consumer_units,native_dependency_files,runtime_package_roots,files} + (if has("native_dependency_aliases") then {native_dependency_aliases} else {} end)' "$work/inventory.json" > "$work/closure-inputs"
     [[ $(hash "$work/closure-inputs") == "$(jq -r .dependency_closure_sha256 "$work/inventory.json")" ]] || fail 'concrete dependency closure digest differs'
     [[ -n $evidence && -n $signature && -n $key ]] || fail 'trusted signed native dependency closure evidence required'
     private_file "$evidence"; private_file "$signature"; regular "$key"
@@ -200,13 +234,48 @@ check_package_closure() {
         regular "$path"
         [[ $(hash "$path") == "$(jq -r .sha256 <<< "$row")" ]] || fail 'native loader dependency differs; restore matching runtime package first'
     done < <(jq -c '.native_dependency_files[]' "$work/inventory.json")
+    while IFS= read -r row; do
+        path=$(jq -r .path <<< "$row")
+        [[ $path =~ ^/(bin|usr/bin|lib|lib64|usr/lib|usr/lib64)/[A-Za-z0-9_./+-]+$ ]] || fail 'native alias namespace differs'
+        [[ $(readlink -f -- "$path") == "$(jq -r .resolved <<< "$row")" ]] || fail 'native alias target differs'
+        # Only same-directory distribution aliases are supported. This admits
+        # the actual interpreter alias without trusting an alternatives chain
+        # or an intermediate writable namespace outside the approved closure.
+        if [[ -L $path ]]; then
+            local link_target
+            link_target=$(readlink -- "$path")
+            [[ $link_target =~ ^[A-Za-z0-9_.+-]+$ ]] || fail 'native alias must stay in its trusted directory'
+            [[ ! -L $(dirname -- "$path")/$link_target ]] || fail 'multi-hop native alias unsupported'
+        fi
+        # Readlink traverses only root-owned, non-writable system namespaces.
+        local ancestor=$path permissions
+        while [[ $ancestor != / ]]; do
+            [[ $(stat -c %u -- "$ancestor") == 0 ]] || fail 'native alias owner differs'
+            if [[ -L $ancestor ]]; then
+                if [[ $ancestor != "$path" ]]; then
+                    case "$ancestor:$(readlink -- "$ancestor")" in
+                        /bin:usr/bin|/bin:/usr/bin|/lib:usr/lib|/lib:/usr/lib|/lib64:usr/lib64|/lib64:/usr/lib64) ;;
+                        *) fail 'native alias directory link unsupported' ;;
+                    esac
+                fi
+            else
+                permissions=$(stat -c %a -- "$ancestor")
+                (( (8#$permissions & 0022) == 0 )) || fail 'native alias path is writable'
+            fi
+            ancestor=$(dirname -- "$ancestor")
+        done
+    done < <(jq -c '.native_dependency_aliases[]?' "$work/inventory.json")
+    # Build membership once. Parsing the entire signed inventory for every
+    # package member would make a full retained environment quadratic.
+    local -A package_members=()
+    while IFS= read -r path; do package_members["$path"]=1; done < <(jq -r '.files[] | select(.kind == "runtime_package" or .kind == "monitor_binary") | .path' "$work/inventory.json")
     while IFS= read -r root; do
         [[ $root == /* ]] || fail 'runtime package root must be absolute'
         safe_path "$root"
         [[ -d $root && ! -L $root ]] || fail 'runtime package root unavailable'
         [[ -z $(find "$root" -type l -print -quit) ]] || fail 'runtime package symlinks need independent closure support'
         while IFS= read -r path; do
-            jq -e --arg path "$path" 'any(.files[]; .path == $path and .kind == "runtime_package")' "$work/inventory.json" >/dev/null || fail 'runtime package file missing from inventory'
+            [[ ${package_members[$path]:-} == 1 ]] || fail 'runtime package file missing from inventory'
         done < <(find "$root" -type f -print | sort)
     done < <(jq -r '.runtime_package_roots[]' "$work/inventory.json")
 }
@@ -307,9 +376,32 @@ locks() {
     lock_one "$state_dir/$environment.restart.lock"
 }
 # Test fixtures stop at observed rename operations; there is no runtime callback.
+publication_count=0
+publication_boundary() {
+    local side=$1 destination=$2
+    [[ -z ${PRE_M_KILL_POINT:-} ]] && return 0
+    [[ ${CI:-} == true && ${GITHUB_ACTIONS:-} == true && ${RUNNER_ENVIRONMENT:-} == github-hosted &&
+       $EUID == 0 && $(uname -s) == Linux && $(</proc/1/comm) == systemd &&
+       ${VERDAXIS_DISPOSABLE_DEPLOY:-} == 1 &&
+       -f /run/verdaxis-disposable-rehearsal && ! -L /run/verdaxis-disposable-rehearsal &&
+       $(stat -c '%u:%a' /run/verdaxis-disposable-rehearsal) == 0:644 ]] || fail 'publication interruption requires a hosted disposable runner'
+    grep -Fxq "${GITHUB_RUN_ID:-missing}:$checkout" /run/verdaxis-disposable-rehearsal || fail 'disposable marker differs'
+    [[ ${PRE_M_KILL_POINT} =~ ^(before|after):[1-9][0-9]*$ ]] || fail 'invalid publication interruption point'
+    printf 'DISPOSABLE_PUBLICATION %s:%s destination=%s\n' "$side" "$publication_count" "$destination" >&2
+    if [[ $PRE_M_KILL_POINT == "$side:$publication_count" ]]; then kill -KILL "$$"; fi
+}
 publish() {
     local source=$1 destination=$2 uid=$3 gid=$4 permissions=$5 tmp staging
     safe_path "$destination"
+    # Unchanged package/source members need no publication. This preserves the
+    # captured metadata and avoids rewriting the complete retained package on
+    # every replay. Changed bytes still have both interruption boundaries.
+    if [[ -f $destination && ! -L $destination && $(stat -c %h "$destination") == 1 &&
+          $(stat -c '%u:%g:%a' "$destination") == "$uid:$gid:${permissions#0}" ]] && cmp -s -- "$source" "$destination"; then
+        return 0
+    fi
+    publication_count=$((publication_count + 1))
+    publication_boundary before "$destination"
     printf 'PUBLICATION before destination=%s\n' "$destination" >&2
     [[ $(stat -c %d "$state_dir") == "$(stat -c %d "$(dirname "$destination")")" ]] || fail 'publication target is on another filesystem'
     staging=$state_dir/.pre-m-private
@@ -322,12 +414,29 @@ publish() {
     mv -T -- "$tmp" "$destination"
     sync -f "$(dirname "$destination")"
     printf 'PUBLICATION after destination=%s\n' "$destination" >&2
+    publication_boundary after "$destination"
 }
 write_state() {
     local phase=$1
     printf 'DEPLOYMENT_STATE=%s\nENVIRONMENT=%s\nRELEASE_SHA=%s\n' "$phase" "$environment" "$release" > "$work/state"
     [[ $phase != blocked ]] || printf 'DEPLOY_NONCE=%s\n' "$nonce" >> "$work/state"
     publish "$work/state" "$state" "$deploy_uid" "$(stat -c %g "$state_dir")" 0644
+}
+# The parent retains both deployment locks. Service clients must not pass lock
+# descriptors to systemd or its children.
+restart_service() (
+    for fd in "${lock_fds[@]}"; do exec {fd}>&-; done
+    systemctl restart "$1"
+)
+check_ready() {
+    timeout 15 curl --fail --silent --show-error --max-time 10 "$1" > "$work/ready" 2>"$work/curl-error" || fail 'readiness request failed'
+    jq -se --arg env "$environment" --arg sha "$release" 'length == 1 and (.[0] | type == "object" and keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $env and .release_sha == $sha)' "$work/ready" >/dev/null || fail 'exact readiness differs'
+}
+# /openapi.json remains a Python-only pre-M route. Bind the response to the
+# Python API title and authentication schema, not a generic HTTP success.
+check_python_route() {
+    timeout 15 curl --fail --silent --show-error --max-time 10 "${ready%/health/ready}/openapi.json" > "$work/python-route" 2>"$work/curl-error" || fail 'Python route request failed'
+    jq -se 'length == 1 and (.[0] | .openapi == "3.1.0" and .paths["/api/auth/login"].post != null and .info.title == "Verdaxis Intelligence Cockpit")' "$work/python-route" >/dev/null || fail 'Python route response differs'
 }
 verify_signed_artifact() {
     local artifact provenance sig pub output=$work/verified
@@ -357,7 +466,7 @@ verify_signed_artifact() {
     policy_path=$(file_of_kind policy)
     policy_actual=$policy_path
     [[ $mode == capture ]] || policy_actual=$(payload_of "$policy_path")
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" show "$release:deploy/rust/$environment-policy.json" > "$work/source-policy"
+    safe_root_git "$checkout" show "$release:deploy/rust/$environment-policy.json" > "$work/source-policy"
     cmp -s "$policy_actual" "$work/source-policy" || fail 'selected policy differs from exact checkout source'
     timeout 10 "$output/verdaxis-read" --version-json > "$work/version" 2>"$work/version-error" || fail 'old executable version check failed'
     jq -e --arg sha "$release" --arg revision "$final_alembic" '.release_sha == $sha and (.migration_revision_allowlist | index($revision) != null)' "$work/version" >/dev/null || fail 'old executable source identity or compiled pin differs'
@@ -373,14 +482,24 @@ if [[ $mode == capture ]]; then
     [[ ! -e $bundle ]] || fail 'bundle already exists'
     [[ $(basename "$bundle") == "pre-M-$environment-$release" ]] || fail 'bundle name differs'
     branch=$(jq -r .checkout_branch "$work/inventory.json")
-    [[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" symbolic-ref --short HEAD) == "$branch" && $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" rev-parse HEAD) == "$release" && -z $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" status --porcelain --untracked-files=no) ]] || fail 'checkout branch, identity or tracked bytes differ'
+    [[ $(safe_root_git "$checkout" symbolic-ref --short HEAD) == "$branch" && $(safe_root_git "$checkout" rev-parse HEAD) == "$release" && -z $(safe_root_git "$checkout" status --porcelain --untracked-files=no) ]] || fail 'checkout branch, identity or tracked bytes differ'
     locks
     [[ ! -e $state && ! -L $state ]] || fail 'capture requires an accepted release'
     check_runtime_credentials
     check_consumers
     check_package_closure
     if grep -qE '^[[:space:]]*import[[:space:]]' "$caddy"; then fail 'Caddy imports require a self-contained saved site'; fi
-    [[ -f $checkout/scripts/deploy.sh && -f $checkout/deploy/scripts/verify-deploy-start-guard.sh ]] || fail 'checkout deploy helper or guard missing'
+    [[ -f $checkout/scripts/deploy.sh ]] || fail 'checkout deploy helper missing'
+    # Capture the guard the old release actually installed. Earlier releases
+    # use the isolated stdlib guard; never add new source to an old checkout.
+    guard=$(file_of_kind guard)
+    case $guard in
+        "$checkout/deploy/scripts/verify-deploy-start-guard.sh"|"$checkout/scripts/verify_deploy_start_guard.py") ;;
+        *) fail 'unsupported old startup guard' ;;
+    esac
+    regular "$guard"
+    git -c "safe.directory=$checkout" -C "$checkout" show "$release:${guard#"$checkout/"}" > "$work/source-guard"
+    cmp -s "$guard" "$work/source-guard" || fail 'old startup guard differs from source'
     read_database
     verify_signed_artifact
     stage=$(mktemp -d "$(dirname "$bundle")/.pre-M-capture.XXXXXXXX")
@@ -391,7 +510,7 @@ if [[ $mode == capture ]]; then
         path=$(jq -r .path <<< "$row"); kind=$(jq -r .kind <<< "$row")
         regular "$path"
         case $kind in
-            credential|migrator_credential|runtime|runtime_package)
+            credential|migrator_credential|runtime)
                 permissions=$(stat -c %a "$path")
                 (( (8#$permissions & 0077) == 0 )) || fail 'private runtime or credential modes required' ;;
         esac
@@ -403,8 +522,8 @@ if [[ $mode == capture ]]; then
             --arg mode "$(stat -c %a "$path")" --argjson size "$(stat -c %s "$path")" \
             '{id:$id,kind:$kind,path:$path,sha256:$sha,uid:$uid,gid:$gid,mode:$mode,size:$size}' >> "$work/files"
     done < <(jq -c '.files[]' "$work/inventory.json")
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" bundle create "$stage/checkout.bundle" HEAD >"$work/git-output" 2>&1
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-tree -r "$release" > "$stage/source-tree"
+    safe_root_git "$checkout" bundle create "$stage/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    safe_root_git "$checkout" ls-tree -r "$release" > "$stage/source-tree"
     ! grep -qvE $'^100(644|755) blob [0-9a-f]{40}\t' "$stage/source-tree" || fail 'nonregular checkout source member'
     : > "$stage/source-metadata"
     while IFS=$'\t' read -r metadata source_path; do
@@ -449,6 +568,10 @@ if [[ $mode == accept && $resume_accepted == true ]]; then
     # saved timer-start tail while the actual accepted process is unchanged.
     invocation=$(systemctl show "$backend" -p InvocationID --value)
     jq -e --arg invocation "$invocation" '.invocation_id == $invocation' "$state_dir/$environment.rollback-accepted" >/dev/null || fail 'accepted service changed before timer resume'
+    check_ready "$python_ready"
+    check_ready "$rust_ready"
+    check_ready "$ready"
+    check_python_route
     while IFS= read -r unit; do
         [[ $unit =~ ^verdaxis-[a-z0-9-]+\.timer$ ]] || fail 'invalid saved timer name'
         jq -e --arg unit "$unit" '.timers | index($unit) != null' "$work/inventory.json" >/dev/null || fail 'saved timer not approved'
@@ -493,25 +616,26 @@ if [[ $mode == restore ]]; then
         [[ $unit =~ ^verdaxis-[a-z0-9-]+\.service$ ]] || fail 'invalid job name'
         [[ $(systemctl show "$unit" -p ActiveState --value) == inactive ]] || fail 'direct job has not drained'
     done < <(jq -r '.jobs[]' "$work/inventory.json")
-    # All other consumers must already be quiescent. Never kill an active
-    # oneshot to manufacture a drained state or auto-start legacy Python.
+    # Background consumers must already be quiescent. Both serving processes
+    # are stopped explicitly, including Python left running after an interruption.
     while IFS= read -r unit; do
-        [[ $unit == "$backend" ]] && continue
+        [[ $unit == "$backend" || $unit == "$python_backend" ]] && continue
         [[ $(systemctl show "$unit" -p ActiveState --value) == inactive ]] || fail 'non-serving consumer must be quiesced before restore'
     done < <(jq -r '.consumer_units[].name' "$work/inventory.json")
+    systemctl stop "$python_backend"
     systemctl stop "$backend"
     read_database
     check_package_closure
     [[ $catalog_hash == "$(jq -r .catalog_sha256 "$work/manifest.json")" ]] || fail 'application catalog differs'
-    git init --bare "$work/source.git" >"$work/git-output" 2>&1
-    git -C "$work/source.git" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
-    [[ $(git -C "$work/source.git" rev-parse FETCH_HEAD) == "$release" ]] || fail 'source object identity differs'
+    safe_root_git_init "$work/source.git" >"$work/git-output" 2>&1
+    safe_root_git "$work/source.git" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    [[ $(safe_root_git "$work/source.git" rev-parse FETCH_HEAD) == "$release" ]] || fail 'source object identity differs'
     # Remove only tracked files absent from the saved release. Untracked user
     # files are never removed. Runtime files are published from the saved list.
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" ls-files > "$work/current-files"
+    safe_root_git "$checkout" ls-files > "$work/current-files"
     while IFS= read -r path; do
         [[ $path =~ ^[A-Za-z0-9_./@+-]+$ && $path != /* && $path != *../* ]] || fail 'unsafe tracked source path'
-        if ! git -C "$work/source.git" cat-file -e "$release:$path" 2>/dev/null; then
+        if ! safe_root_git "$work/source.git" cat-file -e "$release:$path" 2>/dev/null; then
             safe_path "$checkout/$path"
             [[ ! -e $checkout/$path ]] || { regular "$checkout/$path"; rm -- "$checkout/$path"; sync -f "$(dirname "$checkout/$path")"; }
         fi
@@ -522,23 +646,23 @@ if [[ $mode == restore ]]; then
         [[ $saved_metadata == *$'\t'"$path" && $saved_metadata != *$'\n'* ]] || fail 'source metadata is missing or repeated'
         IFS=: read -r source_uid source_gid permissions source_size <<< "${saved_metadata%%$'\t'*}"
         [[ $source_uid =~ ^[0-9]+$ && $source_gid =~ ^[0-9]+$ && $permissions =~ ^[0-7]{3,4}$ ]] || fail 'invalid source metadata'
-        git -C "$work/source.git" show "$release:$path" > "$work/source-file"
+        safe_root_git "$work/source.git" show "$release:$path" > "$work/source-file"
         [[ $(stat -c %s "$work/source-file") == "$source_size" ]] || fail 'source size differs'
         parent=$(dirname "$checkout/$path")
         # Parent creation is permitted only inside the fixed checkout.
         safe_path "$parent"; mkdir -p -- "$parent"; safe_path "$checkout/$path"
         publish "$work/source-file" "$checkout/$path" "$source_uid" "$source_gid" "$permissions"
     done < "$bundle/source-tree"
-    git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
+    safe_root_git "$checkout" fetch "$bundle/checkout.bundle" HEAD >"$work/git-output" 2>&1
     # Git objects are immutable prerequisites. Publish index and branch ref
     # as explicit transaction entries, not an in-place branch reset.
-    git -C "$work/source.git" read-tree "$release"
+    safe_root_git "$work/source.git" read-tree "$release"
     git_dir=$checkout/.git
     safe_path "$git_dir"
     [[ -d $git_dir && ! -L $git_dir ]] || fail 'canonical Git directory changed'
     publish "$work/source.git/index" "$git_dir/index" "$deploy_uid" "$(stat -c %g "$checkout")" 0644
     branch=$(jq -r .checkout_branch "$work/inventory.json")
-    [[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" symbolic-ref --short HEAD) == "$branch" ]] || fail 'canonical checkout branch differs'
+    [[ $(safe_root_git "$checkout" symbolic-ref --short HEAD) == "$branch" ]] || fail 'canonical checkout branch differs'
     printf '%s\n' "$release" > "$work/source-ref"
     publish "$work/source-ref" "$git_dir/refs/heads/$branch" "$deploy_uid" "$(stat -c %g "$checkout")" 0644
     while IFS= read -r row; do
@@ -551,14 +675,18 @@ if [[ $mode == restore ]]; then
     check_consumers
     if grep -qE '^[[:space:]]*import[[:space:]]' "$caddy"; then fail 'saved Caddy import closure unsupported'; fi
     runuser -u caddy -- caddy validate --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy bytes are not valid'
-    runuser -u caddy -- caddy reload --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy reload failed'
     write_state restart-authorized
-    # systemd does not inherit these descriptors. Close them in the client so
-    # a fixture child cannot retain deploy ownership after this process exits.
-    (
-        for fd in "${lock_fds[@]}"; do exec {fd}>&-; done
-        systemctl restart "$backend"
-    )
+    # The M deploy disabled the retained backend, not only stopped it. Undo the
+    # enable-state half of that fence under the same restart authorization, or a
+    # host reboot after restore leaves the retained runtime down.
+    systemctl enable "$python_backend"
+    restart_service "$python_backend"
+    restart_service "$backend"
+    check_ready "$python_ready"
+    check_ready "$rust_ready"
+    runuser -u caddy -- caddy reload --config "$caddy" --adapter caddyfile >"$work/caddy-output" 2>&1 || fail 'saved Caddy reload failed'
+    check_ready "$ready"
+    check_python_route
     printf 'RESTORED acceptance_required nonce=%s manifest_sha256=%s\n' "$nonce" "$approval"
     exit 0
 fi
@@ -578,7 +706,7 @@ read_database
 [[ $catalog_hash == "$(jq -r .catalog_sha256 "$work/manifest.json")" ]] || fail 'application catalog differs'
 check_consumers
 check_package_closure
-[[ $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" rev-parse HEAD) == "$release" && -z $(git -c "safe.directory=$checkout" -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$checkout" status --porcelain --untracked-files=no) ]] || fail 'restored checkout identity or bytes differ'
+[[ $(safe_root_git "$checkout" rev-parse HEAD) == "$release" && -z $(safe_root_git "$checkout" status --porcelain --untracked-files=no) ]] || fail 'restored checkout identity or bytes differ'
 while IFS=$'\t' read -r metadata source_path; do
     regular "$checkout/$source_path"
     [[ $(stat -c '%u:%g:%a:%s' "$checkout/$source_path") == "$metadata" ]] || fail 'restored source metadata differs'
@@ -597,8 +725,10 @@ pid=$(systemctl show "$backend" -p MainPID --value)
 invocation=$(systemctl show "$backend" -p InvocationID --value)
 [[ $pid =~ ^[1-9][0-9]*$ && $invocation =~ ^[0-9a-f]{32}$ ]] || fail 'old service did not start'
 [[ $(hash "/proc/$pid/exe") == "$(hash "$(payload_of "$binary")")" ]] || fail 'running executable is not the captured old executable'
-timeout 15 curl --fail --silent --show-error --max-time 10 "$ready" > "$work/ready" 2>"$work/curl-error" || fail 'readiness request failed'
-jq -e --arg env "$environment" --arg sha "$release" 'keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $env and .release_sha == $sha' "$work/ready" >/dev/null || fail 'exact readiness differs'
+check_ready "$python_ready"
+check_ready "$rust_ready"
+check_ready "$ready"
+check_python_route
 for unit in verdaxis-health.service verdaxis-backup-verify.service; do
     monitor_invocation=$(systemctl show "$unit" -p InvocationID --value)
     [[ $monitor_invocation =~ ^[0-9a-f]{32}$ ]] || fail 'captured monitor has no accepted invocation'

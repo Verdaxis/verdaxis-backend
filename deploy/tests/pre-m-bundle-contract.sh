@@ -16,8 +16,14 @@ chmod 0700 "$work" "$work/private"
 # Replace only the trusted PATH in the disposable copy so adapter commands
 # cannot become a runtime option or ambient production override.
 perl -pe 's@^export PATH=.*$@export PATH='"$work"'/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin@' "$script" > "$work/trusted/scripts/pre-m-bundle.sh"
+cp "$ROOT/deploy/scripts/safe-root-git.sh" "$work/trusted/scripts/"
 cp "$ROOT/deploy/rust/catalog-fingerprint.sql" "$work/trusted/rust/"
 script=$work/trusted/scripts/pre-m-bundle.sh
+# Record the transaction parent only in the private fixture copy.
+# The injected script must expand these variables in its own process.
+# shellcheck disable=SC2016
+printf '\nprintf "%%s\\n" "$$" > "$FIXTURE_WORK/transaction.pid"\n' > "$work/record-parent"
+perl -0777 -i -pe 'BEGIN { open my $in, "<", $ARGV[1] or die $!; local $/; $insert=<$in>; pop @ARGV; } s/(umask 077\n)/$1$insert/' "$script" "$work/record-parent"
 checkout=/home/verdaxis-prod/verdaxis/staging/be
 [[ ! -e $checkout ]] || { printf 'fixture checkout path occupied\n' >&2; exit 2; }
 mkdir -p "$checkout/.runtime-deploy" "$checkout/scripts" "$checkout/deploy/scripts" "$checkout/deploy/rust" "$checkout/.runtime-rust" "$work/installed" "$work/package"
@@ -84,6 +90,8 @@ PSQL
 cat > "$work/bin/systemctl" <<'SYSTEMCTL'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FIXTURE_WORK/calls"
+boundary="$1:${2:-}"
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "before:$boundary" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
 case $1 in
     is-active) exit 0 ;;
     show)
@@ -92,17 +100,45 @@ case $1 in
             MainPID) cat "$FIXTURE_WORK/old.pid" ;;
             InvocationID) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' ;;
             Result) printf 'success\n' ;;
+            ActiveState)
+                if [[ -f $FIXTURE_WORK/active-$2 ]]; then printf 'active\n'; else printf 'inactive\n'; fi ;;
             *) printf 'inactive\n' ;;
         esac ;;
     start)
         if [[ ${KILL_TIMER_START:-} == 1 ]]; then kill -KILL "$PPID"; exit 1; fi ;;
+    stop) rm -f "$FIXTURE_WORK/active-$2" ;;
+    enable) : > "$FIXTURE_WORK/enabled-$2" ;;
     restart)
-        if [[ -f $FIXTURE_WORK/old.pid ]]; then kill "$(cat "$FIXTURE_WORK/old.pid")" 2>/dev/null || true; fi
-        "$FIXTURE_WORK/installed/binary" </dev/null >"$FIXTURE_WORK/old-output" 2>&1 &
-        printf '%s\n' "$!" > "$FIXTURE_WORK/old.pid" ;;
+        state=/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
+        grep -qx 'DEPLOYMENT_STATE=restart-authorized' "$state" || exit 1
+        for lock in staging.lock staging.restart.lock; do
+            if flock -n "${state%/*}/$lock" true; then exit 1; fi
+        done
+        : > "$FIXTURE_WORK/active-$2"
+        if [[ $2 == verdaxis-rust-staging.service ]]; then
+            if [[ -f $FIXTURE_WORK/old.pid ]]; then kill "$(cat "$FIXTURE_WORK/old.pid")" 2>/dev/null || true; fi
+            "$FIXTURE_WORK/installed/binary" </dev/null >"$FIXTURE_WORK/old-output" 2>&1 &
+            printf '%s\n' "$!" > "$FIXTURE_WORK/old.pid"
+        fi ;;
 esac
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "after:$boundary" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
 SYSTEMCTL
-printf '#!/bin/bash\nexit 0\n' > "$work/bin/caddy"
+cat > "$work/bin/caddy" <<'CADDY'
+#!/usr/bin/env bash
+printf 'caddy %s\n' "$*" >> "$FIXTURE_WORK/calls"
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "before:caddy:$1" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
+if [[ $1 == reload ]]; then
+    [[ -f $FIXTURE_WORK/active-verdaxis-backend-staging.service && -f $FIXTURE_WORK/active-verdaxis-rust-staging.service ]] || {
+        printf 'FAIL saved Caddy reload precedes both restored services\n' >&2; exit 1;
+    }
+    [[ -f $FIXTURE_WORK/enabled-verdaxis-backend-staging.service ]] || {
+        printf 'FAIL saved Caddy reload precedes retained enable-state restore\n' >&2; exit 1;
+    }
+    [[ -f $FIXTURE_WORK/ready-python && -f $FIXTURE_WORK/ready-rust ]] || exit 1
+    : > "$FIXTURE_WORK/caddy-restored"
+fi
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "after:caddy:$1" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
+CADDY
 cat > "$work/bin/runuser" <<'RUNUSER'
 #!/bin/bash
 [[ $1 == -u && $2 == caddy && $3 == -- ]] || exit 1
@@ -111,7 +147,28 @@ exec "$@"
 RUNUSER
 cat > "$work/bin/curl" <<'CURL'
 #!/usr/bin/env bash
-printf '{"status":"ok","db":"ok","environment":"staging","release_sha":"%s"}\n' "$FIXTURE_SHA"
+set -euo pipefail
+url=${!#}
+printf 'curl %s\n' "$url" >> "$FIXTURE_WORK/calls"
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "before:curl:$url" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
+case $url in
+    http://127.0.0.1:8001/health/ready)
+        [[ -f $FIXTURE_WORK/active-verdaxis-backend-staging.service ]] || exit 1
+        : > "$FIXTURE_WORK/ready-python" ;;
+    http://127.0.0.1:8011/health/ready)
+        [[ -f $FIXTURE_WORK/active-verdaxis-rust-staging.service ]] || exit 1
+        : > "$FIXTURE_WORK/ready-rust" ;;
+    https://api-staging.verdaxis.exchange/health/ready)
+        [[ -f $FIXTURE_WORK/caddy-restored ]] || exit 1 ;;
+    https://api-staging.verdaxis.exchange/openapi.json)
+        [[ -f $FIXTURE_WORK/caddy-restored && -f $FIXTURE_WORK/active-verdaxis-backend-staging.service ]] || exit 1 ;;
+    *) exit 1 ;;
+esac
+if [[ ${BAD_READY_URL:-} == "$url" ]]; then printf '%s' "${BAD_READY_BODY:-}";
+elif [[ $url == */openapi.json ]]; then
+    printf '{"openapi":"3.1.0","info":{"title":"Verdaxis Intelligence Cockpit"},"paths":{"/api/auth/login":{"post":{}}}}\n'
+else printf '{"status":"ok","db":"ok","environment":"staging","release_sha":"%s"}\n' "$FIXTURE_SHA"; fi
+if [[ ${KILL_SERVICE_BOUNDARY:-} == "after:curl:$url" ]]; then kill -KILL "$(cat "$FIXTURE_WORK/transaction.pid")"; exit 1; fi
 CURL
 cat > "$work/bin/mv" <<'MOVE'
 #!/usr/bin/env bash
@@ -207,6 +264,8 @@ grep -q 'digest differs' "$work/err"
 printf 'ok tampered protected copy refuses\n'
 cp "$work/installed/binary" "$bundle/payload/000001"
 run restore --manifest-sha256 "$approval"
+[[ -f $work/active-verdaxis-backend-staging.service && -f $work/active-verdaxis-rust-staging.service ]]
+grep -q 'curl https://api-staging.verdaxis.exchange/openapi.json' "$work/calls"
 [[ ! -e $work/installed/migrator_credential ]]
 grep -q '^DEPLOYMENT_STATE=restart-authorized$' "$checkout/.runtime-deploy/staging.state"
 grep -q 'old source' "$checkout/source.txt"
@@ -235,6 +294,38 @@ for when in before after; do
     done
 done
 printf 'ok before/after every restore publication (%s boundaries)\n' "$count"
+# Each externally visible transition may be interrupted on either side.
+for boundary in 'enable:verdaxis-backend-staging.service' 'restart:verdaxis-backend-staging.service' \
+    'restart:verdaxis-rust-staging.service' \
+    'curl:http://127.0.0.1:8001/health/ready' 'curl:http://127.0.0.1:8011/health/ready' \
+    'caddy:reload' 'curl:https://api-staging.verdaxis.exchange/health/ready' \
+    'curl:https://api-staging.verdaxis.exchange/openapi.json'; do
+    for when in before after; do
+        rm -f "$work/ready-python" "$work/ready-rust" "$work/caddy-restored" "$work/enabled-verdaxis-backend-staging.service"
+        if KILL_SERVICE_BOUNDARY=$when:$boundary run restore --manifest-sha256 "$approval"; then
+            printf 'FAIL missed service boundary %s:%s\n' "$when" "$boundary" >&2; exit 1
+        fi
+        [[ -e $checkout/.runtime-deploy/staging.state ]]
+        [[ ! -e $checkout/.runtime-deploy/staging.rollback-accepted ]]
+        flock -n "$checkout/.runtime-deploy/staging.lock" true
+        flock -n "$checkout/.runtime-deploy/staging.restart.lock" true
+        run restore --manifest-sha256 "$approval"
+    done
+done
+printf 'ok before/after restart readiness reload and Python route boundaries\n'
+# A successful HTTP exchange must still carry exactly one complete readiness.
+valid_ready=$(printf '{"status":"ok","db":"ok","environment":"staging","release_sha":"%s"}' "$sha")
+for url in http://127.0.0.1:8001/health/ready http://127.0.0.1:8011/health/ready https://api-staging.verdaxis.exchange/health/ready; do
+    for body in '' "$valid_ready$valid_ready" "${valid_ready/staging/production}" "${valid_ready/\"db\":\"ok\"/\"db\":\"bad\"}"; do
+        : > "$work/calls"
+        if BAD_READY_URL=$url BAD_READY_BODY=$body run restore --manifest-sha256 "$approval"; then exit 1; fi
+        grep -q 'exact readiness differs' "$work/err"
+        [[ -e $checkout/.runtime-deploy/staging.state ]]
+        if [[ $url == http:* ]] && grep -q 'caddy reload' "$work/calls"; then exit 1; fi
+    done
+done
+run restore --manifest-sha256 "$approval"
+printf 'ok every readiness surface refuses empty multiple and mismatched bodies\n'
 nonce=$(< "$checkout/.runtime-deploy/staging.rollback-nonce")
 jq -n --arg sha "$sha" --arg digest "$approval" --arg nonce "$nonce" --arg closure "$closure_sha" \
     '{dependency_closure_sha256:$closure,runtime_dependencies:"PASS",credential_sources:"PASS",unit_inputs:"PASS",environment:"staging",release_sha:$sha,manifest_sha256:$digest,nonce:$nonce,

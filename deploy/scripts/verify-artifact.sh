@@ -47,7 +47,22 @@ for input_var in archive record signature public_key; do
 done
 [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'a full lowercase source SHA is required'
 [[ "$repository" == Verdaxis/verdaxis-backend && "$workflow_path" == .github/workflows/rust-read-ci.yml && "$target" == x86_64-unknown-linux-gnu ]] || fail 'unapproved build identity'
-[[ "$workflow_ref" == refs/heads/staging || "$workflow_ref" == refs/heads/prod ]] || fail 'unapproved source ref'
+if [[ "$workflow_ref" != refs/heads/staging && "$workflow_ref" != refs/heads/prod ]]; then
+    # Feature-branch attestations are accepted only by the disposable VM lane.
+    # The marker is created before setup; it never exists on a serving host.
+    [[ ${CI:-} == true && ${GITHUB_ACTIONS:-} == true &&
+       ${RUNNER_ENVIRONMENT:-} == github-hosted &&
+       ( $EUID == 0 || ( $EUID == "$(id -u verdaxis-prod)" && $EUID == "$(stat -c %u "${REHEARSAL_CHECKOUT:-/nonexistent}")" ) ) &&
+       ${VERDAXIS_DISPOSABLE_DEPLOY:-} == 1 && $(uname -s) == Linux &&
+       $(</proc/1/comm) == systemd &&
+       $workflow_ref == "${REHEARSAL_WORKFLOW_REF:-}" &&
+       $workflow_ref =~ ^refs/heads/[A-Za-z0-9._/-]+$ &&
+       ${GITHUB_RUN_ID:-} =~ ^[0-9]+$ &&
+       ${REHEARSAL_CHECKOUT:-} =~ ^/home/verdaxis-prod/verdaxis/(prod|staging)/be$ &&
+       -f /run/verdaxis-disposable-rehearsal && ! -L /run/verdaxis-disposable-rehearsal &&
+       $(stat -c '%u:%a' /run/verdaxis-disposable-rehearsal) == 0:644 ]] || fail 'unapproved source ref'
+    grep -Fxq "$GITHUB_RUN_ID:$REHEARSAL_CHECKOUT" /run/verdaxis-disposable-rehearsal || fail 'disposable source marker differs'
+fi
 [[ -n "$archive" && -n "$record" && -n "$signature" && -n "$public_key" && -n "$output" ]] || fail 'required input is missing'
 for tool in tar openssl sha256sum jq stat dd od cmp timeout perl; do
     command -v "$tool" >/dev/null || fail 'a trusted system tool is missing'
