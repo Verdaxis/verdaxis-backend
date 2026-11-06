@@ -297,13 +297,16 @@ export RUST_POSTGRES_CONTAINER="$container"
 # databases, and adoption runs on clones of the template above; each case
 # creates and drops its own database. Task 9: `ops preflight` attests a
 # verdaxis_staging database that its case creates and drops.
+# The runner-only adoption helper already ran above with each explicit migrator
+# URL. This group has no runner URL; keep the helper out of its broad selection.
 baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
   --test phase10_baseline_postgres --test phase10_migrate_postgres \
   --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
   --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
-  -- --include-ignored --test-threads=1 2>&1 | tee "$baseline_log"
+  -- --include-ignored --skip runner_database_adopts_to_the_baseline \
+  --test-threads=1 2>&1 | tee "$baseline_log"
 baseline_status=${PIPESTATUS[0]}
 set -e
 if (( baseline_status != 0 )); then

@@ -320,3 +320,24 @@ def test_statistics_extension_follows_adoption_for_every_runner_consumer(monkeyp
     monkeypatch.setattr(run_disposable, "docker", lambda *args, **kwargs: events.append(args[-1]))
     runner.migrate_and_seed(_env())
     assert events == ["adopt", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"]
+
+
+def test_postgres_baseline_group_leaves_adoption_to_explicit_runner_calls():
+    import shlex
+
+    source = (ROOT / "rs/read/tests/run_postgres.sh").read_text()
+    commands = [
+        shlex.split(line.split("cargo test ", 1)[1])
+        for line in source.replace("\\\n", " ").splitlines()
+        if "cargo test " in line and not line.lstrip().startswith("#")
+    ]
+    baseline = next(command for command in commands if "phase10_baseline_postgres" in command)
+    arguments = baseline[baseline.index("--") + 1:]
+    assert "--include-ignored" in arguments
+    skip = arguments.index("--skip")
+    assert arguments[skip + 1] == "runner_database_adopts_to_the_baseline"
+    explicit = [command for command in commands
+                if "runner_database_adopts_to_the_baseline" in command[:command.index("--")]]
+    assert explicit
+    assert all(command[command.index("--") + 1] == "--ignored" for command in explicit)
+    assert 'RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://' in source
