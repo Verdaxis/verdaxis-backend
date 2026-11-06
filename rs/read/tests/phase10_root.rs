@@ -13,7 +13,9 @@ use sqlx::postgres::PgPoolOptions;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tower::ServiceExt;
-use verdaxis_read::{AppState, compiled_sha, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const ROOT_BODY: &str = r#"{"message":"Verdaxis API is running","version":"1.0.0"}"#;
 const READ_SLOTS: u32 = 4;

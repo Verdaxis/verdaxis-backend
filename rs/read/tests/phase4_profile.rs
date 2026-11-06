@@ -37,8 +37,8 @@ use sqlx::{PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::auth::AuthError;
-use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::business::transaction::{AttemptError, CommandFuture};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use profile::{
     KycEligibilityView, KycProfilePolicy, KycReason, ProfileAuthority, ProfileKycParty,

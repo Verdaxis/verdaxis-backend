@@ -10,7 +10,6 @@ mod cache_owner;
 
 use cache_owner::{Record, authority, bind, generation, reset, set_generation};
 use sqlx::{Connection, PgConnection, postgres::PgConnectOptions};
-use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
@@ -20,6 +19,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime},
 };
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     ApiError, AppState, Boundary, Config, Deadline, MarketPolicy, RollingWindows, TemporalFacts,
     TradingCache, TradingCacheRuntime, TradingClock, TradingEntry, TradingFill, compiled_sha,

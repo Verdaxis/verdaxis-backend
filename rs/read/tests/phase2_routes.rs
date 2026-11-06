@@ -8,7 +8,9 @@
 
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const UUID: &str = "11111111-1111-4111-8111-111111111111";
 

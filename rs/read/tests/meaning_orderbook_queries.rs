@@ -26,7 +26,9 @@ use verdaxis_read::market::visibility::{
     MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql, order_query_sql,
     order_query_sql_projected,
 };
-use verdaxis_read::{compiled_sha, Config, connect, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    Config, MarketPolicy, compiled_sha, connect, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const AGGREGATE_PROJECTION: &str = "o.product_id, o.delivery_point_id, o.side, o.provenance, \
      o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at,";

@@ -26,7 +26,9 @@ use uuid::Uuid;
 use verdaxis_read::runtime::config::{bootstrap_arguments, config_from_deployed_environment};
 use verdaxis_read::runtime::db::Pools;
 use verdaxis_read::runtime::market_write::MarketWriteOptions;
-use verdaxis_read::{AppState, compiled_sha, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const LEDGER: &str = include_str!("../../../tests/rust_contract/phase89/switch-routes.json");
 const MARKERS: &str = include_str!("fixtures/market_write_markers.sql");

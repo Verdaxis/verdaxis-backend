@@ -20,7 +20,10 @@ use axum::{
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
-use verdaxis_read::{AppState, compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS, runtime::config::config_from_deployed_environment};
+use verdaxis_read::{
+    AppState, Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+    runtime::config::config_from_deployed_environment,
+};
 
 const SAMPLE_ID: &str = "00000000-0000-4000-8000-000000000001";
 const SECRET: &str = "synthetic-composition-key-at-least-32-characters";

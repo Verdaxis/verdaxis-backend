@@ -1,7 +1,9 @@
 //! The serving composition exposes the credential area without business routes.
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 async fn app() -> axum::Router {
     let config = Config {

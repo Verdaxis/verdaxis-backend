@@ -3,7 +3,9 @@
 //! reaches a database route fails with 503 on the unreachable pool, never 400.
 use axum::{Router, body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 fn app(allowed_hosts: Option<&str>) -> Router {
     let config = Config {

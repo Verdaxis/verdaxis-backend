@@ -11,7 +11,10 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::{AppState, auth::VerificationSettings, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, auth::VerificationSettings,
+    runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const KEY: &str = "inventory-fixture-signing-key-at-least-32-characters";
 const SUPPORT_CONTEXT: &str = "x-verdaxis-market-support-context";

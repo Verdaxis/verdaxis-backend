@@ -32,6 +32,7 @@ use sqlx::{
 };
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState,
     auth::{
@@ -53,7 +54,6 @@ use verdaxis_read::{
     crud::referrals::invite::MailClient,
     streams::auth::{StreamError, revalidate, verify_stream},
 };
-use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 /// The Alembic head the runner's database sits at: the adoption source. The
 /// runner adopts the database to the runtime revision before serving it.

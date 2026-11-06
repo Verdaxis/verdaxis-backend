@@ -34,7 +34,10 @@ use verdaxis_read::crud::watchlists::{
     EventAdmission, EventQuery, Summary, VisibleSnapshot, WatchlistEvent, WatchlistSettings,
     acknowledge, capture_visible, decode_cursor, feed_page, router,
 };
-use verdaxis_read::{AppState, compiled_sha, Config, MarketPolicy, PointPolicy, ProductPolicy, runtime::artifact::ALLOWED_REVISIONS, VisibilityClock};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, PointPolicy, ProductPolicy, VisibilityClock, compiled_sha,
+    runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const BEST_PRICE: &str = "SLICE_BEST_PRICE_MOVED";
 const PRODUCT_CODE: &str = "VISIBILITY";

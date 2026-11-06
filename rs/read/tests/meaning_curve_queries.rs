@@ -25,7 +25,9 @@ use verdaxis_read::market::visibility::{
 #[path = "support/curve_candidate_shape.rs"]
 mod curve_candidate_shape;
 use curve_candidate_shape::curve_candidate_sql;
-use verdaxis_read::{compiled_sha, Config, connect, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    Config, MarketPolicy, compiled_sha, connect, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

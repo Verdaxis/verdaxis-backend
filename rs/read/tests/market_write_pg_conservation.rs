@@ -22,7 +22,10 @@ use tokio::sync::Barrier;
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::routes::market_write::orders::served_contract_router;
-use verdaxis_read::{AppState, auth::VerificationSettings, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, auth::VerificationSettings,
+    runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const KEY: &str = "conservation-test-signing-key-at-least-32-characters";
 const SEEDS: [u64; 8] = [1, 17, 43, 256, 1024, 65537, 20261027, 0x5eed];

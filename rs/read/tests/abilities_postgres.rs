@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::{AppState, compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{AppState, Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS};
 
 const SECRET: &str = "abilities-synthetic-secret-at-least-32-characters";
 const ACTIONS: [&str; 23] = [

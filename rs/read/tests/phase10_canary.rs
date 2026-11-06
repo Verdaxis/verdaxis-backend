@@ -14,7 +14,9 @@ use sqlx::postgres::PgPoolOptions;
 use std::process::{Command, Output};
 use std::time::Duration;
 use tower::ServiceExt;
-use verdaxis_read::{AppState, compiled_sha, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const PATH: &str = "/api/monitor/signup-canary-cleanup";
 const CLOSED_PORT_URL: &str = "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test";

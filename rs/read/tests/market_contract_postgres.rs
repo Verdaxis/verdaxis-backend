@@ -14,7 +14,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
-use verdaxis_read::{compiled_sha, Config, connect, MarketPolicy, PublicOrderFilters, runtime::artifact::ALLOWED_REVISIONS, select_public_order_ids, select_trade_evidence_ids, TradeEvidenceFilters, VisibilityClock};
+use verdaxis_read::{
+    Config, MarketPolicy, PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, compiled_sha,
+    connect, runtime::artifact::ALLOWED_REVISIONS, select_public_order_ids,
+    select_trade_evidence_ids,
+};
 
 const POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),

@@ -2,7 +2,7 @@
 //! connects, so a request must be refused before any database work.
 use axum::Router;
 use chrono::{TimeZone, Utc};
-use verdaxis_read::crud::watchlists::{router, WatchlistSettings};
+use verdaxis_read::crud::watchlists::{WatchlistSettings, router};
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 pub fn app() -> Router {

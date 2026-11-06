@@ -3,7 +3,10 @@
 //! Requires a disposable database and roles; never targets deployed databases.
 use std::{sync::Arc, time::Duration};
 use verdaxis_read::routes::market_data_error::database_failure;
-use verdaxis_read::{ApiErrorKind, AppState, compiled_sha, Config, connect, MarketPolicy, run_admitted, run_market_read, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    ApiErrorKind, AppState, Config, MarketPolicy, compiled_sha, connect, run_admitted,
+    run_market_read, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const SLOW: &str = "SELECT pg_sleep(5)";
 

@@ -28,8 +28,8 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use serde_json::{Value, json};
 use usage::{AuthoritativeUsage, UsageDays};
 use uuid::Uuid;
-use verdaxis_read::runtime::db::Pools;
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
+use verdaxis_read::runtime::db::Pools;
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 24, 12, 0, 0).unwrap()

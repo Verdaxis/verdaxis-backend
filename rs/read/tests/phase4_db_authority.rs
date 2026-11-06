@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
+use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
 
 /// The Alembic head the runner's database sits at: the adoption source. The
 /// runner adopts the database to the runtime revision before serving it.

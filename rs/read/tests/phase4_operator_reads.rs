@@ -29,7 +29,9 @@ use std::{collections::BTreeMap, net::SocketAddr};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-use verdaxis_read::{auth::VerificationSettings, business::error::refusal, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{
+    auth::VerificationSettings, business::error::refusal, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const SECRET: &str = "operator-reads-test-secret-at-least-32-characters";
 const ISSUER: &str = "operator-reads-test";

@@ -1,6 +1,8 @@
 //! Requires pre-provisioned disposable roles; never targets deployed databases.
 use verdaxis_read::runtime::health::probe;
-use verdaxis_read::{compiled_sha, Config, connect, runtime::artifact::ALLOWED_REVISIONS, validate_config};
+use verdaxis_read::{
+    Config, compiled_sha, connect, runtime::artifact::ALLOWED_REVISIONS, validate_config,
+};
 
 fn config(variable: &str) -> Config {
     let config = Config {

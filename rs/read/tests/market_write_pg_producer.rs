@@ -15,7 +15,6 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
-use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::crud::watchlists::{
     EventAdmission, EventQuery, Summary, VisibleSnapshot, WatchlistEvent, acknowledge,
     capture_visible, feed_page,
@@ -28,6 +27,7 @@ use verdaxis_read::market_contract::producer::{
     BatchOutcome, BootstrapOutcome, INSERT_CHUNK_ROWS, ProducerActivation, ProducerError,
     bootstrap_watermark, consume_batch, run_producer,
 };
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
 const ASSIGN_SQL: &str = include_str!("../sql/streams_assign.sql");

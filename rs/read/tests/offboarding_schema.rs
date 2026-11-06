@@ -11,7 +11,7 @@ use std::{
     process::Command,
 };
 
-use verdaxis_read::{compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS, validate_config};
+use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config};
 
 /// The revision that precedes the offboarding revision on the shared chain.
 const PARENT: &str = "p89_20261022_trade_freeze";

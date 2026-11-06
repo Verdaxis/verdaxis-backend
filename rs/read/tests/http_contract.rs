@@ -1,4 +1,6 @@
-use verdaxis_read::{busy, database_error, request_id, runtime::artifact::ALLOWED_REVISIONS, selected_read};
+use verdaxis_read::{
+    busy, database_error, request_id, runtime::artifact::ALLOWED_REVISIONS, selected_read,
+};
 
 use axum::{
     Router,

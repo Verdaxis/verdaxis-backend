@@ -3,7 +3,7 @@ use verdaxis_read::streams::{
     bus::{PublicChannel, Terminal},
     runtime::{CapacityConfig, start_streams},
 };
-use verdaxis_read::{compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS};
+use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS};
 
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL stream fixture"]
