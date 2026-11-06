@@ -374,7 +374,7 @@ impl TradeCommand {
         let mut locks = OperationLockPlan::new(if self.request.create.is_some() {
             MarketOperation::Take
         } else {
-            MarketOperation::InventoryEdit
+            MarketOperation::TradeRead
         });
         locks.parties(&parties)?;
         // Only a take takes the create idempotency lock; a read never touches

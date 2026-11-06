@@ -1282,3 +1282,90 @@ async fn locked_party_changes_are_revalidated_after_read_only_preview() {
     assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
     assert_eq!(f.state().await["trades"], 0);
 }
+
+/// A slow database read holds admission locks long enough to expose reader
+/// contention without adding a production pause hook.
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn organization_admin_trade_reads_overlap_and_protect_admission() {
+    let mut f = Fixture::new().await;
+    assert_eq!(f.take(BUYER, None, "1").await.0, StatusCode::OK);
+    // Insert UNKNOWN provenance normally; existing provenance is immutable.
+    sqlx::query("INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES($1,'Admin organization','SHIPOWNER','APPROVED','UNKNOWN')")
+        .bind(id(0x4000))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET organization_id=$1 WHERE id=$2")
+        .bind(id(0x4000))
+        .bind(id(ADMIN))
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE FUNCTION trades_fixture_slow_read() RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$
+         BEGIN PERFORM pg_sleep(0.8); RETURN true; END $$;
+         ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
+         CREATE POLICY trades_fixture_slow_read ON trades FOR SELECT USING (trades_fixture_slow_read());",
+    )
+    .execute(&mut f.admin)
+    .await
+    .unwrap();
+    let mut observer = PgConnection::connect(&f._database.admin_url).await.unwrap();
+    for first_path in ["/api/trades/my", "/api/trades/summary"] {
+        for second_path in ["/api/trades/my", "/api/trades/summary"] {
+            let router = f.router.clone();
+            let first = tokio::spawn(async move {
+                send(&router, "GET", first_path, Some(ADMIN), &[], None).await
+            });
+            tokio::time::timeout(Duration::from_secs(4), async {
+                loop {
+                    let sleeping: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+                         AND usename='rust_app' AND wait_event='PgSleep')",
+                    )
+                    .fetch_one(&mut observer)
+                    .await
+                    .unwrap();
+                    if sleeping {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("the first route reached its slow trade SELECT after admission");
+            // Readers must still exclude account/organization writers. SHARE,
+            // unlike KEY SHARE, also conflicts with non-key admission updates.
+            for statement in [
+                "SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE NOWAIT",
+                "SELECT id FROM organizations WHERE id=$1 FOR NO KEY UPDATE NOWAIT",
+            ] {
+                let target = if statement.contains("FROM users") {
+                    ADMIN
+                } else {
+                    0x4000
+                };
+                let error = sqlx::query(statement)
+                    .bind(id(target))
+                    .execute(&mut observer)
+                    .await
+                    .expect_err("admission writer must wait for the active reader");
+                assert_eq!(
+                    error.as_database_error().unwrap().code().as_deref(),
+                    Some("55P03")
+                );
+            }
+            let second = send(&f.router, "GET", second_path, Some(ADMIN), &[], None).await;
+            let first = first.await.unwrap();
+            assert_eq!(first.0, StatusCode::OK, "{first_path}: {}", first.1);
+            assert_eq!(second.0, StatusCode::OK, "{second_path}: {}", second.1);
+            let count_key = if second_path.ends_with("summary") {
+                "total_count"
+            } else {
+                "total"
+            };
+            assert_eq!(second.1[count_key], 0);
+        }
+    }
+}
