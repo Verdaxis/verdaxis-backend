@@ -25,9 +25,12 @@ def test_stream_release_path_has_no_skipped_checkpoint():
         if target == chain[1]:
             assert source in (chain[0], chain[1])
     allowed = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert set(chain) <= set(allowed)
+    # The historical chain reaches adoption; it is no longer runtime admission.
+    assert allowed == ["sqlx_1"]
+    assert ("ob_20261031_offboarding", "sqlx_1") in rows
+    assert ("sqlx_1", "sqlx_1") in rows
 
 
-def test_stream_checkpoint_is_an_explicit_production_pin():
+def test_adopted_baseline_is_an_explicit_production_pin():
     for path in ("rs/read/src/runtime/config.rs", "scripts/prepare_rust_runtime.py"):
-        assert '"sse_20261021_replay_floor"' in (ROOT / path).read_text()
+        assert '"sqlx_1"' in (ROOT / path).read_text()
