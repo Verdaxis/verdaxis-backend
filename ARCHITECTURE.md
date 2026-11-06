@@ -1218,6 +1218,13 @@ digest. Auth, session, monitor and passive checks must all pass. Task 31 produce
 that evidence; missing evidence keeps starts blocked. Disposable-only kill points
 surround each named publication, including cache, identity and state release.
 
+`deploy/scripts/provision-bundle-reader.sh` is independently installed as a
+root-owned helper outside the checkout. Before private pre-M capture, it creates
+the environment-specific LOGIN reader and root-only libpq service file without
+grants. Reviewed ACL convergence supplies its read authority. The deploy invokes
+the installed helper with `--check` before any backend stops; absent role or
+service file refuses without runtime mutation.
+
 `scripts/rust_phase10_window_caddy.py` is an off-host saved-site composer. It
 reuses the released candidate helpers/snippets, retains live abilities and
 offboarding, includes all CRUD groups in production, and routes the catch-all to
@@ -1245,8 +1252,9 @@ seven/five count remains an explicit reconciliation gate, not a fabricated timer
 release, then restores it under the same stable locks with startup blocked.
 Independent inventory/manifest approvals bind source objects, executable,
 units/drop-ins, guards, private runtime/credential references, monitor/Caddy
-bytes, owners/modes and native dependency closure. It withdraws old migrator
-credential routes rather than resuming a schema interpreter. Restore enables and
+bytes, owners/modes and native dependency closure. It restores all captured
+credential files, including migration URLs required by the old Settings, before
+backend startup; it never invokes a schema interpreter. Restore enables and
 starts both Python and the actual old Rust executable under lock-held restart
 authorization. Both exact loopback readiness responses precede saved Caddy reload;
 public readiness and the Python OpenAPI route follow it. Signed acceptance checks
