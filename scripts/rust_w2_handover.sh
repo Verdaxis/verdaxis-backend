@@ -203,10 +203,24 @@ verify_native_unit() {
     fi
 }
 verify_ready() {
-    local port=8000
-    [[ $ENVIRONMENT == production ]] || port=8001
-    /usr/bin/curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:$port/health/ready" |
-        jq -e --arg environment "$ENVIRONMENT" --arg sha "$SOURCE_REF" 'keys == ["db","environment","release_sha","status"] and .status == "ok" and .db == "ok" and .environment == $environment and .release_sha == $sha' >/dev/null
+    local local_url public_url url
+    local_url=$(jq -er --arg environment "$ENVIRONMENT" '
+        select(.environment == $environment and .rust_enabled == true)
+        | .health_url | select(type == "string" and length > 0)
+        ' "$SOURCE_ROOT/deploy/rust/$ENVIRONMENT-policy.json") || return
+    case $ENVIRONMENT in
+        production) public_url=https://api.verdaxis.exchange/health/ready ;;
+        staging) public_url=https://api-staging.verdaxis.exchange/health/ready ;;
+        *) fail 'unknown readiness environment'; return 1 ;;
+    esac
+    for url in "$local_url" "$public_url"; do
+        /usr/bin/curl --fail --silent --show-error --max-time 5 "$url" |
+            jq -se --arg environment "$ENVIRONMENT" --arg sha "$SOURCE_REF" '
+                length == 1 and (.[0] | type == "object"
+                and keys == ["db","environment","release_sha","status"]
+                and .status == "ok" and .db == "ok"
+                and .environment == $environment and .release_sha == $sha)' >/dev/null || return
+    done
 }
 verify_fence_inventory() {
     local group=$1 path digest metadata actual
@@ -381,9 +395,14 @@ rollback_group() {
         restore_active_timers "$group"
         return
     fi
+    # A prior attempt may have restored some or all launcher permissions.
+    # Fence again before draining so a retry starts from known ownership.
+    if [[ $(group_phase "$group") == rolling-back ]]; then refence_launchers "$group" || return; fi
     quiesce_group "$group" || return
     verify_direct_fences "$group" || return
-    if [[ $group == local-monitor || $group == external-recovery ]]; then
+    # Only local-monitor owns the health/backup producers and their journals.
+    # External recovery can roll back while those native producers stay active.
+    if [[ $group == local-monitor ]]; then
         release_alert_ownership || { fail 'native alert work blocks rollback; retained commands remain fenced'; return 1; }
     fi
     set_phase "$group" rolling-back || return
@@ -416,7 +435,9 @@ rollback_group() {
     restore_active_timers "$group"
 }
 verify_release() {
-    local -a source_git=(/usr/bin/git -C "$SOURCE_ROOT" -c "safe.directory=$SOURCE_ROOT" -c core.hooksPath=/dev/null)
+    # shellcheck source=deploy/scripts/safe-root-git.sh
+    source "$SOURCE_ROOT/deploy/scripts/safe-root-git.sh"
+    local -a source_git=(safe_root_git "$SOURCE_ROOT")
     [[ $("${source_git[@]}" rev-parse --show-toplevel) == "$SOURCE_ROOT" && $("${source_git[@]}" rev-parse HEAD) == "$SOURCE_REF" ]] || { fail 'source identity differs'; return 1; }
     [[ -z $("${source_git[@]}" status --porcelain --untracked-files=all) && -z $("${source_git[@]}" replace -l) ]] || { fail 'source is not clean'; return 1; }
     if "${source_git[@]}" ls-files -v -- | awk '$1 ~ /^[a-zS]$/ { found=1 } END { exit found ? 0 : 1 }'; then fail 'hidden tracked-file index flags'; return 1; fi
@@ -447,16 +468,26 @@ validate_timer_inventory() {
         digest=$(jq -r --arg name "$timer" '.timers[] | select(.name == $name) | .sha256' "$INVENTORY")
         [[ -f $source && ! -L $UNIT_DIR/$timer ]] || { fail 'timer source unavailable or installed path redirected'; return 1; }
         [[ $(file_digest "$source") == "$digest" ]] || { fail 'timer digest does not bind reviewed source'; return 1; }
-        local candidate saved='' was_absent=0
+        local candidate phase saved='' was_absent=0 rolling_back=0
         for candidate in "${GROUPS_ORDER[@]}"; do
-            if [[ $(group_phase "$candidate") == rolled-back && -f $STATE_DIR/$candidate/previous/$timer ]]; then
+            phase=$(group_phase "$candidate")
+            case $phase in rolled-back|rolling-back) ;; *) continue ;; esac
+            if [[ -f $STATE_DIR/$candidate/previous/$timer ]]; then
                 verify_snapshot "$candidate" || return
                 saved=$STATE_DIR/$candidate/previous/$timer
-            elif [[ $(group_phase "$candidate") == rolled-back && -f $STATE_DIR/$candidate/absent ]] && grep -Fxq "$timer" "$STATE_DIR/$candidate/absent"; then
+            elif [[ -f $STATE_DIR/$candidate/absent ]] && grep -Fxq "$timer" "$STATE_DIR/$candidate/absent"; then
                 verify_snapshot "$candidate" || return
                 was_absent=1
+            else
+                continue
             fi
+            [[ $phase != rolling-back ]] || rolling_back=1
         done
+        # Each rename/removal can be interrupted independently. During rollback,
+        # accept only the reviewed release or that timer's verified saved state.
+        if (( rolling_back )) && [[ -f $UNIT_DIR/$timer && $(file_digest "$UNIT_DIR/$timer") == "$digest" ]]; then
+            continue
+        fi
         if (( was_absent )); then
             [[ ! -e $UNIT_DIR/$timer ]] || { fail 'previously absent timer reappeared'; return 1; }
         elif [[ -n $saved ]]; then
@@ -496,7 +527,11 @@ main() {
     case $action in install|advance|accept|rollback|status) ;; *) usage ;; esac
     case $group in ''|news|auth-prune|reminders|onboarding|demo|local-monitor|external-recovery) ;; *) usage ;; esac
     export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
+    # Ambient Git routing must stay cleared for every later command in this
+    # function; the boundary helper also clears it inside its own subshell.
+    # shellcheck disable=SC2031
     for arg in "${!GIT_@}"; do unset "$arg"; done
+    # shellcheck disable=SC2031
     export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_NO_REPLACE_OBJECTS=1
     SOURCE_ROOT=/home/verdaxis-prod/verdaxis/prod/be
     [[ $ENVIRONMENT == production ]] || SOURCE_ROOT=/home/verdaxis-prod/verdaxis/staging/be

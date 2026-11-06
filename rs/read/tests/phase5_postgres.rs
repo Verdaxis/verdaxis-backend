@@ -38,6 +38,7 @@ use uuid::Uuid;
 
 use overlay_routes::{OverlayAuthority, routes as overlay_routes};
 use scores::{Clock, RouteContext, routes_with_context};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const SECRET: &str = "phase5-task12-test-secret-minimum-32-characters";
 const ISSUER: &str = "verdaxis-task12-test";
@@ -60,7 +61,7 @@ fn app(database_url: &str) -> Router {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "p5_20261020_read_indexes".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: database_url.into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,
@@ -320,7 +321,7 @@ async fn phase5_visibility_cases() {
             db_session_time_zone: "UTC".into(),
             environment: "test".into(),
             release_sha: compiled_sha().into(),
-            migration_revision: "p5_20261020_read_indexes".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: application.clone(),
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 16,
@@ -496,7 +497,7 @@ async fn phase5_read_limits() {
             db_session_time_zone: "UTC".into(),
             environment: "test".into(),
             release_sha: compiled_sha().into(),
-            migration_revision: "p5_20261020_read_indexes".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: application.clone(),
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 1,

@@ -384,7 +384,7 @@ fn empty_slice_retains_null_prices_and_zero_quantities() {
     );
 }
 
-use verdaxis_read::{AppState, Config, MarketPolicy};
+use verdaxis_read::{AppState, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
 fn state() -> AppState {
     state_with_pool().0
 }
@@ -395,7 +395,7 @@ fn state_with_pool() -> (AppState, sqlx::PgPool) {
         db_session_time_zone: "Asia/Singapore".into(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,

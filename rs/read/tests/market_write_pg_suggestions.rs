@@ -13,6 +13,7 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState, Config, MarketPolicy,
     auth::{VerificationSettings, limits::SharedLimits},
@@ -160,7 +161,7 @@ impl Fixture {
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "kycg_20261014_staging".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: runtime_url,
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,

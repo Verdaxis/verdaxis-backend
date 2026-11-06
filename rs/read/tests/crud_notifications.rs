@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use verdaxis_read::auth::limits::SharedLimits;
 use verdaxis_read::crud::notifications::{self, NotificationAuthority};
-use verdaxis_read::{AppState, Config, MarketPolicy};
+use verdaxis_read::{AppState, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
 
 /// The pinned fixture: Python-compiled statements, response shape and digests.
 const FIXTURE: &str = include_str!("../../../tests/rust_contract/phase2/notifications.json");
@@ -293,7 +293,7 @@ fn test_config(database_url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,

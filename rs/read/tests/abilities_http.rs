@@ -4,12 +4,12 @@ use axum::{
     http::{Request, StatusCode},
 };
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config};
+use verdaxis_read::{AppState, Config, runtime::artifact::ALLOWED_REVISIONS};
 
 fn application(url: &str) -> axum::Router {
     let config: Config = serde_json::from_value(serde_json::json!({
         "environment":"test", "release_sha":verdaxis_read::compiled_sha(),
-        "migration_revision":"ob_20261031_offboarding",
+        "migration_revision":ALLOWED_REVISIONS[0],
         "database_url":url,
         "db_session_time_zone":"UTC", "bind":"127.0.0.1:0", "pool_max":3,
         "read_admission_slots":2, "python_budget":52, "configured_max_connections":100,

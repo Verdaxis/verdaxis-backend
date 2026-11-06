@@ -33,6 +33,13 @@ export MIGRATOR_DATABASE_URL="$DATABASE_URL"
 run migrate "${RUST_TEST_PYTHON:-python3}" -m alembic upgrade head
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE=verdaxis_authority_test PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw
 run acl psql -X --single-transaction -v ON_ERROR_STOP=1 -v database_name=verdaxis_authority_test -v app_role=verdaxis_app_staging -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging -f deploy/postgres/converge_runtime_object_acls.sql
+
+# The M runtime only serves an adopted database: record the exact
+# adoption row (the schema stays at the Alembic head).
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_authority_test" \
+run adopt cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 printf 'INDEX_INVENTORY_BEGIN\n'
 psql -X -At -v ON_ERROR_STOP=1 -c "SELECT json_build_object('table',tablename,'name',indexname,'definition',indexdef) FROM pg_indexes WHERE schemaname='public' ORDER BY tablename,indexname"
 printf 'INDEX_INVENTORY_END\n'

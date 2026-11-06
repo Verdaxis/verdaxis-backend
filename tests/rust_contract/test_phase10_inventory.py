@@ -280,15 +280,19 @@ REQUIRED_SCENARIOS_BY_TASK = {
         "fingerprint_changes_when_a_column_is_added",
         "fingerprint_excludes_extension_members",
         "fingerprint_ignores_acls_and_owners",
+        "fingerprint_is_independent_of_the_schema_owner",
         "fingerprint_is_stable_across_two_reads",
     ],
     6: [
+        "absent_bundle_reader_receives_nothing",
+        "adoption_binds_schema_owners_to_the_environment_migrator",
         "adoption_checksum_matches_sqlx",
         "adoption_commit_then_interruption_resumes_each_publication_boundary",
         "adoption_row_matches_sqlx_created_table",
         "app_role_is_denied_sqlx_control_table",
         "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it",
         "baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history",
+        "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence",
         "deploy_owned_requires_exact_state_nonce_sha_and_both_locks",
         "exact_adoption_resume_is_read_only_and_idempotent",
         "migrate_and_app_request_do_not_half_apply",
@@ -656,7 +660,7 @@ FINGERPRINT_REQUIREMENTS = {
     "fingerprint_ignores_acls_and_owners": {
         "owner_task": 5,
         "plan_requirement": "§8.3, catalog fingerprint tests; Task 5",
-        "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. Schema owner names remain included in the projection, as §8.3 requires.",
+        "required_result": "Changing ACLs and excluded individual-column ownership metadata leaves the fingerprint unchanged. The projection carries one normalized schema-owner placeholder and one manifest serves production and staging; adoption separately asserts every live schema owner against the adopting environment's migrator role.",
     },
     "fingerprint_excludes_extension_members": {
         "owner_task": 5,
@@ -702,6 +706,8 @@ SUPPLEMENTAL_GROUPS = {
         'window-source.deploy/tests/w2-handover-contract.sh': 'deploy/tests/w2-handover-contract.sh',
         'window-source.tests/rust_contract/test_phase10_w2_handover.py': 'tests/rust_contract/test_phase10_w2_handover.py',
         'window-source.deploy/scripts/pre-m-bundle.sh': 'deploy/scripts/pre-m-bundle.sh',
+        'window-source.deploy/scripts/safe-root-git.sh': 'deploy/scripts/safe-root-git.sh',
+        'window-source.tests/rust_contract/test_phase10_safe_git.py': 'tests/rust_contract/test_phase10_safe_git.py',
         'window-source.deploy/tests/pre-m-bundle-contract.sh': 'deploy/tests/pre-m-bundle-contract.sh',
         'window-source.tests/rust_contract/test_phase10_pre_m_bundle.py': 'tests/rust_contract/test_phase10_pre_m_bundle.py',
     },
@@ -745,7 +751,7 @@ SUPPLEMENTAL_GROUPS = {
 }
 
 # Freeze source identity after removal too; dispositions and result records can change.
-PINNED_SOURCE_IDENTITIES = '77d31a4c54ccf06421772368a5f0382e769ad511a893a70bd401c607db13d51a'
+PINNED_SOURCE_IDENTITIES = 'd879052a03150c507e203d3cb401b35580ece5cc0d71c56e1ee30da730077766'
 
 
 def validate_inventory_contract(ledger, manifest):
@@ -778,7 +784,7 @@ def validate_inventory_contract(ledger, manifest):
 
 def test_phase10_release_window_sources_remain_planned_and_offhost_except_shell_helpers():
     ledger = unique_rows(document("removal-ledger")["artifacts"])
-    retained_helpers = {"scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh"}
+    retained_helpers = {"scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh", "deploy/scripts/safe-root-git.sh"}
     for identity, source in SUPPLEMENTAL_GROUPS["release-window"].items():
         row = ledger[identity]
         assert row["status"] == "planned", "source integration is not installed acceptance"

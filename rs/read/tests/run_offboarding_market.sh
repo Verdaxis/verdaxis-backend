@@ -58,28 +58,35 @@ templates=(verdaxis_offboarding_market_test verdaxis_offboarding_reassignment_te
 # The lock target's Python writer protocols reuse the migrator URL with the
 # runtime role name, so both roles share one disposable password.
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE rust_migrator LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_backup NOLOGIN;
 SQL
 for database in "${templates[@]}" verdaxis_rejection_test; do
   docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
-    -c "CREATE DATABASE $database OWNER rust_migrator" >/dev/null
+    -c "CREATE DATABASE $database OWNER verdaxis_migrator_staging" >/dev/null
   docker exec "$container" psql -U postgres -d "$database" -v ON_ERROR_STOP=1 \
-    -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO rust_migrator; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
+    -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO verdaxis_migrator_staging; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
 done
 
 export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
 for database in "${templates[@]}"; do
-  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_role_pw@127.0.0.1:$port/$database"
+  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$database"
   export MIGRATOR_DATABASE_URL="$DATABASE_URL"
   "$python" -m alembic upgrade head
   PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" \
-    PGUSER=rust_migrator PGPASSWORD=disposable_role_pw \
+    PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
     psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
-    -v migrator_role=rust_migrator -v backup_role=rust_backup \
+    -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
     -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
+
+  # The M runtime only serves an adopted database: record the exact
+  # adoption row (the schema stays at the Alembic head).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$database" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
   printf 'GATE=migrate-%s EXIT=0\n' "$database"
 done
 unset DATABASE_URL MIGRATOR_DATABASE_URL
@@ -101,7 +108,7 @@ export RUST_CONSERVATION_ADMIN_DATABASE_URL="$admin/verdaxis_effects_test"
 export RUST_CONSERVATION_DATABASE_URL="$app/verdaxis_effects_test"
 export RUST_CONSERVATION_TEMPLATE_DATABASE=verdaxis_effects_test
 # The invalidation and lock targets create their own schemas here.
-export RUST_TEST_MIGRATOR_DATABASE_URL="postgresql://rust_migrator:disposable_role_pw@127.0.0.1:$port/verdaxis_rejection_test"
+export RUST_TEST_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/verdaxis_rejection_test"
 export RUST_TEST_DATABASE_URL="$app/verdaxis_rejection_test"
 
 log=$(mktemp "${TMPDIR:-/tmp}/offboarding-market.XXXXXX")

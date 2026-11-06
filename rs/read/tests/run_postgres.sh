@@ -49,6 +49,9 @@ CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_pw
 -- Phase 10 Tasks 5 and 6: the production migrator name owns the baseline and
 -- adoption databases, so the catalog fingerprint's owner projection matches.
 CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_verdaxis_migrator_pw';
+-- The M adoption binds schema ownership to the adopting environment's
+-- migrator name; the market fixtures below are staging-shaped.
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 -- A second database proves the attestation refuses a correct role on the
 -- wrong database name.
@@ -82,10 +85,10 @@ export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
 market_image_role_setup() {
   local database=$1
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE DATABASE $database OWNER rust_migrator;
+CREATE DATABASE $database OWNER verdaxis_migrator_staging;
 \connect $database
 CREATE EXTENSION IF NOT EXISTS postgis;
-ALTER SCHEMA public OWNER TO rust_migrator;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
 }
@@ -121,7 +124,7 @@ export RUST_PRODUCER_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0
 # quarantine and seed run there as the database owner role.
 export RUST_RESIDUAL_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_residual_test"
 export RUST_RESIDUAL_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_residual_test"
-export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_residual_test"
+export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_residual_test"
 # The market serving target clones this template per case.
 export RUST_SERVING_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_serving_test"
 export RUST_SERVING_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_serving_test"
@@ -130,15 +133,21 @@ export RUST_INVENTORY_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.
 export RUST_SUPPORT_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_support_test"
 export RUST_SUPPORT_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_support_test"
 for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test verdaxis_inventory_test verdaxis_support_test; do
-  export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
+  export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=verdaxis_migrator_staging \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
-  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
-    MIGRATOR_DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
   "$RUST_TEST_PYTHON" -m alembic upgrade ob_20261031_offboarding
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
-    -v migrator_role=rust_migrator -v backup_role=rust_backup \
+    -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
     -f deploy/postgres/converge_runtime_object_acls.sql
+  # The M runtime only serves an adopted database: record the exact adoption
+  # row (the schema stays at the Alembic head; the fingerprint is unchanged).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_TRADES_TEMPLATE_DATABASE=verdaxis_trades_test

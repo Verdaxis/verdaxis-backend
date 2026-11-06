@@ -8,9 +8,11 @@ use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Row};
 use std::str::FromStr;
+use verdaxis_read::cli::Environment;
 use verdaxis_read::cli::migrate::{
-    Adoption, AdoptionRefusal, MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, adopt,
-    compiled_baseline, fingerprint, run_to_target, run_transition, status, status_with,
+    Adoption, AdoptionBaseline, AdoptionRefusal, BaselineRecord, MIGRATOR, RunOutcome, RunRefusal,
+    TransitionPolicy, adopt, compiled_baseline, fingerprint, run_to_target, run_transition, status,
+    status_with,
 };
 
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
@@ -18,6 +20,16 @@ const MIGRATOR_ROLE: &str = "verdaxis_migrator";
 fn admin_url() -> String {
     std::env::var("RUST_TEMPLATE_ADMIN_DATABASE_URL")
         .expect("RUST_TEMPLATE_ADMIN_DATABASE_URL must name the disposable server")
+}
+
+/// The compiled baseline bound to an adopting environment. The manifest is
+/// compiled into the binary, so the record's backing storage is `'static`.
+fn baseline_with(environment: Environment) -> AdoptionBaseline<'static> {
+    let record: &'static BaselineRecord = Box::leak(Box::new(compiled_baseline()));
+    AdoptionBaseline {
+        record,
+        environment,
+    }
 }
 
 fn adoption_head() -> String {
@@ -157,6 +169,7 @@ async fn adoption_row_matches_sqlx_created_table() {
     let adopted = alembic_database("adopted").await;
     let outcome = adopt(
         &mut as_migrator(&adopted).await,
+        Environment::Production,
         &adoption_head(),
         &compiled_baseline(),
     )
@@ -183,6 +196,7 @@ async fn adoption_checksum_matches_sqlx() {
     let adopted = alembic_database("checksum_adopted").await;
     adopt(
         &mut as_migrator(&adopted).await,
+        Environment::Production,
         &adoption_head(),
         &compiled_baseline(),
     )
@@ -236,6 +250,7 @@ async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
     let database = alembic_database("wrong_head").await;
     let refused = adopt(
         &mut as_migrator(&database).await,
+        Environment::Production,
         "p5_20261020_read_indexes",
         &baseline,
     )
@@ -245,6 +260,7 @@ async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
     other_head.alembic_head = "p5_20261020_read_indexes".into();
     let refused = adopt(
         &mut as_migrator(&database).await,
+        Environment::Production,
         "p5_20261020_read_indexes",
         &other_head,
     )
@@ -260,6 +276,7 @@ async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
         .expect("change the catalog");
     let refused = adopt(
         &mut as_migrator(&database).await,
+        Environment::Production,
         &adoption_head(),
         &baseline,
     )
@@ -297,6 +314,7 @@ async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
         let before = history_rows(&database).await;
         let refused = adopt(
             &mut as_migrator(&database).await,
+            Environment::Production,
             &adoption_head(),
             &baseline,
         )
@@ -311,6 +329,131 @@ async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
     }
 }
 
+/// The catalog projection names one owner placeholder, so adoption separately
+/// binds every application schema owner to the adopting environment's
+/// migrator role: production passes as `verdaxis_migrator`, staging as
+/// `verdaxis_migrator_staging`, and each role fails on the other environment.
+/// A third owner fails on both. Every refusal happens before any write.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn adoption_binds_schema_owners_to_the_environment_migrator() {
+    let baseline = compiled_baseline();
+
+    // The template's schemas are owned by the production migrator: production
+    // adopts, staging refuses.
+    let database = alembic_database("owner_prod").await;
+    assert_eq!(
+        adopt(
+            &mut as_migrator(&database).await,
+            Environment::Production,
+            &adoption_head(),
+            &baseline,
+        )
+        .await,
+        Ok(Adoption::Adopted)
+    );
+    drop_database(&database).await;
+    let database = alembic_database("owner_staging").await;
+    let refused = adopt(
+        &mut as_migrator(&database).await,
+        Environment::Staging,
+        &adoption_head(),
+        &baseline,
+    )
+    .await;
+    assert_eq!(refused, Err(AdoptionRefusal::SchemaOwner));
+    assert!(!history_exists(&database).await, "refusal wrote nothing");
+
+    // A staging-owned database: staging adopts, production refuses. A template
+    // clone keeps the template's schema owner, so the copy reassigns the
+    // schema exactly as a real staging migration builds it.
+    let staging_name = case_name("owner_staging_owned");
+    let mut admin = connect("postgres").await;
+    sqlx::raw_sql(
+        "DO $$ BEGIN \
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'verdaxis_migrator_staging') THEN \
+             CREATE ROLE verdaxis_migrator_staging NOLOGIN; \
+           END IF; \
+         END $$",
+    )
+    .execute(&mut admin)
+    .await
+    .expect("the staging migrator role");
+    // CREATE DATABASE cannot share a statement batch: a batch is one transaction.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE DATABASE {staging_name} TEMPLATE {}",
+        std::env::var("RUST_ADOPTION_TEMPLATE_DATABASE").expect("RUST_ADOPTION_TEMPLATE_DATABASE")
+    )))
+    .execute(&mut admin)
+    .await
+    .expect("create the staging clone");
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        "ALTER SCHEMA public OWNER TO verdaxis_migrator_staging".to_string(),
+    ))
+    .execute(&mut connect(&staging_name).await)
+    .await
+    .expect("hand the schema to the staging migrator");
+    drop(admin);
+    let refused = adopt(
+        &mut as_migrator(&staging_name).await,
+        Environment::Production,
+        &adoption_head(),
+        &baseline,
+    )
+    .await;
+    assert_eq!(refused, Err(AdoptionRefusal::SchemaOwner));
+    assert!(
+        !history_exists(&staging_name).await,
+        "refusal wrote nothing"
+    );
+    assert_eq!(
+        adopt(
+            // The gate binds schema owners, not the connecting role: the same
+            // staging-owned database accepts staging from any connection that
+            // can write, and the adoption row lands exactly.
+            &mut connect(&staging_name).await,
+            Environment::Staging,
+            &adoption_head(),
+            &baseline,
+        )
+        .await,
+        Ok(Adoption::Adopted)
+    );
+    let history = history_rows(&staging_name).await;
+    assert_eq!(history.len(), 1);
+    drop_database(&staging_name).await;
+
+    // A third owner fails on both environments.
+    let database = alembic_database("owner_third").await;
+    sqlx::raw_sql(
+        "DO $$ BEGIN \
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'verdaxis_migrator_third') THEN \
+             CREATE ROLE verdaxis_migrator_third NOLOGIN; \
+           END IF; \
+         END $$; \
+         ALTER SCHEMA public OWNER TO verdaxis_migrator_third",
+    )
+    .execute(&mut connect(&database).await)
+    .await
+    .expect("hand the schema to a third owner");
+    for environment in [Environment::Production, Environment::Staging] {
+        let refused = adopt(
+            &mut as_migrator(&database).await,
+            environment,
+            &adoption_head(),
+            &baseline,
+        )
+        .await;
+        assert_eq!(
+            refused,
+            Err(AdoptionRefusal::SchemaOwner),
+            "{environment:?}"
+        );
+    }
+    assert!(!history_exists(&database).await, "refusal wrote nothing");
+    drop_database(&database).await;
+}
+
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn exact_adoption_resume_is_read_only_and_idempotent() {
@@ -319,6 +462,7 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
     assert_eq!(
         adopt(
             &mut as_migrator(&database).await,
+            Environment::Production,
             &adoption_head(),
             &baseline
         )
@@ -331,6 +475,7 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
         assert_eq!(
             adopt(
                 &mut as_migrator(&database).await,
+                Environment::Production,
                 &adoption_head(),
                 &baseline
             )
@@ -354,7 +499,7 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
                 &mut as_migrator(&database).await,
                 &MIGRATOR,
                 &rules,
-                &baseline,
+                baseline_with(Environment::Production),
                 "sqlx_1",
                 "sqlx_1",
                 apply,
@@ -374,7 +519,7 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
             &mut as_migrator(&database).await,
             &MIGRATOR,
             &rules,
-            &baseline,
+            baseline_with(Environment::Production),
             "sqlx_1",
             "sqlx_1",
             true,
@@ -397,7 +542,7 @@ async fn exact_adoption_resume_is_read_only_and_idempotent() {
             &mut as_migrator(&database).await,
             &MIGRATOR,
             &rules,
-            &baseline,
+            baseline_with(Environment::Production),
             "sqlx_1",
             "sqlx_1",
             false,
@@ -437,7 +582,7 @@ async fn deploy_transitions_cover_alembic_no_change_and_adoption() {
                 &mut as_migrator(&database).await,
                 &MIGRATOR,
                 rules,
-                &compiled_baseline(),
+                baseline_with(Environment::Production),
                 &current,
                 &target,
                 apply,
@@ -497,7 +642,7 @@ async fn adoption_commit_then_interruption_resumes_each_publication_boundary() {
                 &mut as_migrator(&database).await,
                 &MIGRATOR,
                 rules,
-                &compiled_baseline(),
+                baseline_with(Environment::Production),
                 &head,
                 "sqlx_1",
                 true,
@@ -542,7 +687,7 @@ async fn adoption_commit_then_interruption_resumes_each_publication_boundary() {
         &mut as_migrator(&database).await,
         &MIGRATOR,
         &rules,
-        &compiled_baseline(),
+        baseline_with(Environment::Production),
         &head,
         &head,
         true,
@@ -588,6 +733,7 @@ async fn adopted_database(label: &str) -> String {
     let database = alembic_database(label).await;
     adopt(
         &mut as_migrator(&database).await,
+        Environment::Production,
         &adoption_head(),
         &compiled_baseline(),
     )
@@ -1164,4 +1310,44 @@ async fn migrate_command_refuses_before_any_connection() {
             "{label}"
         );
     }
+}
+
+/// Adopt one disposable database to the compiled sqlx baseline, for the
+/// component runners: they build their templates with Alembic, and the M
+/// runtime only serves an adopted database. The runner names the database's
+/// migrator URL in `RUST_RUNNER_MIGRATOR_DATABASE_URL` and the adopting
+/// environment (`production` or `staging`) in `RUST_RUNNER_ENVIRONMENT`;
+/// adoption runs as the connection's own role, so the URL must be the
+/// environment's migrator. An exact earlier adoption is a no-op, so reruns
+/// stay green. Run with `cargo test ... --test phase10_migrate_postgres
+/// runner_database_adopts_to_the_baseline -- --ignored`.
+#[tokio::test]
+#[ignore = "run by the component runners through their migrator URL"]
+async fn runner_database_adopts_to_the_baseline() {
+    let raw = std::env::var("RUST_RUNNER_MIGRATOR_DATABASE_URL")
+        .expect("RUST_RUNNER_MIGRATOR_DATABASE_URL must name the runner's migrator URL");
+    let environment = match std::env::var("RUST_RUNNER_ENVIRONMENT")
+        .unwrap_or_else(|_| "production".into())
+        .as_str()
+    {
+        "production" => Environment::Production,
+        "staging" => Environment::Staging,
+        other => panic!("unknown runner environment: {other}"),
+    };
+    let options = PgConnectOptions::from_str(&raw).expect("parse the runner migrator URL");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .expect("connect as the runner migrator");
+    let outcome = adopt(
+        &mut connection,
+        environment,
+        &compiled_baseline().alembic_head,
+        &compiled_baseline(),
+    )
+    .await
+    .expect("adopt the runner database");
+    assert!(
+        matches!(outcome, Adoption::Adopted | Adoption::AlreadyAdopted),
+        "{outcome:?}"
+    );
 }

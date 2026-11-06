@@ -1,11 +1,11 @@
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config};
+use verdaxis_read::{AppState, Config, runtime::artifact::ALLOWED_REVISIONS};
 
 #[tokio::test]
 async fn production_composition_owns_every_business_operation() {
     let config:Config=serde_json::from_value(serde_json::json!({
-        "environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"p3_20261020_auth_tokens",
+        "environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],
         "database_url":"postgres://rust_app:synthetic@127.0.0.1:12345/verdaxis_serving_test","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":3,"read_admission_slots":2,"python_budget":52,"configured_max_connections":100,
         "phase2":{"jwt_secret":"synthetic-test-key-at-least-32-characters","jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"}
     })).unwrap();

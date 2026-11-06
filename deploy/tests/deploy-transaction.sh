@@ -85,6 +85,7 @@ FIXTURE_FILES=(
     deploy/rust/production-policy.json
     deploy/rust/artifact-provenance.pub.pem
     deploy/scripts/converge-acls.sh
+    deploy/scripts/safe-root-git.sh
     deploy/scripts/verify-deploy-start-guard.sh
 )
 
@@ -717,7 +718,7 @@ case_static_canonical() {
     local s=scripts/deploy.sh
     grep -q -F 'DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"' "$s" \
         && grep -q -F 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' "$s" \
-        && grep -q -F 'GIT=(/usr/bin/git' "$s" && grep -q -F 'TARGET_BRANCH="$DEFAULT_BRANCH"' "$s" \
+        && grep -q -F 'GIT=(safe_root_git "$BACKEND_DIR")' "$s" && grep -q -F 'TARGET_BRANCH="$DEFAULT_BRANCH"' "$s" \
         && grep -q -F 'unset DATABASE_URL MIGRATOR_DATABASE_URL' "$s" \
         && grep -q -F 'export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1' "$s" \
         && grep -q -F 'BINARY_ENV=(/usr/bin/env -i PATH="$PATH")' "$s"

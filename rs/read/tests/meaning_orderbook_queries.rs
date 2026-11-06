@@ -26,7 +26,9 @@ use verdaxis_read::market::visibility::{
     MAP_PROJECTION, PublicOrderFilters, VisibilityClock, bind_order_sql, order_query_sql,
     order_query_sql_projected,
 };
-use verdaxis_read::{Config, MarketPolicy, compiled_sha, connect};
+use verdaxis_read::{
+    Config, MarketPolicy, compiled_sha, connect, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const AGGREGATE_PROJECTION: &str = "o.product_id, o.delivery_point_id, o.side, o.provenance, \
      o.availability_window, o.price_per_mt_usd, o.remaining_quantity_mt, o.created_at,";
@@ -92,7 +94,7 @@ fn config() -> Config {
         db_session_time_zone: "Asia/Singapore".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var("RUST_MARKET_TEST_DATABASE_URL")
             .expect("explicit disposable test URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),

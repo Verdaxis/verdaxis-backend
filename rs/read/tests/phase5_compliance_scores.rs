@@ -31,6 +31,7 @@ use routes::market_data_error;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use scores::{
     Clock, FLEET_PATH, MAX_FLEET_VESSELS, MAX_LABEL_BYTES, MAX_LABEL_SCALARS, RouteContext,
@@ -89,7 +90,7 @@ fn state(database_url: &str) -> AppState {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "p5_20261020_read_indexes".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: database_url.into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,

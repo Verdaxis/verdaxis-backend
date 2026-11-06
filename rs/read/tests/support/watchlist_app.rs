@@ -3,6 +3,7 @@
 use axum::Router;
 use chrono::{TimeZone, Utc};
 use verdaxis_read::crud::watchlists::{WatchlistSettings, router};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 pub fn app() -> Router {
     let url = "postgres://unused:unused@127.0.0.1:54321/unused_test";
@@ -10,7 +11,7 @@ pub fn app() -> Router {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url.into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

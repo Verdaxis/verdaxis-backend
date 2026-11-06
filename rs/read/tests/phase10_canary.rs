@@ -14,7 +14,9 @@ use sqlx::postgres::PgPoolOptions;
 use std::process::{Command, Output};
 use std::time::Duration;
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const PATH: &str = "/api/monitor/signup-canary-cleanup";
 const CLOSED_PORT_URL: &str = "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test";
@@ -28,7 +30,7 @@ fn config(token: Option<&str>) -> Config {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: CLOSED_PORT_URL.into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,

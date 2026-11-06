@@ -69,19 +69,19 @@ done
 port=$(docker port "$container" 5432/tcp)
 port=${port##*:}
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE ROLE task9_writer LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
 CREATE ROLE task9_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
 -- Deployed app sessions carry a short lock deadline; an unscoped route
 -- inherits it instead of setting a transaction-local one.
 ALTER ROLE task9_app SET lock_timeout = '150ms';
-CREATE DATABASE $db OWNER task9_writer;
+CREATE DATABASE $db OWNER verdaxis_migrator_staging;
 \connect $db
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER DATABASE $db SET TimeZone TO 'UTC';
 SQL
 
 release_sha=$(git rev-parse HEAD)
-writer="postgresql+asyncpg://task9_writer:disposable_writer_pw@127.0.0.1:$port/$db"
+writer="postgresql+asyncpg://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
 export ENVIRONMENT=test
 export RELEASE_SHA="$release_sha"
 export JWT_SECRET='test-secret-key-for-testing-minimum-32-chars'
@@ -96,9 +96,15 @@ echo "MIGRATE_EXIT=$?"
 # current-account update lock, as the deployed app role does.
 docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO task9_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO task9_app; GRANT UPDATE ON users TO task9_app;"
+# The M runtime only serves an adopted database: record the exact
+# adoption row (the schema stays at the Alembic head).
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
+  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 
 export RUST_COMPLIANCE_TEST_DATABASE_URL="postgres://task9_app:disposable_app_pw@127.0.0.1:$port/$db"
-export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://task9_writer:disposable_writer_pw@127.0.0.1:$port/$db"
+export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
 # This runner supplies the database, so a missing URL is a failure, not a skip.
 export RUST_COMPLIANCE_REQUIRED=1
 

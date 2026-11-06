@@ -6,6 +6,7 @@ use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     auth::{CurrentActor, VerificationSettings, verify_access},
     business::{
@@ -563,7 +564,7 @@ fn build(f: &Fixture, limits: verdaxis_read::auth::limits::SharedLimits) -> axum
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "kycg_20261014_staging".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: std::env::var("RUST_TEST_DATABASE_URL").unwrap(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,

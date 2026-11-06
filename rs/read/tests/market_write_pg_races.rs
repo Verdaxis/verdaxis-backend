@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState,
     auth::VerificationSettings,
@@ -167,7 +168,7 @@ impl Fixture {
             .connect(&self.runtime_url)
             .await
             .unwrap();
-        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
+        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
         let mut pools = verdaxis_read::connect(&config).await.unwrap();
         pools.read = pool.clone();
         let policy =

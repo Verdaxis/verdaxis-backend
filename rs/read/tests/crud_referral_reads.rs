@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use chrono::{TimeZone, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use verdaxis_read::crud::referrals::{
     LeaderboardUser, MyReferralRow, ReferralSettings, ReferrerCount, ResolveRow,
@@ -518,7 +519,7 @@ async fn postgres_referral_reads_and_public_resolution() {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p0_20261016_union".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: app_url,
         db_session_time_zone: time_zone,
         prepared_budget: None,

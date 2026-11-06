@@ -79,7 +79,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "a20f0b3670a06b82d05f0f3b7a017423a53935612f807f76940e547af3125b5a",
+      "source_sha256": "f0aceafc2d80ebdd692d15d3c04ede68ee94a842cddc4bd637cd32b9ca5a74b6",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"
@@ -168,7 +168,7 @@
       "end_state": "shell",
       "owner": "Task 10 installer owner",
       "task": 10,
-      "source_sha256": "a1c0babdd294855948d9511a0b82049874f70e3e4678886955561b0dc52a1227",
+      "source_sha256": "50fb7ac84276888e13fec8bc8044bee5432e8b07e67e8203584eed72324e5553",
       "status": "planned",
       "evidence": [
         "installer_refuses_a_manifest_digest_mismatch"
@@ -422,7 +422,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "90e8cf7cf70fee8f1d5befce655d2ea4b7d4e592ec98ccd3f6c3216d2b2d098d",
+      "source_sha256": "3e1b7dba88b6c296e262e40139ceb55d15879b2d2d199ac106c77dceb320a99e",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",

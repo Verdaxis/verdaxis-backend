@@ -27,6 +27,7 @@ use verdaxis_read::market_contract::producer::{
     BatchOutcome, BootstrapOutcome, INSERT_CHUNK_ROWS, ProducerActivation, ProducerError,
     bootstrap_watermark, consume_batch, run_producer,
 };
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const RELEASE: &str = "0123456789abcdef0123456789abcdef01234567";
 const ASSIGN_SQL: &str = include_str!("../sql/streams_assign.sql");
@@ -1693,7 +1694,7 @@ fn read_config(database_url: String) -> verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p89_20261022_trade_freeze".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

@@ -2,11 +2,11 @@
 //! and its manifest (`deploy/rust/sqlx-baseline.json`).
 //!
 //! The database cases restore the committed baseline into fresh databases on
-//! the disposable PostgreSQL of `run_postgres.sh`, as the production migrator
-//! role name, so the owner projection of the catalog fingerprint matches the
-//! manifest. The fingerprint is the SHA-256 of the lines of
-//! `deploy/rust/catalog-fingerprint.sql` joined by "\n", read in one
-//! REPEATABLE READ transaction.
+//! the disposable PostgreSQL of `run_postgres.sh`. The fingerprint is the
+//! SHA-256 of the lines of `deploy/rust/catalog-fingerprint.sql` joined by
+//! "\n", read in one REPEATABLE READ transaction; its schema-owner slot is
+//! normalized to one placeholder, so the manifest records one fingerprint per
+//! catalog form and the adopting environment binds the owner separately.
 use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Row};
@@ -19,8 +19,10 @@ const FINGERPRINT_SQL: &str = include_str!("../../../deploy/rust/catalog-fingerp
 const HANDOVER: &str = include_str!("../../../deploy/rust/schema-handover.json");
 const ALLOWED_REVISIONS: &str = include_str!("../../../deploy/rust/allowed-revisions.json");
 const CHECKPOINTS: &str = include_str!("../../../deploy/migration-checkpoints.tsv");
-/// The production migrator role: the baseline's objects belong to it.
+/// The production migrator role: the baseline's objects belong to it. A
+/// staging-owner case renames the schema owner to the staging migrator.
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
+const STAGING_MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 
 struct Manifest {
     file_sha256: String,
@@ -193,10 +195,11 @@ fn baseline_dump_has_no_owner_or_privilege_clauses() {
     );
 }
 
-/// The producer register names the head the baseline was built from. That
-/// head is the only head of the Alembic graph in this tree, the newest
-/// revision the Rust service accepts, and the register's approved transitions
-/// are exactly the checkpoint-policy rows that end at it.
+/// The producer register names the head the baseline was cut from. That head
+/// is the only head of the Alembic graph in this tree and the adoption SOURCE:
+/// after M the Rust service accepts only the adopted `sqlx_1` baseline, and
+/// the register's approved transitions are exactly the checkpoint-policy rows
+/// that end at the head.
 #[test]
 fn handover_register_is_closed_at_the_baseline_head() {
     let handover: serde_json::Value = serde_json::from_str(HANDOVER).expect("handover JSON");
@@ -220,11 +223,13 @@ fn handover_register_is_closed_at_the_baseline_head() {
         Some(revision_count as u64)
     );
 
+    // After M the allowlist admits only the adopted baseline; the Alembic
+    // final head is the adoption source the baseline manifest records.
     let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
     assert_eq!(
-        allowed.last().map(String::as_str),
-        Some(final_head),
-        "the final head is not the newest revision the Rust service accepts"
+        allowed,
+        ["sqlx_1".to_owned()],
+        "the Rust service must admit only the adopted baseline"
     );
 
     let mut policy_to_head: Vec<(String, String)> = CHECKPOINTS
@@ -250,6 +255,23 @@ fn handover_register_is_closed_at_the_baseline_head() {
     assert_eq!(
         approved, policy_to_head,
         "the register's transitions differ from the checkpoint policy rows that end at the head"
+    );
+    // The adoption rows move the final head to the runtime revision and keep
+    // the runtime revision reachable without a schema change.
+    let policy_from_head: Vec<(String, String)> = CHECKPOINTS
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(from, _)| *from == final_head)
+        .map(|(from, to)| (from.to_owned(), to.to_owned()))
+        .collect();
+    // Sorted order: the no-change row sorts before the adoption row.
+    assert_eq!(
+        policy_from_head,
+        [
+            (final_head.to_owned(), final_head.to_owned()),
+            (final_head.to_owned(), "sqlx_1".to_owned()),
+        ],
+        "the adoption and no-change rows must end at the adopted baseline"
     );
 }
 
@@ -407,6 +429,35 @@ async fn fingerprint_is_stable_and_changes_on_a_new_column() {
         fingerprint(&database).await,
         before,
         "a new column did not move it"
+    );
+    drop_database(&database).await;
+}
+
+/// The projection normalizes the schema owner, so the committed manifest
+/// fingerprints hold for any owner of the same catalog: a staging-owned copy
+/// of the Alembic-built baseline fingerprints exactly like the production
+/// one. The adopting environment binds the live owner separately (the
+/// `adoption_binds_schema_owners_to_the_environment_migrator` case).
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn fingerprint_is_independent_of_the_schema_owner() {
+    let database = fresh_database("owner").await;
+    restore(&database).await.expect("restore the baseline");
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DO $$ BEGIN \
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{STAGING_MIGRATOR_ROLE}') THEN \
+             CREATE ROLE {STAGING_MIGRATOR_ROLE} NOLOGIN; \
+           END IF; \
+         END $$; \
+         ALTER SCHEMA public OWNER TO {STAGING_MIGRATOR_ROLE}"
+    )))
+    .execute(&mut connect(&database).await)
+    .await
+    .expect("rename the schema owner");
+    assert_eq!(
+        fingerprint(&database).await,
+        manifest().restored_fingerprint,
+        "a staging-owned catalog fingerprints differently"
     );
     drop_database(&database).await;
 }

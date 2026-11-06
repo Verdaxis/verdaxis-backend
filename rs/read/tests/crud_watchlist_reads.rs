@@ -2,6 +2,7 @@ use chrono::{TimeZone, Utc};
 use serde_json::json;
 use uuid::Uuid;
 use verdaxis_read::crud::watchlists::{EventAdmission, Metrics, Target, project_summary};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn target(id: u128, kind: &str) -> Target {
     serde_json::from_value(json!({"id":Uuid::from_u128(id),"target_type":kind,
@@ -129,7 +130,7 @@ async fn mounted_watchlist_reads_refuse_missing_bearer_before_bad_uuid() {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://unused:unused@127.0.0.1:54321/unused_test".into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

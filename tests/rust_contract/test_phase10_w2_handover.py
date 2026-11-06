@@ -11,9 +11,51 @@ HELPER = ROOT / "scripts/rust_w2_handover.sh"
 FIXTURE = ROOT / "deploy/tests/w2-handover-contract.sh"
 
 
-def test_shell_handover_contract():
-    result = subprocess.run(["bash", str(FIXTURE)], cwd=ROOT, text=True, capture_output=True)
+def test_shell_handover_contract(tmp_path):
+    result = subprocess.run(["bash", str(FIXTURE)], cwd=ROOT,
+                            env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+ROLLBACK_STEPS = [
+    "phase-rolling-back", "service-copy", "service-publish",
+    "dropin-directory", "dropin-copy", "dropin-publish", "daemon-reload",
+    "ownership-acceptance", "launcher-owner", "launcher-mode", "readiness",
+    "phase-rolled-back",
+]
+ROLLBACK_CASES = [
+    (saved_timer, point)
+    for saved_timer in ("present", "absent")
+    for point in ROLLBACK_STEPS + (
+        ["timer-copy", "timer-publish"] if saved_timer == "present" else ["absent-remove"]
+    )
+]
+
+
+@pytest.mark.parametrize("active_state", ["active", "inactive"])
+@pytest.mark.parametrize("saved_timer,point", ROLLBACK_CASES)
+def test_rollback_retry_after_interruption(tmp_path, saved_timer, point, active_state):
+    result = subprocess.run(
+        ["bash", str(FIXTURE), "--rollback-interruption", point, saved_timer, "", active_state],
+        cwd=ROOT, env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"PASS rollback retry {saved_timer} {point}" in result.stdout
+
+
+@pytest.mark.parametrize("changed,message", [
+    ("timer", "rolled-back timer differs from saved bytes"),
+    ("snapshot", "saved unit bytes changed"),
+    ("launcher", "launcher identity differs before native ownership"),
+    ("redirected", "timer source unavailable or installed path redirected"),
+])
+def test_rollback_retry_refuses_changed_identity(tmp_path, changed, message):
+    result = subprocess.run(
+        ["bash", str(FIXTURE), "--rollback-interruption", "readiness", "present", changed],
+        cwd=ROOT, env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True,
+    )
+    assert result.returncode != 0, "changed rollback identity was accepted"
+    assert f"W2 NO_GO: {message}" in result.stderr
 
 
 @pytest.mark.parametrize("environment", ["production", "staging"])
@@ -102,6 +144,12 @@ def test_stale_deploy_state_is_refused_before_restart_lock():
     assert f'! -e {state_path}' in guarded_window, "present state must refuse under the main lock"
     assert f'! -L {state_path}' in guarded_window, "dangling state must refuse before restart lock"
     assert "return 1" in guarded_window, "state refusal must stop before restart authorization can revive"
+
+
+def test_usage_refuses_unbound_apply():
+    result = subprocess.run(["bash", str(HELPER), "--action", "advance"], text=True, capture_output=True)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "usage:" in result.stderr
 
 
 def test_status_separates_active_jobs_from_preserved_and_retired_timers():

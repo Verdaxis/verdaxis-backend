@@ -30,6 +30,7 @@ use std::{
 use axum::{http::StatusCode, response::IntoResponse};
 use serde_json::{Map, Value, json};
 use verdaxis_read::auth::{AuthError, UserLockMode, limits::SharedLimits};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use compliance_http::{
     ComplianceBodyError, CompliancePost, FUEL_MIX_KEY_MAX_BYTES, FUEL_MIX_MAX_ENTRIES,
@@ -394,7 +395,7 @@ async fn phase5_transaction_cases_scoped_actor_read() {
         "kyc_execution_gate_enabled": true,
         "environment": "test",
         "release_sha": verdaxis_read::compiled_sha(),
-        "migration_revision": "kycg_20261014_staging",
+        "migration_revision": ALLOWED_REVISIONS[0],
         "database_url": url,
         "db_session_time_zone": "UTC",
         "prepared_budget": null,

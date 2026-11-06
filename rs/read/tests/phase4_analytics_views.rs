@@ -361,6 +361,8 @@ impl ReferenceRead for StubReference {
 
 #[cfg(feature = "contract-tests")]
 use marketplace::AnalyticsService;
+#[cfg(feature = "contract-tests")]
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 #[cfg(feature = "contract-tests")]
 fn service(status: ComponentStatus) -> AnalyticsService {
@@ -1486,7 +1488,7 @@ mod postgres {
             .await
             .unwrap();
         sqlx::query("CREATE TABLE user_login_days(activity_date date,user_id uuid,role text,organization_id uuid)").execute(&pool).await.unwrap();
-        let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"kycg_20261014_staging","database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100,"phase2":{"jwt_secret":KEY,"jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"}})).unwrap();
+        let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100,"phase2":{"jwt_secret":KEY,"jwt_issuer":"test","jwt_audience":"test","frontend_url":"https://app.example.test","email_from":"team@example.test","resend_api_key":"synthetic","auth_domain_datasets":"null"}})).unwrap();
         let health = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect_lazy(&fixture.app_url)
@@ -1656,7 +1658,7 @@ mod postgres {
                 .connect(&fixture.migrator_url)
                 .await
                 .unwrap();
-            let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"kycg_20261014_staging","database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100})).unwrap();
+            let config:verdaxis_read::Config=serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":fixture.app_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100})).unwrap();
             let health = sqlx::postgres::PgPoolOptions::new()
                 .max_connections(1)
                 .connect_lazy(&fixture.app_url)
@@ -1735,7 +1737,7 @@ mod postgres {
             .unwrap();
         let config: verdaxis_read::Config = serde_json::from_value(json!({
             "environment": "test", "release_sha": verdaxis_read::compiled_sha(),
-            "migration_revision": "kycg_20261014_staging", "database_url": fixture.app_url,
+            "migration_revision": ALLOWED_REVISIONS[0], "database_url": fixture.app_url,
             "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
             "read_admission_slots": 2, "pool_max": 3, "python_budget": 52,
             "configured_max_connections": 100

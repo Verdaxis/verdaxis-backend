@@ -19,6 +19,7 @@ use uuid::Uuid;
 use verdaxis_read::auth::{VerificationSettings, limits::SharedLimits};
 use verdaxis_read::commission::{AuditContext, CommissionCommand, CommissionOperation};
 use verdaxis_read::market_contract::{locks::LockClass, transaction::MarketCommand};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     Config, MarketPolicy,
     commission_routes::{RouteContext, routes},
@@ -102,7 +103,7 @@ impl Fixture {
         let config: Config = serde_json::from_value(json!({
             "environment": "test",
             "release_sha": "test",
-            "migration_revision": "p89_20261022_trade_freeze",
+            "migration_revision": ALLOWED_REVISIONS[0],
             "database_url": "",
             "db_session_time_zone": "UTC",
             "bind": "127.0.0.1:0",

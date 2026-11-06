@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     auth::VerificationSettings,
     market_support::{SupportSettings, SupportState, router},
@@ -95,7 +96,7 @@ impl Fixture {
         ));
         let policy =
             serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-        let config = serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).unwrap();
+        let config = serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":ALLOWED_REVISIONS[0],"database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).unwrap();
         let bootstrap_ids = if bootstrap {
             self.actor.to_string()
         } else {

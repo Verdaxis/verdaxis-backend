@@ -26,7 +26,9 @@ use uuid::Uuid;
 use verdaxis_read::runtime::config::{bootstrap_arguments, config_from_deployed_environment};
 use verdaxis_read::runtime::db::Pools;
 use verdaxis_read::runtime::market_write::MarketWriteOptions;
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, compiled_sha, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const LEDGER: &str = include_str!("../../../tests/rust_contract/phase89/switch-routes.json");
 const MARKERS: &str = include_str!("fixtures/market_write_markers.sql");
@@ -117,7 +119,7 @@ fn config(database_url: &str, market: Option<Value>) -> Config {
     let mut document = json!({
         "environment": "test",
         "release_sha": compiled_sha(),
-        "migration_revision": "p89_20261022_trade_freeze",
+        "migration_revision": ALLOWED_REVISIONS[0],
         "database_url": database_url,
         "db_session_time_zone": "UTC",
         "bind": "127.0.0.1:0",

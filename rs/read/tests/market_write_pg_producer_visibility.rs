@@ -36,6 +36,7 @@ use verdaxis_read::crud::watchlists::{
 };
 use verdaxis_read::{
     AppState, Config, MarketPolicy, PointPolicy, ProductPolicy, VisibilityClock, compiled_sha,
+    runtime::artifact::ALLOWED_REVISIONS,
 };
 
 const BEST_PRICE: &str = "SLICE_BEST_PRICE_MOVED";
@@ -188,7 +189,7 @@ fn read_config(database_url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

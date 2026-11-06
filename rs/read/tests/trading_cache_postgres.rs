@@ -19,6 +19,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime},
 };
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     ApiError, AppState, Boundary, Config, Deadline, MarketPolicy, RollingWindows, TemporalFacts,
     TradingCache, TradingCacheRuntime, TradingClock, TradingEntry, TradingFill, compiled_sha,
@@ -53,7 +54,7 @@ fn state_config(url: &str) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "prc_20261018_cache".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url.into(),
         db_session_time_zone: "UTC".into(),
         // The reviewed switch for this test: one budgeted listener slot.

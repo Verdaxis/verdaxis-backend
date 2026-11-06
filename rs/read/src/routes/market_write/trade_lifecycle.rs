@@ -140,7 +140,7 @@ fn contract_router_inner(
     kyc_gate: bool,
     collision: Option<Arc<ReceiptCollision>>,
 ) -> Router {
-    let config=serde_json::from_value(json!({"environment":"test","release_sha":crate::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":({use sqlx::ConnectOptions; let mut url=pool.connect_options().to_url_lossy(); url.set_query(None); url.to_string()}),"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":pool.options().get_max_connections(),"pool_max":pool.options().get_max_connections()+1,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":kyc_gate})).unwrap();
+    let config=serde_json::from_value(json!({"environment":"test","release_sha":crate::compiled_sha(),"migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],"database_url":({use sqlx::ConnectOptions; let mut url=pool.connect_options().to_url_lossy(); url.set_query(None); url.to_string()}),"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":pool.options().get_max_connections(),"pool_max":pool.options().get_max_connections()+1,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":kyc_gate})).unwrap();
     let app = AppState::new(
         config,
         crate::runtime::db::Pools {

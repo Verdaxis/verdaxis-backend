@@ -12,6 +12,7 @@ use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::routes::market_write::trade_lifecycle::contract_router;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const KEY: &str = "synthetic-lifecycle-signing-key-at-least-32";
 const BUYER: u128 = 0x1001;
@@ -630,7 +631,7 @@ async fn reject_organization(
     let policy = Arc::new(
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap(),
     );
-    let config=Arc::new(serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap());
+    let config=Arc::new(serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":ALLOWED_REVISIONS[0],"database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap());
     verdaxis_read::business::transaction::run_ordered_write(f.pool.clone(),Arc::new(tokio::sync::Semaphore::new(8)),{
         let now=chrono::Utc::now();
         let token=encode(&Header::default(),&json!({"sub":id(ADMIN),"type":"access","iat":now.timestamp(),"exp":now.timestamp()+600,"iss":"lifecycle-tests","aud":"lifecycle-tests"}),&EncodingKey::from_secret(KEY.as_bytes())).unwrap();

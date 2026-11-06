@@ -11,6 +11,7 @@ use axum::{
 use chrono::NaiveDate;
 use serde_json::Value;
 use tower::ServiceExt;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn state() -> AppState {
     let config = Config {
@@ -18,7 +19,7 @@ fn state() -> AppState {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "p5_20261020_read_indexes".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/demand_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,
