@@ -6074,7 +6074,7 @@
       "end_state": "rust",
       "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
       "task": 31,
-      "source_sha256": "dc372c1228c0d30507e4539a4a0d6cd0f072f1fc1262e9cf9aec9ea918b1906d",
+      "source_sha256": "d8e10e1c44ba8d42fef92f48a84581c9cc78228eb8a789d60fbc698fb09435d5",
       "status": "planned",
       "evidence": [
         "no_caddy_upstream_or_route_points_at_python"
@@ -6106,7 +6106,7 @@
       "end_state": "rust",
       "owner": "Task 31 abilities regression gates (off-host test source; never installed)",
       "task": 31,
-      "source_sha256": "c24b526be7fd3efc21572778d85bce45f82042df64518a3ad4721e4640ffece6",
+      "source_sha256": "d9d7d072478f67454d8ebbd8b99f44c685cb79d2889ea68fe60841d60ce3b03a",
       "status": "planned",
       "evidence": [
         "no_caddy_upstream_or_route_points_at_python"
