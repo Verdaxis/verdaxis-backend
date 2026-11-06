@@ -370,10 +370,12 @@ def test_restart_authorization_is_written_after_second_lock_before_restart():
     deployment = source.index("DEPLOY_STARTED=1")
     blocked = source.index('write_deploy_state "blocked"', deployment)
     restart_lock = source.index("acquire_restart_window_lock", blocked)
-    authorized = source.index('write_deploy_state "$DEPLOY_PHASE"', restart_lock)
-    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"', authorized)
-    pending = source.index('DEPLOY_PHASE="readiness-pending"', restart)
+    authorized = source.index('write_deploy_state "restart-authorized"', restart_lock)
+    restart = source.index('sudo -n systemctl restart "$RUST_UNIT_NAME"', authorized)
+    pending = source.index('write_deploy_state "readiness-pending"', restart)
 
+    # M retains both locks but restarts only Rust, never the retained backend.
+    assert 'systemctl restart "$SERVICE_NAME"' not in source
     assert blocked < restart_lock < authorized < restart < pending
     assert 'flock -n "$RESTART_WINDOW_LOCK_FD"' in source
 
@@ -780,10 +782,10 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
         for relative in units:
             assert Path(relative).name not in source
     assert "SHA256SUMS" in source
-    assert "sudo mktemp -d" in source
+    assert "sudo -n mktemp -d" in source
     assert "sha256sum --check" in source
     assert "verify_staged_blob" in source
-    assert 'sudo test -L "$staged"' in source
+    assert 'sudo -n test -L "$staged"' in source
     assert 'show "$SOURCE_REF:$relative"' in source
     assert 'UNIT_SOURCES+=("$STAGING_DIR/deploy/systemd/$unit_name")' in source
     assert 'UNIT_SOURCES+=("$SOURCE_ROOT/deploy/systemd/$unit_name")' not in source
@@ -797,9 +799,13 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
     )
     assert "DESTINATION_TEMPS" in source
     assert "rollback_replacements" in source
-    assert 'sudo test -f "$destination"' in source
-    assert 'sudo test ! -L "$destination"' in source
-    assert "/usr/bin/git" in source
+    assert 'sudo -n test -f "$destination"' in source
+    assert 'sudo -n test ! -L "$destination"' in source
+    # Git now uses the shared inert boundary, which still pins the executable.
+    assert 'source "$BACKEND_ROOT/deploy/scripts/safe-root-git.sh"' in source
+    assert 'SOURCE_GIT=(safe_root_git "$SOURCE_ROOT")' in source
+    boundary = (ROOT / "deploy/scripts/safe-root-git.sh").read_text()
+    assert "/usr/bin/git" in boundary
     assert "/usr/bin/flock" in source
     lock_gate = '"$EUID" -ne 0 || "${VERDAXIS_SYSTEMD_INSTALL_LOCKED:-}" != "1"'
     assert lock_gate in source

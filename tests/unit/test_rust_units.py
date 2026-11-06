@@ -78,7 +78,7 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
         command = next(
             line.strip() for line in source.splitlines()
             if "systemd-analyze verify" in line
-        ).removeprefix("sudo ")
+        ).removeprefix("sudo -n ").removeprefix("sudo ")
 
     root = tmp_path / "root"
     units = root / "etc/systemd/system"
@@ -123,9 +123,14 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
 
 
 def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
-    # Production Rust has explicit CPU limits in addition to the backend sandbox.
-    rust_budget_directives = {"CPUQuota", "CPUWeight"} if suffix == "" else set()
-    assert _directives(unit) - _directives(backend) <= rust_budget_directives
+    # M adds a main-process watchdog in both environments; production also has
+    # explicit CPU limits. Every other directive still uses the backend sandbox.
+    rust_directives = {"WatchdogSec", "NotifyAccess"}
+    if suffix == "":
+        rust_directives |= {"CPUQuota", "CPUWeight"}
+    assert _directives(unit) - _directives(backend) <= rust_directives
+    assert "WatchdogSec=60s\n" in unit
+    assert "NotifyAccess=main\n" in unit
     credentials = [line for line in unit.splitlines() if line.startswith(
         ("LoadCredential=", "SetCredential=", "ImportCredential=", "LoadCredentialEncrypted=", "SetCredentialEncrypted=")
     )]
@@ -142,9 +147,15 @@ def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(
     _assert_runtime_directives(unit, backend, suffix)
     for section in ("[Unit]", "[Service]", "[Install]"):
         assert section in unit
-    for extra in ("NewRuntimeDirective=true", "SetCredential=another-key:", "ImportCredential=*"):
+    for invalid in (
+        unit + "\nNewRuntimeDirective=true\n",
+        unit + "\nSetCredential=another-key:\n",
+        unit + "\nImportCredential=*\n",
+        unit.replace("WatchdogSec=60s", "WatchdogSec=0"),
+        unit.replace("NotifyAccess=main", "NotifyAccess=all"),
+    ):
         with pytest.raises(AssertionError):
-            _assert_runtime_directives(unit + "\n" + extra + "\n", backend, suffix)
+            _assert_runtime_directives(invalid, backend, suffix)
 
 
 def _staged_runtime_environment(tmp_path: Path) -> dict[str, Path]:
@@ -247,9 +258,20 @@ def test_deploy_stages_rust_bytes_under_umask_077_and_installs_by_rename():
         deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"') :
         deploy.index("SERVICE_RESTART_ATTEMPTED=1")
     ]
-    assert region.index("umask 077") < region.index('mkdir -p -- "$RUST_RUNTIME_DIR"')
-    assert 'chmod 0755 "$ACTIVE_BINARY.tmp.$$"' in region
-    assert 'mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"' in region
+    # The policy archive establishes the private umask before artifact extraction.
+    policy = deploy.index('RUST_POLICY_TEMP="$(mktemp -d /tmp/verdaxis-rust-policy.')
+    extraction = deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"')
+    assert deploy.rindex("umask 077", 0, policy) < policy < extraction
+    assert 'verify_rust_artifact_for_release "$REMOTE_SHA" "$RUST_EXTRACT_DIR"' in region
+    steps = [
+        'cp -- "$STAGED_BINARY" "$ACTIVE_BINARY.tmp.$$"',
+        'chmod 0755 "$ACTIVE_BINARY.tmp.$$"',
+        'verify_binary_digest "$ACTIVE_BINARY.tmp.$$"',
+        'sync -f "$ACTIVE_BINARY.tmp.$$"',
+        'mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"',
+    ]
+    positions = [region.index(step) for step in steps]
+    assert positions == sorted(positions)
     assert "ln -s" not in region
 
 

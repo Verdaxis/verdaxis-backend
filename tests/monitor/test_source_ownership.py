@@ -39,11 +39,13 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # instant, refused otherwise) and keeps it across deploys.
 # M selects sqlx_1, retains both locks/cache fences and signed acceptance, and
 # leaves the retained backend stopped/disabled while restarting only Rust.
+# The shared inert Git boundary, private bundle reader, and disposable hosted
+# rehearsal source checks are included in the reviewed deploy identity.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "a681d863e014b6d25fe845357ad6618b66798662",
+    "scripts/deploy.sh": "1f104f3353dc75b8e127a079df639f5dc313e3c2",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
