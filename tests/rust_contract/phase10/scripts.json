@@ -422,7 +422,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "41b934e8627b74da0a5b73ced095c182a09046aec064182ee8dfe1deb4108447",
+      "source_sha256": "3e1b7dba88b6c296e262e40139ceb55d15879b2d2d199ac106c77dceb320a99e",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",

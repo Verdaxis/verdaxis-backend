@@ -6274,7 +6274,7 @@
       "end_state": "shell",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "41b934e8627b74da0a5b73ced095c182a09046aec064182ee8dfe1deb4108447",
+      "source_sha256": "3e1b7dba88b6c296e262e40139ceb55d15879b2d2d199ac106c77dceb320a99e",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6291,7 +6291,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "ac7e3e3cacb75c6abd5e19e73d5adf54df5a17dcd618642f9310f3594cf3a38b",
+      "source_sha256": "d183e1ddb30163e1ab8d8fedc3d272e137299b6da58ca92223d1b51626f1b90f",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
@@ -6309,7 +6309,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 10 immutable installation and W2/W4 ownership transfer; source plan only",
       "task": 10,
-      "source_sha256": "1c9c29a8963cae523ed3606ab276ec88a4eb604eb6efd9837db62b741761509f",
+      "source_sha256": "62348fba2a98d4dfb36730bd9004d27e83802b091b54d9b334fbcdf2adf2d2c9",
       "status": "planned",
       "evidence": [
         "shell_handover_contract",
