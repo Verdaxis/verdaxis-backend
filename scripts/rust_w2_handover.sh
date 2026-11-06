@@ -562,10 +562,16 @@ main() {
     verify_release || return
     load_groups
     if [[ $action == status ]]; then
-        expected=7; [[ $ENVIRONMENT == production ]] || expected=5
-        printf 'active_job_timers=%s requested_job_timers=%s\n' "${#JOB_TIMERS[@]}" "$expected"
+        expected=6; [[ $ENVIRONMENT == production ]] || expected=4
+        printf 'active_job_timers=%s expected_job_timers=%s\n' "${#JOB_TIMERS[@]}" "$expected"
+        [[ ${#JOB_TIMERS[@]} == "$expected" ]] || { fail 'active job timer scope differs'; return 1; }
         printf '%s\n' "${JOB_TIMERS[@]}"
-        printf 'window=NO_GO timer_inventory_scope_unresolved; recovery_retirement_requires_installed_acceptance\n'
+        if [[ $ENVIRONMENT == production ]]; then
+            printf 'preserved_timer=verdaxis-local-db-backup.timer\n'
+        else
+            printf 'inactive_retired_timer=verdaxis-order-expiry-reminders-staging.timer\n'
+        fi
+        printf 'timer_inventory_scope=resolved; window=NOT_ACCEPTED recovery_retirement_requires_installed_acceptance\n'
         for candidate in "${GROUPS_ORDER[@]}"; do printf '%s=%s\n' "$candidate" "$(group_phase "$candidate")"; done
         return 0
     fi

@@ -694,6 +694,24 @@ ROUND4_REQUIREMENTS = {
 
 
 SUPPLEMENTAL_GROUPS = {
+    'rehearsal': {
+        'rehearsal-source.deploy/tests/full-rehearsal.sh': 'deploy/tests/full-rehearsal.sh',
+        'rehearsal-source.deploy/tests/rehearsal-ci-setup.sh': 'deploy/tests/rehearsal-ci-setup.sh',
+        'rehearsal-source.tests/rust_contract/phase10/rehearsal_evidence.py': 'tests/rust_contract/phase10/rehearsal_evidence.py',
+        'rehearsal-source.tests/rust_contract/test_phase10_rehearsal.py': 'tests/rust_contract/test_phase10_rehearsal.py',
+        'rehearsal-source.docs/phase10/rehearsal.md': 'docs/phase10/rehearsal.md',
+        'rehearsal-source.deploy/tests/rehearsal/bundle.py': 'deploy/tests/rehearsal/bundle.py',
+        'rehearsal-source.deploy/tests/rehearsal/caddy.py': 'deploy/tests/rehearsal/caddy.py',
+        'rehearsal-source.deploy/tests/rehearsal/companion.py': 'deploy/tests/rehearsal/companion.py',
+        'rehearsal-source.deploy/tests/rehearsal/driver.sh': 'deploy/tests/rehearsal/driver.sh',
+        'rehearsal-source.deploy/tests/rehearsal/probes.py': 'deploy/tests/rehearsal/probes.py',
+        'rehearsal-source.deploy/tests/rehearsal/stack.py': 'deploy/tests/rehearsal/stack.py',
+        'rehearsal-source.deploy/tests/rehearsal/schedules.sh': 'deploy/tests/rehearsal/schedules.sh',
+        'rehearsal-source.deploy/tests/rehearsal/w2.py': 'deploy/tests/rehearsal/w2.py',
+        'rehearsal-source.deploy/tests/rehearsal/w5.sh': 'deploy/tests/rehearsal/w5.sh',
+        'rehearsal-source.tests/rust_contract/test_phase10_rehearsal_w2.py': 'tests/rust_contract/test_phase10_rehearsal_w2.py',
+        'rehearsal-source.deploy/tests/rehearsal/routes.py': 'deploy/tests/rehearsal/routes.py',
+    },
     'release-window': {
         'window-source.docs/phase10/window-gaps.md': 'docs/phase10/window-gaps.md',
         'window-source.outputs/phase10-m-implementation-plan.md': 'outputs/phase10-m-implementation-plan.md',

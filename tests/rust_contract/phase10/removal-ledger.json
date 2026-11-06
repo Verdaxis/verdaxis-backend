@@ -6414,6 +6414,278 @@
       "rollback": "Retain the reviewed source with the release record; use the separately approved release-window rollback procedure.",
       "installed_check": "Tasks 31 and 33 must verify installed references separately; source tests and documents are not host acceptance.",
       "offhost_location": "Repository tests/rust_contract/test_phase10_safe_git.py; disposable CI only, never installed on serving hosts."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/full-rehearsal.sh",
+      "source": "deploy/tests/full-rehearsal.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "53cc98a4e120f2c632a00105da57a2c40e094f56c7ba54a0054c6de517afe343",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/full-rehearsal.sh; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal-ci-setup.sh",
+      "source": "deploy/tests/rehearsal-ci-setup.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "5aec4db45249be39be0b9d0ae72475e86bf538ea5d8079844caa4b19d3db8ebf",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal-ci-setup.sh; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.tests/rust_contract/phase10/rehearsal_evidence.py",
+      "source": "tests/rust_contract/phase10/rehearsal_evidence.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "9e96d2ef3036f22cb5c3a8c0c8cde697d9ac99901d61c3e10bd103f99910047e",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository tests/rust_contract/phase10/rehearsal_evidence.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.tests/rust_contract/test_phase10_rehearsal.py",
+      "source": "tests/rust_contract/test_phase10_rehearsal.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "aa7855e66c3b7085d7cb5c830c0e1ecc379ca6d8889de4ca2f738f9eff747286",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_rehearsal.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.docs/phase10/rehearsal.md",
+      "source": "docs/phase10/rehearsal.md",
+      "kind": "document",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "96e3e4a702f4330eb760c49f104bdf0534a1f61989282bc67badf9f4343e8ddf",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository docs/phase10/rehearsal.md; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/bundle.py",
+      "source": "deploy/tests/rehearsal/bundle.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "3e8cf60ea0e08775895bc2b00617df2f31b560422fb504c8ffd4499ef2edb2a2",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/bundle.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/caddy.py",
+      "source": "deploy/tests/rehearsal/caddy.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "f36942f1560944f095a30c3bceb71945dbebec9afecdea319ad3e4b977af7a70",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/caddy.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/companion.py",
+      "source": "deploy/tests/rehearsal/companion.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "83297cfcb6ee50ce54f54cd7691b90b4e867a373447c3d96663d949c52a7c533",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/companion.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/driver.sh",
+      "source": "deploy/tests/rehearsal/driver.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "dbf3bd2984ae0af033713e1cbd56d91c5225aa4696edfb694cb200e8426f6ae7",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/driver.sh; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/probes.py",
+      "source": "deploy/tests/rehearsal/probes.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "17ac2b4709c903748645b549380890b5d6e83fe4d2eefae215fb1a85d49f93e8",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/probes.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/stack.py",
+      "source": "deploy/tests/rehearsal/stack.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "d9b9c4c56447600d063d59a8a71715dd2ec31ff6e2a24fd9eda870e9cd15dce8",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/stack.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/schedules.sh",
+      "source": "deploy/tests/rehearsal/schedules.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "381b9a3a027bc13fe95f6bdbf0175c83b396e6ef3758ee374c01be93396fe7ff",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/schedules.sh; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/w2.py",
+      "source": "deploy/tests/rehearsal/w2.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "3f8b77e43217bccc704b74bf6ce2c854c05b5c46399111112f16419b67c3134f",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/w2.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/w5.sh",
+      "source": "deploy/tests/rehearsal/w5.sh",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "1debf5a13068434d153df675e4c4ae2525891052a28cd97de3e8a8b54ca4e2ba",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/w5.sh; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.tests/rust_contract/test_phase10_rehearsal_w2.py",
+      "source": "tests/rust_contract/test_phase10_rehearsal_w2.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "1ec1f5fd9bc3fb4751221d5b5cb6851b319de0d241f61383be22381f6ed7d0a5",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_rehearsal_w2.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
+    },
+    {
+      "id": "rehearsal-source.deploy/tests/rehearsal/routes.py",
+      "source": "deploy/tests/rehearsal/routes.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 31 disposable rehearsal; no live-host authority",
+      "task": 31,
+      "source_sha256": "d8e8d26b46723d955b49905ae0b24e6c2b8ff225636f84202be59dd65945d12f",
+      "status": "planned",
+      "evidence": [
+        "every_required_scenario_has_evidence"
+      ],
+      "deleting_task": null,
+      "rollback": "Discard the disposable VM; retain protected recovery data outside public uploads.",
+      "installed_check": "Run the opt-in hosted rehearsal; source contracts are not installed acceptance.",
+      "offhost_location": "Repository deploy/tests/rehearsal/caddy.py; GitHub-hosted disposable CI only, never a serving-host runtime dependency."
     }
   ],
   "phase": "pre-removal",
