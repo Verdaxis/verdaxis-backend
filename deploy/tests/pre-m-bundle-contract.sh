@@ -109,6 +109,11 @@ case $1 in
     stop) rm -f "$FIXTURE_WORK/active-$2" ;;
     enable) : > "$FIXTURE_WORK/enabled-$2" ;;
     restart)
+        for legacy_environment in staging production; do
+            legacy_file=$FIXTURE_WORK/installed/legacy-$legacy_environment.env
+            cmp -s "$legacy_file" "$FIXTURE_WORK/private/saved-$legacy_environment.env" || exit 1
+            [[ $(stat -c '%u:%g:%a' "$legacy_file") == 1234:1234:600 ]] || exit 1
+        done
         state=/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state
         grep -qx 'DEPLOYMENT_STATE=restart-authorized' "$state" || exit 1
         for lock in staging.lock staging.restart.lock; do
@@ -211,7 +216,38 @@ printf 'ENVIRONMENT=staging\nRELEASE_SHA=%s\nMIGRATION_REVISION=final_head\n' "$
 printf 'ENVIRONMENT=staging\nRELEASE_SHA=%s\n' "$sha" > "$checkout/.runtime-monitor.env"
 printf '{"revision":"final_head"}\n' > "$checkout/.runtime-rust/revision.json"
 cp "$checkout/deploy/rust/staging-policy.json" "$checkout/.runtime-rust/staging-policy.json"
-printf 'DATABASE_URL="postgresql://verdaxis_app_staging:fixture@127.0.0.1:5432/verdaxis_staging"\n' > "$checkout/.runtime-rust/runtime.env"
+printf 'DATABASE_URL="postgresql://verdaxis_app_staging:fixture@127.0.0.1:5432/verdaxis_staging"\nMIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:private-fixture@127.0.0.1:5432/verdaxis_staging"\n' > "$checkout/.runtime-rust/runtime.env"
+# Both legacy environments need their complete private Settings inputs back.
+for legacy_environment in staging production; do
+    database=verdaxis_prod; role_suffix=''
+    if [[ $legacy_environment == staging ]]; then database=verdaxis_staging; role_suffix=_staging; fi
+    legacy_file=$work/installed/legacy-$legacy_environment.env
+    printf 'ENVIRONMENT=%s\nRELEASE_SHA=%s\nDATABASE_NAME=%s\nDATABASE_USER=verdaxis_app%s\nJWT_SECRET=fixture-private-jwt-key-at-least-32-characters\nDATABASE_URL=postgresql://verdaxis_app%s:private-app-fixture@127.0.0.1:5432/%s\nMIGRATOR_DATABASE_URL=postgresql://verdaxis_migrator%s:private-migration-fixture@127.0.0.1:5432/%s\n' \
+        "$legacy_environment" "$sha" "$database" "$role_suffix" "$role_suffix" "$database" "$role_suffix" "$database" > "$legacy_file"
+    chmod 0600 "$legacy_file"
+    chown 1234:1234 "$legacy_file"
+    jq -n --arg path "$legacy_file" '{kind:"migrator_credential",path:$path}' >> "$work/files"
+done
+# Validate the actual previous release, not a rewritten Settings substitute.
+git -C "$ROOT" show 0920be378:app/config.py > "$work/previous-config.py"
+cat > "$work/validate-settings.py" <<'SETTINGS'
+import os
+import sys
+from pathlib import Path
+
+os.environ.clear()
+namespace = {"__name__": "previous_release_settings"}
+source = Path(sys.argv[1]).read_text().rsplit("settings = Settings()", 1)[0]
+exec(compile(source, sys.argv[1], "exec"), namespace)
+for path in sys.argv[2:]:
+    try:
+        settings = namespace["Settings"](_env_file=path)
+        assert settings.ENVIRONMENT in {"staging", "production"}
+        assert settings.MIGRATOR_DATABASE_URL
+    except Exception:
+        # Settings errors can contain input values. Never print them.
+        raise SystemExit("FAIL restored previous-release Settings did not validate") from None
+SETTINGS
 jq -n --slurpfile files "$work/files" --arg sha "$sha" --arg checkout "$checkout" \
     --arg key_sha "$key_sha" --arg consumer_sha "$consumer_sha" --arg package "$work/package" \
     --arg closure_sha "$closure_sha" --arg native_dep "$native_dep" --arg native_sha "$native_sha" \
@@ -263,13 +299,20 @@ if run verify --manifest-sha256 "$approval"; then exit 1; fi
 grep -q 'digest differs' "$work/err"
 printf 'ok tampered protected copy refuses\n'
 cp "$work/installed/binary" "$bundle/payload/000001"
+for legacy_environment in staging production; do
+    cp "$work/installed/legacy-$legacy_environment.env" "$work/private/saved-$legacy_environment.env"
+    rm "$work/installed/legacy-$legacy_environment.env"
+done
+rm "$work/installed/migrator_credential"
 run restore --manifest-sha256 "$approval"
+python3 "$work/validate-settings.py" "$work/previous-config.py" \
+    "$work/installed/legacy-staging.env" "$work/installed/legacy-production.env"
 [[ -f $work/active-verdaxis-backend-staging.service && -f $work/active-verdaxis-rust-staging.service ]]
 grep -q 'curl https://api-staging.verdaxis.exchange/openapi.json' "$work/calls"
-[[ ! -e $work/installed/migrator_credential ]]
+[[ -f $work/installed/migrator_credential ]]
 grep -q '^DEPLOYMENT_STATE=restart-authorized$' "$checkout/.runtime-deploy/staging.state"
 grep -q 'old source' "$checkout/source.txt"
-printf 'ok full restore leaves blocked acceptance and credential fence\n'
+printf 'ok full restore preserves private credentials and validates both previous-release environments\n'
 if run accept --manifest-sha256 "$approval"; then exit 1; fi
 grep -q NO_GO "$work/err"
 grep -q '^DEPLOYMENT_STATE=blocked$' "$checkout/.runtime-deploy/staging.state"
