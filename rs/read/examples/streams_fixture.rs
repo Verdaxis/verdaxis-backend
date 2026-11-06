@@ -37,7 +37,7 @@ impl StageHook for Barrier {
 async fn main() {
     let config: Config = serde_json::from_value(serde_json::json!({
         "environment":"test", "release_sha":compiled_sha(),
-        "migration_revision":"sse_20261021_replay_floor",
+        "migration_revision":verdaxis_read::runtime::artifact::ALLOWED_REVISIONS[0],
         "database_url":std::env::var("STREAM_FIXTURE_APP_URL").unwrap(),
         "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
         "read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100

@@ -720,6 +720,13 @@ manifest, the meta-tests, and the golden corpus; `rs/read/examples/contract_serv
 serves one route group through the serving router. Health and echo are proven;
 the seeded and MCP groups are deferred as recorded in
 `docs/rust-phase1/progress.md`.
+The M runner migrates as the staging migrator, verifies the final Alembic head,
+then invokes the shell runners' `runner_database_adopts_to_the_baseline` entry
+before current corpus seeds or Phase 2 scenario DDL. Phase 2 clones retain that
+adoption history. Python runtime configuration reads `allowed-revisions.json`;
+Rust adapters use the compiled `ALLOWED_REVISIONS` instead of dated revisions.
+The optional statistics extension is installed after baseline adoption.
+
 Task 4b adds attested corpus construction: legal pre-guard history is inserted at
 `miq_20260720_market_quarantine`, then upgraded by the normal migration chain.
 Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and

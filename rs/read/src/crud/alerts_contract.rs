@@ -98,7 +98,7 @@ pub async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: crate::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: crate::runtime::artifact::ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var("PHASE2_DATABASE_URL")?,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

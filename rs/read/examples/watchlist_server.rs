@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             != Ok("false"),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: verdaxis_read::runtime::artifact::ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var("PHASE2_DATABASE_URL")?,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,
