@@ -272,3 +272,31 @@ def test_rehearsal_native_directory_aliases_have_an_exact_supported_subset():
     assert "/lib:usr/lib|/lib:/usr/lib" in source
     assert "multi-hop native alias unsupported" in source
     assert "link_target =~ ^[A-Za-z0-9_.+-]+$" in source
+
+
+def test_rehearsal_cluster_address_is_a_postgresql_string():
+    source = (ROOT / "deploy/tests/rehearsal-ci-setup.sh").read_text()
+    assert "listen_addresses = '127.0.0.1'" in source
+    assert 'chmod 0644 /etc/postgresql/17/main/conf.d/rehearsal.conf' in source
+    assert 'pg_conftool 17 main set listen_addresses' not in source
+
+
+def test_rehearsal_cluster_failure_keeps_status_and_prints_both_logs(tmp_path):
+    import subprocess
+
+    source = (ROOT / "deploy/tests/rehearsal-ci-setup.sh").read_text()
+    start = source.index("if ! pg_ctlcluster 17 main start; then")
+    block = source[start:source.index("\nfi", start) + 3]
+    script = tmp_path / "startup.sh"
+    script.write_text("""set -euo pipefail
+pg_ctlcluster() { return 1; }
+tail() { printf 'SERVER_LOG %s\\n' "$*"; return 1; }
+journalctl() { printf 'JOURNAL %s\\n' "$*"; return 1; }
+fail() { printf '%s\\n' "$1" >&2; exit 1; }
+""" + block + "\nprintf 'unexpected success'\n")
+    result = subprocess.run(["bash", str(script)], text=True, capture_output=True)
+    assert result.returncode == 1
+    assert "SERVER_LOG -n 50 /var/log/postgresql/postgresql-17-main.log" in result.stderr
+    assert "JOURNAL -u postgresql@17-main --no-pager -n 50" in result.stderr
+    assert "PostgreSQL cluster did not start" in result.stderr
+    assert "unexpected success" not in result.stdout

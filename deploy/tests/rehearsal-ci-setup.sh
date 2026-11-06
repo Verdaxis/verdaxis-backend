@@ -59,8 +59,15 @@ if [[ -d /etc/postgresql/17/main ]]; then
 fi
 pg_createcluster 17 main --port 5432 --start-conf auto -- \
     --auth-local=peer --auth-host=scram-sha-256
-pg_conftool 17 main set listen_addresses 127.0.0.1
-pg_ctlcluster 17 main start
+# pg_conftool treats dotted digits as a number, not an address string.
+# Write a quoted PostgreSQL value in the cluster's included configuration.
+printf "listen_addresses = '127.0.0.1'\n" > /etc/postgresql/17/main/conf.d/rehearsal.conf
+chmod 0644 /etc/postgresql/17/main/conf.d/rehearsal.conf
+if ! pg_ctlcluster 17 main start; then
+    tail -n 50 /var/log/postgresql/postgresql-17-main.log >&2 || true
+    journalctl -u postgresql@17-main --no-pager -n 50 >&2 || true
+    fail 'PostgreSQL cluster did not start'
+fi
 [[ $(runuser -u postgres -- /usr/lib/postgresql/17/bin/psql -XAtqc 'SHOW server_version') == 17.9* ]] || fail 'unexpected PostgreSQL server version'
 runuser -u postgres -- /usr/lib/postgresql/17/bin/psql -Xv ON_ERROR_STOP=1 \
     -c 'CREATE EXTENSION postgis' postgres >/dev/null
