@@ -4741,7 +4741,7 @@
     },
     {
       "path": "tests/postgres/test_user_status_transitions.py",
-      "sha256": "55c22a92a68d23ca37b5e382c90f1b995b2cbe67e1fe5acb7ece496b7b361d54",
+      "sha256": "3ca096f24a3066439e7bf4454ce6b2d1296160b613072c1e715741fe46a936df",
       "definitions": [
         {
           "id": "P4_SRC_008",
