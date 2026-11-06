@@ -5,8 +5,147 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 [[ -f $root/scripts/rust_w2_handover.sh ]] || { printf 'missing shell handover helper\n' >&2; exit 1; }
 # Source exposes fixed operations; only this fixture replaces the service adapter.
 source "$root/scripts/rust_w2_handover.sh"
-stage=$(mktemp -d)
+stage=$(mktemp -d "${TMPDIR:-/tmp}/w2.XXXXXXXX")
 trap 'rm -rf "$stage"' EXIT
+# The selectable retry matrix uses real publication operations in a child shell.
+# Only service state and privileged ownership/mode 000 are adapted for macOS.
+rollback_interruption_contract() (
+    local point=$1 saved_timer=$2 timer=verdaxis-news-refresh-staging.timer
+    local service=verdaxis-news-refresh-staging.service file status
+    local stage=$stage/$saved_timer-$point
+    mkdir -p "$stage"
+    STATE_DIR=$stage/retry-state
+    UNIT_DIR=$stage/retry-units
+    SOURCE_ROOT=$root
+    ENVIRONMENT=staging
+    local SOURCE_REF=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    EVIDENCE=$stage/retry-evidence.json
+    INVENTORY=$stage/retry-inventory.json
+    load_groups
+    mkdir -p "$STATE_DIR" "$UNIT_DIR"
+    printf 'old service\n' > "$UNIT_DIR/$service"
+    if [[ $saved_timer == present ]]; then printf 'old timer\n' > "$UNIT_DIR/$timer"; fi
+    mkdir -p "$UNIT_DIR/$service.d"
+    printf '[Service]\nTimeoutStartSec=90s\n' > "$UNIT_DIR/$service.d/10-window.conf"
+    printf 'saved launcher\n' > "$stage/launcher"
+    chmod 700 "$stage/launcher"
+    printf '%s\n' "$timer" > "$stage/active"
+    service_value() {
+        case $2 in
+            ActiveState) if grep -Fxq "$1" "$stage/active"; then printf active; else printf inactive; fi ;;
+            Job) printf 0 ;;
+            DropInPaths) printf '' ;;
+            *) return 1 ;;
+        esac
+    }
+    service_ctl() {
+        case $1 in
+            stop) grep -Fxv "$2" "$stage/active" > "$stage/next-active" || :; command mv "$stage/next-active" "$stage/active" ;;
+            start) printf '%s\n' "$2" >> "$stage/active" ;;
+            daemon-reload) checkpoint daemon-reload ;;
+            *) return 1 ;;
+        esac
+    }
+    # Publication durability is covered by the main fixture's sync assertions.
+    sync_path() {
+        if [[ $1 == "$STATE_DIR/news" ]]; then checkpoint "phase-$(group_phase news)"; fi
+    }
+    verify_ready() { checkpoint readiness; }
+    verify_direct_fences() {
+        [[ $(cat "$stage/launcher-owner") == 0:0 && $(cat "$stage/launcher-mode") == 000 ]] || {
+            fail 'launcher fence bytes, ownership or mode differ'; return 1;
+        }
+    }
+    checkpoint() {
+        [[ ${armed:-0} != 1 || $point != "$1" ]] || {
+            printf '%s\n' "$1" > "$stage/interrupted"
+            exit 77
+        }
+    }
+    # Preserve real copies and renames, including each pending-file boundary.
+    cp() {
+        command cp "$@" || return
+        case ${@: -1} in
+            "$UNIT_DIR/$service.w2-pending") checkpoint service-copy ;;
+            "$UNIT_DIR/$timer.w2-pending") checkpoint timer-copy ;;
+            "$UNIT_DIR/$service.d/10-window.conf.w2-pending") checkpoint dropin-copy ;;
+        esac
+    }
+    mv() {
+        command mv "$@" || return
+        case ${@: -1} in
+            "$UNIT_DIR/$service") checkpoint service-publish ;;
+            "$UNIT_DIR/$timer") checkpoint timer-publish ;;
+            "$UNIT_DIR/$service.d/10-window.conf") checkpoint dropin-publish ;;
+        esac
+    }
+    rm() { command rm "$@" || return; [[ ${*: -1} != "$UNIT_DIR/$timer" ]] || checkpoint absent-remove; }
+    mkdir() { command mkdir "$@" || return; [[ ${*: -1} != "$UNIT_DIR/$service.d" ]] || checkpoint dropin-directory; }
+    jq() {
+        command jq "$@" || return
+        if [[ $* == *rollback.native_launchers_disabled* ]]; then checkpoint ownership-acceptance; fi
+    }
+    chown() {
+        [[ ${*: -1} == "$stage/launcher" ]] || return 1
+        printf '%s\n' "$1" > "$stage/launcher-owner"
+        [[ $1 == 0:0 ]] || checkpoint launcher-owner
+    }
+    chmod() {
+        [[ $2 == "$stage/launcher" ]] || return 1
+        printf '%s\n' "$1" > "$stage/launcher-mode"
+        # A non-root fixture must still read the bytes to check their digest.
+        if [[ $1 == 000 ]]; then command chmod 600 "$2"; else command chmod "$@"; checkpoint launcher-mode; fi
+    }
+    snapshot_group news
+    printf '%s\t%s\t%s\t%s\t700\n' "$stage/launcher" "$(file_digest "$stage/launcher")" "$(id -u)" "$(id -g)" > "$STATE_DIR/news/launchers.tsv"
+    file_digest "$STATE_DIR/news/launchers.tsv" > "$STATE_DIR/news/launchers.sha256"
+    refence_launchers news
+    command jq -n --arg sha "$SOURCE_REF" '{schema_version:1,environment:"staging",source_ref:$sha,timers:[]}' > "$INVENTORY"
+    for file in "${JOB_TIMERS[@]}"; do
+        command cp "$(unit_source "$file")" "$UNIT_DIR/$file"
+        command jq --arg name "$file" --arg digest "$(file_digest "$UNIT_DIR/$file")" '.timers += [{name:$name,sha256:$digest,disposition:"active"}]' "$INVENTORY" > "$stage/next"
+        command mv "$stage/next" "$INVENTORY"
+    done
+    printf 'new service\n' > "$UNIT_DIR/$service"
+    printf 'new drop-in\n' > "$UNIT_DIR/$service.d/10-window.conf"
+    printf '%s\n' '{"groups":{"news":{"rollback":{"native_launchers_disabled":true,"direct_schedulers_disabled":true,"permission_restore_accepted":true}}}}' > "$EVIDENCE"
+    set_phase news accepted
+    validate_timer_inventory
+    status=0
+    (armed=1; rollback_group news) || status=$?
+    [[ $status == 77 && $(cat "$stage/interrupted") == "$point" ]] || {
+        printf 'interruption not reached: %s (exit %s)\n' "$point" "$status" >&2; exit 1;
+    }
+    # Match the non-install command's validation order on the retry.
+    case ${3:-} in
+        timer) printf 'unreviewed timer\n' > "$UNIT_DIR/$timer" ;;
+        snapshot) printf 'changed snapshot\n' >> "$STATE_DIR/news/previous/$service" ;;
+        launcher) printf 'changed launcher\n' >> "$stage/launcher" ;;
+        redirected) command rm -f "$UNIT_DIR/$timer"; ln -s "$(unit_source "$timer")" "$UNIT_DIR/$timer" ;;
+    esac
+    validate_timer_inventory
+    rollback_group news
+    [[ $(group_phase news) == rolled-back ]]
+    cmp "$STATE_DIR/news/previous/$service" "$UNIT_DIR/$service"
+    if [[ $saved_timer == present ]]; then
+        cmp "$STATE_DIR/news/previous/$timer" "$UNIT_DIR/$timer"
+    else
+        [[ ! -e $UNIT_DIR/$timer ]]
+    fi
+    cmp "$STATE_DIR/news/dropins/$service.d/10-window.conf" "$UNIT_DIR/$service.d/10-window.conf"
+    [[ $(cat "$stage/launcher-owner") == "$(id -u):$(id -g)" && $(cat "$stage/launcher-mode") == 700 && -x $stage/launcher ]]
+    [[ $(cat "$stage/active") == "$timer" ]]
+    printf 'PASS rollback retry %s %s\n' "$saved_timer" "$point"
+)
+if [[ ${1:-} == --rollback-interruption ]]; then
+    rollback_interruption_contract "$2" "$3" "${4:-}"
+    exit
+fi
+for saved_timer in present absent; do
+    points=(phase-rolling-back service-copy service-publish dropin-directory dropin-copy dropin-publish daemon-reload ownership-acceptance launcher-owner launcher-mode readiness phase-rolled-back)
+    if [[ $saved_timer == present ]]; then points+=(timer-copy timer-publish); else points+=(absent-remove); fi
+    for point in "${points[@]}"; do rollback_interruption_contract "$point" "$saved_timer"; done
+ done
 STATE_DIR=$stage/state
 UNIT_DIR=$stage/units
 mkdir -p "$STATE_DIR" "$UNIT_DIR"
