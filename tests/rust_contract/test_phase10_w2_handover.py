@@ -44,7 +44,7 @@ def test_rollback_retry_after_interruption(tmp_path, saved_timer, point, active_
 
 
 ADVANCE_STEPS = [
-    "phase-advancing", "service-copy", "service-publish", "timer-copy",
+    "phase-advancing", "fence-owner", "fence-mode", "service-copy", "service-publish", "timer-copy",
     "timer-publish", "daemon-reload", "phase-running",
 ]
 
@@ -54,15 +54,28 @@ ADVANCE_STEPS = [
 @pytest.mark.parametrize("saved_timer", ["present", "absent"])
 @pytest.mark.parametrize("point", ADVANCE_STEPS)
 def test_advance_retry_after_interruption(tmp_path, point, saved_timer, active_state, retry_action):
-    # Once running is durable, rollback is required to avoid a repeated effect.
-    if point == "phase-running" and retry_action == "advance":
-        pytest.skip("running requires rollback")
     result = subprocess.run(
         ["bash", str(FIXTURE), "--advance-interruption", point, saved_timer, "", active_state, retry_action],
         cwd=ROOT, env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert f"PASS {retry_action} retry {saved_timer} {point}" in result.stdout
+
+
+@pytest.mark.parametrize("retry_action", ["advance", "rollback"])
+@pytest.mark.parametrize("changed,message", [
+    ("timer", "rolled-back timer differs from saved bytes"),
+    ("snapshot", "saved unit bytes changed"),
+    ("launcher", "launcher identity differs before native ownership"),
+    ("redirected", "timer source unavailable or installed path redirected"),
+])
+def test_advance_retry_refuses_changed_identity(tmp_path, retry_action, changed, message):
+    result = subprocess.run(
+        ["bash", str(FIXTURE), "--advance-interruption", "timer-publish", "present", changed, "active", retry_action],
+        cwd=ROOT, env=dict(os.environ, TMPDIR=str(tmp_path)), text=True, capture_output=True,
+    )
+    assert result.returncode != 0, "changed advance identity was accepted"
+    assert f"W2 NO_GO: {message}" in result.stderr
 
 
 @pytest.mark.parametrize("changed,message", [

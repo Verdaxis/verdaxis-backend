@@ -103,18 +103,18 @@ rollback_interruption_contract() (
     mkdir() { command mkdir "$@" || return; [[ ${*: -1} != "$UNIT_DIR/$service.d" ]] || checkpoint dropin-directory; }
     jq() {
         command jq "$@" || return
-        if [[ $* == *rollback.native_launchers_disabled* ]]; then checkpoint ownership-acceptance; fi
+        if [[ $* == *rollback.native_launchers_disabled* ]]; then restoring_permissions=1; checkpoint ownership-acceptance; fi
     }
     chown() {
         [[ ${*: -1} == "$retry_stage/launcher" ]] || return 1
         printf '%s\n' "$1" > "$retry_stage/launcher-owner"
-        [[ $1 == 0:0 ]] || checkpoint launcher-owner
+        if [[ $restoring_permissions == 1 ]]; then checkpoint launcher-owner; else checkpoint fence-owner; fi
     }
     chmod() {
         [[ $2 == "$retry_stage/launcher" ]] || return 1
         printf '%s\n' "$1" > "$retry_stage/launcher-mode"
         # A non-root fixture must still read the bytes to check their digest.
-        if [[ $1 == 000 ]]; then command chmod 600 "$2"; else command chmod "$@"; checkpoint launcher-mode; fi
+        if [[ $1 == 000 ]]; then command chmod 600 "$2"; checkpoint fence-mode; else command chmod "$@"; checkpoint launcher-mode; fi
     }
     snapshot_group news
     printf '%s\t%s\t%s\t%s\t700\n' "$retry_stage/launcher" "$(file_digest "$retry_stage/launcher")" "$(id -u)" "$(id -g)" > "$STATE_DIR/news/launchers.tsv"
@@ -153,6 +153,14 @@ rollback_interruption_contract() (
         redirected) command rm -f "$UNIT_DIR/$timer"; ln -s "$(unit_source "$timer")" "$UNIT_DIR/$timer" ;;
     esac
     validate_timer_inventory
+    if [[ $retry_action == advance && $point == phase-running ]]; then
+        if (run_group news) 2>/dev/null; then fail 'running group repeated'; exit 1; fi
+        [[ $(cat "$retry_stage/invocation") == 1 ]]
+        rollback_group news
+        [[ $(group_phase news) == rolled-back ]]
+        printf 'PASS advance retry %s %s\n' "$saved_timer" "$point"
+        exit
+    fi
     if [[ $retry_action == advance ]]; then
         run_group news
         [[ $(group_phase news) == awaiting-acceptance ]]
@@ -246,6 +254,8 @@ printf 'new news bytes\n' > "$UNIT_DIR/verdaxis-news-refresh-staging.service"
 rollback_group news
 cmp "$STATE_DIR/news/previous/verdaxis-news-refresh-staging.service" "$UNIT_DIR/verdaxis-news-refresh-staging.service"
 [[ $(group_phase news) == rolled-back ]]
+# Defined by the sourced helper; the later fixture override is scoped to retry checks.
+# shellcheck disable=SC2218
 verify_snapshot news
 # Dynamic state-bearing old wakeups are included in the drain set.
 service_instances() { printf 'verdaxis-monitor-alert@health-failure.service\n'; }
@@ -303,7 +313,9 @@ restore_launcher_permissions news
 # Inventoried root unit drop-ins are captured with their exact bytes.
 mkdir -p "$UNIT_DIR/verdaxis-demo-activity-staging.service.d"
 printf '[Service]\nTimeoutStartSec=90s\n' > "$UNIT_DIR/verdaxis-demo-activity-staging.service.d/10-window.conf"
-cp "$UNIT_DIR/verdaxis-demo-activity-staging.service.d/10-window.conf" "$stage/dropin"
+# Use the real copy before the intentional failure adapter below.
+# shellcheck disable=SC2218
+command cp "$UNIT_DIR/verdaxis-demo-activity-staging.service.d/10-window.conf" "$stage/dropin"
 snapshot_dropins demo verdaxis-demo-activity-staging.service
 cmp "$stage/dropin" "$STATE_DIR/demo/dropins/verdaxis-demo-activity-staging.service.d/10-window.conf"
 rm -rf "$STATE_DIR/demo"
