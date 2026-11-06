@@ -1,4 +1,5 @@
 """Fixed canonical runtime identity; no live services are used."""
+import os
 from pathlib import Path
 
 import pytest
@@ -59,14 +60,24 @@ def test_release_publication_includes_matching_monitor_identity(tmp_path):
     import subprocess
     source = (ROOT / "scripts/deploy.sh").read_text()
     functions = source[source.index("write_monitor_identity() {"):source.index("write_deploy_state() {")]
-    script = 'set -euo pipefail\n' + functions + '\nwrite_release_artifact "' + 'a' * 40 + '" p0_20261016_union\n'
+    # M stages and fsyncs both identities in the existing deploy-state directory.
+    # Include the real publication hook, with optional probes disabled.
+    state_dir = tmp_path / ".runtime-deploy"
+    state_dir.mkdir(mode=0o755)
+    hooks = source[source.index("publication_boundary() {"):source.index("verify_window_acceptance() {")]
+    script = 'set -euo pipefail\n' + hooks + functions + '\nwrite_release_artifact "' + 'a' * 40 + '" p0_20261016_union\n'
     result = subprocess.run(["bash", "-c", script], env={
-        "PATH": "/usr/bin:/bin", "BACKEND_DIR": str(tmp_path),
+        "PATH": os.environ["PATH"], "BACKEND_DIR": str(tmp_path),
+        "DEPLOY_STATE_DIR": str(state_dir),
+        "DEPLOY_PUBLICATION_LOG": "", "DEPLOY_KILL_POINT": "",
         "RELEASE_ENV_FILE": str(tmp_path / ".runtime-release.env"),
         "DEPLOY_ENVIRONMENT": "production",
     }, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     identity = "ENVIRONMENT=production\nRELEASE_SHA=" + "a" * 40 + "\n"
+    assert list(state_dir.iterdir()) == []
+    assert (tmp_path / ".runtime-monitor.env").stat().st_mode & 0o777 == 0o644
+    assert (tmp_path / ".runtime-release.env").stat().st_mode & 0o777 == 0o600
     assert (tmp_path / ".runtime-monitor.env").read_text() == identity
     assert (tmp_path / ".runtime-release.env").read_text() == identity + "MIGRATION_REVISION=p0_20261016_union\n"
 

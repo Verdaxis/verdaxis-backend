@@ -1015,16 +1015,21 @@ The external fence remains closed during both writes. Fsync files/directory
 before approving final tuple. Do not issue a permit yet.
 
 Use `new-preinstall.json` with current installed-unit hashes, then immutable
-installer and `new-final.json` with actual final unit/drop-in/venv/env hashes:
+installer and `new-final.json` with actual final unit/drop-in/venv/env hashes.
+`BINARY_SHA256` must be the `binary_sha256` from the verified release record
+produced by `deploy/scripts/verify-artifact.sh`, not a digest inferred from an
+unverified installed file. Both installer modes require this exact identity:
 
 ```bash
 /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \
   --manifest /root/verdaxis-phase0/cutover/new-preinstall.json --check tuple
 sudo -n -u verdaxis-prod -H /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh --dry-run
 sudo /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
-  --dry-run --environment production --source-ref "$RELEASE_SHA"
+  --dry-run --environment production --source-ref "$RELEASE_SHA" \
+  --binary-sha256 "$BINARY_SHA256"
 sudo /home/verdaxis-prod/verdaxis/prod/be/scripts/install_systemd_units.sh \
-  --apply --environment production --source-ref "$RELEASE_SHA"
+  --apply --environment production --source-ref "$RELEASE_SHA" \
+  --binary-sha256 "$BINARY_SHA256"
 systemctl daemon-reload
 systemctl show verdaxis-backend.service -p LoadState -p NeedDaemonReload -p DropInPaths -p ExecStartPre
 /opt/verdaxis-phase0/venv/bin/python -m scripts.phase0.assert_host \

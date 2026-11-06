@@ -121,7 +121,11 @@ def test_appendix_shell_tools_use_real_argument_parsers_only():
     assert {name for name, _ in commands} == {'deploy.sh', 'install_systemd_units.sh'}
     for name, arguments in commands:
         source = (ROOT / 'scripts' / name).read_text()
-        arguments = ['a' * 40 if value == '$RELEASE_SHA' else value for value in arguments]
+        arguments = [
+            'a' * 40 if value == '$RELEASE_SHA' else
+            'b' * 64 if value == '$BINARY_SHA256' else value
+            for value in arguments
+        ]
         if name == 'deploy.sh':
             # Stop before cd, Git, environment loading or any deployment action.
             parser = source[source.index('DRY_RUN=0'):source.index('cd "$BACKEND_DIR"')]
