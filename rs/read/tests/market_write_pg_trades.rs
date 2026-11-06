@@ -1369,3 +1369,47 @@ async fn organization_admin_trade_reads_overlap_and_protect_admission() {
         }
     }
 }
+
+#[tokio::test]
+#[ignore = "requires an attested disposable PostgreSQL"]
+async fn trade_page_hydrates_in_one_statement_with_active_freezes() {
+    let mut f = Fixture::new().await;
+    for _ in 0..3 {
+        assert_eq!(f.take(BUYER, None, "1").await.0, StatusCode::OK);
+    }
+    let trade: Uuid =
+        sqlx::query_scalar("SELECT id FROM trades ORDER BY created_at DESC,id DESC LIMIT 1")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO trade_freezes(id,trade_id,status,reason_code,note,frozen_by_user_id) VALUES($1,$2,'ACTIVE','OTHER','Fixture freeze',$3)")
+        .bind(Uuid::new_v4()).bind(trade).bind(id(ADMIN)).execute(&mut f.admin).await.unwrap();
+    // RLS observes statements as the runtime role without production counters.
+    sqlx::raw_sql(
+        "CREATE TABLE trades_fixture_read_statements(started timestamptz, statement text);
+         CREATE FUNCTION trades_fixture_record_read() RETURNS boolean
+         LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+         BEGIN INSERT INTO public.trades_fixture_read_statements VALUES(statement_timestamp(),current_query()); RETURN true; END $$;
+         ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
+         CREATE POLICY trades_fixture_record_read ON trades FOR SELECT USING (trades_fixture_record_read());",
+    ).execute(&mut f.admin).await.unwrap();
+    let (status, page) = send(&f.router, "GET", "/api/trades/my", Some(BUYER), &[], None).await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["total"], 3);
+    let items = page["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0]["id"], trade.to_string());
+    assert_eq!(items[0]["is_frozen"], true);
+    assert_eq!(items[0]["freeze"]["reason_code"], "OTHER");
+    for item in &items[1..] {
+        assert_eq!(item["is_frozen"], false);
+        assert!(item["freeze"].is_null());
+    }
+    let hydrations: i64 = sqlx::query_scalar(
+        "SELECT count(DISTINCT started) FROM trades_fixture_read_statements WHERE statement LIKE '%to_jsonb(t)%'",
+    ).fetch_one(&mut f.admin).await.unwrap();
+    assert_eq!(
+        hydrations, 1,
+        "hydrate the selected page in one statement, not one per item"
+    );
+}
