@@ -6490,7 +6490,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 31 disposable rehearsal; no live-host authority",
       "task": 31,
-      "source_sha256": "5aec4db45249be39be0b9d0ae72475e86bf538ea5d8079844caa4b19d3db8ebf",
+      "source_sha256": "5fdf945171e6377324c85bf5f1a97bf5ce86ef8eff7d07b09cb18f01d012fe92",
       "status": "planned",
       "evidence": [
         "every_required_scenario_has_evidence"
@@ -6524,7 +6524,7 @@
       "end_state": "retired-offhost",
       "owner": "Task 31 disposable rehearsal; no live-host authority",
       "task": 31,
-      "source_sha256": "aa7855e66c3b7085d7cb5c830c0e1ecc379ca6d8889de4ca2f738f9eff747286",
+      "source_sha256": "ab39240bf1df9aa74842353b0848c1f2f340d88d12eff5d4d60feebddb6a23f4",
       "status": "planned",
       "evidence": [
         "every_required_scenario_has_evidence"
