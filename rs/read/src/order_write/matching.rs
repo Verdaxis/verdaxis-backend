@@ -1934,7 +1934,7 @@ pub mod contract {
                     "../../../../deploy/rust/market-policy.json"
                 ))
                 .map_err(|_| inconsistent())?;
-                let config: crate::Config = serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_| inconsistent())?;
+                let config: crate::Config = serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],"database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_| inconsistent())?;
                 let _before = tx
                     .effects()?
                     .capture_before(&policy, &config, &ids, self.at)
@@ -2181,7 +2181,7 @@ pub mod contract {
                     "../../../../deploy/rust/market-policy.json"
                 ))
                 .map_err(|_| inconsistent())?;
-                let config:crate::Config=serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_watchlist_producer","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_|inconsistent())?;
+                let config:crate::Config=serde_json::from_value(serde_json::json!({"environment":"test","release_sha":"test","migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],"database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,"python_budget":0,"configured_max_connections":100})).map_err(|_|inconsistent())?;
                 let before = tx
                     .effects()?
                     .capture_before(&policy, &config, &plan.locked_order_ids(), self.at)

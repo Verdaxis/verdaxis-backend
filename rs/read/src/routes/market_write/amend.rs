@@ -228,7 +228,7 @@ pub fn contract_router(pool: sqlx::PgPool, key: &str, settings: AmendSettings) -
     let config = serde_json::from_value(serde_json::json!({
         "environment": "test",
         "release_sha": crate::compiled_sha(),
-        "migration_revision": "p89_20261022_trade_freeze",
+        "migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],
         "database_url": ({use sqlx::ConnectOptions; let mut url=pool.connect_options().to_url_lossy(); url.set_query(None); url.to_string()}),
         "db_session_time_zone": "UTC",
         "bind": "127.0.0.1:0",
