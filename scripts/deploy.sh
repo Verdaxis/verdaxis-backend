@@ -1117,6 +1117,15 @@ if [[ "$RUST_ENABLED" == "1" ]]; then
     fi
 fi
 
+# The independently installed root-owned helper never provisions during deploy.
+# It checks the private service and authenticates the exact reader role before
+# any durable state, source publication or backend stop.
+if ! sudo -n /usr/local/libexec/verdaxis/provision-bundle-reader.sh \
+    --environment "$DEPLOY_ENVIRONMENT" --check; then
+    echo "Bundle reader preflight failed; provision its private service before capture or deploy." >&2
+    exit 1
+fi
+
 # Prove every exact privileged service command before state/source mutation.
 # Noninteractive execution must never discover missing authority at restart.
 for action in stop disable; do

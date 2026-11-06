@@ -281,6 +281,11 @@ if [[ \$1 == -l ]]; then
     if matches deny-sudo "\$*"; then exit 1; fi
     exit 0
 fi
+if [[ \$1 == /usr/local/libexec/verdaxis/provision-bundle-reader.sh ]]; then
+    record "reader-preflight \$*"
+    maybe_fail 'reader-preflight'
+    exit 0
+fi
 exec '$H/bin/systemctl' "\${@:2}"
 EOF
     cat > "$H/bin/curl" << EOF
@@ -493,6 +498,16 @@ python_retired_before_migration() {
         && before "^systemctl stop $unit\$" 'binary\(staged\) migrate run' \
         && before "^systemctl disable $unit\$" 'binary\(staged\) migrate run'
 }
+
+case_reader_preflight() {
+    local environment
+    for environment in staging production; do
+        approved_host "reader-missing-$environment" "$environment"
+        echo reader-preflight > "$H/fail-at"
+        refused_before_any_change && called '^reader-preflight ' || return 1
+    done
+}
+check missing_bundle_reader_refuses_before_any_stop case_reader_preflight
 
 # ---- part 1: the Task 7 cases -----------------------------------------------------------
 
