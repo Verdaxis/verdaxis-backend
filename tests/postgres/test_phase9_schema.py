@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -708,9 +709,33 @@ class SyntheticStagingRelease:
         })
 
     def converge(self, environment: str = "staging", bundle_root: Path | None = None):
+        helper = self.source / "scripts/converge_runtime_acls.py"
+        command = [sys.executable, str(helper)]
+        if not Path("/usr/bin/psql").is_file():
+            # Run the unchanged committed helper and SQL on macOS too. Substitute
+            # only its client executable in this test process, not deployed code.
+            psql = shutil.which("psql")
+            assert psql is not None, "the PostgreSQL fixture requires psql"
+            launcher = """
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("fixture_acl", sys.argv.pop(1))
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+client = sys.argv.pop(1)
+build = module.build_psql_invocation
+def fixture_invocation(*args):
+    command, environment = build(*args)
+    assert command[0] == "/usr/bin/psql"
+    command[0] = client
+    return command, environment
+module.build_psql_invocation = fixture_invocation
+raise SystemExit(module.main())
+"""
+            command = [sys.executable, "-c", launcher, str(helper), str(Path(psql).resolve())]
         return subprocess.run(
-            [sys.executable, str(self.source / "scripts/converge_runtime_acls.py"),
-             "--environment", environment, "--environment-file", str(self.environment_file),
+            [*command, "--environment", environment,
+             "--environment-file", str(self.environment_file),
              "--bundle-root", str(bundle_root or self.source)],
             cwd=self.source, env={"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"},
             capture_output=True, text=True, check=False, timeout=600,

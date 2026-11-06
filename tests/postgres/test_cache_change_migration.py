@@ -107,9 +107,12 @@ def test_nonempty_dependency_statements_bump_once(cache_database, table, row_cou
 
 def test_retention_is_a_contiguous_generation_window(cache_database):
     sql, _ = cache_database
-    result = sql("BEGIN; DO $$ BEGIN FOR i IN 1..4100 LOOP UPDATE products SET is_active=is_active; END LOOP; END $$; "
-                 "SELECT count(*), max(generation)-min(generation)+1 FROM public_read_cache_events WHERE domain='trading'; ROLLBACK")
-    assert f"{RETENTION}|{RETENTION}" in result
+    # psql versions differ in which result they print before ROLLBACK. Keep
+    # the exact count/span proof in the transaction, independent of that output.
+    sql("BEGIN; DO $$ BEGIN FOR i IN 1..4100 LOOP UPDATE products SET is_active=is_active; END LOOP; "
+        f"ASSERT (SELECT count(*) = {RETENTION} AND max(generation)-min(generation)+1 = {RETENTION} "
+        "FROM public_read_cache_events WHERE domain='trading'), 'contiguous retention window'; "
+        "END $$; ROLLBACK")
 
 
 def test_exact_sequencer_statement_counts_only_assigned_rows(cache_database):

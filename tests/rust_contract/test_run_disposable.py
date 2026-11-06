@@ -341,3 +341,17 @@ def test_postgres_baseline_group_leaves_adoption_to_explicit_runner_calls():
     assert explicit
     assert all(command[command.index("--") + 1] == "--ignored" for command in explicit)
     assert 'RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://' in source
+
+
+def test_stream_actor_uses_the_configured_cargo_target(monkeypatch, tmp_path):
+    from tests.rust_contract.phase6 import coexistence
+
+    captured = []
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://fixture@127.0.0.1/test")
+    monkeypatch.setattr(coexistence.subprocess, "Popen", lambda command, **kwargs: captured.append(command))
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "shared-target"))
+    coexistence.RustActor()
+    assert captured.pop() == [str(tmp_path / "shared-target/debug/examples/streams_fixture")]
+    monkeypatch.delenv("CARGO_TARGET_DIR")
+    coexistence.RustActor()
+    assert captured.pop() == [str(ROOT / "rs/target/debug/examples/streams_fixture")]
