@@ -21,4 +21,10 @@ scripts/install_systemd_units.sh
 scripts/rust_w2_handover.sh
 deploy/tests/w2-handover-contract.sh
 deploy/scripts/pre-m-bundle.sh
+deploy/scripts/safe-root-git.sh
 deploy/tests/pre-m-bundle-contract.sh
+deploy/tests/full-rehearsal.sh
+deploy/tests/rehearsal-ci-setup.sh
+deploy/tests/rehearsal/driver.sh
+deploy/tests/rehearsal/schedules.sh
+deploy/tests/rehearsal/w5.sh
