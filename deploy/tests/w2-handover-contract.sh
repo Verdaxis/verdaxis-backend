@@ -13,6 +13,7 @@ export SOURCE_REF=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 rollback_interruption_contract() (
     local point=$1 saved_timer=$2 timer=verdaxis-news-refresh-staging.timer
     local service=verdaxis-news-refresh-staging.service file status
+    local direction=${5:-rollback} retry_action=${6:-rollback} restoring_permissions=0
     local retry_stage=$stage/$saved_timer-$point
     mkdir -p "$retry_stage"
     STATE_DIR=$retry_stage/retry-state
@@ -34,6 +35,10 @@ rollback_interruption_contract() (
     service_value() {
         case $2 in
             ActiveState) if grep -Fxq "$1" "$retry_stage/active"; then printf active; else printf inactive; fi ;;
+            InvocationID) printf '%032d' "$(cat "$retry_stage/invocation")" ;;
+            Result) printf success ;;
+            ExecMainStatus) printf 0 ;;
+            ConditionResult|AssertResult) printf yes ;;
             Job) printf 0 ;;
             DropInPaths) printf '' ;;
             *) return 1 ;;
@@ -42,7 +47,12 @@ rollback_interruption_contract() (
     service_ctl() {
         case $1 in
             stop) grep -Fxv "$2" "$retry_stage/active" > "$retry_stage/next-active" || :; command mv "$retry_stage/next-active" "$retry_stage/active" ;;
-            start) printf '%s\n' "$2" >> "$retry_stage/active" ;;
+            start)
+                if [[ $2 == *.service ]]; then
+                    printf '%s\n' "$(( $(cat "$retry_stage/invocation") + 1 ))" > "$retry_stage/invocation"
+                else
+                    printf '%s\n' "$2" >> "$retry_stage/active"
+                fi ;;
             daemon-reload) checkpoint daemon-reload ;;
             *) return 1 ;;
         esac
@@ -52,6 +62,15 @@ rollback_interruption_contract() (
         if [[ $1 == "$STATE_DIR/news" ]]; then checkpoint "phase-$(group_phase news)"; fi
     }
     verify_ready() { checkpoint readiness; }
+    verify_native_unit() { cmp "$(unit_source "$1")" "$UNIT_DIR/$1"; }
+    install() {
+        # Keep real publication bytes without requiring root in the fixture.
+        command install -m 0644 "${@: -2}" || return
+        case ${@: -1} in
+            "$UNIT_DIR/$service.w2-pending") checkpoint service-copy ;;
+            "$UNIT_DIR/$timer.w2-pending") checkpoint timer-copy ;;
+        esac
+    }
     verify_direct_fences() {
         [[ $(cat "$retry_stage/launcher-owner") == 0:0 && $(cat "$retry_stage/launcher-mode") == 000 ]] || {
             fail 'launcher fence bytes, ownership or mode differ'; return 1;
@@ -112,8 +131,17 @@ rollback_interruption_contract() (
     printf '%s\n' '{"groups":{"news":{"rollback":{"native_launchers_disabled":true,"direct_schedulers_disabled":true,"permission_restore_accepted":true}}}}' > "$EVIDENCE"
     set_phase news accepted
     validate_timer_inventory
+    printf '1\n' > "$retry_stage/invocation"
+    if [[ $direction == advance ]]; then
+        rollback_group news
+        restoring_permissions=0
+    fi
     status=0
-    (armed=1; rollback_group news) || status=$?
+    if [[ $direction == advance ]]; then
+        (armed=1; run_group news) || status=$?
+    else
+        (armed=1; rollback_group news) || status=$?
+    fi
     [[ $status == 77 && $(cat "$retry_stage/interrupted") == "$point" ]] || {
         printf 'interruption not reached: %s (exit %s)\n' "$point" "$status" >&2; exit 1;
     }
@@ -125,6 +153,17 @@ rollback_interruption_contract() (
         redirected) command rm -f "$UNIT_DIR/$timer"; ln -s "$(unit_source "$timer")" "$UNIT_DIR/$timer" ;;
     esac
     validate_timer_inventory
+    if [[ $retry_action == advance ]]; then
+        run_group news
+        [[ $(group_phase news) == awaiting-acceptance ]]
+        [[ $(cat "$retry_stage/invocation") == 2 ]]
+        cmp "$(unit_source "$service")" "$UNIT_DIR/$service"
+        cmp "$(unit_source "$timer")" "$UNIT_DIR/$timer"
+        verify_direct_fences news
+        [[ ! -s $retry_stage/active ]]
+        printf 'PASS advance retry %s %s\n' "$saved_timer" "$point"
+        exit
+    fi
     rollback_group news
     [[ $(group_phase news) == rolled-back ]]
     cmp "$STATE_DIR/news/previous/$service" "$UNIT_DIR/$service"
@@ -138,6 +177,10 @@ rollback_interruption_contract() (
     cmp "$STATE_DIR/news/active-timers" "$retry_stage/active"
     printf 'PASS rollback retry %s %s\n' "$saved_timer" "$point"
 )
+if [[ ${1:-} == --advance-interruption ]]; then
+    rollback_interruption_contract "$2" "$3" "${4:-}" "${5:-active}" advance "${6:-advance}"
+    exit
+fi
 if [[ ${1:-} == --rollback-interruption ]]; then
     rollback_interruption_contract "$2" "$3" "${4:-}" "${5:-active}"
     exit
