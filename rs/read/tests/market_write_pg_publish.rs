@@ -15,7 +15,7 @@ use std::time::Duration;
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::routes::market_write::{inventory, order_create::CreateSettings};
-use verdaxis_read::{AppState, auth::VerificationSettings};
+use verdaxis_read::{AppState, auth::VerificationSettings, runtime::artifact::ALLOWED_REVISIONS};
 
 const KEY: &str = "synthetic-publication-signing-key-at-least-32-characters";
 fn seller() -> Uuid {
@@ -63,7 +63,7 @@ impl Fixture {
             .unwrap();
         let pool = PgPool::connect(&runtime_url).await.unwrap();
         let observer = PgConnection::connect(&runtime_url).await.unwrap();
-        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
+        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
         let pools = verdaxis_read::connect(&config).await.unwrap();
         let policy =
             serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();

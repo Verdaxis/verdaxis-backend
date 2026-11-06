@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 use usage::{AuthoritativeUsage, UsageDays};
 use uuid::Uuid;
 use verdaxis_read::runtime::db::Pools;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 24, 12, 0, 0).unwrap()
@@ -557,7 +558,7 @@ async fn p4_t17a_c10() {
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: compiled_sha().into(),
-            migration_revision: "kycg_20261014_staging".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: url.into(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,
@@ -843,7 +844,7 @@ mod postgres {
                 kyc_execution_gate_enabled: true,
                 environment: "test".into(),
                 release_sha: compiled_sha().into(),
-                migration_revision: "kycg_20261014_staging".into(),
+                migration_revision: ALLOWED_REVISIONS[0].into(),
                 database_url: runtime.into(),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,

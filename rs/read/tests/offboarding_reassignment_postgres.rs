@@ -34,6 +34,7 @@ use uuid::Uuid;
 use verdaxis_read::market_reassignment::{AUDIT_ACTION, EVENT_TYPE};
 use verdaxis_read::routes::market_write::{freeze, trade_lifecycle};
 use verdaxis_read::routes::reassignment;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const KEY: &str = "synthetic-reassignment-signing-key-at-least-32";
 const REASSIGNMENT_ISSUER: &str = "reassignment-tests";
@@ -1691,7 +1692,7 @@ async fn disabled_reassignment_is_not_routed() {
     let config: verdaxis_read::Config = serde_json::from_value(json!({
         "environment": "test",
         "release_sha": verdaxis_read::compiled_sha(),
-        "migration_revision": "p89_20261022_trade_freeze",
+        "migration_revision": ALLOWED_REVISIONS[0],
         "database_url": f.database.runtime_url,
         "db_session_time_zone": "UTC",
         "bind": "127.0.0.1:0",

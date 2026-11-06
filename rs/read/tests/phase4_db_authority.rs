@@ -5,7 +5,10 @@ use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
+/// The Alembic head the runner's database sits at: the adoption source. The
+/// runner adopts the database to the runtime revision before serving it.
 const REVISION: &str = "ob_20261031_offboarding";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
@@ -308,7 +311,7 @@ async fn rust_service_credential_absence_does_not_fail_readiness() {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: REVISION.into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: db.app_url,
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 2,

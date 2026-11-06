@@ -12,6 +12,7 @@ use chrono::DateTime;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     ApiError, AppState, Config, MarketPolicy,
     auth::{
@@ -66,7 +67,7 @@ async fn fixture() -> Option<Fixture> {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

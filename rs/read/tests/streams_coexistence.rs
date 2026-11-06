@@ -3,13 +3,13 @@ use verdaxis_read::streams::{
     bus::{PublicChannel, Terminal},
     runtime::{CapacityConfig, start_streams},
 };
-use verdaxis_read::{Config, compiled_sha};
+use verdaxis_read::{compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS};
 
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL stream fixture"]
 async fn three_supervisor_cycles_preserve_nonzero_baseline_and_release_sessions() {
     let mut config: Config = serde_json::from_value(serde_json::json!({
-        "environment":"test","release_sha":compiled_sha(),"migration_revision":"sse_20261021_replay_floor",
+        "environment":"test","release_sha":compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],
         "database_url":std::env::var("STREAM_RUNTIME_APP_URL").unwrap(),"db_session_time_zone":"UTC",
         "bind":"127.0.0.1:0","read_admission_slots":2,"pool_max":3,"python_budget":52,"configured_max_connections":100,
         "phase2":{"jwt_secret":"fixture-stream-secret-at-least-thirty-two-characters","jwt_issuer":"fixture","jwt_audience":"fixture",

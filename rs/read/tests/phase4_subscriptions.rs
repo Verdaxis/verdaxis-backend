@@ -17,6 +17,7 @@ use fees::FeeConfig;
 use fees::SubscriptionTier;
 use rust_decimal::Decimal;
 use serde_json::json;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 #[test]
 fn p4_t13_c05() {
@@ -55,7 +56,7 @@ fn component(pool: sqlx::PgPool, health: sqlx::PgPool) -> axum::Router {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://rust_app:disposable_app_pw@127.0.0.1:54329/verdaxis_rust_test"
             .into(),
         db_session_time_zone: "UTC".into(),

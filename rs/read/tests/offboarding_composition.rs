@@ -20,9 +20,7 @@ use axum::{
 use serde_json::{Value, json};
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
-use verdaxis_read::{
-    AppState, Config, compiled_sha, runtime::config::config_from_deployed_environment,
-};
+use verdaxis_read::{AppState, compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS, runtime::config::config_from_deployed_environment};
 
 const SAMPLE_ID: &str = "00000000-0000-4000-8000-000000000001";
 const SECRET: &str = "synthetic-composition-key-at-least-32-characters";
@@ -55,7 +53,7 @@ fn state(switch: Option<bool>) -> AppState {
         "kyc_execution_gate_enabled": false,
         "environment": "test",
         "release_sha": compiled_sha(),
-        "migration_revision": "ob_20261031_offboarding",
+        "migration_revision": ALLOWED_REVISIONS[0],
         "database_url": database_url,
         "db_session_time_zone": "UTC",
         "bind": "127.0.0.1:0",

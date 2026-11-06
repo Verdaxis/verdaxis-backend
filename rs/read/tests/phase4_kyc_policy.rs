@@ -8,6 +8,8 @@ use grace::{Grace, grace_applies, notice_is_due};
 use policy::{KycParty, KycPolicy, KycReason, KycStatus, eligibility};
 use policy::{KycSqlParty, bind_eligibility_sql};
 use uuid::Uuid;
+#[cfg(feature = "contract-tests")]
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn now() -> DateTime<Utc> {
     "2026-10-24T00:00:00Z".parse().unwrap()
@@ -454,7 +456,7 @@ mod postgres {
                 db_session_time_zone: "Asia/Singapore".into(),
                 environment: "test".into(),
                 release_sha: verdaxis_read::compiled_sha().into(),
-                migration_revision: "kycg_20261014_staging".into(),
+                migration_revision: ALLOWED_REVISIONS[0].into(),
                 database_url: url.clone(),
                 bind: "127.0.0.1:0".parse().unwrap(),
                 read_admission_slots: 16,

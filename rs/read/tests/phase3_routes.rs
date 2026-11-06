@@ -1,13 +1,13 @@
 //! The serving composition exposes the credential area without business routes.
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options};
+use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS};
 
 async fn app() -> axum::Router {
     let config = Config {
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p3_20261020_auth_tokens".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://unused:unused@127.0.0.1:1/composition_test".into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

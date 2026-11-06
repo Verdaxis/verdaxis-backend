@@ -25,7 +25,7 @@ use uuid::Uuid;
 use verdaxis_read::auth::VerificationSettings;
 use verdaxis_read::auth::limits::SharedLimits;
 use verdaxis_read::crud::preferences;
-use verdaxis_read::{AppState, Config, MarketPolicy};
+use verdaxis_read::{AppState, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
 
 const ORG: &str = "10000000-0000-4000-8000-0000000000d1";
 const USER_A: &str = "20000000-0000-4000-8000-0000000000d1";
@@ -40,7 +40,7 @@ fn test_config(database_url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,

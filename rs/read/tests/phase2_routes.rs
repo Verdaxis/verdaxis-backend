@@ -8,7 +8,7 @@
 
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options};
+use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS};
 
 const UUID: &str = "11111111-1111-4111-8111-111111111111";
 
@@ -89,7 +89,7 @@ async fn every_phase2_operation_is_mounted_on_the_public_router() {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

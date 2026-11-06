@@ -1,4 +1,5 @@
 use verdaxis_read::auth::{AuthenticatedRequest, UserLockMode};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 #[tokio::test]
 async fn postgres_authentication_ownership_and_revocation() {
@@ -27,7 +28,7 @@ async fn postgres_authentication_ownership_and_revocation() {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

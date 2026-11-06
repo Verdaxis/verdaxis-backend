@@ -53,7 +53,10 @@ use verdaxis_read::{
     crud::referrals::invite::MailClient,
     streams::auth::{StreamError, revalidate, verify_stream},
 };
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
+/// The Alembic head the runner's database sits at: the adoption source. The
+/// runner adopts the database to the runtime revision before serving it.
 const REVISION: &str = "ob_20261031_offboarding";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
@@ -125,7 +128,7 @@ impl World {
                 kyc_execution_gate_enabled: true,
                 environment: "test".into(),
                 release_sha: verdaxis_read::compiled_sha().into(),
-                migration_revision: REVISION.into(),
+                migration_revision: ALLOWED_REVISIONS[0].into(),
                 database_url: app_url,
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,

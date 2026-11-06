@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::{AppState, Config, compiled_sha};
+use verdaxis_read::{AppState, compiled_sha, Config, runtime::artifact::ALLOWED_REVISIONS};
 
 const SECRET: &str = "abilities-synthetic-secret-at-least-32-characters";
 const ACTIONS: [&str; 23] = [
@@ -56,7 +56,7 @@ fn token(user: Uuid) -> String {
 async fn application(url: &str, gate: bool, support: bool) -> (Router, sqlx::PgPool, sqlx::PgPool) {
     let config: Config = serde_json::from_value(json!({
         "environment":"test", "release_sha":compiled_sha(),
-        "migration_revision":"ob_20261031_offboarding", "database_url":url,
+        "migration_revision":ALLOWED_REVISIONS[0], "database_url":url,
         "kyc_execution_gate_enabled":gate, "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
         "pool_max":5, "read_admission_slots":4, "python_budget":52, "configured_max_connections":100,
         "phase2":{"jwt_secret":SECRET,"jwt_issuer":"abilities-test","jwt_audience":"abilities-test",

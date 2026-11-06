@@ -15,6 +15,7 @@ use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::crud::watchlists::{
     EventAdmission, EventQuery, Summary, VisibleSnapshot, WatchlistEvent, acknowledge,
     capture_visible, feed_page,
@@ -1693,7 +1694,7 @@ fn read_config(database_url: String) -> verdaxis_read::Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p89_20261022_trade_freeze".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

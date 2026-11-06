@@ -3,10 +3,7 @@
 //! Requires a disposable database and roles; never targets deployed databases.
 use std::{sync::Arc, time::Duration};
 use verdaxis_read::routes::market_data_error::database_failure;
-use verdaxis_read::{
-    ApiErrorKind, AppState, Config, MarketPolicy, compiled_sha, connect, run_admitted,
-    run_market_read,
-};
+use verdaxis_read::{ApiErrorKind, AppState, compiled_sha, Config, connect, MarketPolicy, run_admitted, run_market_read, runtime::artifact::ALLOWED_REVISIONS};
 
 const SLOW: &str = "SELECT pg_sleep(5)";
 
@@ -71,7 +68,7 @@ async fn state_with_slots(slots: u32) -> (Arc<AppState>, sqlx::PgPool, sqlx::PgP
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var("RUST_TEST_DATABASE_URL").expect("disposable URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: slots,

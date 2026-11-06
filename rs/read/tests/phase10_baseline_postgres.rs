@@ -195,10 +195,11 @@ fn baseline_dump_has_no_owner_or_privilege_clauses() {
     );
 }
 
-/// The producer register names the head the baseline was built from. That
-/// head is the only head of the Alembic graph in this tree, the newest
-/// revision the Rust service accepts, and the register's approved transitions
-/// are exactly the checkpoint-policy rows that end at it.
+/// The producer register names the head the baseline was cut from. That head
+/// is the only head of the Alembic graph in this tree and the adoption SOURCE:
+/// after M the Rust service accepts only the adopted `sqlx_1` baseline, and
+/// the register's approved transitions are exactly the checkpoint-policy rows
+/// that end at the head.
 #[test]
 fn handover_register_is_closed_at_the_baseline_head() {
     let handover: serde_json::Value = serde_json::from_str(HANDOVER).expect("handover JSON");
@@ -222,11 +223,13 @@ fn handover_register_is_closed_at_the_baseline_head() {
         Some(revision_count as u64)
     );
 
+    // After M the allowlist admits only the adopted baseline; the Alembic
+    // final head is the adoption source the baseline manifest records.
     let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
     assert_eq!(
-        allowed.last().map(String::as_str),
-        Some(final_head),
-        "the final head is not the newest revision the Rust service accepts"
+        allowed,
+        ["sqlx_1".to_owned()],
+        "the Rust service must admit only the adopted baseline"
     );
 
     let mut policy_to_head: Vec<(String, String)> = CHECKPOINTS
@@ -252,6 +255,23 @@ fn handover_register_is_closed_at_the_baseline_head() {
     assert_eq!(
         approved, policy_to_head,
         "the register's transitions differ from the checkpoint policy rows that end at the head"
+    );
+    // The adoption rows move the final head to the runtime revision and keep
+    // the runtime revision reachable without a schema change.
+    let policy_from_head: Vec<(String, String)> = CHECKPOINTS
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(from, _)| *from == final_head)
+        .map(|(from, to)| (from.to_owned(), to.to_owned()))
+        .collect();
+    // Sorted order: the no-change row sorts before the adoption row.
+    assert_eq!(
+        policy_from_head,
+        [
+            (final_head.to_owned(), final_head.to_owned()),
+            (final_head.to_owned(), "sqlx_1".to_owned()),
+        ],
+        "the adoption and no-change rows must end at the adopted baseline"
     );
 }
 

@@ -1,6 +1,6 @@
 use verdaxis_read::runtime::db::log_session_timezone;
 use verdaxis_read::{
-    Config, check_revision, compiled_sha, connection_budget, validate_budget, validate_config,
+    check_revision, compiled_sha, Config, connection_budget, validate_budget, validate_config,
 };
 
 fn staging() -> Config {

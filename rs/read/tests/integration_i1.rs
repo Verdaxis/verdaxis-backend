@@ -11,6 +11,7 @@ use serde_json::json;
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     Config, MarketPolicy, auth,
     business::{organizations, transaction},
@@ -191,7 +192,7 @@ impl Fixture {
             kyc_execution_gate_enabled: true,
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "kycg_20261014_staging".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: "postgres://rust_app:fixture@127.0.0.1:12345/verdaxis_rust_test".into(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,

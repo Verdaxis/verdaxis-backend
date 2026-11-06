@@ -14,10 +14,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use verdaxis_read::market::policy::load_policy;
-use verdaxis_read::{
-    Config, MarketPolicy, PublicOrderFilters, TradeEvidenceFilters, VisibilityClock, compiled_sha,
-    connect, select_public_order_ids, select_trade_evidence_ids,
-};
+use verdaxis_read::{compiled_sha, Config, connect, MarketPolicy, PublicOrderFilters, runtime::artifact::ALLOWED_REVISIONS, select_public_order_ids, select_trade_evidence_ids, TradeEvidenceFilters, VisibilityClock};
 
 const POLICY_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -30,7 +27,7 @@ fn config(variable: &str) -> Config {
         db_session_time_zone: "Asia/Singapore".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var(variable).expect("explicit disposable test URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,

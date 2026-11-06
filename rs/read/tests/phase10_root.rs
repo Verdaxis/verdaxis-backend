@@ -13,7 +13,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, compiled_sha};
+use verdaxis_read::{AppState, compiled_sha, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
 
 const ROOT_BODY: &str = r#"{"message":"Verdaxis API is running","version":"1.0.0"}"#;
 const READ_SLOTS: u32 = 4;
@@ -31,7 +31,7 @@ fn config(database_url: &str) -> Config {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: database_url.into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: READ_SLOTS,

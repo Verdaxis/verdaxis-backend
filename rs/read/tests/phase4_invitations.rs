@@ -18,6 +18,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use serde_json::{Value, json};
 use uuid::Uuid;
+#[cfg(feature = "contract-tests")]
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use request::{
     CreateInvitation, InvitationListQuery, InvitationRole, NewOrganization,
@@ -1318,7 +1320,7 @@ mod postgres {
                 kyc_execution_gate_enabled: true,
                 environment: "test".into(),
                 release_sha: verdaxis_read::compiled_sha().into(),
-                migration_revision: "kycg_20261014_staging".into(),
+                migration_revision: ALLOWED_REVISIONS[0].into(),
                 database_url: std::env::var("RUST_TEST_DATABASE_URL").unwrap(),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,

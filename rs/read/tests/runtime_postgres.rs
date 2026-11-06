@@ -1,6 +1,6 @@
 //! Requires pre-provisioned disposable roles; never targets deployed databases.
 use verdaxis_read::runtime::health::probe;
-use verdaxis_read::{Config, compiled_sha, connect, validate_config};
+use verdaxis_read::{compiled_sha, Config, connect, runtime::artifact::ALLOWED_REVISIONS, validate_config};
 
 fn config(variable: &str) -> Config {
     let config = Config {
@@ -8,7 +8,7 @@ fn config(variable: &str) -> Config {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var(variable).expect("explicit disposable test URL required"),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 16,

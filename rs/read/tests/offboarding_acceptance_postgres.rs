@@ -49,6 +49,7 @@ use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState, Config,
     auth::{TokenIssuer, VerificationSettings, offboarding::UnusablePasswordHash, verify_access},
@@ -189,7 +190,7 @@ fn application(runtime_url: &str, pool: PgPool) -> AppState {
         "kyc_execution_gate_enabled": false,
         "environment": "test",
         "release_sha": compiled_sha(),
-        "migration_revision": "ob_20261031_offboarding",
+        "migration_revision": ALLOWED_REVISIONS[0],
         "database_url": runtime_url,
         "db_session_time_zone": "UTC",
         "bind": "127.0.0.1:0",

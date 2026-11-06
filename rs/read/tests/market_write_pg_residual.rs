@@ -337,7 +337,7 @@ impl Fixture {
             .connect(&self.runtime_url)
             .await
             .unwrap();
-        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
+        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
         let mut pools = verdaxis_read::connect(&config).await.unwrap();
         pools.read = pool.clone();
         let policy =
@@ -2499,7 +2499,7 @@ impl Fixture {
         let pool_max = 9;
         let mut config: verdaxis_read::Config = serde_json::from_value(json!({
             "environment":"test","release_sha":verdaxis_read::compiled_sha(),
-            "migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,
+            "migration_revision":ALLOWED_REVISIONS[0],"database_url":self.runtime_url,
             "db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,
             "pool_max":pool_max,"python_budget":52,"configured_max_connections":100,
             "kyc_execution_gate_enabled":true,
@@ -3172,6 +3172,7 @@ use verdaxis_read::cli::jobs::demo::model::{
 };
 use verdaxis_read::cli::jobs::demo::{DemoFailure, DemoReport, PolicyCatalog, run_with_coverage};
 use verdaxis_read::order_write::DemoMarketFailure;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 /// The B30 Rotterdam book at `now`: the slice the Python driver limits its
 /// coverage to. Organization and creation time are not managed fields, so
