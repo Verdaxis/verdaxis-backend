@@ -253,7 +253,7 @@ read_database() {
     local sql=$work/catalog.sql result=$work/catalog
     {
         printf 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n'
-        printf "SELECT 'DATABASE:' || current_database() || ':' || current_user || ':' || inet_server_addr() || ':' || inet_server_port();\n"
+        printf "SELECT 'DATABASE:' || current_database() || ':' || current_user || ':' || host(inet_server_addr()) || ':' || inet_server_port();\n"
         printf "SELECT 'ALEMBIC:' || version_num FROM public.alembic_version ORDER BY version_num;\n"
         cat -- "$trusted_sql"
         printf '\nCOMMIT;\n'
