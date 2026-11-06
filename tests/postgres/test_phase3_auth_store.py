@@ -37,6 +37,7 @@ REVISION = RECORD["revision"]
 PARENT = RECORD["parent"]
 TABLE = RECORD["table"]
 STORE_SOURCE = ROOT / "rs/read/src/auth/store.rs"
+MAINTENANCE_SOURCE = ROOT / "rs/read/src/cli/jobs/auth.rs"
 
 # Every PostgreSQL test in rs/read/tests/auth_store_postgres.rs. Each must run
 # and pass; a skipped or missing test fails here.
@@ -366,16 +367,38 @@ def test_rust_auth_store_on_migrated_database(rust_store_run):
         _assert_rust_passed(rust_store_run, name)
 
 
+def _assert_session_source(path: Path, source: str) -> None:
+    source = re.sub(r"//[^\n]*", "", source)
+    # M adds a bounded, SKIP LOCKED maintenance sweep. Request writers still
+    # own session mutation through the store; reset-token SQL stays store-only.
+    if path not in (STORE_SOURCE, MAINTENANCE_SOURCE):
+        assert not re.search(r"\brefresh_sessions\b", source), path
+    if path != STORE_SOURCE:
+        assert not re.search(r"\bpassword_reset_tokens\b", source), path
+    for function in re.split(r"\bfn\s+\w+", source):
+        ranks = [SESSION_LOCK_RANK[name] for name in SESSION_LOCK_CALL.findall(function)]
+        assert ranks == sorted(ranks), f"{path}: session locks out of order"
+
+
 def test_auth_lock_order_serializes_device_user_refresh(rust_store_run):
     _assert_rust_passed(rust_store_run, "auth_lock_order_serializes_device_user_refresh")
     sources = sorted((ROOT / "rs/read/src").rglob("*.rs"))
     assert STORE_SOURCE in sources
+    assert MAINTENANCE_SOURCE in sources
     for path in sources:
-        source = re.sub(r"//[^\n]*", "", path.read_text())
-        if path != STORE_SOURCE:
-            # Session and reset-token rows are touched only through the store.
-            assert "refresh_sessions" not in source, path
-            assert "password_reset_tokens" not in source, path
-        for function in re.split(r"\bfn\s+\w+", source):
-            ranks = [SESSION_LOCK_RANK[name] for name in SESSION_LOCK_CALL.findall(function)]
-            assert ranks == sorted(ranks), f"{path}: session locks out of order"
+        _assert_session_source(path, path.read_text())
+
+
+def test_session_source_boundary_rejects_unreviewed_writers():
+    other_source = ROOT / "rs/read/src/other.rs"
+    for table in ("refresh_sessions", "password_reset_tokens"):
+        with pytest.raises(AssertionError):
+            _assert_session_source(other_source, f'SELECT id FROM {table}')
+    with pytest.raises(AssertionError):
+        _assert_session_source(MAINTENANCE_SOURCE, 'SELECT id FROM password_reset_tokens')
+    for path in (STORE_SOURCE, MAINTENANCE_SOURCE, other_source):
+        with pytest.raises(AssertionError, match="session locks out of order"):
+            _assert_session_source(path, 'fn write() { lock_refresh_by_jti(); lock_user(); }')
+    _assert_session_source(MAINTENANCE_SOURCE, 'SELECT id FROM refresh_sessions')
+    _assert_session_source(MAINTENANCE_SOURCE, 'password_reset_tokens_deleted: 0')
+    _assert_session_source(other_source, 'refresh_sessions_deleted: 0')
