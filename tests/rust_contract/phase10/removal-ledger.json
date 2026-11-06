@@ -6785,6 +6785,52 @@
       "rollback": "Retain the fixture contract with the signed release source; no installed application dependency.",
       "installed_check": "Verify no installed unit or operator helper imports or runs this test source.",
       "offhost_location": "Repository tests/rust_contract/test_phase10_post_deletion.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
+      "id": "test-source.tests/rust_contract/test_phase10_measure.py",
+      "source": "tests/rust_contract/test_phase10_measure.py",
+      "kind": "script",
+      "end_state": "retired-offhost",
+      "owner": "Task 34 final measurement offline checks (off-host test source; never installed)",
+      "task": 34,
+      "source_sha256": "277d69f01a8943f68cf944dcd7e94c5ba8ed141cd43daf8361eb8a17a161c685",
+      "status": "planned",
+      "evidence": [
+        "measure_refuses_without_the_pinned_seed",
+        "measure_replays_the_exact_schedule_and_route_mix",
+        "measure_reports_per_route_and_weighted_p95",
+        "measure_reports_5xx_503_error_rate_observations_and_peak_rss",
+        "measure_extracts_digest_pinned_python_memory_and_computes_absolute_and_percentage_differences",
+        "measure_rejects_memory_digest_metric_scope_window_and_worker_mismatch",
+        "measure_missing_comparable_python_memory_reports_unavailable_without_a_run",
+        "measure_memory_comparison_excludes_warmup_and_ramp",
+        "measure_marks_the_below_floor_caveat",
+        "measure_never_changes_the_service_or_deploy_state",
+        "measure_artifact_is_report_only",
+        "measurement_runs_after_cutover_only"
+      ],
+      "deleting_task": null,
+      "rollback": "Retain the offline checks with the signed release source; no installed application dependency.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof.",
+      "offhost_location": "Repository tests/rust_contract/test_phase10_measure.py; CI and disposable test environments only, never installed on serving hosts."
+    },
+    {
+      "id": "script.deploy/tests/final-measure.sh",
+      "source": "deploy/tests/final-measure.sh",
+      "kind": "script",
+      "end_state": "shell",
+      "owner": "Task 34 one-time final measurement wrapper",
+      "task": 34,
+      "source_sha256": "a61fbb6c907c9b553b803d0195b2cfa39303286345784aa847145a527724247c",
+      "status": "planned",
+      "evidence": [
+        "measurement_runs_after_cutover_only",
+        "measure_never_changes_the_service_or_deploy_state",
+        "measure_artifact_is_report_only"
+      ],
+      "deleting_task": null,
+      "rollback": "Restore the prior route or unit command before Task 32; no route rollback after deletion.",
+      "installed_check": "Task 31 and Task 33 signed installed-reference inventory; source is not installed proof."
     }
   ],
   "phase": "pre-removal",

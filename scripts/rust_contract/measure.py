@@ -14,32 +14,39 @@ itself is exercised only on the test host, under the operator's wrapper.
 The measured load stays at the workload manifest's 1, 5 and 10 requests per
 second. A route that cannot reach the manifest's observation floor inside the
 run is reported inconclusive with the number still needed -- never a pass.
+
+Phase 10 (plan 10.6) adds the offline final-measurement adapter: a pinned-seed
+replay of the frozen schedule, the digest-pinned Python memory comparison over
+the 400/100 MiB synthetic fixtures, and the report-only artifact shape. Every
+added decision is again a pure function tested without a host; the adapter
+refuses to run without the pinned seed and never changes service or deploy
+state. The single real run happens much later, under its own reservation.
 """
 
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+import hashlib
 import json
 import math
 import os
 import shutil
-import statistics
 import subprocess
-import sys
 import threading
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import tomllib
+
 ROOT = Path(__file__).resolve().parents[2]
 
-from scripts.rust_contract import run_disposable as runner  # noqa: E402
-from scripts.rust_contract import workload  # noqa: E402
-
+from scripts.rust_contract import run_disposable as runner
+from scripts.rust_contract import workload
 
 # ---------------------------------------------------------------- pure helpers
 
@@ -164,10 +171,453 @@ def cpu_core_equivalents(delta_usage_usec: int, delta_elapsed_usec: int) -> floa
 
 
 def memory_ratio(python_bytes: int, rust_bytes: int) -> float:
-    """Rust memory as a fraction of Python's. A zero baseline is refused."""
-    if python_bytes <= 0:
+    """Rust memory as a fraction of Python's. A zero or missing baseline is refused."""
+    if python_bytes is None or python_bytes <= 0:
         raise ValueError("the Python baseline must be positive")
     return rust_bytes / python_bytes
+
+
+# ------------------------------------------------- phase 10 offline adapter
+#
+# Plan 10.6: the final measurement replays the frozen schedule from the pinned
+# seed, compares digest-pinned Python memory evidence with the Rust peak, and
+# writes one report-only artifact. These functions are pure and exercised
+# offline; no load is generated, no host is contacted, nothing is measured.
+
+
+REPORT_WRITE_MODE = "report-only"
+
+COMPARISON_WINDOWS = "comparison"
+WARMUP_WINDOWS = "warmup"
+RAMP_WINDOWS = "capacity_ramp"
+
+# The common memory metric: max over the window of the per-scrape sum of
+# every observed service PID's `Rss:` bytes, converted from KiB at 1024
+# bytes per KiB (`read_counters` records exactly that sum in `rss`).
+KIB_PER_RSS_LINE = 1024
+MEMORY_METRIC = "comparison_peak_process_rss_bytes"
+
+
+def kib_to_bytes(kib: int) -> int:
+    """One `smaps_rollup` `Rss:` reading converted from KiB to bytes."""
+    if type(kib) is not int or kib < 0:
+        raise ValueError("an RSS reading in KiB must be a non-negative integer")
+    return kib * KIB_PER_RSS_LINE
+
+
+def load_pinned_seed(path: Path | str | None) -> dict[str, Any]:
+    """Read the seed fixture and refuse a missing or unpinned file.
+
+    The seed file itself carries a `seed_sha256` over its canonical request
+    order, and the config pin (`measure_seed_sha256`) must match the seed
+    file's own bytes. A placeholder pin refuses with the same clear message.
+    """
+    if path is None:
+        raise ValueError("missing pinned measurement seed; the run is refused")
+    seed_path = Path(path)
+    try:
+        data = seed_path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"missing pinned measurement seed: {error}") from error
+    document = json.loads(data)
+    order = document.get("request_order")
+    if not isinstance(order, list) or not order:
+        raise ValueError("the pinned seed names no request order")
+    expected = hashlib.sha256(
+        json.dumps(order, separators=(",", ":")).encode()
+    ).hexdigest()
+    if document.get("seed_sha256") != expected:
+        raise ValueError("the pinned seed's request-order digest does not match")
+    return document
+
+
+def replay_schedule(
+    manifest: dict[str, Any], seed: dict[str, Any]
+) -> dict[str, Any]:
+    """Replay the frozen request order and derive the per-route offered mix.
+
+    The seed's order was derived from the manifest's distribution seed; the
+    replay uses that recorded order, never a fresh shuffle. The offered mix
+    must match the frozen baseline exactly, or the run would measure a
+    different workload than the baseline.
+    """
+    from scripts.rust_contract import baseline
+
+    reference = baseline.load_python_baseline()
+    schedule = workload.weighted_schedule(manifest, seed.get("weight_key", "weight_baseline"))
+    if [rid for _, rid in schedule] != seed["request_order"]:
+        raise ValueError("the manifest no longer reproduces the pinned request order")
+    windows = seed.get("comparison_windows", [])
+    offered = sum(int(w["seconds"] * w["rps"]) for w in windows)
+    counts: dict[str, int] = {}
+    for index in range(offered):
+        identifier = seed["request_order"][index % len(seed["request_order"])]
+        counts[identifier] = counts.get(identifier, 0) + 1
+    expected = {rid: row["offered"] for rid, row in reference["routes"].items()}
+    if counts != expected:
+        raise ValueError("the replayed offered mix differs from the frozen baseline")
+    return {
+        "order": seed["request_order"],
+        "offered_per_route": counts,
+        "offered_total": offered,
+    }
+
+
+def summarize_routes(
+    samples: dict[str, list[float]], *, weights: dict[str, int]
+) -> dict[str, Any]:
+    """Per-route quantiles plus the declared representative-weight aggregate.
+
+    The aggregate is derived from the same per-route observations, never a
+    second run.
+    """
+    per_route = {}
+    for route_id in sorted(samples):
+        values = sorted(samples[route_id])
+        if not values:
+            raise ValueError(f"no observations for {route_id}")
+        per_route[route_id] = summarize(values)
+    result = {
+        "per_route": per_route,
+        "representative": weighted_mix(
+            {rid: row["p50"] for rid, row in per_route.items()},
+            {rid: row["p95"] for rid, row in per_route.items()},
+            {rid: row["p99"] for rid, row in per_route.items()},
+            weights,
+        ),
+    }
+    return result
+
+
+def representative_weight_result(
+    baseline_routes: dict[str, Any], weights: dict[str, int]
+) -> dict[str, float]:
+    """The declared representative-weight result over the frozen per-route p95s.
+
+    Verifies offline that the retained aggregation reproduces the baseline's
+    own declared `mix_p95` from its per-route p95s, so the final report's
+    weighted number is the same declared aggregation the baseline used.
+    """
+    total = sum(weights.get(rid, 0) for rid in baseline_routes)
+    if total <= 0:
+        raise ValueError("the representative weights must be positive")
+    return {
+        "p95": sum(
+            weights[rid] * row["p95"] for rid, row in baseline_routes.items()
+        ) / total
+    }
+
+
+def _window_of(sample_or_reading: dict[str, Any]) -> str:
+    return sample_or_reading.get("window", COMPARISON_WINDOWS)
+
+
+def traffic_summary(
+    samples: list[dict[str, Any]],
+    counters: list[dict[str, Any]],
+    *,
+    floor: int | None,
+) -> dict[str, Any]:
+    """Offered/observed/5xx/503/error-rate, per-route latency and RSS peaks.
+
+    Comparison percentiles and the comparison RSS peak count only comparison
+    windows; warmup and the separately tagged capacity ramp are excluded from
+    every comparison number and reported apart.
+    """
+    comparison = [s for s in samples if _window_of(s) == COMPARISON_WINDOWS]
+    ramp = [s for s in samples if _window_of(s) == RAMP_WINDOWS]
+    per_route: dict[str, list[float]] = {}
+    offered = observations = errors = busy = transport_failures = 0
+    for sample in comparison:
+        seconds = sample["seconds"]
+        status = sample["status"]
+        if type(seconds) not in (int, float) or not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("invalid latency sample")
+        if type(status) is not int or not (status == 0 or 100 <= status < 600):
+            raise ValueError("invalid response status")
+        offered += 1
+        observations += 1
+        errors += 500 <= status < 600
+        busy += status == 503
+        transport_failures += status == 0
+        if 200 <= status < 300:
+            per_route.setdefault(sample["route_id"], []).append(seconds)
+    peak = comparison_peak(counters)
+    summary: dict[str, Any] = {
+        "offered": offered,
+        "observations": offered,
+        "errors_5xx": errors,
+        "busy_503": busy,
+        "transport_failures": transport_failures,
+        "error_rate": (errors / offered) if offered else None,
+        "peak_rss_bytes": peak,
+        "peak_scope": "sum_pid_rss",
+        "per_route": {},
+        "ramp": {
+            "offered": len(ramp),
+            "peak_rss_bytes": ramp_peak(counters),
+        },
+    }
+    if per_route:
+        declared = _representative_weights()
+        # A route outside the declared mix carries weight 1 (the retained
+        # report.py rule), so a synthetic id never fails the aggregation.
+        weights = {rid: declared.get(rid, 1) for rid in per_route}
+        tables = {
+            rid: summarize(values)
+            for rid, values in per_route.items()
+        }
+        summary["per_route"] = {
+            rid: {"n": tables[rid]["n"], "p95": tables[rid]["p95"]}
+            for rid in sorted(tables)
+        }
+        summary["representative"] = weighted_mix(
+            {rid: tables[rid]["p50"] for rid in tables},
+            {rid: tables[rid]["p95"] for rid in tables},
+            {rid: tables[rid]["p99"] for rid in tables},
+            weights,
+        )
+    return summary
+
+
+def _representative_weights() -> dict[str, int]:
+    from scripts import rust_contract
+
+    manifest = rust_contract.workload.load()
+    return {
+        row["id"]: int(row["weight_representative"])
+        for row in rust_contract.workload.routes(manifest) + rust_contract.workload.tools(manifest)
+    }
+
+
+def comparison_peak(readings: list[dict[str, Any]]) -> int:
+    """max over comparison-window scrapes of the summed-PID RSS bytes.
+
+    The retained scraper already records `rss` as the per-scrape sum of every
+    observed service PID's `smaps_rollup` `Rss:` KiB converted to bytes; the
+    comparison peak is the maximum of that sum over the comparison window
+    only. Warmup and ramp readings are excluded here.
+    """
+    values = [
+        reading["rss"]
+        for reading in readings
+        if _window_of(reading) == COMPARISON_WINDOWS and "rss" in reading
+        and type(reading["rss"]) is int
+    ]
+    if not values:
+        return 0
+    return max(values)
+
+
+def ramp_peak(readings: list[dict[str, Any]]) -> int:
+    """max over capacity-ramp scrapes of the summed-PID RSS bytes."""
+    values = [
+        reading["rss"]
+        for reading in readings
+        if _window_of(reading) == RAMP_WINDOWS
+        and "rss" in reading
+        and type(reading["rss"]) is int
+    ]
+    if not values:
+        return 0
+    return max(values)
+
+
+def sample_floor_caveat(
+    summary: dict[str, Any],
+    *,
+    floor: int,
+    needed_per_route: dict[str, int] | None,
+) -> dict[str, Any]:
+    """The below-1,000-sample caveat over the comparison-window successes.
+
+    A route below the floor (or below a per-minute-limited route's declared
+    floor) keeps the caveat and its still-needed count; a route at or above
+    its floor clears the caveat. The caveat is a report annotation, never a
+    pass.
+    """
+    successes = {
+        rid: cell.get("n", cell.get("observations", 0))
+        for rid, cell in summary["per_route"].items()
+    }
+    needed = {}
+    below = False
+    for route_id, count in sorted(successes.items()):
+        required = needed_per_route.get(route_id, floor) if needed_per_route else floor
+        if count < required:
+            below = True
+            needed[route_id] = required - count
+    if below:
+        message = (
+            f"per-route successful samples are below the {floor:,} floor; "
+            + ", ".join(f"{rid} needs {needed[rid]} more" for rid in sorted(needed))
+            + ". every route is reported with the number still needed, never a pass"
+        )
+    else:
+        needed = {}
+        message = ""
+    return {"below_floor": below, "needed_per_route": needed, "message": message}
+
+
+def memory_comparison(
+    python_peak: int | None,
+    rust_peak: int | None,
+    extraction: dict[str, Any],
+    rust_side: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Signed absolute/percentage differences and savings, or the explicit absence.
+
+    `python_peak=None` with an `unavailable` extraction reports the verified
+    absence: null deltas, the Rust peak alone and the explicit caveat. A zero
+    Python peak refuses: no comparable observation is not a 100% saving.
+    """
+    _require_provenance(extraction, rust_side)
+    if python_peak is None:
+        if extraction.get("status") != "unavailable":
+            raise ValueError("missing Python peak requires an unavailable record")
+        return {
+            "status": "unavailable",
+            "caveat": "memory savings unavailable: no comparable frozen observation",
+            "python_peak_bytes": None,
+            "rust_peak_bytes": rust_peak,
+            "difference_bytes": None,
+            "difference_percent": None,
+            "savings_bytes": None,
+            "savings_percent": None,
+            "evidence": extraction.get("evidence", {}),
+            "metric": MEMORY_METRIC,
+            "scope": extraction.get("scope", {}),
+            "window": extraction.get("window", {}),
+            "reported_rust_peak_scope": "comparison-window summed-PID RSS",
+        }
+    if python_peak <= 0:
+        raise ValueError("a zero Python peak is not a comparable baseline")
+    if type(rust_peak) is not int or rust_peak <= 0:
+        raise ValueError("the Rust peak must be a positive integer")
+    scope = extraction.get("scope")
+    if not isinstance(scope, dict) or scope.get("python_workers") != 4 \
+            or scope.get("include_supervisor") is not True:
+        raise ValueError("memory scope mismatch: the whole service process set is required")
+    window = extraction.get("window")
+    if not isinstance(window, dict) or window.get("scrape_interval_seconds") != 1 \
+            or window.get("exclude") != ["warmup", "capacity_ramp"]:
+        raise ValueError("memory window mismatch: the pinned comparison window is required")
+    if extraction.get("status") != "available":
+        present = extraction.get("status")
+        raise ValueError(f"the Python memory evidence is not available: {present}")
+    difference = rust_peak - python_peak
+    percent = 100 * difference / python_peak
+    savings = python_peak - rust_peak
+    return {
+        "status": "compared",
+        # The retained counter semantics: one-second /proc/<pid>/smaps_rollup
+        # `Rss:` readings, KiB converted at 1024 bytes/KiB, summed over the
+        # service process set, maximised over the comparison window.
+        "metric": MEMORY_METRIC,
+        "scope": extraction["scope"],
+        "window": extraction["window"],
+        "evidence": extraction["evidence"],
+        "python_peak_bytes": python_peak,
+        "rust_peak_bytes": rust_peak,
+        "difference_bytes": difference,
+        "difference_percent": percent,
+        "savings_bytes": savings,
+        "savings_percent": 100 * savings / python_peak,
+    }
+
+
+def _require_provenance(
+    extraction: dict[str, Any], rust_side: dict[str, Any] | None
+) -> None:
+    """Both sides must pin the same metric, scope, window and source digest.
+
+    The Python extraction and the Rust collection must declare the identical
+    metric, scope, window and pinned raw-source digest before any difference
+    is computed; any mismatch refuses, so numbers from different scopes or
+    windows are never subtracted.
+    """
+    if not isinstance(extraction, dict) or not isinstance(extraction.get("evidence"), dict):
+        raise ValueError("missing memory provenance evidence")
+    evidence = extraction["evidence"]
+    for key in ("source_sha256", "extraction_sha256"):
+        value = evidence.get(key)
+        if not isinstance(value, str) or len(value) != 64 or set(value) == {"0"}:
+            raise ValueError(
+                "memory evidence refused: missing or placeholder pinned "
+                f"{key}; record the real digest before the run"
+            )
+    if extraction.get("metric") != MEMORY_METRIC:
+        raise ValueError("memory metric mismatch: comparison_peak_process_rss_bytes is required")
+    if rust_side is not None:
+        for key in ("metric", "scope", "window"):
+            if extraction.get(key) != rust_side.get(key):
+                raise ValueError(f"memory {key} mismatch between the two sides")
+        rust_evidence = rust_side.get("evidence", {})
+        if rust_evidence.get("source_sha256") != evidence["source_sha256"]:
+            raise ValueError("memory source digest mismatch between the two sides")
+
+
+
+def write_mode(mode: str) -> str:
+    """The tool's single write surface: the report. Everything else refuses."""
+    if mode != REPORT_WRITE_MODE:
+        raise ValueError(
+            f"refused write mode {mode!r}: the measurement tool is report-only"
+        )
+    return REPORT_WRITE_MODE
+
+
+def write_report(destination: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    """The artifact shape: one report document, never a service change."""
+    return {
+        "artifact_kind": "report",
+        "gate": REPORT_WRITE_MODE,
+        "destination": str(destination),
+        "payload_digest": hashlib.sha256(
+            json.dumps(payload, sort_keys=True).encode()
+        ).hexdigest(),
+        "mutates_service_state": False,
+    }
+
+
+def load_measure_config(path: Path | str) -> dict[str, Any]:
+    """Read the final-measure config and refuse placeholder seed pins.
+
+    `measure_seed_sha256` in the phase10 gate config must match the seed
+    file's committed bytes. The committed placeholder makes the tool refuse
+    with a clear message until the PM records the real digest; the config's
+    own `seed_sha256` must also match the seed bytes when both are present.
+    """
+    config_path = Path(path)
+    document = tomllib.loads(config_path.read_text())
+    if not document.get("report_only"):
+        raise ValueError("the final measurement config must be report_only")
+    seed_path = ROOT / document["seed"]
+    seed_bytes = seed_path.read_bytes()
+    seed_digest = hashlib.sha256(seed_bytes).hexdigest()
+    pin = document.get("seed_sha256")
+    if not pin or pin != seed_digest:
+        raise ValueError(
+            "the configured seed pin does not match the committed seed bytes; "
+            "record the real digest before the run"
+        )
+    if document.get("requires_cutover_complete") is not True:
+        raise ValueError("the final measurement requires_cutover_complete")
+    return document
+
+
+def require_cutover(evidence: dict[str, Any] | None) -> None:
+    """Refuse unless a signed post-deletion inventory (Task 33) is present.
+
+    The measurement runs after cutover only: absent or pre-removal evidence
+    refuses before any host contact.
+    """
+    if not isinstance(evidence, dict):
+        raise ValueError("missing cutover evidence: the measurement runs after cutover only")
+    if evidence.get("phase") != "post-removal" or not evidence.get("signed_inventory_sha256"):
+        raise ValueError(
+            "cutover is not complete: a signed post-deletion host inventory is required"
+        )
 
 
 def require_no_regression(summary: list[dict[str, Any]]) -> list[str]:
@@ -759,7 +1209,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.adaptive:
         parser.error("Decision 86 measures Rust only; use explicit fixed windows, not paired adaptive probes")
-    import tomllib
 
     document = tomllib.loads(args.config.read_text())
     _ensure_user_session()

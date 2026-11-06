@@ -1,0 +1,48 @@
+{
+ "version": 1,
+ "purpose": "synthetic offline memory-arithmetic fixtures; no run, no host",
+ "cases": [
+  {
+   "id": "declared-400-100-mib",
+   "source": "plan 10.6 declared synthetic case",
+   "python_peak_rss_bytes": 419430400,
+   "rust_peak_rss_bytes": 104857600,
+   "python_raw_report_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "python_extraction_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "expected": {
+    "difference_bytes": -314572800,
+    "difference_percent": -75.0,
+    "savings_bytes": 314572800,
+    "savings_percent": 75.0
+   }
+  },
+  {
+   "id": "equal-peaks",
+   "source": "zero-savings boundary",
+   "python_peak_rss_bytes": 104857600,
+   "rust_peak_rss_bytes": 104857600,
+   "python_raw_report_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "python_extraction_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "expected": {
+    "difference_bytes": 0,
+    "difference_percent": 0.0,
+    "savings_bytes": 0,
+    "savings_percent": 0.0
+   }
+  },
+  {
+   "id": "rust-higher",
+   "source": "negative-savings boundary",
+   "python_peak_rss_bytes": 104857600,
+   "rust_peak_rss_bytes": 157286400,
+   "python_raw_report_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+   "python_extraction_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "expected": {
+    "difference_bytes": 52428800,
+    "difference_percent": 50.0,
+    "savings_bytes": -52428800,
+    "savings_percent": -50.0
+   }
+  }
+ ]
+}
