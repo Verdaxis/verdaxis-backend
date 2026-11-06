@@ -1311,3 +1311,43 @@ async fn migrate_command_refuses_before_any_connection() {
         );
     }
 }
+
+/// Adopt one disposable database to the compiled sqlx baseline, for the
+/// component runners: they build their templates with Alembic, and the M
+/// runtime only serves an adopted database. The runner names the database's
+/// migrator URL in `RUST_RUNNER_MIGRATOR_DATABASE_URL` and the adopting
+/// environment (`production` or `staging`) in `RUST_RUNNER_ENVIRONMENT`;
+/// adoption runs as the connection's own role, so the URL must be the
+/// environment's migrator. An exact earlier adoption is a no-op, so reruns
+/// stay green. Run with `cargo test ... --test phase10_migrate_postgres
+/// runner_database_adopts_to_the_baseline -- --ignored`.
+#[tokio::test]
+#[ignore = "run by the component runners through their migrator URL"]
+async fn runner_database_adopts_to_the_baseline() {
+    let raw = std::env::var("RUST_RUNNER_MIGRATOR_DATABASE_URL")
+        .expect("RUST_RUNNER_MIGRATOR_DATABASE_URL must name the runner's migrator URL");
+    let environment = match std::env::var("RUST_RUNNER_ENVIRONMENT")
+        .unwrap_or_else(|_| "production".into())
+        .as_str()
+    {
+        "production" => Environment::Production,
+        "staging" => Environment::Staging,
+        other => panic!("unknown runner environment: {other}"),
+    };
+    let options = PgConnectOptions::from_str(&raw).expect("parse the runner migrator URL");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .expect("connect as the runner migrator");
+    let outcome = adopt(
+        &mut connection,
+        environment,
+        &compiled_baseline().alembic_head,
+        &compiled_baseline(),
+    )
+    .await
+    .expect("adopt the runner database");
+    assert!(
+        matches!(outcome, Adoption::Adopted | Adoption::AlreadyAdopted),
+        "{outcome:?}"
+    );
+}

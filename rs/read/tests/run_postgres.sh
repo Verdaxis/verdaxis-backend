@@ -139,6 +139,12 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=rust_migrator -v backup_role=rust_backup \
     -f deploy/postgres/converge_runtime_object_acls.sql
+  # The M runtime only serves an adopted database: record the exact adoption
+  # row (the schema stays at the Alembic head; the fingerprint is unchanged).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_TRADES_TEMPLATE_DATABASE=verdaxis_trades_test

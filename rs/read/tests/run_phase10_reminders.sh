@@ -32,27 +32,34 @@ port=$(docker port "$container" 5432/tcp | head -1)
 port=${port##*:}
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE rust_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
-CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE ROLE rust_backup LOGIN NOINHERIT PASSWORD 'disposable_backup_pw';
-CREATE DATABASE verdaxis_reminders_test OWNER rust_migrator;
+CREATE DATABASE verdaxis_reminders_test OWNER verdaxis_migrator_staging;
 \connect verdaxis_reminders_test
 CREATE EXTENSION postgis;
-ALTER SCHEMA public OWNER TO rust_migrator;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_backup;
 SQL
 database=verdaxis_reminders_test
-migrator_url="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+migrator_url="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
 ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
   DATABASE_URL="$migrator_url" MIGRATOR_DATABASE_URL="$migrator_url" \
   "$RUST_TEST_PYTHON" -m alembic upgrade head
-PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" PGUSER=rust_migrator PGPASSWORD=disposable_migrator_pw \
+PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw \
   psql -X --single-transaction -v ON_ERROR_STOP=1 -v database_name="$database" \
-  -v app_role=rust_app -v migrator_role=rust_migrator -v backup_role=rust_backup \
+  -v app_role=rust_app -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
 
+  # The M runtime only serves an adopted database: record the exact
+  # adoption row (the schema stays at the Alembic head).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
+
 export RUST_REMINDERS_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/$database"
-export RUST_REMINDERS_OWNER_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+export RUST_REMINDERS_OWNER_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
 export RUST_REMINDERS_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/$database"
 export RUST_REMINDERS_PYTHON_DATABASE_URL="postgresql+asyncpg://rust_app:disposable_app_pw@127.0.0.1:$port/$database"
 

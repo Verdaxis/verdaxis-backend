@@ -55,16 +55,16 @@ done
 port=$(docker port "$container" 5432/tcp)
 port=${port##*:}
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE ROLE rust_market_writer LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
 CREATE ROLE rust_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
-CREATE DATABASE $db OWNER rust_market_writer;
+CREATE DATABASE $db OWNER verdaxis_migrator_staging;
 \connect $db
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER DATABASE $db SET TimeZone TO 'Asia/Singapore';
 SQL
 
 release_sha=$(git -C "$repo" rev-parse HEAD)
-writer="postgresql+asyncpg://rust_market_writer:disposable_writer_pw@127.0.0.1:$port/$db"
+writer="postgresql+asyncpg://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
 export ENVIRONMENT=test
 export RELEASE_SHA="$release_sha"
 export JWT_SECRET='test-secret-key-for-testing-minimum-32-chars'
@@ -85,6 +85,12 @@ export RUST_MARKET_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.
 )
 docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO rust_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO rust_app;"
+# The M runtime only serves an adopted database: record the exact adoption row
+# (the schema stays at the Alembic head).
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
+  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-market-tests.XXXXXX")
 set +e
