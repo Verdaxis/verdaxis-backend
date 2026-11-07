@@ -68,6 +68,11 @@ are separate and bounded to retained script and monitor tests.
 Python-reference comparisons are removed; fixed expected Rust assertions remain
 where the former comparison already provided them. PostgreSQL fixtures use the
 native baseline and explicit SQL data, not the deleted application.
+`rs/read/Cargo.toml` sets `autotests = false`: most test files are modules of
+the `rs/read/tests/group_*.rs` binaries, so the crate is linked once per group,
+and runners select a file with `--test group_<area> <file>::`. Files that must
+be a crate root or own their process keep their own `[[test]]` target.
+`scripts/check_test_groups.py` fails when a test file is in no binary.
 `rs/read/tests/run_auth_streams_cache.sh` seeds and runs the auth, stream,
 public-cache and alert targets whose database cases need their own variables.
 `tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test

@@ -140,6 +140,8 @@ jobs:
           cargo audit
       - name: Fetch locked dependencies
         run: cargo fetch --manifest-path rs/Cargo.toml --locked
+      - name: Check that every Rust test file is in a test binary
+        run: python3 scripts/check_test_groups.py
       - name: Run the whole offline Rust workspace
         env:
           RELEASE_SHA: ${{ github.sha }}
