@@ -117,6 +117,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       SQLX_OFFLINE: "true"
+      RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install the pinned Rust toolchain
@@ -151,7 +152,7 @@ jobs:
         run: |
           cargo fmt --manifest-path rs/Cargo.toml --all -- --check
           cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings
-          cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets --features contract-tests -- -D warnings
+          cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets --features verdaxis-read/contract-tests -- -D warnings
 
   # Build in parallel with tests. Release output is never restored from cache.
   release:
@@ -483,6 +484,7 @@ jobs:
         check: [sqlx, caddy]
     env:
       SQLX_OFFLINE: "true"
+      RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Install the pinned Rust toolchain
