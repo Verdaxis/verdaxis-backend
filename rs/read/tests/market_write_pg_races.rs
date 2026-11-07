@@ -393,8 +393,7 @@ impl Fixture {
                 rust.1
             );
             println!("TERMINAL_PIN_FILTERED order={order} status={expected_status}");
-            return;
-        };
+        }
     }
     async fn refusal_overlap(
         &mut self,

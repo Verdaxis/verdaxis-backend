@@ -91,11 +91,13 @@ CREATE OR REPLACE FUNCTION acceptance_join_request(request uuid, member uuid, or
         VALUES(request,member,organization,'PENDING',now());
 $$;
 
--- A reset secret as the Python forgot-password route stores it: the SHA-256
--- hex digest of the mailed token, valid for one hour.
+-- A reset secret in the native reset flow: the SHA-256 hex digest of the
+-- mailed token, valid for one hour. Invitation credentials remain separate.
 CREATE OR REPLACE FUNCTION acceptance_reset_secret(member uuid, digest text) RETURNS void LANGUAGE sql AS $$
-    UPDATE users SET password_reset_token_hash = digest, password_reset_expires = now() + interval '1 hour'
-        WHERE id = member;
+    INSERT INTO password_reset_tokens(user_id, token_hash, expires_at, created_at, used_at)
+        VALUES(member, digest, now() + interval '1 hour', now(), NULL)
+        ON CONFLICT (user_id) DO UPDATE SET token_hash = EXCLUDED.token_hash,
+            expires_at = EXCLUDED.expires_at, created_at = EXCLUDED.created_at, used_at = NULL;
 $$;
 
 -- The reviewed manual step of a reinstatement: the operator clears the marker

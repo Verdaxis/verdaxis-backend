@@ -194,7 +194,7 @@ async fn reset(connection: &mut PgConnection) {
     // same disposable database can run this matrix more than once.
     for statement in [
         "DELETE FROM inventory_items WHERE id = '9c000000-0000-0000-0000-000000000041'",
-        "DELETE FROM orderbook_orders WHERE id = '9c000000-0000-0000-0000-000000000031'",
+        include_str!("fixtures/phase5_visibility_cleanup.sql"),
         "DELETE FROM users WHERE id = '9c000000-0000-0000-0000-000000000013'",
         "DELETE FROM organizations WHERE id = '9c000000-0000-0000-0000-000000000003'",
     ] {
@@ -327,12 +327,10 @@ async fn phase5_visibility_cases() {
     };
 
     let mut transaction = writer.begin().await.unwrap();
-    sqlx::raw_sql("INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES ('9c000000-0000-0000-0000-000000000003','Committed Supplier','SUPPLIER','APPROVED','REAL');
-        INSERT INTO users(id,email,password_hash,status,email_verified,kyc_status,kyc_organization_id,organization_id,role) VALUES ('9c000000-0000-0000-0000-000000000013','committed@example.test','synthetic','APPROVED',true,'APPROVED','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000003','BUYER');
-        INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,expires_at) SELECT '9c000000-0000-0000-0000-000000000031','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000013','9c000000-0000-0000-0000-000000000013','SELF_SERVICE','REAL','BID',p.id,d.id,100,100,600,'SPOT','OPEN','2030-01-01T00:00:00Z' FROM products p CROSS JOIN delivery_points d WHERE p.name='Bio Methanol' AND d.name='Dalian';
-        INSERT INTO ports(id,name,country,location,timezone,is_active) VALUES ('XDAL','Dalian','CN',ST_SetSRID(ST_MakePoint(121.6,38.9),4326),'Asia/Shanghai',true) ON CONFLICT DO NOTHING;
-        INSERT INTO inventory_items(id,supplier_id,owner_user_id,port_id,fuel_type,product_name,current_stock_mt,incoming_stock_mt,price_per_mt_usd) VALUES ('9c000000-0000-0000-0000-000000000041','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000013','XDAL','BIO_METHANOL','Bio Methanol',1200,0,125.50);")
-        .execute(&mut *transaction).await.unwrap();
+    sqlx::raw_sql(include_str!("fixtures/phase5_visibility_seed.sql"))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
     transaction.commit().await.unwrap();
     // Demand: the committed BID is the one visible demand group.
     {

@@ -446,7 +446,7 @@ impl Fixture {
         result.unwrap();
         let created = usize::from(matches!(
             report.market.tick,
-            Some(verdaxis_read::order_write::TickOutcome::Created { .. })
+            Some(TickOutcome::Created { .. })
         ));
         json!({"ok":true,"result":{"created_trades":created}})
     }
@@ -1738,7 +1738,7 @@ use verdaxis_read::cli::jobs::demo::model::{
     CoverageOrder, DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS, build_coverage,
 };
 use verdaxis_read::cli::jobs::demo::{DemoFailure, DemoReport, PolicyCatalog, run_with_coverage};
-use verdaxis_read::order_write::DemoMarketFailure;
+use verdaxis_read::order_write::{DemoMarketFailure, TickOutcome};
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 /// The B30 Rotterdam book at `now`: the slice the Python driver limits its
@@ -2055,7 +2055,6 @@ async fn tick_times(f: &mut Fixture) -> Value {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
-    use verdaxis_read::order_write::TickOutcome;
     let mut f = Fixture::new().await;
     f.demo_organizations().await;
     let tick = rust_b30_ticks(1)[0];
@@ -2144,7 +2143,6 @@ async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn concurrent_demo_ticks_give_one_trade() {
-    use verdaxis_read::order_write::TickOutcome;
     let mut f = Fixture::new().await;
     f.demo_organizations().await;
     let tick = rust_b30_ticks(1)[0] + chrono::Duration::seconds(30);
