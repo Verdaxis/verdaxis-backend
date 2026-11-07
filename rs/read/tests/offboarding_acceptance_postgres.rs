@@ -426,9 +426,6 @@ impl World {
         .await
     }
 
-    /// The serving command for one person, as the route builds it, for the
-    /// owner's completion seam.
-
     async fn request_rows(&self, requests: Vec<Value>) -> Value {
         let mut results = serde_json::Map::new();
         for request in requests {
@@ -632,9 +629,6 @@ async fn wait_until(deadline: Duration, mut condition: impl FnMut() -> bool) -> 
 // Lock races.
 // ---------------------------------------------------------------------------
 
-/// Which side holds the conflicting locks first.
-
-/// The backend waiting at the fixture gate.
 async fn assert_offboarded(world: &mut World, subject: Uuid, case: &str) -> Value {
     let account = world.account(subject).await;
     assert!(!account["offboarded_at"].is_null(), "{case}: {account}");
