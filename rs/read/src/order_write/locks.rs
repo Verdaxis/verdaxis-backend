@@ -188,6 +188,7 @@ pub enum MarketOperation {
     InventoryEdit,
     Publish,
     Take,
+    TradeRead,
     Confirm,
     Decline,
     Deliver,
@@ -230,6 +231,7 @@ impl MarketOperation {
                 Inventory,
                 Pin,
             ],
+            Self::TradeRead => vec![Organization, User],
             Self::InventoryCreate => vec![Organization, User, Idempotency],
             Self::InventoryEdit => vec![Organization, User, Inventory],
             Self::Confirm | Self::Decline => vec![
@@ -537,10 +539,21 @@ impl OperationLockPlan {
                 }
                 class => {
                     let sql = match class {
+                        // Keep admission stable against offboarding and organization
+                        // updates, without making ordinary trade readers exclude each
+                        // other. KEY SHARE would not block non-key admission updates.
+                        LockClass::Organization if self.operation == MarketOperation::TradeRead => {
+                            "SELECT id FROM organizations WHERE id=$1 FOR SHARE"
+                        }
                         LockClass::Organization => {
                             "SELECT id FROM organizations WHERE id=$1 FOR UPDATE"
                         }
-                        LockClass::User if self.operation == MarketOperation::CommissionRead => {
+                        LockClass::User
+                            if matches!(
+                                self.operation,
+                                MarketOperation::CommissionRead | MarketOperation::TradeRead
+                            ) =>
+                        {
                             "SELECT id FROM users WHERE id=$1 FOR SHARE"
                         }
                         LockClass::User => "SELECT id FROM users WHERE id=$1 FOR UPDATE",

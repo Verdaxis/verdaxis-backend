@@ -374,7 +374,7 @@ impl TradeCommand {
         let mut locks = OperationLockPlan::new(if self.request.create.is_some() {
             MarketOperation::Take
         } else {
-            MarketOperation::InventoryEdit
+            MarketOperation::TradeRead
         });
         locks.parties(&parties)?;
         // Only a take takes the create idempotency lock; a read never touches
@@ -555,13 +555,16 @@ pub(crate) async fn dispatch(
     run_market_command(app.pools.read.clone(), app.reads, access, command, class).await
 }
 
-// Each trade and its ACTIVE freeze use one statement snapshot. Page selection
-// and other items can observe different snapshots; no page-wide guarantee is made.
-pub(super) async fn load_trade(
+// Each hydrated page and its ACTIVE freezes use one statement snapshot.
+// Page selection can observe a different snapshot; no page-wide guarantee is made.
+async fn load_trades(
     conn: &mut PgConnection,
-    id: Uuid,
-) -> Result<Option<Value>, MarketWriteError> {
-    let value = sqlx::query_scalar(
+    ids: &[Uuid],
+) -> Result<Vec<Value>, MarketWriteError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let values = sqlx::query_scalar(
         r#"SELECT to_jsonb(t) || jsonb_build_object(
             'quantity_mt', t.quantity_mt::text,
             'price_per_mt_usd', t.price_per_mt_usd::text,
@@ -583,12 +586,19 @@ pub(super) async fn load_trade(
         LEFT JOIN organizations b ON b.id=t.buyer_id
         LEFT JOIN organizations s ON s.id=t.seller_id
         LEFT JOIN trade_freezes f ON f.trade_id=t.id AND f.status='ACTIVE'
-        WHERE t.id=$1"#,
+        WHERE t.id=ANY($1)"#,
     )
-    .bind(id)
-    .fetch_optional(conn)
+    .bind(ids)
+    .fetch_all(conn)
     .await?;
-    Ok(value)
+    Ok(values)
+}
+
+pub(super) async fn load_trade(
+    conn: &mut PgConnection,
+    id: Uuid,
+) -> Result<Option<Value>, MarketWriteError> {
+    Ok(load_trades(conn, &[id]).await?.pop())
 }
 
 pub(super) struct TradePort<'a> {
@@ -604,7 +614,10 @@ impl<'a> TradePort<'a> {
         Ok(Self { conn, locked })
     }
     async fn load(&mut self, id: Uuid) -> Result<Value, MarketWriteError> {
-        let mut value = load_trade(self.conn, id).await?.ok_or_else(fault)?;
+        let value = load_trade(self.conn, id).await?.ok_or_else(fault)?;
+        Ok(Self::enrich(value))
+    }
+    fn enrich(mut value: Value) -> Value {
         let buyer = value["buyer_provenance"].as_str().unwrap_or("UNKNOWN");
         let seller = value["seller_provenance"].as_str().unwrap_or("UNKNOWN");
         let real = buyer == "REAL" && seller == "REAL";
@@ -630,7 +643,7 @@ impl<'a> TradePort<'a> {
             "UNKNOWN"
         });
         value["unknown_count"] = json!(u32::from(unknown));
-        Ok(value)
+        value
     }
     async fn replay(
         &mut self,
@@ -956,14 +969,32 @@ impl TradePort<'_> {
             ));
         }
         let entries: Value = row.get("entries");
-        let mut items = Vec::new();
-        for entry in entries.as_array().ok_or_else(fault)? {
+        let entries = entries.as_array().ok_or_else(fault)?;
+        let ids: Vec<Uuid> = entries
+            .iter()
+            .map(|entry| {
+                entry["id"]
+                    .as_str()
+                    .and_then(|id| id.parse().ok())
+                    .ok_or_else(fault)
+            })
+            .collect::<Result<_, _>>()?;
+        let mut trades = std::collections::HashMap::new();
+        for value in load_trades(self.conn, &ids).await? {
+            let id: Uuid = value["id"]
+                .as_str()
+                .and_then(|id| id.parse().ok())
+                .ok_or_else(fault)?;
+            trades.insert(id, Self::enrich(value));
+        }
+        let mut items = Vec::with_capacity(entries.len());
+        for entry in entries {
             let id = entry["id"]
                 .as_str()
                 .and_then(|v| v.parse().ok())
                 .ok_or_else(fault)?;
             let viewer = entry["viewer"].as_str().and_then(|v| v.parse().ok());
-            let value = self.load(id).await?;
+            let value = trades.remove(&id).ok_or_else(fault)?;
             items.push(project_trade(
                 value,
                 viewer,

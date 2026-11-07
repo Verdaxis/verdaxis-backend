@@ -426,7 +426,7 @@ fn legacy_curve_ids_sql(with_sets: bool) -> String {
         include_str!("support/current_order_rule_legacy_owner.sql").to_string()
     };
     let sets = if with_sets {
-        include_str!("../sql/eligibility_sets.sql").replace("/*gate*/", "$13")
+        verdaxis_read::market::visibility::eligibility_sets_sql("$13", "$2")
     } else {
         String::new()
     };
@@ -604,7 +604,7 @@ async fn benchmark_key_first_matches_key_join_last() {
 /// must lose visibility under the new rule only, and B30/B100 BID rows and
 /// fully declared ASK rows must keep it.
 fn biofuel_rule_sql(with_clause: bool) -> String {
-    let sets = include_str!("../sql/eligibility_sets.sql").replace("/*gate*/", "$13");
+    let sets = verdaxis_read::market::visibility::eligibility_sets_sql("$13", "$2");
     let relation = include_str!("../sql/public_orders.sql")
         .replace("/* eligibility_sets */", &sets)
         .replace("/* base_orders */", "orderbook_orders");
