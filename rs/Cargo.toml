@@ -6,13 +6,19 @@ resolver = "3"
 edition = "2024"
 rust-version = "1.95"
 
-# Line tables keep file:line in backtraces but cut the debug build size,
-# because each parallel lane worktree builds its own target folder.
+# Line tables keep file:line in backtraces but make debug and test builds
+# 3-5 times smaller. The shared build cache holds over 200 integration-test
+# executables; with full debug info they filled most of its 25 GB and slowed
+# linking in CI. The release profile, which publish signs, is unchanged.
 [profile.dev]
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# Test builds inherit the dev profile; keep their limit explicit as well.
+[profile.test]
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"
