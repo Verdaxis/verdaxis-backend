@@ -69,6 +69,8 @@ are separate and bounded to retained script and monitor tests.
 Python-reference comparisons are removed; fixed expected Rust assertions remain
 where the former comparison already provided them. PostgreSQL fixtures use the
 native baseline and explicit SQL data, not the deleted application.
+`rs/read/tests/run_auth_streams_cache.sh` seeds and runs the auth, stream,
+public-cache and alert targets whose database cases need their own variables.
 `tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test
 resources and temporary logs are not committed.
 

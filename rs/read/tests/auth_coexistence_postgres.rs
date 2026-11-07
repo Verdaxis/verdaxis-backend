@@ -1,4 +1,4 @@
-//! Shared advisory-lock contention; HTTP coexistence is driven by the Python wrapper.
+//! Shared advisory-lock contention, run by `rs/read/tests/run_auth_streams_cache.sh`.
 #![cfg(feature = "contract-tests")]
 use sqlx::postgres::PgPoolOptions;
 use verdaxis_read::auth::{lock::device_lock_key, token_bytes::token_digest};

@@ -11,8 +11,8 @@
 //! and before unread and latest-event aggregation.
 //!
 //! The source and pure tests run in every build of this target. The database
-//! tests are ignored here: `tests/postgres/test_phase6_watchlist_guard.py`
-//! seeds their market rows and runs them on the disposable PostgreSQL harness,
+//! tests are ignored here: `rs/read/tests/run_auth_streams_cache.sh`
+//! seeds their market rows and runs them on a disposable PostgreSQL database,
 //! on the migrated schema and with the deployed application role, and requires
 //! every one of them to pass.
 
@@ -279,7 +279,7 @@ const SEQUENCER_KEY: i64 = 7_264_537_260_226_625;
 /// The application role reads; the schema owner seeds watchlist fixture rows.
 async fn connect(variable: &str) -> PgConnection {
     let url = std::env::var(variable).unwrap_or_else(|_| {
-        panic!("{variable} is required: tests/postgres/test_phase6_watchlist_guard.py supplies it")
+        panic!("{variable} is required: rs/read/tests/run_auth_streams_cache.sh supplies it")
     });
     PgConnection::connect(&url)
         .await
@@ -340,7 +340,7 @@ struct Market {
 
 fn seeded_market() -> Market {
     let document = std::env::var(MARKET).unwrap_or_else(|_| {
-        panic!("{MARKET} is required: tests/postgres/test_phase6_watchlist_guard.py supplies it")
+        panic!("{MARKET} is required: rs/read/tests/run_auth_streams_cache.sh supplies it")
     });
     let seeded: SeededMarket = serde_json::from_str(&document).expect("the seeded market document");
     let policy = MarketPolicy {

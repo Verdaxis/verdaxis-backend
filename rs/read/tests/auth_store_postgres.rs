@@ -2,8 +2,8 @@
 //!
 //! The offline tests always run. The PostgreSQL tests are `#[ignore]`d, so a
 //! plain `cargo test` reports them as not run rather than passed. They need a
-//! database at the Alembic head with the runtime ACLs applied; the Python
-//! harness `tests/postgres/test_phase3_auth_store.py` provides one, runs them
+//! database built from the SQL baseline with the runtime ACLs applied; the
+//! runner `rs/read/tests/run_auth_streams_cache.sh` provides one, runs them
 //! with `--include-ignored`, and sets
 //! `AUTH_STORE_TEST_DATABASE_URL` (the runtime role, which runs the code under
 //! test) and `AUTH_STORE_TEST_OWNER_URL` (the table owner, which seeds and

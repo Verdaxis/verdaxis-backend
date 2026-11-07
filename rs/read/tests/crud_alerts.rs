@@ -63,7 +63,7 @@ fn request_validation_matches_python_http_vectors() {
 async fn postgres_crud() {
     use verdaxis_read::crud::alerts::{create, delete, list};
     let Ok(url) = std::env::var("ALERT_TEST_DATABASE_URL") else {
-        eprintln!("PostgreSQL component coverage requires the test_phase2_alert_interop.py driver");
+        eprintln!("PostgreSQL component coverage requires rs/read/tests/run_auth_streams_cache.sh");
         return;
     };
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();

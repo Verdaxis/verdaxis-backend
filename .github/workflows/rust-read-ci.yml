@@ -427,6 +427,10 @@ jobs:
             runners: run_offboarding_schema.sh run_offboarding_admission.sh run_offboarding_credentials.sh run_offboarding_command.sh run_compliance_scores.sh run_phase5_bounds.sh
           - shard: market
             runners: run_offboarding_market.sh run_offboarding_composition.sh run_offboarding_acceptance.sh run_market_contract.sh
+          # Auth, stream, public-cache and alert targets that read their own
+          # database variables and run only against a seeded disposable database.
+          - shard: components
+            runners: run_auth_streams_cache.sh
     env:
       SQLX_OFFLINE: "true"
       RUST_TEST_PYTHON: /usr/bin/python3
@@ -479,7 +483,7 @@ jobs:
     if: always()
     runs-on: ubuntu-22.04
     steps:
-      - name: Require all four PostgreSQL shards
+      - name: Require every PostgreSQL shard
         env:
           RESULT: ${{ needs.postgres.result }}
         run: test "$RESULT" = success
