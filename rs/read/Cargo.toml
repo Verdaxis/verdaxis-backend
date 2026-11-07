@@ -3,80 +3,176 @@ name = "verdaxis-read"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+# Each test target links the whole crate and its dependencies, so the test
+# files are compiled into a few group binaries instead of one binary per file.
+# The [[test]] tables below list every target; scripts/check_test_groups.py
+# fails when a test file is in no target or in more than one.
+autotests = false
+
+# Group binaries: each tests/group_*.rs includes existing test files as modules.
+[[test]]
+name = "group_auth"
 
 [[test]]
-name = "runtime_postgres"
-required-features = ["contract-tests"]
+name = "group_crud"
 
 [[test]]
-name = "admission_postgres"
-required-features = ["contract-tests"]
+name = "group_market_reads"
 
 [[test]]
-name = "market_contract_postgres"
-required-features = ["contract-tests"]
+name = "group_market_write"
 
 [[test]]
-name = "phase10_state_postgres"
-required-features = ["contract-tests"]
+name = "group_offboarding"
 
 [[test]]
-name = "phase10_news_postgres"
-required-features = ["contract-tests"]
-
-# Phase 10 Task 9: purpose-bound runtime environments; the parity cases run
-# the Python projection from RUST_TEST_PYTHON.
-[[test]]
-name = "phase10_ops_env"
-required-features = ["contract-tests"]
+name = "group_phase4_phase5"
 
 [[test]]
-name = "phase10_ops_preflight_postgres"
-required-features = ["contract-tests"]
-
-# Phase 10 Task 21: trusted signal ingestion (offline and PostgreSQL cases).
-[[test]]
-name = "phase10_ingest"
-required-features = ["contract-tests"]
+name = "group_phase10"
 
 [[test]]
-name = "phase10_ingest_postgres"
-required-features = ["contract-tests"]
-
-# Phase 10 Task 22: the GENA producer-project import.
-[[test]]
-name = "phase10_gena"
-required-features = ["contract-tests"]
+name = "group_runtime"
 
 [[test]]
-name = "phase10_gena_postgres"
-required-features = ["contract-tests"]
+name = "group_streams"
+
+# The test files below stay in their own binaries. Each compiles source
+# modules by path whose `crate::` paths name items of the test file root, so
+# the file must be a crate root.
+[[test]]
+name = "auth_email_verification"
+
+[[test]]
+name = "auth_email_verification_postgres"
+
+[[test]]
+name = "auth_invitation_accept"
+
+[[test]]
+name = "auth_invitation_accept_postgres"
+
+[[test]]
+name = "auth_logout"
+
+[[test]]
+name = "auth_password_change"
+
+[[test]]
+name = "auth_password_reset"
+
+[[test]]
+name = "auth_password_reset_postgres"
+
+[[test]]
+name = "auth_refresh"
+
+[[test]]
+name = "auth_refresh_postgres"
+
+[[test]]
+name = "auth_registration"
+
+[[test]]
+name = "auth_stream"
+
+[[test]]
+name = "market_write_decimal"
+
+[[test]]
+name = "market_write_properties"
+
+[[test]]
+name = "phase4_analytics_facts"
+
+[[test]]
+name = "phase4_analytics_legacy"
+
+[[test]]
+name = "phase4_analytics_usage"
+
+[[test]]
+name = "phase4_analytics_views"
+
+[[test]]
+name = "phase4_invitations"
+
+[[test]]
+name = "phase4_kyc_review"
+
+[[test]]
+name = "phase4_operator_reads"
+
+[[test]]
+name = "phase4_organizations"
+
+[[test]]
+name = "phase4_profile"
+
+[[test]]
+name = "phase4_umami"
+
+[[test]]
+name = "phase4_vessels"
+
+[[test]]
+name = "phase5_authenticated_boundary"
+
+[[test]]
+name = "phase5_availability"
+
+[[test]]
+name = "phase5_benchmarks"
+
+[[test]]
+name = "phase5_compliance_overlay"
+
+[[test]]
+name = "phase5_compliance_scores"
+
+[[test]]
+name = "phase5_demand"
+
+[[test]]
+name = "phase5_fleet"
+
+[[test]]
+name = "phase5_postgres"
+
+[[test]]
+name = "phase5_producers"
 
 # Phase 4 Task 13: three offline cases run in every workspace test; the
-# PostgreSQL cases inside the file are feature-gated by contract-tests.
+# PostgreSQL cases inside the file are feature-gated by contract-tests. It also
+# compiles source modules by path, as above.
 [[test]]
 name = "phase4_subscriptions"
 path = "tests/phase4_subscriptions.rs"
 
-# Phase 4 Task 21: the integrated race suite; its PostgreSQL cases are
-# feature-gated by contract-tests.
+# Compiles source modules by path, as above.
 [[test]]
-name = "phase4_races"
-path = "tests/phase4_races.rs"
-required-features = ["contract-tests"]
+name = "phase4_analytics_policy"
+
+# Starts a copy of its own test binary with `--exact <test name>`; in a group
+# binary the test name gains a module prefix.
+[[test]]
+name = "auth_registration_postgres"
 
 [[test]]
-name = "phase4_db_authority"
-path = "tests/phase4_db_authority.rs"
-required-features = ["contract-tests"]
+name = "phase10_alert"
 
+# Starts a copy of its own binary with `--exact <test name>` and reads the
+# peak memory of that whole process.
 [[test]]
-name = "meaning_curve_queries"
-required-features = ["contract-tests"]
+name = "phase10_backup"
 
+# Installs a process-wide tracing subscriber.
 [[test]]
-name = "meaning_orderbook_queries"
-required-features = ["contract-tests"]
+name = "phase4_kyc_policy"
+
+# Sets and removes the PGHOST process environment variable.
+[[test]]
+name = "phase10_outbox"
 
 [[example]]
 name = "contract_server"
@@ -90,42 +186,6 @@ required-features = ["contract-tests"]
 name = "watchlist_server"
 required-features = ["contract-tests"]
 
-# Reserved stream component targets; populated evidence is required separately.
-[[test]]
-name = "streams_store"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_bus"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_auth"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_election"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_dispatch"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_replay"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_http"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_runtime"
-required-features = ["contract-tests"]
-
-[[test]]
-name = "streams_watchlist_guard"
-
 [[example]]
 name = "phase3_auth"
 required-features = ["contract-tests"]
@@ -134,24 +194,12 @@ required-features = ["contract-tests"]
 name = "preauth_server"
 required-features = ["contract-tests"]
 
-[[test]]
-name = "streams_coexistence"
-required-features = ["contract-tests"]
-
-# Runs in the PostgreSQL job: it reads RUST_TEST_MIGRATOR_DATABASE_URL.
-[[test]]
-name = "price_alert_evaluation_postgres"
-required-features = ["contract-tests"]
-
 [[example]]
 name = "streams_fixture"
 required-features = ["contract-tests"]
 
 [features]
 contract-tests = []
-
-[[test]]
-name = "phase4_analytics_policy"
 
 [dev-dependencies]
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }

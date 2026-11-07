@@ -1428,7 +1428,7 @@ async fn bootstrap_mode_creates_once_and_refuses_trusted_evidence() {
     .await;
     assert_eq!(created.0, StatusCode::CREATED, "{created:?}");
     pool.close().await;
-    let evidence_config = crate::config(&g.runtime_url, Some(options(false)));
+    let evidence_config = self::config(&g.runtime_url, Some(options(false)));
     assert_eq!(
         bootstrap_command(&evidence_config).await,
         Err("trusted_evidence_exists")
