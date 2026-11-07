@@ -1,5 +1,17 @@
 # Disposable full rehearsal
 
+## Source release status
+
+This is a historical pre-M rehearsal driver. Its retained setup still builds a
+legacy database through the old application and migration sources. Those sources
+are absent from the Rust-only release. The manual workflow and restore protocol
+remain unchanged for release compatibility, but this checkout is not a working
+input for the old before/after rehearsal. Do not report its retention as a
+passing rehearsal. Rebinding that driver to an approved historical source package
+is separate work; no live host procedure is changed here. Normal Rust, tooling
+and PostgreSQL CI checks do not install the old backend environment.
+
+
 This lane runs on GitHub-hosted VMs only. It has no host credentials and does
 not authorize a live cutover. Normal pull-request and push jobs are unchanged.
 
