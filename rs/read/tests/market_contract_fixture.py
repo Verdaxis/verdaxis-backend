@@ -19,7 +19,7 @@ def guarded_insert_sql(statement, values, require_refusal=False):
     on_success = "RAISE EXCEPTION 'expected fixture guard refusal'; " if require_refusal else ""
     return ("DO $fixture$ BEGIN BEGIN " + statement +
             "; EXCEPTION WHEN integrity_constraint_violation OR raise_exception THEN RETURN; END; " +
-            on_success + "END $fixture$;")
+            on_success + "END; $fixture$;")
 
 
 def seed(url, clock):
