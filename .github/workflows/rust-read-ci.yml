@@ -423,8 +423,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # run_postgres.sh builds its databases in every shard and then runs
+          # only the named groups; each of its four groups runs in one shard.
           - shard: workspace
             runners: run_postgres.sh
+            postgres_groups: workspace
+          - shard: market-settlement
+            runners: run_postgres.sh
+            postgres_groups: market_settlement
+          - shard: market-orders
+            runners: run_postgres.sh
+            postgres_groups: market_orders
+          - shard: schema
+            runners: run_postgres.sh
+            postgres_groups: schema
           - shard: authority
             runners: run_phase4_authority.sh run_phase10_reminders.sh run_abilities.sh run_phase10_inspect.sh run_feedback.sh
           - shard: account
@@ -468,6 +480,7 @@ jobs:
         env:
           RELEASE_SHA: ${{ github.sha }}
           RUNNERS: ${{ matrix.runners }}
+          RUN_POSTGRES_GROUPS: ${{ matrix.postgres_groups }}
         run: |
           status=0
           for runner in $RUNNERS; do

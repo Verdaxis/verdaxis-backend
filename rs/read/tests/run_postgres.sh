@@ -4,10 +4,34 @@
 #
 # Docker runs locally through Colima. The container binds a Docker-assigned
 # loopback port and is removed on exit. Never point this at staging or prod.
+#
+# Optional environment:
+#   RUN_POSTGRES_GROUPS  space-separated test groups to run (default: all).
+#                        CI runs each group in its own shard; every group
+#                        builds the same databases first.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 
 export SQLX_OFFLINE=true
+
+# workspace:         the default workspace cases on the minimal fixture;
+# market_settlement: market-write targets for trades, settlement and races;
+# market_orders:     market-write targets for order creation and changes;
+# schema:            Phase 4 authority suites, baseline, adoption and ACLs.
+all_groups='workspace market_settlement market_orders schema'
+groups=${RUN_POSTGRES_GROUPS:-$all_groups}
+for group in $groups; do
+  case " $all_groups " in
+    *" $group "*) ;;
+    *) echo "unknown test group: $group (known: $all_groups)" >&2; exit 2 ;;
+  esac
+done
+selected() {
+  case " $groups " in
+    *" $1 "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 container=''
 log=''
@@ -149,130 +173,146 @@ export RUST_FREEZE_TEMPLATE_DATABASE=verdaxis_freeze_test
 export RUST_FREEZE_ENFORCEMENT_TEMPLATE_DATABASE=verdaxis_freeze_enforcement_test
 unset DATABASE_URL MIGRATOR_DATABASE_URL PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 
-log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
-set +e
-# The Task 6 visibility, trade-evidence and market-policy matrices, the
-# Task 9/10 old-shape/new-shape equivalence proofs, and the five Phase 5
-# compliance overlay populated-fixture cases need a seeded fixture catalog
-# that this database does not carry. These cases are named here rather than
-# silently skipped: rs/read/tests/run_market_contract.sh
-# runs all five against their own disposable database, refusing a green
-# result when the fixture is missing. `--skip` matches test function names,
-# not test file names, so every test is listed by its name.
-cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
-  -- --test-threads=1 \
-  --skip runtime_documents_and_history_are_append_only \
-  --skip runtime_cannot_write_provenance_or_grace \
-  --skip organization_approval_trigger_reads_back_real_and_vd001 \
-  --skip retained_documents_block_user_and_org_delete \
-  --skip rust_service_credential_absence_does_not_fail_readiness \
-  --skip benchmark_key_first_matches_key_join_last \
-  --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
-  --skip eligibility_sets_match_legacy_for_the_curve_relation \
-  --skip eligibility_sets_match_legacy_predicate_for_every_order \
-  --skip compliance_overlay_postgres_cases \
-  --skip compliance_overlay_authenticated_cases \
-  --skip compliance_overlay_timeout_cases \
-  --skip compliance_overlay_snapshot_cases \
-  --skip compliance_overlay_index_cases \
-  --skip curve_table_keyed_candidates_match_the_full_relation \
-  --skip curve_table_equivalence_detects_a_dropped_key \
-  --skip curve_slice_keyed_candidates_match_the_full_relation \
-  --skip curve_board_keyed_candidates_keep_null_window_keys \
-  --skip mcp_market_slice_keyed_candidates_match_the_full_relation \
-  --skip keyed_join_would_duplicate_rows \
-  --skip corpus_clock_maps_to_the_pinned_singapore_date \
-  --skip orderbook_aggregate_narrow_projection_keeps_every_group \
-  --skip orderbook_product_counts_narrow_projection_keeps_every_count \
-  --skip orderbook_distinct_labels_keep_order_and_nulls \
-  --skip orderbook_map_recent_asks_keep_one_row_per_point \
-  --skip orderbook_listings_pages_match_the_full_ranking \
-  --skip corpus_carries_the_rows_these_cases_compare \
-  --skip opposing_exact_slices_keep_prices_and_ordered_hash \
-  --skip opposing_null_point_prefilter_keeps_the_tail_match \
-  --skip aggregate_groups_null_region_and_counts_duplicates \
-  --skip inspect_users_masks_email_by_default \
-  --skip inspect_users_show_emails_requires_the_explicit_flag \
-  --skip inspect_users_matches_fixed_rows \
-  --skip inspect_blockers_matches_fixed_counts \
-  --skip inspect_users_is_read_only_and_never_writes_a_status_file \
-  --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
-  --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
-  --skip the_reader_role_is_enough_for_both_commands 2>&1 | tee "$log"
-cargo_status=${PIPESTATUS[0]}
-set -e
-if (( cargo_status != 0 )); then
-  exit "$cargo_status"
-fi
-# A green cargo run that executed no test is a false pass; refuse it.
-if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
-  echo "no Rust test ran: refusing a green result" >&2
-  exit 1
+if selected workspace; then
+  log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
+  set +e
+  # The Task 6 visibility, trade-evidence and market-policy matrices, the
+  # Task 9/10 old-shape/new-shape equivalence proofs, and the five Phase 5
+  # compliance overlay populated-fixture cases need a seeded fixture catalog
+  # that this database does not carry. These cases are named here rather than
+  # silently skipped: rs/read/tests/run_market_contract.sh
+  # runs all five against their own disposable database, refusing a green
+  # result when the fixture is missing. `--skip` matches test function names,
+  # not test file names, so every test is listed by its name.
+  cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contract-tests \
+    -- --test-threads=1 \
+    --skip runtime_documents_and_history_are_append_only \
+    --skip runtime_cannot_write_provenance_or_grace \
+    --skip organization_approval_trigger_reads_back_real_and_vd001 \
+    --skip retained_documents_block_user_and_org_delete \
+    --skip rust_service_credential_absence_does_not_fail_readiness \
+    --skip benchmark_key_first_matches_key_join_last \
+    --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
+    --skip eligibility_sets_match_legacy_for_the_curve_relation \
+    --skip eligibility_sets_match_legacy_predicate_for_every_order \
+    --skip compliance_overlay_postgres_cases \
+    --skip compliance_overlay_authenticated_cases \
+    --skip compliance_overlay_timeout_cases \
+    --skip compliance_overlay_snapshot_cases \
+    --skip compliance_overlay_index_cases \
+    --skip curve_table_keyed_candidates_match_the_full_relation \
+    --skip curve_table_equivalence_detects_a_dropped_key \
+    --skip curve_slice_keyed_candidates_match_the_full_relation \
+    --skip curve_board_keyed_candidates_keep_null_window_keys \
+    --skip mcp_market_slice_keyed_candidates_match_the_full_relation \
+    --skip keyed_join_would_duplicate_rows \
+    --skip corpus_clock_maps_to_the_pinned_singapore_date \
+    --skip orderbook_aggregate_narrow_projection_keeps_every_group \
+    --skip orderbook_product_counts_narrow_projection_keeps_every_count \
+    --skip orderbook_distinct_labels_keep_order_and_nulls \
+    --skip orderbook_map_recent_asks_keep_one_row_per_point \
+    --skip orderbook_listings_pages_match_the_full_ranking \
+    --skip corpus_carries_the_rows_these_cases_compare \
+    --skip opposing_exact_slices_keep_prices_and_ordered_hash \
+    --skip opposing_null_point_prefilter_keeps_the_tail_match \
+    --skip aggregate_groups_null_region_and_counts_duplicates \
+    --skip inspect_users_masks_email_by_default \
+    --skip inspect_users_show_emails_requires_the_explicit_flag \
+    --skip inspect_users_matches_fixed_rows \
+    --skip inspect_blockers_matches_fixed_counts \
+    --skip inspect_users_is_read_only_and_never_writes_a_status_file \
+    --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
+    --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
+    --skip the_reader_role_is_enough_for_both_commands 2>&1 | tee "$log"
+  cargo_status=${PIPESTATUS[0]}
+  set -e
+  if (( cargo_status != 0 )); then
+    exit "$cargo_status"
+  fi
+  # A green cargo run that executed no test is a false pass; refuse it.
+  if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
+    echo "no Rust test ran: refusing a green result" >&2
+    exit 1
+  fi
 fi
 
-# The market-write component suites mark their database cases explicitly;
-# execute each named target on its own migrated disposable database.
-market_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-market.XXXXXX")
-set +e
-cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-  --test market_write_pg_trades --test market_write_pg_create \
-  --test market_write_pg_amend --test market_write_pg_confirm \
-  --test market_write_pg_inventory --test market_write_pg_support \
-  --test market_write_pg_publish --test market_write_pg_settlement \
-  --test market_write_pg_trade_membership \
-  --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
-  --test market_write_pg_races \
-  --test market_write_pg_producer \
-  --test market_write_pg_producer_visibility \
-  --test market_write_pg_residual \
-  --test market_write_serving \
-  -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
-market_status=${PIPESTATUS[0]}
-set -e
-if (( market_status != 0 )); then
-  exit "$market_status"
+# Run the named market-write targets with their ignored database cases. Each
+# target executes on its own migrated disposable database. A green run that
+# executed no test is a false pass, so refuse it.
+run_market_targets() {
+  local group=$1
+  shift
+  local market_log market_status
+  market_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-$group.XXXXXX")
+  set +e
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+    "$@" -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
+  market_status=${PIPESTATUS[0]}
+  set -e
+  if (( market_status != 0 )); then
+    exit "$market_status"
+  fi
+  if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$market_log"; then
+    echo "no $group test ran: refusing a green result" >&2
+    exit 1
+  fi
+  rm -f "$market_log"
+}
+
+if selected market_settlement; then
+  run_market_targets market_settlement \
+    --test market_write_pg_trades --test market_write_pg_settlement \
+    --test market_write_pg_trade_membership --test market_write_pg_races \
+    --test market_write_pg_residual --test market_write_pg_support \
+    --test market_write_serving
 fi
-if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$market_log"; then
-  echo "no market-write test ran: refusing a green result" >&2
-  exit 1
+if selected market_orders; then
+  run_market_targets market_orders \
+    --test market_write_pg_create --test market_write_pg_amend \
+    --test market_write_pg_confirm --test market_write_pg_inventory \
+    --test market_write_pg_publish \
+    --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
+    --test market_write_pg_producer --test market_write_pg_producer_visibility
 fi
-# Phase 4 authority/review suites mark database cases explicitly; execute them
-# here as well as the default workspace cases, on the same disposable endpoint.
-cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-  --test phase4_analytics_views --test phase4_analytics_legacy \
-  --test phase4_admission --test phase4_organizations --test phase4_races \
-  -- --include-ignored --test-threads=1
-# Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
-# The production migrator owns every object in the template.
-adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
-docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+
+if selected schema; then
+  # Phase 4 authority/review suites mark database cases explicitly; execute them
+  # here as well as the default workspace cases, on the same disposable endpoint.
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+    --test phase4_analytics_views --test phase4_analytics_legacy \
+    --test phase4_admission --test phase4_organizations --test phase4_races \
+    -- --include-ignored --test-threads=1
+  # Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
+  # The production migrator owns every object in the template.
+  adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
+  docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
 \connect verdaxis_adoption_template
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator;
 SQL
-# pg_dump renders varchar IN-lists as text-cast arrays. The shared helper
-# reparses only those CHECK/index expressions as IN-lists to reproduce the
-# source catalog form required by the compiled adoption fingerprint. Native
-# templates keep the frozen restore form; no migration or fingerprint policy
-# is changed here.
-python3 deploy/tests/migrated-catalog-sql.py rs/read/migrations/1_baseline.sql \
-  | docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
-  -X -v ON_ERROR_STOP=1 -q > /dev/null
-# Adoption validates this source revision and writes sqlx history itself.
-docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
-  -X -v ON_ERROR_STOP=1 -v adoption_head="$adoption_head" <<'SQL'
+  # pg_dump renders varchar IN-lists as text-cast arrays. The shared helper
+  # reparses only those CHECK/index expressions as IN-lists to reproduce the
+  # source catalog form required by the compiled adoption fingerprint. Native
+  # templates keep the frozen restore form; no migration or fingerprint policy
+  # is changed here.
+  python3 deploy/tests/migrated-catalog-sql.py rs/read/migrations/1_baseline.sql \
+    | docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
+    -X -v ON_ERROR_STOP=1 -q > /dev/null
+  # Adoption validates this source revision and writes sqlx history itself.
+  docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
+    -X -v ON_ERROR_STOP=1 -v adoption_head="$adoption_head" <<'SQL'
 CREATE TABLE public.alembic_version(version_num varchar(32) NOT NULL PRIMARY KEY);
 INSERT INTO public.alembic_version VALUES (:'adoption_head');
 SQL
-export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
-export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
+  export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
+  export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
 
-# Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
-# the baseline applied by the staging migrator, then the real ACL convergence
-# with the operator role. Each ingestion case clones it as verdaxis_staging.
-# The staging migrator role is created once, above, for every template.
-docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+  # Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
+  # the baseline applied by the staging migrator, then the real ACL convergence
+  # with the operator role. Each ingestion case clones it as verdaxis_staging.
+  # The staging migrator role is created once, above, for every template.
+  docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE verdaxis_backup_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_backup_pw';
 CREATE ROLE verdaxis_operator_staging LOGIN NOINHERIT PASSWORD 'disposable_operator_pw';
 CREATE DATABASE verdaxis_ingest_template OWNER verdaxis_migrator_staging;
@@ -280,40 +320,41 @@ CREATE DATABASE verdaxis_ingest_template OWNER verdaxis_migrator_staging;
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 SQL
-docker exec -i "$container" psql -U verdaxis_migrator_staging -d verdaxis_ingest_template \
-  -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
-docker exec "$container" mkdir -p /tmp/acl-bundle
-docker cp deploy/postgres/. "$container":/tmp/acl-bundle/
-docker exec "$container" psql -U postgres -d verdaxis_ingest_template -X -q --single-transaction \
-  -v ON_ERROR_STOP=1 -v database_name=verdaxis_ingest_template -v app_role=verdaxis_app_staging \
-  -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
-  -v operator_role=verdaxis_operator_staging -f /tmp/acl-bundle/converge_runtime_object_acls.sql > /dev/null
-export RUST_INGEST_TEMPLATE_DATABASE=verdaxis_ingest_template
-# The ingestion cases rerun the convergence through this container's psql.
-export RUST_POSTGRES_CONTAINER="$container"
+  docker exec -i "$container" psql -U verdaxis_migrator_staging -d verdaxis_ingest_template \
+    -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
+  docker exec "$container" mkdir -p /tmp/acl-bundle
+  docker cp deploy/postgres/. "$container":/tmp/acl-bundle/
+  docker exec "$container" psql -U postgres -d verdaxis_ingest_template -X -q --single-transaction \
+    -v ON_ERROR_STOP=1 -v database_name=verdaxis_ingest_template -v app_role=verdaxis_app_staging \
+    -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
+    -v operator_role=verdaxis_operator_staging -f /tmp/acl-bundle/converge_runtime_object_acls.sql > /dev/null
+  export RUST_INGEST_TEMPLATE_DATABASE=verdaxis_ingest_template
+  # The ingestion cases rerun the convergence through this container's psql.
+  export RUST_POSTGRES_CONTAINER="$container"
 
-# Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
-# databases, and adoption runs on clones of the template above; each case
-# creates and drops its own database. Task 9: `ops preflight` attests a
-# verdaxis_staging database that its case creates and drops.
-# The runner-only adoption helper already ran above with each explicit migrator
-# URL. This group has no runner URL; keep the helper out of its broad selection.
-baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
-set +e
-cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-  --test phase10_baseline_postgres --test phase10_migrate_postgres \
-  --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
-  --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
-  -- --include-ignored --skip runner_database_adopts_to_the_baseline \
-  --test-threads=1 2>&1 | tee "$baseline_log"
-baseline_status=${PIPESTATUS[0]}
-set -e
-if (( baseline_status != 0 )); then
-  exit "$baseline_status"
+  # Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
+  # databases, and adoption runs on clones of the template above; each case
+  # creates and drops its own database. Task 9: `ops preflight` attests a
+  # verdaxis_staging database that its case creates and drops.
+  # The runner-only adoption helper already ran above with each explicit migrator
+  # URL. This group has no runner URL; keep the helper out of its broad selection.
+  baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
+  set +e
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+    --test phase10_baseline_postgres --test phase10_migrate_postgres \
+    --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
+    --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
+    -- --include-ignored --skip runner_database_adopts_to_the_baseline \
+    --test-threads=1 2>&1 | tee "$baseline_log"
+  baseline_status=${PIPESTATUS[0]}
+  set -e
+  if (( baseline_status != 0 )); then
+    exit "$baseline_status"
+  fi
+  if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
+    echo "no baseline or migrate test ran: refusing a green result" >&2
+    exit 1
+  fi
+  # Phase 10 Task 6: the sqlx history ACL on its own disposable server.
+  bash deploy/tests/sqlx-control-acl.sh
 fi
-if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
-  echo "no baseline or migrate test ran: refusing a green result" >&2
-  exit 1
-fi
-# Phase 10 Task 6: the sqlx history ACL on its own disposable server.
-bash deploy/tests/sqlx-control-acl.sh
