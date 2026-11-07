@@ -190,6 +190,19 @@ fn the_overlay_year_default_is_pinned() {
 }
 
 async fn reset(connection: &mut PgConnection) {
+    // Remove the committed visibility fixture in foreign-key order so the
+    // same disposable database can run this matrix more than once.
+    for statement in [
+        "DELETE FROM inventory_items WHERE id = '9c000000-0000-0000-0000-000000000041'",
+        "DELETE FROM orderbook_orders WHERE id = '9c000000-0000-0000-0000-000000000031'",
+        "DELETE FROM users WHERE id = '9c000000-0000-0000-0000-000000000013'",
+        "DELETE FROM organizations WHERE id = '9c000000-0000-0000-0000-000000000003'",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+    }
     sqlx::query("DELETE FROM vessels WHERE id = $1")
         .bind(VESSEL)
         .execute(&mut *connection)
@@ -207,7 +220,7 @@ async fn reset(connection: &mut PgConnection) {
         .unwrap();
 }
 
-/// Two organizations: the reader's and the Python writer's, on one database.
+/// Two organizations: the reader and writer fixtures on one database.
 async fn seed(connection: &mut PgConnection) {
     sqlx::query(
         "INSERT INTO organizations (id, name, type, verification_status, provenance) VALUES \
@@ -261,9 +274,8 @@ async fn business_counts(connection: &mut PgConnection) -> Vec<i64> {
     values
 }
 
-/// A commit through the Python writer path becomes visible to the Rust
-/// demand, overlay and availability reads; an uncommitted row stays invisible
-/// until its transaction commits.
+/// A native committed fixture becomes visible to demand, overlay and
+/// availability reads on the same disposable database.
 #[tokio::test]
 async fn phase5_visibility_cases() {
     let Some((application, _writer_url)) = urls() else {
