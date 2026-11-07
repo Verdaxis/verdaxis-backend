@@ -2,8 +2,8 @@
 # Real auth HTTP checks on one migrated local disposable PostgreSQL template.
 set -euo pipefail
 export SQLX_OFFLINE=true
-export RELEASE_SHA=$(git rev-parse HEAD)
-: "${RUST_TEST_PYTHON:?Set the project test interpreter}"
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 template=verdaxis_abilities_test
 container=''
@@ -32,20 +32,14 @@ CREATE EXTENSION postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
-export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
-export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template"
-export MIGRATOR_DATABASE_URL="$DATABASE_URL"
-"$RUST_TEST_PYTHON" -m alembic upgrade head
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
   psql -X --single-transaction -q -v ON_ERROR_STOP=1 -v database_name="$template" \
   -v app_role=rust_app -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
-  # The M runtime only serves an adopted database: record the exact
-  # adoption row (the schema stays at the Alembic head).
-  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
-    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
 unset DATABASE_URL MIGRATOR_DATABASE_URL
 admin="postgresql://postgres:disposable_admin_pw@127.0.0.1:$port"
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="$admin/postgres"

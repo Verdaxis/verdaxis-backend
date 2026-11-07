@@ -7,10 +7,7 @@
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 
-# Fail before starting a container when the caller has not pointed the suite at
-# the interpreter that carries the project's database dependencies.
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
-export RUST_TEST_PYTHON
+export SQLX_OFFLINE=true
 
 container=''
 log=''
@@ -74,7 +71,6 @@ export RUST_TEST_STAGING_DATABASE_URL="postgres://verdaxis_app_staging:disposabl
 export RUST_TEST_WRONG_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_other_test"
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
-# Settings import requirements for the alembic migration below.
 export ENVIRONMENT="${ENVIRONMENT:-test}"
 export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
 
@@ -120,8 +116,8 @@ export RUST_RACES_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@12
 export RUST_RACES_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_races_test"
 export RUST_PRODUCER_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_producer_test"
 export RUST_PRODUCER_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_producer_test"
-# The residual-writer target clones this template per case; the retained Python
-# quarantine and seed run there as the database owner role.
+# The residual-writer target clones this template per case; its fixtures run
+# there as the database owner role.
 export RUST_RESIDUAL_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_residual_test"
 export RUST_RESIDUAL_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_residual_test"
 export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_residual_test"
@@ -135,19 +131,15 @@ export RUST_SUPPORT_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.
 for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test verdaxis_inventory_test verdaxis_support_test; do
   export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=verdaxis_migrator_staging \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
-  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
-    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
-  "$RUST_TEST_PYTHON" -m alembic upgrade ob_20261031_offboarding
-  psql -X --single-transaction -v ON_ERROR_STOP=1 \
-    -v database_name="$database" -v app_role=rust_app \
-    -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
-    -f deploy/postgres/converge_runtime_object_acls.sql
-  # The M runtime only serves an adopted database: record the exact adoption
-  # row (the schema stays at the Alembic head; the fingerprint is unchanged).
+  # Initialize the baseline and sqlx history before runtime ACL convergence.
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
     cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
     --features contract-tests --test phase10_migrate_postgres \
     runner_database_adopts_to_the_baseline -- --ignored
+  psql -X --single-transaction -v ON_ERROR_STOP=1 \
+    -v database_name="$database" -v app_role=rust_app \
+    -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
+    -f deploy/postgres/converge_runtime_object_acls.sql
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_TRADES_TEMPLATE_DATABASE=verdaxis_trades_test
@@ -161,9 +153,9 @@ log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-tests.XXXXXX")
 set +e
 # The Task 6 visibility, trade-evidence and market-policy matrices, the
 # Task 9/10 old-shape/new-shape equivalence proofs, and the five Phase 5
-# compliance overlay populated-fixture cases need the seeded fixture catalog
-# and the Python oracle, which this database does not carry. They are named
-# here rather than silently skipped: rs/read/tests/run_market_contract.sh
+# compliance overlay populated-fixture cases need a seeded fixture catalog
+# that this database does not carry. These cases are named here rather than
+# silently skipped: rs/read/tests/run_market_contract.sh
 # runs all five against their own disposable database, refusing a green
 # result when the fixture is missing. `--skip` matches test function names,
 # not test file names, so every test is listed by its name.
@@ -174,8 +166,6 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip organization_approval_trigger_reads_back_real_and_vd001 \
   --skip retained_documents_block_user_and_org_delete \
   --skip rust_service_credential_absence_does_not_fail_readiness \
-  --skip public_visibility_matrix_matches_python \
-  --skip trade_evidence_matrix_matches_python \
   --skip benchmark_key_first_matches_key_join_last \
   --skip biofuel_supplier_metadata_clause_hides_only_failing_asks \
   --skip eligibility_sets_match_legacy_for_the_curve_relation \
@@ -203,9 +193,7 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip aggregate_groups_null_region_and_counts_duplicates \
   --skip inspect_users_masks_email_by_default \
   --skip inspect_users_show_emails_requires_the_explicit_flag \
-  --skip inspect_users_matches_the_python_tool_on_the_same_database \
   --skip inspect_users_is_read_only_and_never_writes_a_status_file \
-  --skip inspect_blockers_matches_the_python_counts_on_the_same_fixture \
   --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
   --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
   --skip the_reader_role_is_enough_for_both_commands 2>&1 | tee "$log"
@@ -252,8 +240,8 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test phase4_analytics_views --test phase4_analytics_legacy \
   --test phase4_admission --test phase4_organizations --test phase4_races \
   -- --include-ignored --test-threads=1
-# Phase 10 Task 6: an Alembic-built database at the baseline head, owned by the
-# production migrator name, is the template every adoption case clones.
+# Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
+# The production migrator owns every object in the template.
 adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
@@ -261,11 +249,14 @@ CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator;
 SQL
-(
-  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template" \
-    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template"
-  "$RUST_TEST_PYTHON" -m alembic upgrade "$adoption_head"
-)
+docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
+  -X -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
+# Adoption validates this source revision and writes sqlx history itself.
+docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
+  -X -v ON_ERROR_STOP=1 -v adoption_head="$adoption_head" <<'SQL'
+CREATE TABLE public.alembic_version(version_num varchar(32) NOT NULL PRIMARY KEY);
+INSERT INTO public.alembic_version VALUES (:'adoption_head');
+SQL
 export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
 export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
 

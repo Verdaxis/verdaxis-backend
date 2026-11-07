@@ -1,24 +1,20 @@
 #!/usr/bin/env bash
-# Integrated offboarding acceptance across both stacks on disposable PostgreSQL databases.
+# Integrated offboarding acceptance on disposable PostgreSQL databases.
 #
 # Starts one disposable container on a Docker-assigned loopback port, migrates
-# one template database to the Alembic head with the runtime ACL bundle, and
+# one template database from the SQL baseline with the runtime ACL bundle, and
 # runs the ignored cases of `offboarding_acceptance_postgres`; each case
-# clones the template and starts the unchanged Python application against the
-# clone on loopback. Every named case must run. The container is removed on
+# clones the template. Every named case must run. The container is removed on
 # exit. Never point this at a live host.
 #
 # Optional environment:
 #   DOCKER_RUN_EXTRA  extra `docker run` flags (for example a log driver)
 #   CARGO_RUNNER      command words placed before every cargo invocation
-#   RUST_TEST_PYTHON  interpreter with the application dependencies (default: python3)
 set -euo pipefail
 export SQLX_OFFLINE=true
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
-python="${RUST_TEST_PYTHON:-python3}"
-export RUST_TEST_PYTHON="$python"
 template=verdaxis_offboarding_acceptance_test
 cases=(
   both_stack_cutoffs_constraints_and_streams_hold
@@ -64,10 +60,10 @@ docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
 docker exec "$container" psql -U postgres -d "$template" -v ON_ERROR_STOP=1 \
   -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO verdaxis_migrator_staging; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
 
-export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
-export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template"
-export MIGRATOR_DATABASE_URL="$DATABASE_URL"
-"$python" -m alembic upgrade head
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" \
   PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
   psql -X --single-transaction -q -v ON_ERROR_STOP=1 \

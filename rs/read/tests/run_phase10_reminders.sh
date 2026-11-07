@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # Phase 10 order-expiry reminder job against a disposable migrated schema.
 #
-# The target needs the real Alembic schema (triggers, constraints, the JSON
-# notification column), the committed ACL bundle and the retained Python
-# reminder functions, so it runs here rather than in run_postgres.sh. Docker
+# The target needs the SQL baseline (triggers, constraints and the JSON
+# notification column) and the committed ACL bundle, so it runs here rather
+# than in run_postgres.sh. Docker
 # binds a loopback port; the container is removed on exit. Never point this at
 # staging or production.
 set -euo pipefail
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
 export SQLX_OFFLINE=true
 RELEASE_SHA=${RELEASE_SHA:-$(git rev-parse HEAD)}
 export RELEASE_SHA
@@ -42,26 +41,18 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_backup;
 SQL
 database=verdaxis_reminders_test
-migrator_url="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
-ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
-  DATABASE_URL="$migrator_url" MIGRATOR_DATABASE_URL="$migrator_url" \
-  "$RUST_TEST_PYTHON" -m alembic upgrade head
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw \
   psql -X --single-transaction -v ON_ERROR_STOP=1 -v database_name="$database" \
   -v app_role=rust_app -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
 
-  # The M runtime only serves an adopted database: record the exact
-  # adoption row (the schema stays at the Alembic head).
-  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
-
 export RUST_REMINDERS_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/$database"
 export RUST_REMINDERS_OWNER_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
 export RUST_REMINDERS_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/$database"
-export RUST_REMINDERS_PYTHON_DATABASE_URL="postgresql+asyncpg://rust_app:disposable_app_pw@127.0.0.1:$port/$database"
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-reminder-tests.XXXXXX")
 set +e

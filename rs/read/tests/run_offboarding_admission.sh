@@ -2,21 +2,18 @@
 # Offboarded-account admission on a disposable PostgreSQL database.
 #
 # Starts one disposable container on a Docker-assigned loopback port, migrates
-# one database to the Alembic head, applies the runtime ACL bundle and runs the
+# one database from the SQL baseline, applies the runtime ACL bundle and runs the
 # ignored cases of `offboarding_admission_postgres` as the runtime role. The
 # container is removed on exit. Never point this at a live host.
 #
 # Optional environment:
 #   DOCKER_RUN_EXTRA  extra `docker run` flags (for example a log driver)
 #   CARGO_RUNNER      command words placed before every cargo invocation
-#   RUST_TEST_PYTHON  interpreter with the Alembic dependencies (default: python3)
 set -euo pipefail
 export SQLX_OFFLINE=true
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
-python="${RUST_TEST_PYTHON:-python3}"
-export RUST_TEST_PYTHON="$python"
 
 run() {
   local name=$1; shift
@@ -62,10 +59,10 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO verdaxis_app_staging,verdaxis_backup_staging;
 SQL
 
-export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
-export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test"
-export MIGRATOR_DATABASE_URL="$DATABASE_URL"
-run migrate "$python" -m alembic upgrade head
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE=verdaxis_offboarding_test
 export PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw
@@ -73,13 +70,6 @@ run acl psql -X --single-transaction -v ON_ERROR_STOP=1 \
   -v database_name=verdaxis_offboarding_test -v app_role=verdaxis_app_staging \
   -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
   -f deploy/postgres/converge_runtime_object_acls.sql
-
-  # The M runtime only serves an adopted database: record the exact
-  # adoption row (the schema stays at the Alembic head).
-  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
 
 export RUST_TEST_DATABASE_URL="postgres://verdaxis_app_staging:disposable_app_pw@127.0.0.1:$port/verdaxis_offboarding_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test"

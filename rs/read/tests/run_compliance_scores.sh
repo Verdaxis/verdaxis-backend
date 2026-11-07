@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Task 9 gate: fmt, both clippy configurations, the offline workspace, cargo
 # audit, and the compliance score suite against one disposable PostgreSQL
-# container migrated with the accepted literal chain.
+# container initialized from the frozen SQL baseline.
 #
 # Docker runs locally through Colima on the M1 test host. The container binds a
 # Docker-assigned loopback port and is removed on exit. Never point this at
@@ -11,11 +11,7 @@ image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed
 db='verdaxis_compliance_test'
 test_home="${VERDAXIS_TEST_HOME:-/home/verdaxis-test}"
 
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
-export RUST_TEST_PYTHON
-
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-alembic="$(dirname "$RUST_TEST_PYTHON")/alembic"
 
 stamp() { echo "== $(date -u +%Y-%m-%dT%H:%M:%SZ) $*"; }
 
@@ -35,7 +31,8 @@ echo "GATE_SHA=$(git rev-parse HEAD)"
 echo "HOST=$(hostname -s) RUSTC=$(rustc -V 2>/dev/null)"
 echo "TREE=$(git status --porcelain --untracked-files=no | wc -l | tr -d ' ') changed tracked file(s)"
 # The build script embeds the release identity; every cargo command needs it.
-export RELEASE_SHA=$(git rev-parse HEAD)
+RELEASE_SHA=$(git rev-parse HEAD)
+export RELEASE_SHA
 
 stamp fmt
 cargo fmt --manifest-path rs/Cargo.toml --all -- --check
@@ -77,31 +74,24 @@ ALTER ROLE task9_app SET lock_timeout = '150ms';
 CREATE DATABASE $db OWNER verdaxis_migrator_staging;
 \connect $db
 CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 ALTER DATABASE $db SET TimeZone TO 'UTC';
 SQL
 
 release_sha=$(git rev-parse HEAD)
-writer="postgresql+asyncpg://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
-export ENVIRONMENT=test
 export RELEASE_SHA="$release_sha"
-export JWT_SECRET='test-secret-key-for-testing-minimum-32-chars'
-export DATABASE_URL="$writer"
-export MIGRATOR_DATABASE_URL="$writer"
 
 stamp migrate
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$alembic" upgrade head
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
+  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 echo "MIGRATE_EXIT=$?"
 
 # The runtime role holds read access to the compliance relations and the
 # current-account update lock, as the deployed app role does.
 docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO task9_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO task9_app; GRANT UPDATE ON users TO task9_app;"
-# The M runtime only serves an adopted database: record the exact
-# adoption row (the schema stays at the Alembic head).
-RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
-  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
 
 export RUST_COMPLIANCE_TEST_DATABASE_URL="postgres://task9_app:disposable_app_pw@127.0.0.1:$port/$db"
 export RUST_COMPLIANCE_TEST_WRITER_URL="postgres://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
@@ -160,5 +150,5 @@ if grep -q 'cross-group matrix not run' "$task12_log"; then
   exit 1
 fi
 rm -f "$task12_log"
-stamp done
+stamp "done"
 echo GATES_DONE
