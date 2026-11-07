@@ -48,9 +48,6 @@ jobs:
       DATABASE_URL: "sqlite+aiosqlite:///:memory:"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          # Budget compatibility tests read the immutable pre-removal settings.
-          fetch-depth: 0
       - name: Install the tooling test packages with system Python
         # Install into the system site, not the user site: the budget and
         # runtime helpers start `python3 -I`, which ignores the user site.
