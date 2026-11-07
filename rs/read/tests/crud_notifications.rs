@@ -2,8 +2,8 @@
 //!
 //! Offline sections run everywhere: they pin the query and path validation
 //! envelopes, the response projection, and the PostgreSQL statements against
-//! `tests/rust_contract/phase2/notifications.json`, which records the
-//! Python-compiled statements and the source digests they came from.
+//! the fixed notification contract embedded below. The expected statements and
+//! response fields do not require another application stack.
 //!
 //! The database-backed section needs a disposable PostgreSQL with the migrated
 //! schema and the app role, exactly like the Phase 2 runner's own cells. Supply

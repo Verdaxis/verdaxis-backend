@@ -1,6 +1,6 @@
 //! Task 22: the serving router mounts every Phase 2 operation.
 //!
-//! Ownership is proven through Caddy in `tests/rust_contract`; this test proves
+//! Ownership is proven through Caddy in `tests/tooling`; this test proves
 //! the Rust side of that split. A mounted authenticated operation answers 401
 //! without a bearer, while an unmounted path or method would answer 404 or 405.
 //! R05 is the one public operation and answers 200 for an invalid code without

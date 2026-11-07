@@ -9,7 +9,7 @@
 //!    alongside the marked registration line in `lib.rs`. The scan is over source, so it holds for code no test exercises.
 //! 2. A behaviour parity: the lock keys, slice order, idempotency scopes and
 //!    request hashes must equal the vectors the specified Python exported into
-//!    `tests/rust_contract/phase2/market-write-spec.json`.
+//!    the fixed market-write specification embedded below.
 //!
 //! The transaction shell is driven through the `WriteSession` port with a
 //! recording double, so retry, the attempt bound, each contention refusal,

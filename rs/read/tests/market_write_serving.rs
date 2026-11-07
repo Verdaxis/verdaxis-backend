@@ -1,7 +1,7 @@
 //! The market write operations in the serving composition.
 //!
 //! The 43 operations come from the switch ledger
-//! (`tests/rust_contract/phase89/switch-routes.json`), which also pins each
+//! embedded below, which also pins each
 //! operation's answer to an invalid bearer token. The offline cases build the
 //! served router (`verdaxis_read::router`) with pools that are never dialled.
 //! The cases marked `ignore` serve a fresh database cloned from the migrated

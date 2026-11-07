@@ -1,9 +1,9 @@
 //! Phase 5 Task 14: the Rust side of the exact routing row.
 //!
 //! One switch moves the ten Phase 5 routes together (`deploy/caddy/rust-phase5.caddy`).
-//! `tests/rust_contract/test_phase5_routing.py` proves the Caddy side against a
+//! `tests/tooling/test_phase5_routing.py` proves the Caddy side against a
 //! real Caddy; these cases prove what the Caddy rule relies on, from the same
-//! route inventory (`tests/rust_contract/phase5/routes.json`):
+//! fixed route inventory embedded below:
 //!
 //! - every inventory route is served by the composed router for its exact
 //!   method, the public ones and the four authenticated ones alike;
