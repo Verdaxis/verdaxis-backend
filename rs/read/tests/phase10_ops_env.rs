@@ -961,7 +961,7 @@ fn budget_matches_configured_authority_not_measured_load() {
             .collect();
         expected["environment_digest"] = serde_json::json!(digest);
         let artifact = std::fs::read_to_string(&rust_out).unwrap();
-        let actual: Value = serde_json::from_str(&artifact).unwrap();
+        let actual: serde_json::Value = serde_json::from_str(&artifact).unwrap();
         assert_eq!(actual, expected, "{name}: fixed artifact fields");
         assert!(artifact.ends_with('\n'), "{name}: artifact newline");
         // Native verification accepts its artifact and refuses an edited .env.
