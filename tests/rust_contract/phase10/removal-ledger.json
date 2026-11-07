@@ -4650,7 +4650,7 @@
       "end_state": "shell",
       "owner": "Task 7 deploy owner",
       "task": 7,
-      "source_sha256": "6e4fbe8490fd28f69af44c0e584545cf4e552ea0bde2d970b55615e8ca692fbe",
+      "source_sha256": "1625217939b5b907f9224110f30de9ab33015ef3f9da7ac1633162b8fa00fdad",
       "status": "planned",
       "evidence": [
         "deploy_script_has_no_python_or_pip_reference"

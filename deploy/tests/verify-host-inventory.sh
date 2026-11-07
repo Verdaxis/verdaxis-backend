@@ -11,6 +11,6 @@ if [[ $# == 1 ]]; then
     # The verifier rejects symlink ancestors, including macOS /var and /tmp.
     TMPDIR=$(cd "${TMPDIR:-/tmp}" && pwd -P)
     export TMPDIR
-    exec "$python" "$root/tests/rust_contract/phase10/host_inventory/contract.py"
+    exec "$python" "$root/tests/tooling/phase10/host_inventory/contract.py"
 fi
-exec "$python" "$root/tests/rust_contract/phase10/host_inventory/inventory.py" verify "$@"
+exec "$python" "$root/tests/tooling/phase10/host_inventory/inventory.py" verify "$@"

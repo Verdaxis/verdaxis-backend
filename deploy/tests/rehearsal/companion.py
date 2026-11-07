@@ -14,6 +14,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from migrated_schema import REVISION, schema_sql
+
 
 def _run(*args, data=None, env=None, cwd=None):
     result = subprocess.run(
@@ -508,22 +510,19 @@ def prepare(
     app_url = f"postgresql://{app}:{password}@127.0.0.1:5432/{database}"
     migration_url = f"postgresql://{migrator}:{password}@127.0.0.1:5432/{database}"
     jwt_secret = secrets.token_hex(32)
-    migration_environment = os.environ | {
-        "ENVIRONMENT": "test",
-        "JWT_SECRET": jwt_secret,
-        "DATABASE_URL": migration_url.replace("postgresql:", "postgresql+asyncpg:"),
-        "MIGRATOR_DATABASE_URL": migration_url.replace(
-            "postgresql:", "postgresql+asyncpg:"
-        ),
-    }
     _run(
-        root / "venv/bin/python",
-        "-m",
-        "alembic",
-        "upgrade",
-        "ob_20261031_offboarding",
-        env=migration_environment,
-        cwd=root,
+        "runuser",
+        "-u",
+        "postgres",
+        "--",
+        "psql",
+        "-Xq",
+        "--single-transaction",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-d",
+        database,
+        data=schema_sql(root, migrator),
     )
     _run(
         "runuser",
@@ -548,10 +547,7 @@ def prepare(
         "-f",
         root / "deploy/postgres/converge_runtime_object_acls.sql",
     )
-    if (
-        _sql(database, "SELECT version_num FROM alembic_version")
-        != "ob_20261031_offboarding"
-    ):
+    if _sql(database, "SELECT version_num FROM alembic_version") != REVISION:
         raise RuntimeError("companion revision differs")
     shutil.copytree(root / "venv", checkout / "venv", symlinks=False)
     for path in (checkout / "venv").rglob("*"):

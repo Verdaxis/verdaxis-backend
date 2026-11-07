@@ -13,6 +13,8 @@ import sys
 import time
 from pathlib import Path
 
+from migrated_schema import REVISION, schema_sql
+
 ROOT = Path(os.environ["REHEARSAL_SOURCE_DIR"])
 PRIVATE = Path(os.environ["PRIVATE"])
 PUBLIC = Path(os.environ["PUBLIC"])
@@ -363,22 +365,20 @@ def prepare():
     sql(f"CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO {MIGRATOR};")
     app_url = f"postgresql://{APP}:{password}@127.0.0.1:5432/{DB}"
     migration_url = f"postgresql://{MIGRATOR}:{password}@127.0.0.1:5432/{DB}"
-    environment = os.environ | {
-        "ENVIRONMENT": "test",
-        "JWT_SECRET": secrets.token_hex(32),
-        "DATABASE_URL": migration_url.replace("postgresql:", "postgresql+asyncpg:"),
-        "MIGRATOR_DATABASE_URL": migration_url.replace(
-            "postgresql:", "postgresql+asyncpg:"
-        ),
-    }
+    jwt_secret = secrets.token_hex(32)
     run(
-        ROOT / "venv/bin/python",
-        "-m",
-        "alembic",
-        "upgrade",
-        "ob_20261031_offboarding",
-        env=environment,
-        cwd=ROOT,
+        "runuser",
+        "-u",
+        "postgres",
+        "--",
+        "psql",
+        "-Xq",
+        "--single-transaction",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-d",
+        DB,
+        data=schema_sql(ROOT, MIGRATOR),
     )
     run(
         "runuser",
@@ -403,10 +403,7 @@ def prepare():
         "-f",
         ROOT / "deploy/postgres/converge_runtime_object_acls.sql",
     )
-    if (
-        sql("SELECT version_num FROM alembic_version;").strip()
-        != "ob_20261031_offboarding"
-    ):
+    if sql("SELECT version_num FROM alembic_version;").strip() != REVISION:
         raise RuntimeError("seeded schema is not final offboarding")
     # Copy the actual retained package, resolving links at copy time. No new
     # executable or library is manufactured to satisfy the closure checker.
@@ -417,7 +414,7 @@ def prepare():
     runtime_env = (
         f"ENVIRONMENT={ENV}\nRELEASE_SHA={OLD}\nDATABASE_URL={app_url.replace('postgresql:', 'postgresql+asyncpg:')}\nMIGRATOR_DATABASE_URL={migration_url.replace('postgresql:', 'postgresql+asyncpg:')}\n"
         f"DATABASE_HOST=127.0.0.1\nDATABASE_NAME={DB}\nDATABASE_USER={APP}\nDATABASE_PASSWORD={password}\n"
-        f"JWT_SECRET={environment['JWT_SECRET']}\nJWT_ISSUER=verdaxis-rehearsal\nJWT_AUDIENCE=verdaxis-rehearsal\n"
+        f"JWT_SECRET={jwt_secret}\nJWT_ISSUER=verdaxis-rehearsal\nJWT_AUDIENCE=verdaxis-rehearsal\n"
         f"FRONTEND_URL=https://{DOMAIN}\nEMAIL_FROM=rehearsal@example.invalid\nRESEND_API_KEY=disposable-never-send\n"
         "KYC_EXECUTION_GATE_ENABLED=false\nRUST_CACHE_LISTENER=0\n"
         "DB_SERVICE_COUNT=2\nUVICORN_WORKERS=4\nDB_POOL_SIZE=2\nDB_MAX_OVERFLOW=1\nDB_RESERVED_CONNECTIONS=20\nDB_MAX_CONNECTIONS=100\n"

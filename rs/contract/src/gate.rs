@@ -76,9 +76,8 @@ pub fn fix_item_regressions(size: WorkloadSize, routes: &[RouteP95]) -> Vec<&'st
 
 /// Expected measured routes and MCP tools, from the committed workload manifest.
 pub fn expected_route_ids() -> Vec<String> {
-    let manifest: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json"))
-            .expect("committed workload manifest must be valid JSON");
+    let manifest: serde_json::Value = serde_json::from_str(crate::fixtures::WORKLOAD)
+        .expect("committed workload manifest must be valid JSON");
     ["routes", "tools"]
         .iter()
         .flat_map(|key| {
@@ -126,10 +125,8 @@ pub struct ContractEvidence {
 
 /// Require one completed result for every committed group at every size.
 pub fn contract_differences(evidence: &[ContractEvidence]) -> Option<u64> {
-    let cases: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/rust_contract/cases.json")).ok()?;
-    let workload: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json")).ok()?;
+    let cases: serde_json::Value = serde_json::from_str(crate::fixtures::CASES).ok()?;
+    let workload: serde_json::Value = serde_json::from_str(crate::fixtures::WORKLOAD).ok()?;
     let groups = cases["groups"].as_object()?;
     let sizes = workload["sizes"].as_object()?;
     if evidence.len() != groups.len() * sizes.len() {

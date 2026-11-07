@@ -2,23 +2,19 @@
 # Account credential cutoff acceptance on a disposable PostgreSQL database.
 #
 # Starts one disposable container on a Docker-assigned loopback port, migrates
-# one database to the Alembic head, applies the runtime ACL bundle, and runs the
+# one database from the SQL baseline, applies the runtime ACL bundle, and runs the
 # ignored cases of `offboarding_credentials_postgres` with the runtime role and
-# the schema owner. The stream and notice cases start the unchanged Python
-# application on a loopback port. The container is removed on exit. Never point
-# this at a live host.
+# the schema owner. The container is removed on exit. Never point this at a
+# live host.
 #
 # Optional environment:
 #   DOCKER_RUN_EXTRA  extra `docker run` flags (for example a log driver)
 #   CARGO_RUNNER      command words placed before every cargo invocation
-#   RUST_TEST_PYTHON  interpreter with the application dependencies (default: python3)
 set -euo pipefail
 export SQLX_OFFLINE=true
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
-python="${RUST_TEST_PYTHON:-python3}"
-export RUST_TEST_PYTHON="$python"
 
 container=''
 log=''
@@ -56,10 +52,11 @@ GRANT USAGE ON SCHEMA public TO verdaxis_app_staging,verdaxis_backup_staging;
 SQL
 
 database=verdaxis_offboarding_credentials_test
-export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
-export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
-export MIGRATOR_DATABASE_URL="$DATABASE_URL"
-"$python" -m alembic upgrade head
+# shellcheck disable=SC2086
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 printf 'GATE=migrate EXIT=0\n'
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database"
@@ -69,12 +66,6 @@ psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
   -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
 
-  # The M runtime only serves an adopted database: record the exact
-  # adoption row (the schema stays at the Alembic head).
-  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
 printf 'GATE=acl EXIT=0\n'
 
 export OFFBOARDING_TEST_DATABASE_URL="postgres://verdaxis_app_staging:disposable_app_pw@127.0.0.1:$port/$database"
@@ -96,8 +87,6 @@ for case in cutoff_is_taken_after_user_lock cutoffs_never_move_back \
   all_refresh_families_and_credentials_are_invalidated \
   old_equal_malformed_and_future_iat_fail_closed \
   credential_cutoff_requires_the_held_user_lock \
-  credential_cutoff_refuses_without_the_caller_lock \
-  detached_streams_close_after_membership_recheck \
-  detachment_suppresses_future_org_notices withdrawn_order_has_no_future_expiry_notice; do
+  credential_cutoff_refuses_without_the_caller_lock; do
   grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

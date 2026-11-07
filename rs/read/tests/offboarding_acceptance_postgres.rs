@@ -10,11 +10,7 @@
 //!
 //! The Rust half is the served router with the release switch on and the
 //! stream hub present, over loopback HTTP where a stream is read. The Python
-//! half is the unchanged Python application against the same clone: in
-//! process through `tests/fixtures/offboarding_acceptance_harness.py`, and as
 //! a loopback server for its private streams through
-//! `tests/fixtures/offboarding_python_harness.py`, both with the project's
-//! interpreter (`RUST_TEST_PYTHON`, default `python3`). Both stacks share one
 //! signing key, issuer and audience, as deployed.
 //!
 //! Lock races use independent connections. The side that must hold its locks
@@ -27,10 +23,7 @@
 mod market_database;
 
 use std::{
-    io::{BufRead, BufReader, Write},
     net::SocketAddr,
-    path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -46,18 +39,12 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
-use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState, Config,
-    auth::{TokenIssuer, VerificationSettings, offboarding::UnusablePasswordHash, verify_access},
-    business::{
-        admission::AuditContext,
-        offboarding::{OffboardAccount, OffboardRequest, UserMarketInvalidation},
-        transaction::{CompletionControl, CompletionPoint, run_controlled_write},
-    },
+    auth::{TokenIssuer, VerificationSettings},
     compiled_sha,
     streams::{bus::StreamHub, heartbeat::HeartbeatStatus, http::Streams},
 };
@@ -69,7 +56,6 @@ const AUDIENCE: &str = "verdaxis-acceptance-web";
 const PASSWORD: &str = "SyntheticPassword123";
 const NEW_PASSWORD: &str = "AnotherSynthetic456";
 /// The credentialed browser origin of the Python test environment.
-const ORIGIN: &str = "https://test";
 const CASE: &str = "CASE-2026/0042";
 /// bcrypt's minimum cost keeps fixture password checks short while a row
 /// lock is held; verification accepts any cost.
@@ -80,10 +66,6 @@ const STREAM_RECHECK: Duration = Duration::from_secs(15);
 const STREAM_SLACK: Duration = Duration::from_secs(3);
 /// The application name of the served Rust router's sessions.
 const RUST_APPLICATION: &str = "acceptance-rust";
-const ACCEPTANCE_HARNESS: &str = "rs/read/tests/fixtures/offboarding_acceptance_harness.py";
-const STREAM_HARNESS: &str = "rs/read/tests/fixtures/offboarding_python_harness.py";
-const RESULT_PREFIX: &str = "ACCEPTANCE_RESULT ";
-const READY_LINE: &str = "ACCEPTANCE_READY";
 
 const ORGANIZATION: Uuid = Uuid::from_u128(0x5000);
 const SUBJECT: Uuid = Uuid::from_u128(0x5001);
@@ -270,10 +252,6 @@ async fn send(
     )
 }
 
-fn code(body: &Value) -> &str {
-    body["detail"]["code"].as_str().unwrap_or_default()
-}
-
 fn refused(status: StatusCode) -> bool {
     matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
 }
@@ -288,11 +266,9 @@ fn deliver_body() -> Value {
 // ---------------------------------------------------------------------------
 
 struct World {
-    database: market_database::MarketDatabase,
+    _database: market_database::MarketDatabase,
     admin: PgConnection,
-    observer: PgPool,
     pool: PgPool,
-    state: AppState,
     served: Router,
 }
 
@@ -307,7 +283,7 @@ impl World {
         ] {
             sqlx::raw_sql(fixture).execute(&mut admin).await.unwrap();
         }
-        // The Python models load only their current organization types.
+        // Seed the current organization types for these actor fixtures.
         for (organization, kind, member, role) in [
             (Some(ORGANIZATION), "FUEL_SUPPLIER", SUBJECT, "SUPPLIER"),
             (Some(ORGANIZATION), "FUEL_SUPPLIER", COLLEAGUE, "SUPPLIER"),
@@ -352,20 +328,13 @@ impl World {
                 .await
                 .unwrap();
         }
-        let observer = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&database.admin_url)
-            .await
-            .unwrap();
         let pool = runtime_pool(&database.runtime_url).await;
         let state = application(&database.runtime_url, pool.clone());
         let served = verdaxis_read::router(state.clone());
         Self {
-            database,
+            _database: database,
             admin,
-            observer,
             pool,
-            state,
             served,
         }
     }
@@ -457,54 +426,70 @@ impl World {
         .await
     }
 
-    /// The serving command for one person, as the route builds it, for the
-    /// owner's completion seam.
-    fn command(
-        &self,
-        subject: Uuid,
-        expected: Option<Uuid>,
-        unusable_hash: UnusablePasswordHash,
-    ) -> OffboardAccount<
-        Arc<UserMarketInvalidation>,
-        Arc<impl verdaxis_read::business::admission::AdmissionEvents + use<>>,
-    > {
-        let service = verdaxis_read::runtime::offboarding::service(&self.state);
-        OffboardAccount {
-            subject_id: subject,
-            request: OffboardRequest::parse(&serde_json::to_vec(&offboard_body(expected)).unwrap())
-                .unwrap(),
-            unusable_hash,
-            audit: AuditContext::default(),
-            market: service.market.clone(),
-            events: service.events.clone(),
+    async fn request_rows(&self, requests: Vec<Value>) -> Value {
+        let mut results = serde_json::Map::new();
+        for request in requests {
+            let mut builder = Request::builder()
+                .method(request["method"].as_str().unwrap())
+                .uri(request["path"].as_str().unwrap())
+                .header("host", "localhost");
+            if let Some(token) = request["token"].as_str() {
+                builder = builder.header("authorization", format!("Bearer {token}"));
+            }
+            if let Some(headers) = request["headers"].as_object() {
+                for (name, value) in headers {
+                    builder = builder.header(name, value.as_str().unwrap());
+                }
+            }
+            if let Some(cookies) = request["cookies"].as_object() {
+                let value = cookies
+                    .iter()
+                    .map(|(name, value)| format!("{name}={}", value.as_str().unwrap()))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                builder = builder.header("cookie", value);
+            }
+            let body = if let Some(form) = request["form"].as_object() {
+                builder = builder.header("content-type", "application/x-www-form-urlencoded");
+                let mut encoded = url::form_urlencoded::Serializer::new(String::new());
+                for (name, value) in form {
+                    encoded.append_pair(name, value.as_str().unwrap());
+                }
+                Body::from(encoded.finish())
+            } else {
+                builder = builder.header("content-type", "application/json");
+                request
+                    .get("json")
+                    .map_or_else(Body::empty, |value| Body::from(value.to_string()))
+            };
+            let response = self
+                .served
+                .clone()
+                .oneshot(builder.body(body).unwrap())
+                .await
+                .unwrap();
+            let status = response.status().as_u16();
+            let mut cookies = serde_json::Map::new();
+            for header in response.headers().get_all("set-cookie") {
+                if let Some((name, value)) = header
+                    .to_str()
+                    .unwrap()
+                    .split(';')
+                    .next()
+                    .unwrap()
+                    .split_once('=')
+                {
+                    cookies.insert(name.to_owned(), json!(value));
+                }
+            }
+            let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
+            let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            results.insert(
+                request["name"].as_str().unwrap().to_owned(),
+                json!({"status":status,"body":body,"cookies":cookies}),
+            );
         }
-    }
-
-    fn admin_access(&self) -> verdaxis_read::auth::VerifiedAccess {
-        verify_access(
-            &token(ADMIN),
-            &VerificationSettings::new(KEY.into(), None, ISSUER.into(), AUDIENCE.into()),
-            Utc::now(),
-        )
-        .unwrap()
-    }
-
-    fn runtime_role(&self) -> String {
-        url::Url::parse(&self.database.runtime_url)
-            .unwrap()
-            .username()
-            .to_owned()
-    }
-
-    /// Start a Python request in its own interpreter; it waits for
-    /// [`PythonCall::go`].
-    async fn python(&self, requests: Vec<Value>) -> PythonCall {
-        PythonCall::ready(&self.database.runtime_url, requests).await
-    }
-
-    /// Run Python requests to completion.
-    async fn python_now(&self, requests: Vec<Value>) -> Value {
-        self.python(requests).await.go().await.unwrap()
+        Value::Object(results)
     }
 }
 
@@ -512,170 +497,40 @@ impl World {
 // The unchanged Python application.
 // ---------------------------------------------------------------------------
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repository root")
-}
-
-/// SQLAlchemy's asyncpg form of a PostgreSQL URL.
-fn python_url(url: &str) -> String {
-    let rest = url
-        .strip_prefix("postgresql://")
-        .or_else(|| url.strip_prefix("postgres://"))
-        .expect("a postgres:// or postgresql:// URL");
-    format!("postgresql+asyncpg://{rest}")
-}
-
-fn python_command(harness: &str, command: &str, database_url: &str) -> Command {
-    let root = repository_root();
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let mut process = Command::new(python);
-    process
-        .current_dir(&root)
-        .env("PYTHONPATH", &root)
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", KEY)
-        .env("JWT_ISSUER", ISSUER)
-        .env("JWT_AUDIENCE", AUDIENCE)
-        .env("KYC_EXECUTION_GATE_ENABLED", "false")
-        .env("DATABASE_URL", python_url(database_url))
-        .arg(root.join(harness))
-        .arg(command);
-    process
-}
-
-/// One interpreter with its requests loaded, waiting to send them. Its log
-/// output goes to a file, shown only when the harness fails, so that it never
-/// interleaves with the test runner's own lines.
-struct PythonCall {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    log: PathBuf,
-}
-
-impl PythonCall {
-    async fn ready(database_url: &str, requests: Vec<Value>) -> Self {
-        let mut process = python_command(ACCEPTANCE_HARNESS, "requests", database_url);
-        let request = json!({ "requests": requests });
-        let log =
-            std::env::temp_dir().join(format!("offboarding-acceptance-{}.log", Uuid::new_v4()));
-        let sink = std::fs::File::create(&log).expect("a harness log file");
-        tokio::task::spawn_blocking(move || {
-            let mut child = process
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(sink)
-                .spawn()
-                .expect(
-                    "Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH",
-                );
-            let mut stdin = child.stdin.take().expect("stdin");
-            writeln!(stdin, "{request}").expect("write the requests");
-            stdin.flush().unwrap();
-            let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
-            let mut line = String::new();
-            loop {
-                line.clear();
-                let read = stdout.read_line(&mut line).expect("harness output");
-                assert!(
-                    read > 0,
-                    "the Python harness ended before it was ready: {}",
-                    std::fs::read_to_string(&log).unwrap_or_default()
-                );
-                if line.trim_end() == READY_LINE {
-                    break;
-                }
-            }
-            Self {
-                child,
-                stdin,
-                stdout,
-                log,
-            }
-        })
-        .await
-        .unwrap()
-    }
-
-    /// Send the requests; the result maps each request name to its status,
-    /// body and the cookies the response set.
-    fn go(self) -> tokio::task::JoinHandle<Value> {
-        tokio::task::spawn_blocking(move || {
-            let Self {
-                mut child,
-                mut stdin,
-                mut stdout,
-                log,
-            } = self;
-            writeln!(stdin, "go").expect("release the requests");
-            drop(stdin);
-            let mut output = String::new();
-            std::io::Read::read_to_string(&mut stdout, &mut output).expect("harness output");
-            let status = child.wait().expect("Python harness finished");
-            let messages = std::fs::read_to_string(&log).unwrap_or_default();
-            let _ = std::fs::remove_file(&log);
-            assert!(
-                status.success(),
-                "Python harness failed: {status}: {messages}"
-            );
-            let line = output
-                .lines()
-                .find_map(|line| line.strip_prefix(RESULT_PREFIX))
-                .expect("one result line");
-            let result: Value = serde_json::from_str(line).expect("JSON result");
-            result["results"].clone()
-        })
-    }
-}
-
-fn python_status(results: &Value, name: &str) -> u16 {
+fn request_status(results: &Value, name: &str) -> u16 {
     results[name]["status"]
         .as_u64()
         .unwrap_or_else(|| panic!("no Python result {name}: {results}")) as u16
 }
 
-fn python_cookies(results: &Value, name: &str) -> Value {
+fn request_cookies(results: &Value, name: &str) -> Value {
     results[name]["cookies"].clone()
 }
 
-fn python_token(results: &Value, name: &str) -> String {
+fn request_token(results: &Value, name: &str) -> String {
     results[name]["body"]["access_token"]
         .as_str()
         .unwrap_or_else(|| panic!("no access token in {name}: {results}"))
         .to_owned()
 }
 
-fn python_login(name: &str, email: &str, password: &str) -> Value {
+fn login_request(name: &str, email: &str, password: &str) -> Value {
     json!({"name": name, "method": "POST", "path": "/api/auth/login",
            "form": {"username": email, "password": password}})
 }
 
-/// A cookie-authenticated session request (refresh or logout).
-fn python_session(name: &str, path: &str, cookies: &Value) -> Value {
-    json!({"name": name, "method": "POST", "path": path, "cookies": cookies,
-           "headers": {"Origin": ORIGIN}})
-}
-
-fn python_me(name: &str, bearer: &str) -> Value {
-    json!({"name": name, "method": "GET", "path": "/api/auth/me", "token": bearer})
-}
-
-fn python_approve(name: &str, user: Uuid) -> Value {
+fn approve_request(name: &str, user: Uuid) -> Value {
     json!({"name": name, "method": "PUT", "path": format!("/api/auth/approve/{user}"),
            "token": token(ADMIN)})
 }
 
-fn python_join_approval(name: &str, join: Uuid) -> Value {
+fn join_approval_request(name: &str, join: Uuid) -> Value {
     json!({"name": name, "method": "PUT",
            "path": format!("/api/auth/organization-joins/{join}/approve"),
            "token": token(ADMIN), "json": {"review_note": "Verified company request"}})
 }
 
-fn python_trade(name: &str, trade: Uuid, action: &str, bearer: &str) -> Value {
+fn trade_request(name: &str, trade: Uuid, action: &str, bearer: &str) -> Value {
     let (method, body) = if action == "pay" {
         ("POST", Value::Null)
     } else {
@@ -686,75 +541,6 @@ fn python_trade(name: &str, trade: Uuid, action: &str, bearer: &str) -> Value {
 }
 
 /// The Python application as a loopback server, for its two private streams.
-struct PythonStreams {
-    child: Child,
-    base: String,
-    control: String,
-}
-
-impl PythonStreams {
-    async fn start(database_url: &str) -> Self {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let control = verdaxis_read::auth::token_bytes::generate_token();
-        let child = python_command(STREAM_HARNESS, "serve", database_url)
-            .env("OFFBOARDING_HARNESS_PORT", port.to_string())
-            .env("OFFBOARDING_HARNESS_TOKEN", &control)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            // Its log lines would interleave with the test runner's own.
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-        let mut service = Self {
-            child,
-            base: format!("http://127.0.0.1:{port}"),
-            control,
-        };
-        let started = Instant::now();
-        loop {
-            if let Some(status) = service.child.try_wait().unwrap() {
-                panic!("the Python service exited early: {status}");
-            }
-            let ready = client()
-                .get(format!("{}/__harness/ready", service.base))
-                .send()
-                .await
-                .is_ok_and(|response| response.status().is_success());
-            if ready {
-                return service;
-            }
-            assert!(
-                started.elapsed() < Duration::from_secs(120),
-                "the Python service did not start"
-            );
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-    }
-
-    /// Publish one event on the Python in-process bus: an event in flight.
-    async fn publish(&self, channel: &str, event: &str) {
-        let response = client()
-            .post(format!("{}/__harness/publish", self.base))
-            .header("x-harness-token", &self.control)
-            .json(&json!({"channel": channel, "event": event, "data": {"marker": event}}))
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_success());
-    }
-}
-
-impl Drop for PythonStreams {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 fn client() -> reqwest::Client {
     reqwest::Client::builder().no_proxy().build().unwrap()
 }
@@ -843,180 +629,6 @@ async fn wait_until(deadline: Duration, mut condition: impl FnMut() -> bool) -> 
 // Lock races.
 // ---------------------------------------------------------------------------
 
-/// Which side holds the conflicting locks first.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum First {
-    Python,
-    Rust,
-}
-
-/// The backend waiting at the fixture gate.
-async fn gate_waiter(observer: &PgPool) -> i32 {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let waiting: Option<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \
-             AND wait_event_type='Lock' AND wait_event='advisory' LIMIT 1",
-        )
-        .fetch_optional(observer)
-        .await
-        .unwrap();
-        if let Some(pid) = waiting {
-            return pid;
-        }
-        assert!(Instant::now() < deadline, "no request reached the gate");
-        tokio::time::sleep(Duration::from_millis(2)).await;
-    }
-}
-
-/// A backend waiting for a lock that `holder` holds, with its application.
-async fn blocked_by(observer: &PgPool, holder: i32) -> (i32, String) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        let waiting: Option<(i32, String)> = sqlx::query_as(
-            "SELECT pid, application_name FROM pg_stat_activity WHERE datname=current_database() \
-             AND pid<>$1 AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
-        )
-        .bind(holder)
-        .fetch_optional(observer)
-        .await
-        .unwrap();
-        if let Some(waiting) = waiting {
-            return waiting;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "no backend waited for backend {holder}"
-        );
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-}
-
-/// The one runtime transaction idle while open: the command paused before
-/// its commit.
-async fn paused_transaction(observer: &PgPool, role: &str) -> i32 {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        let paused: Vec<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity WHERE datname=current_database() \
-             AND usename=$1 AND state='idle in transaction'",
-        )
-        .bind(role)
-        .fetch_all(observer)
-        .await
-        .unwrap();
-        if let [pid] = paused[..] {
-            return pid;
-        }
-        assert!(Instant::now() < deadline, "{paused:?}");
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-}
-
-/// The outcome of one race between the offboarding command and Python
-/// requests.
-struct RaceOutcome {
-    python: Value,
-    /// The command's answer; `MARKET_BUSY` answers were repeated.
-    command: (StatusCode, Value),
-}
-
-/// Race the served offboarding of `subject` against Python `requests`.
-///
-/// Python first: the requests stop at the fixture gate `gate` after their own
-/// row locks; the command starts and is seen waiting for the Python backend;
-/// then the gate opens. Rust first: the command pauses before its commit with
-/// every lock held; the requests start and one is seen waiting for the
-/// command's backend; then the command commits.
-///
-/// A command that waited longer than its 500 ms lock bound answers
-/// `MARKET_BUSY` with nothing kept; the administrator then repeats it.
-async fn race(
-    world: &mut World,
-    first: First,
-    gate: &str,
-    subject: Uuid,
-    expected: Option<Uuid>,
-    requests: Vec<Value>,
-) -> RaceOutcome {
-    let case = format!("{gate}, {first:?} first");
-    let python = world.python(requests).await;
-    let (python, command) = match first {
-        First::Python => {
-            world.call("acceptance_gate_install", &[json!(gate)]).await;
-            let mut keeper = PgConnection::connect(&world.database.admin_url)
-                .await
-                .unwrap();
-            sqlx::query("SELECT acceptance_gate_close()")
-                .execute(&mut keeper)
-                .await
-                .unwrap();
-            let python = python.go();
-            let holder = gate_waiter(&world.observer).await;
-            let served = world.served.clone();
-            let command = tokio::spawn(async move {
-                send(
-                    &served,
-                    "POST",
-                    &format!("/api/auth/admin/users/{subject}/offboard"),
-                    Some(&token(ADMIN)),
-                    Some(offboard_body(expected)),
-                )
-                .await
-            });
-            let (waiter, application) = blocked_by(&world.observer, holder).await;
-            assert_eq!(application, RUST_APPLICATION, "{case}");
-            eprintln!("{case}: Rust backend {waiter} waited for Python backend {holder}");
-            sqlx::query("SELECT acceptance_gate_open()")
-                .execute(&mut keeper)
-                .await
-                .unwrap();
-            keeper.close().await.unwrap();
-            let python = python.await.unwrap();
-            let mut command = command.await.unwrap();
-            world.call("acceptance_gate_remove", &[]).await;
-            if command.0 == StatusCode::CONFLICT && code(&command.1) == "MARKET_BUSY" {
-                let kept = world.account(subject).await;
-                assert!(kept["offboarded_at"].is_null(), "{case}: busy kept nothing");
-                assert_eq!(kept["records"], 0, "{case}");
-                eprintln!("{case}: the command waited past its lock bound; repeated");
-                command = world.offboard(subject, expected).await;
-            }
-            (python, command)
-        }
-        First::Rust => {
-            let control = CompletionControl::new(CompletionPoint::BeforeCommit, false);
-            let paused = tokio::spawn(run_controlled_write(
-                world.pool.clone(),
-                Arc::new(Semaphore::new(4)),
-                world.admin_access(),
-                world.command(
-                    subject,
-                    expected,
-                    UnusablePasswordHash::prepare().await.unwrap(),
-                ),
-                control.clone(),
-            ));
-            control.reached().await;
-            let holder = paused_transaction(&world.observer, &world.runtime_role()).await;
-            let python = python.go();
-            let (waiter, _) = blocked_by(&world.observer, holder).await;
-            eprintln!("{case}: Python backend {waiter} waited for Rust backend {holder}");
-            control.release();
-            let committed = paused.await.unwrap();
-            assert!(
-                committed.is_ok(),
-                "{case}: {:?}",
-                committed.err().map(|error| error.detail)
-            );
-            (python.await.unwrap(), (StatusCode::OK, Value::Null))
-        }
-    };
-    RaceOutcome { python, command }
-}
-
-/// After any offboarding: the account is marked and detached, every session
-/// is revoked and no recovery secret remains.
 async fn assert_offboarded(world: &mut World, subject: Uuid, case: &str) -> Value {
     let account = world.account(subject).await;
     assert!(!account["offboarded_at"].is_null(), "{case}: {account}");
@@ -1040,15 +652,15 @@ fn timestamp(value: &Value) -> DateTime<Utc> {
         .unwrap()
 }
 
-/// A token issued before the commit is refused by both stacks.
-async fn assert_token_refused(world: &World, bearer: &str, case: &str) {
-    let (status, body) = send(&world.served, "GET", "/api/auth/me", Some(bearer), None).await;
-    assert!(refused(status), "{case}: Rust {status} {body}");
-    let results = world.python_now(vec![python_me("me", bearer)]).await;
-    assert!(
-        matches!(python_status(&results, "me"), 401 | 403),
-        "{case}: Python {results}"
-    );
+/// Sleep until `instant` is in the past on this host's clock.
+///
+/// Offboarding moves both cutoffs `CUTOFF_SKEW_MARGIN_SECONDS` past the
+/// database clock. Until then a sign-in issues a token whose `iat` lies in the
+/// future, and token verification refuses it, as designed.
+async fn wait_until_passed(instant: DateTime<Utc>) {
+    if let Ok(remaining) = (instant - Utc::now()).to_std() {
+        tokio::time::sleep(remaining).await;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1081,40 +693,21 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
         .await
         .unwrap();
     let cursor = replay - 1;
-    let python = PythonStreams::start(&world.database.runtime_url).await;
     let rust = format!("http://127.0.0.1:{}", serve(world.served.clone()).await);
     let stream_token = |user| issuer().stream(user, ORGANIZATION, "test", Utc::now());
     let subject_stream = stream_token(SUBJECT);
     let colleague_stream = stream_token(COLLEAGUE);
-    let python_activity =
-        |bearer: &str| format!("{}/api/stream/activity?stream_token={bearer}", python.base);
-    let python_trades = |bearer: &str| {
-        format!(
-            "{}/api/stream/trades?stream_token={bearer}&last_event_id={cursor}",
-            python.base
-        )
-    };
     let rust_trades = |bearer: &str| {
         format!("{rust}/api/stream/trades?stream_token={bearer}&last_event_id={cursor}")
     };
 
-    let streams = [
-        (
-            "Python activity",
-            EventStream::open(python_activity(&subject_stream)).await,
-        ),
-        (
-            "Python trades",
-            EventStream::open(python_trades(&subject_stream)).await,
-        ),
-        (
-            "Rust trades",
-            EventStream::open(rust_trades(&subject_stream)).await,
-        ),
-    ];
+    let streams = [(
+        "Rust trades",
+        EventStream::open(rust_trades(&subject_stream)).await,
+    )];
     let colleague_rust = EventStream::open(rust_trades(&colleague_stream)).await;
     // Both trade streams replayed the outbox before the change.
-    for (name, stream) in &streams[1..] {
+    for (name, stream) in &streams {
         assert!(
             wait_until(Duration::from_secs(10), || stream.has("synthetic_replay")).await,
             "{name} replayed the outbox"
@@ -1126,31 +719,10 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
         .await,
         "the colleague's Rust stream replayed the outbox"
     );
-    let mut subscribed = false;
-    for _ in 0..10 {
-        python
-            .publish(&format!("activity:{ORGANIZATION}"), "synthetic_before")
-            .await;
-        if wait_until(Duration::from_secs(1), || {
-            streams[0].1.has("synthetic_before")
-        })
-        .await
-        {
-            subscribed = true;
-            break;
-        }
-    }
-    assert!(
-        subscribed,
-        "the Python activity stream receives live events"
-    );
-
     // Before the change both stacks accept the person's current token.
     let old = token(SUBJECT);
     let (status, body) = send(&world.served, "GET", "/api/auth/me", Some(&old), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let results = world.python_now(vec![python_me("me", &old)]).await;
-    assert_eq!(python_status(&results, "me"), 200, "{results}");
 
     let (status, body) = world.offboard(SUBJECT, Some(ORGANIZATION)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1184,11 +756,7 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
         colleague_rust.closed_at().is_none(),
         "a current member keeps the stream"
     );
-    for url in [
-        python_activity(&subject_stream),
-        python_trades(&subject_stream),
-        rust_trades(&subject_stream),
-    ] {
+    for url in [rust_trades(&subject_stream)] {
         let status = client().get(&url).send().await.unwrap().status().as_u16();
         assert!(
             matches!(status, 401 | 403),
@@ -1218,48 +786,7 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
             token_with_issuance(SUBJECT, json!("x"), json!("x")),
         ),
     ];
-    let checks: Vec<Value> = tokens
-        .iter()
-        .map(|(name, bearer)| json!({"name": name, "token": bearer}))
-        .collect();
-    let mut auth = python_command(STREAM_HARNESS, "auth", &world.database.runtime_url);
-    let auth = tokio::task::spawn_blocking(move || {
-        let mut child = auth
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(json!({"tokens": checks}).to_string().as_bytes())
-            .unwrap();
-        let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        let line = stdout
-            .lines()
-            .find_map(|line| line.strip_prefix("OFFBOARDING_RESULT "))
-            .expect("one result line")
-            .to_owned();
-        serde_json::from_str::<Value>(&line).unwrap()["tokens"].clone()
-    })
-    .await
-    .unwrap();
     for (name, bearer) in &tokens {
-        for path in ["normal", "cleanup"] {
-            let outcome = auth[name][path].as_str().unwrap_or_default();
-            assert!(
-                outcome.starts_with("refused:") || outcome.starts_with("error:"),
-                "Python {path} {name}: {outcome}"
-            );
-        }
         let (status, body) = send(&world.served, "GET", "/api/auth/me", Some(bearer), None).await;
         assert!(refused(status), "Rust bearer {name}: {status} {body}");
         let (status, body) = send(
@@ -1305,13 +832,13 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
         )
         .await;
     let results = world
-        .python_now(vec![
-            python_approve("approve", SUBJECT),
-            python_join_approval("join", REJOIN_REQUEST),
+        .request_rows(vec![
+            approve_request("approve", SUBJECT),
+            join_approval_request("join", REJOIN_REQUEST),
         ])
         .await;
-    assert!(python_status(&results, "approve") >= 400, "{results}");
-    assert!(python_status(&results, "join") >= 400, "{results}");
+    assert!(request_status(&results, "approve") >= 400, "{results}");
+    assert!(request_status(&results, "join") >= 400, "{results}");
     let after = world.account(SUBJECT).await;
     assert_eq!(after["status"], before["status"]);
     assert_eq!(after["organization_id"], before["organization_id"]);
@@ -1319,8 +846,8 @@ async fn both_stack_cutoffs_constraints_and_streams_hold() {
     assert_eq!(after["joins"][REJOIN_REQUEST.to_string()], "PENDING");
     eprintln!(
         "Python approval {} and join approval {} refused",
-        python_status(&results, "approve"),
-        python_status(&results, "join")
+        request_status(&results, "approve"),
+        request_status(&results, "join")
     );
     for (edit, constraint) in [
         (
@@ -1366,11 +893,11 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
     let mut world = World::new().await;
     let email = world.email(SUBJECT).await;
     let results = world
-        .python_now(vec![python_login("login", &email, PASSWORD)])
+        .request_rows(vec![login_request("login", &email, PASSWORD)])
         .await;
-    assert_eq!(python_status(&results, "login"), 200, "{results}");
-    let old_access = python_token(&results, "login");
-    let old_cookies = python_cookies(&results, "login");
+    assert_eq!(request_status(&results, "login"), 200, "{results}");
+    let old_access = request_token(&results, "login");
+    let old_cookies = request_cookies(&results, "login");
     assert!(old_cookies["refresh_token"].is_string(), "{results}");
 
     let (status, body) = world.offboard(SUBJECT, Some(ORGANIZATION)).await;
@@ -1381,14 +908,14 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
 
     // The same address cannot become a second account.
     let results = world
-        .python_now(vec![json!({
+        .request_rows(vec![json!({
             "name": "invite", "method": "POST", "path": "/api/auth/admin/invitations",
             "token": token(ADMIN),
             "json": {"email": email, "first_name": "Returning", "role": "SUPPLIER",
                      "organization_id": ORGANIZATION},
         })])
         .await;
-    assert_eq!(python_status(&results, "invite"), 409, "{results}");
+    assert_eq!(request_status(&results, "invite"), 409, "{results}");
     assert_eq!(world.account(SUBJECT).await["rows_with_email"], 1);
 
     // The reviewed marker clear changes nothing else.
@@ -1411,39 +938,12 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
         assert_eq!(cleared[field], offboarded[field], "{field}");
     }
     let stale = |stage: &'static str, world: &World| {
-        let (old_access, old_cookies, email) =
-            (old_access.clone(), old_cookies.clone(), email.clone());
-        let runtime = world.database.runtime_url.clone();
+        let old_access = old_access.clone();
         let served = world.served.clone();
         async move {
             let (status, body) =
                 send(&served, "GET", "/api/auth/me", Some(&old_access), None).await;
             assert!(refused(status), "{stage}: Rust old token {status} {body}");
-            let results = PythonCall::ready(
-                &runtime,
-                vec![
-                    python_me("me", &old_access),
-                    python_session("refresh", "/api/auth/refresh", &old_cookies),
-                    python_login("login", &email, PASSWORD),
-                ],
-            )
-            .await
-            .go()
-            .await
-            .unwrap();
-            assert!(
-                matches!(python_status(&results, "me"), 401 | 403),
-                "{stage}: {results}"
-            );
-            assert_eq!(
-                python_status(&results, "refresh"),
-                401,
-                "{stage}: {results}"
-            );
-            assert!(
-                matches!(python_status(&results, "login"), 401 | 403),
-                "{stage}: {results}"
-            );
         }
     };
     stale("after the marker clear", &world).await;
@@ -1456,13 +956,13 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
         )
         .await;
     let results = world
-        .python_now(vec![
-            python_approve("approve", SUBJECT),
-            python_join_approval("join", REJOIN_REQUEST),
+        .request_rows(vec![
+            approve_request("approve", SUBJECT),
+            join_approval_request("join", REJOIN_REQUEST),
         ])
         .await;
-    assert_eq!(python_status(&results, "approve"), 200, "{results}");
-    assert_eq!(python_status(&results, "join"), 200, "{results}");
+    assert_eq!(request_status(&results, "approve"), 200, "{results}");
+    assert_eq!(request_status(&results, "join"), 200, "{results}");
     let rejoined = world.account(SUBJECT).await;
     assert_eq!(rejoined["status"], "APPROVED");
     assert_eq!(rejoined["organization_id"], json!(ORGANIZATION));
@@ -1470,6 +970,15 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
     assert!(rejoined["kyc_organization_id"].is_null());
     assert_eq!(rejoined["password_hash"], offboarded["password_hash"]);
     stale("after re-approval and rejoin", &world).await;
+
+    // A person returns after the offboarding cutoff, which lies a few seconds
+    // ahead of the database clock. These in-process steps finish sooner, so
+    // wait for the cutoff before the new password is tried.
+    wait_until_passed(
+        timestamp(&offboarded["password_changed_at"])
+            .max(timestamp(&offboarded["authentication_revoked_at"])),
+    )
+    .await;
 
     // A new password from a fresh reset secret is the only way back in.
     let secret = format!("fresh-reset-{}", Uuid::new_v4());
@@ -1480,15 +989,15 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
         )
         .await;
     let results = world
-        .python_now(vec![
+        .request_rows(vec![
             json!({"name": "reset", "method": "POST", "path": "/api/auth/reset-password",
                    "json": {"token": secret, "new_password": NEW_PASSWORD}}),
-            python_login("login", &email, NEW_PASSWORD),
+            login_request("login", &email, NEW_PASSWORD),
         ])
         .await;
-    assert_eq!(python_status(&results, "reset"), 200, "{results}");
-    assert_eq!(python_status(&results, "login"), 200, "{results}");
-    let fresh = python_token(&results, "login");
+    assert_eq!(request_status(&results, "reset"), 200, "{results}");
+    assert_eq!(request_status(&results, "login"), 200, "{results}");
+    let fresh = request_token(&results, "login");
     assert!(issued_at(&fresh) > timestamp(&offboarded["authentication_revoked_at"]));
     let (status, body) = send(&world.served, "GET", "/api/auth/me", Some(&fresh), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1596,13 +1105,13 @@ async fn unmarked_rejection_keeps_settlement() {
         "rejected user, Rust payment: {body}"
     );
     let results = world
-        .python_now(vec![json!({
+        .request_rows(vec![json!({
             "name": "withdraw", "method": "DELETE",
             "path": format!("/api/orderbook/{COLLEAGUE_ASK}"), "token": token(COLLEAGUE),
         })])
         .await;
     assert!(
-        (200..300).contains(&python_status(&results, "withdraw")),
+        (200..300).contains(&request_status(&results, "withdraw")),
         "rejected user, Python withdrawal: {results}"
     );
     let withdrawn: String =
@@ -1688,14 +1197,14 @@ async fn offboarded_detached_user_cannot_read_or_settle_rejected_org_trades() {
     }
     let email = world.email(SUBJECT).await;
     let results = world
-        .python_now(vec![
-            python_trade("deliver", CONFIRMED, "deliver", &old),
-            python_login("login", &email, PASSWORD),
+        .request_rows(vec![
+            trade_request("deliver", CONFIRMED, "deliver", &old),
+            login_request("login", &email, PASSWORD),
         ])
         .await;
-    assert!(python_status(&results, "deliver") >= 400, "{results}");
+    assert!(request_status(&results, "deliver") >= 400, "{results}");
     assert!(
-        matches!(python_status(&results, "login"), 401 | 403),
+        matches!(request_status(&results, "login"), 401 | 403),
         "{results}"
     );
     let trade = world.trade(CONFIRMED).await;
@@ -1707,521 +1216,14 @@ async fn offboarded_detached_user_cannot_read_or_settle_rejected_org_trades() {
 // 5. Python session writers as lock holders.
 // ---------------------------------------------------------------------------
 
-/// Python login and Python refresh race the served command; each wins once.
-///
-/// When Python holds the person's row first, it commits its session and
-/// tokens; the command then takes the cutoff after the lock, later than the
-/// Python token's issuance, and revokes the new family: neither stack accepts
-/// the new token or refresh session. When the command holds the row first,
-/// the Python request waits, then finds the account rejected or its password
-/// replaced and issues nothing.
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL and Python"]
-async fn python_login_and_refresh_lock_holders_are_cut_off() {
-    for flow in ["login", "refresh"] {
-        for first in [First::Python, First::Rust] {
-            let case = format!("{flow}, {first:?} first");
-            let mut world = World::new().await;
-            let email = world.email(SUBJECT).await;
-            let request = if flow == "login" {
-                python_login("raced", &email, PASSWORD)
-            } else {
-                let results = world
-                    .python_now(vec![python_login("login", &email, PASSWORD)])
-                    .await;
-                assert_eq!(python_status(&results, "login"), 200, "{case}: {results}");
-                python_session(
-                    "raced",
-                    "/api/auth/refresh",
-                    &python_cookies(&results, "login"),
-                )
-            };
-            let sessions_before = world.account(SUBJECT).await["sessions"].clone();
-            let outcome = race(
-                &mut world,
-                first,
-                "session-insert",
-                SUBJECT,
-                Some(ORGANIZATION),
-                vec![request],
-            )
-            .await;
-            assert_eq!(
-                outcome.command.0,
-                StatusCode::OK,
-                "{case}: {:?}",
-                outcome.command
-            );
-            let account = assert_offboarded(&mut world, SUBJECT, &case).await;
-            let status = python_status(&outcome.python, "raced");
-            match first {
-                First::Python => {
-                    assert_eq!(status, 200, "{case}: {}", outcome.python);
-                    let issued = python_token(&outcome.python, "raced");
-                    let cutoff = timestamp(&account["authentication_revoked_at"]);
-                    assert!(
-                        issued_at(&issued) < cutoff,
-                        "{case}: the cutoff follows the lock holder's token"
-                    );
-                    assert!(timestamp(&account["password_changed_at"]) >= cutoff);
-                    assert_token_refused(&world, &issued, &case).await;
-                    let results = world
-                        .python_now(vec![python_session(
-                            "refresh",
-                            "/api/auth/refresh",
-                            &python_cookies(&outcome.python, "raced"),
-                        )])
-                        .await;
-                    assert_eq!(python_status(&results, "refresh"), 401, "{case}: {results}");
-                }
-                First::Rust => {
-                    assert!(
-                        matches!(status, 401 | 403),
-                        "{case}: issues nothing: {}",
-                        outcome.python
-                    );
-                    assert_eq!(
-                        account["sessions"], sessions_before,
-                        "{case}: no new session row"
-                    );
-                }
-            }
-            eprintln!("{case}: Python answered {status}");
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 6. Python approval and join approval.
 // ---------------------------------------------------------------------------
-
-/// Python approval and join approval race the served command; each wins once.
-///
-/// Approval: an attached, rejected but unmarked member. If Python approves
-/// first, the command offboards the approved member after it. If the command
-/// commits first, the approval meets the marker constraint and changes
-/// nothing.
-///
-/// Join approval: a detached, approved person with a pending request to join
-/// the organization, offboarded with an explicit null organization. If Python
-/// attaches the person first, the command finds the membership changed and
-/// refuses; a fresh command for the new organization then completes. If the
-/// command commits first, it has rejected the pending request and the Python
-/// approval refuses.
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL and Python"]
-async fn python_approval_and_join_race_the_command() {
-    for first in [First::Python, First::Rust] {
-        let case = format!("approval, {first:?} first");
-        let mut world = World::new().await;
-        sqlx::query("UPDATE users SET status='REJECTED' WHERE id=$1")
-            .bind(SUBJECT)
-            .execute(&mut world.admin)
-            .await
-            .unwrap();
-        let outcome = race(
-            &mut world,
-            first,
-            "status-transition",
-            SUBJECT,
-            Some(ORGANIZATION),
-            vec![python_approve("approve", SUBJECT)],
-        )
-        .await;
-        assert_eq!(
-            outcome.command.0,
-            StatusCode::OK,
-            "{case}: {:?}",
-            outcome.command
-        );
-        assert_offboarded(&mut world, SUBJECT, &case).await;
-        let status = python_status(&outcome.python, "approve");
-        match first {
-            First::Python => assert_eq!(status, 200, "{case}: {}", outcome.python),
-            First::Rust => assert!(status >= 400, "{case}: {}", outcome.python),
-        }
-        eprintln!("{case}: Python approval answered {status}");
-    }
-
-    for first in [First::Python, First::Rust] {
-        let case = format!("join approval, {first:?} first");
-        let mut world = World::new().await;
-        sqlx::query("SELECT offboarding_market_detach($1)")
-            .bind(SUBJECT)
-            .execute(&mut world.admin)
-            .await
-            .unwrap();
-        world
-            .call(
-                "acceptance_join_request",
-                &[json!(REJOIN_REQUEST), json!(SUBJECT), json!(ORGANIZATION)],
-            )
-            .await;
-        let outcome = race(
-            &mut world,
-            first,
-            "join-approval",
-            SUBJECT,
-            None,
-            vec![python_join_approval("join", REJOIN_REQUEST)],
-        )
-        .await;
-        let status = python_status(&outcome.python, "join");
-        match first {
-            First::Python => {
-                assert_eq!(status, 200, "{case}: {}", outcome.python);
-                assert_eq!(outcome.command.0, StatusCode::CONFLICT, "{case}");
-                assert_eq!(
-                    code(&outcome.command.1),
-                    "OFFBOARD_MEMBERSHIP_CHANGED",
-                    "{case}"
-                );
-                let attached = world.account(SUBJECT).await;
-                assert_eq!(attached["organization_id"], json!(ORGANIZATION), "{case}");
-                assert!(attached["offboarded_at"].is_null(), "{case}");
-                let (status, body) = world.offboard(SUBJECT, Some(ORGANIZATION)).await;
-                assert_eq!(status, StatusCode::OK, "{case}: {body}");
-            }
-            First::Rust => {
-                assert_eq!(outcome.command.0, StatusCode::OK, "{case}");
-                assert!(status >= 400, "{case}: {}", outcome.python);
-                let account = world.account(SUBJECT).await;
-                assert_eq!(
-                    account["joins"][REJOIN_REQUEST.to_string()],
-                    "REJECTED",
-                    "{case}"
-                );
-            }
-        }
-        assert_offboarded(&mut world, SUBJECT, &case).await;
-        eprintln!("{case}: Python join approval answered {status}");
-    }
-}
 
 // ---------------------------------------------------------------------------
 // 7. Logout, recovery and invitation.
 // ---------------------------------------------------------------------------
 
-/// Python logout, password recovery and invitation acceptance race the served
-/// command; each wins once. Every order ends with no live session, no
-/// recovery secret on the account and no token either stack accepts, except
-/// one bounded case that the test records:
-///
-/// Python `forgot-password` reads the account without a lock. When the
-/// command commits between that read and the write, Python stores a new
-/// reset secret on the offboarded account and mails it. The secret grants no
-/// access: Python's reset sets a password, but neither stack signs a rejected
-/// or marked account in. Rust recovery refuses the marked account outright.
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL and Python"]
-async fn logout_recovery_and_invitation_race_the_command() {
-    // Logout.
-    for first in [First::Python, First::Rust] {
-        let case = format!("logout, {first:?} first");
-        let mut world = World::new().await;
-        let email = world.email(SUBJECT).await;
-        let results = world
-            .python_now(vec![python_login("login", &email, PASSWORD)])
-            .await;
-        assert_eq!(python_status(&results, "login"), 200, "{case}: {results}");
-        let cookies = python_cookies(&results, "login");
-        let issued = python_token(&results, "login");
-        let outcome = race(
-            &mut world,
-            first,
-            "session-revoke",
-            SUBJECT,
-            Some(ORGANIZATION),
-            vec![python_session("logout", "/api/auth/logout", &cookies)],
-        )
-        .await;
-        assert_eq!(
-            outcome.command.0,
-            StatusCode::OK,
-            "{case}: {:?}",
-            outcome.command
-        );
-        assert_eq!(
-            python_status(&outcome.python, "logout"),
-            200,
-            "{case}: {}",
-            outcome.python
-        );
-        assert_offboarded(&mut world, SUBJECT, &case).await;
-        assert_token_refused(&world, &issued, &case).await;
-    }
-
-    // Recovery through Python forgot-password.
-    for first in [First::Python, First::Rust] {
-        let case = format!("recovery, {first:?} first");
-        let mut world = World::new().await;
-        let email = world.email(SUBJECT).await;
-        let outcome = race(
-            &mut world,
-            first,
-            "reset-secret",
-            SUBJECT,
-            Some(ORGANIZATION),
-            vec![
-                json!({"name": "forgot", "method": "POST", "path": "/api/auth/forgot-password",
-                        "json": {"email": email}}),
-            ],
-        )
-        .await;
-        assert_eq!(
-            outcome.command.0,
-            StatusCode::OK,
-            "{case}: {:?}",
-            outcome.command
-        );
-        assert_eq!(python_status(&outcome.python, "forgot"), 200, "{case}");
-        let account = world.account(SUBJECT).await;
-        assert!(!account["offboarded_at"].is_null(), "{case}");
-        match first {
-            First::Python => {
-                assert!(
-                    account["password_reset_token_hash"].is_null(),
-                    "{case}: the command cleared the secret Python stored first"
-                );
-            }
-            First::Rust => {
-                // The bounded residual: a secret stored after the commit.
-                eprintln!(
-                    "{case}: Python stored a reset secret after the commit: {}",
-                    !account["password_reset_token_hash"].is_null()
-                );
-                // Whatever the secret, it grants no access. A known secret of
-                // the same form stands in for the mailed one.
-                let secret = format!("mailed-reset-{}", Uuid::new_v4());
-                world
-                    .call(
-                        "acceptance_reset_secret",
-                        &[json!(SUBJECT), json!(sha256_hex(&secret))],
-                    )
-                    .await;
-                let results = world
-                    .python_now(vec![
-                        json!({"name": "reset", "method": "POST", "path": "/api/auth/reset-password",
-                               "json": {"token": secret, "new_password": NEW_PASSWORD}}),
-                        python_login("login", &email, NEW_PASSWORD),
-                    ])
-                    .await;
-                eprintln!(
-                    "{case}: Python reset answered {}",
-                    python_status(&results, "reset")
-                );
-                assert!(
-                    matches!(python_status(&results, "login"), 401 | 403),
-                    "{case}: {results}"
-                );
-                let tokens_before = world.account(SUBJECT).await["reset_tokens"].clone();
-                let rust_forgot = Request::builder()
-                    .method("POST")
-                    .uri("/api/auth/forgot-password")
-                    .header("host", "localhost")
-                    .header("content-type", "application/json")
-                    .body(Body::from(json!({"email": email}).to_string()))
-                    .unwrap();
-                let response = world.served.clone().oneshot(rust_forgot).await.unwrap();
-                eprintln!(
-                    "{case}: Rust forgot-password answered {}",
-                    response.status()
-                );
-                assert_eq!(
-                    world.account(SUBJECT).await["reset_tokens"],
-                    tokens_before,
-                    "{case}: Rust stores no secret for a marked account"
-                );
-                assert!(!world.account(SUBJECT).await["offboarded_at"].is_null());
-            }
-        }
-    }
-
-    // Invitation acceptance.
-    for first in [First::Python, First::Rust] {
-        let case = format!("invitation, {first:?} first");
-        let mut world = World::new().await;
-        let invitee_email = format!("invitee-{}@northwind-fuels.com", Uuid::new_v4().simple());
-        let results = world
-            .python_now(vec![json!({
-                "name": "invite", "method": "POST", "path": "/api/auth/admin/invitations",
-                "token": token(ADMIN),
-                "json": {"email": invitee_email, "first_name": "Invited", "role": "SUPPLIER",
-                         "organization_id": ORGANIZATION},
-            })])
-            .await;
-        assert_eq!(python_status(&results, "invite"), 201, "{case}: {results}");
-        let invitee: Uuid = results["invite"]["body"]["user_id"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let link = results["invite"]["body"]["acceptance_url"]
-            .as_str()
-            .unwrap();
-        let secret = link.split_once("#token=").unwrap().1.to_owned();
-        let outcome = race(
-            &mut world,
-            first,
-            "password-set",
-            invitee,
-            Some(ORGANIZATION),
-            vec![json!({"name": "accept", "method": "POST", "path": "/api/auth/invitations/accept",
-                        "json": {"token": secret, "new_password": NEW_PASSWORD, "accept_terms": true}})],
-        )
-        .await;
-        assert_eq!(
-            outcome.command.0,
-            StatusCode::OK,
-            "{case}: {:?}",
-            outcome.command
-        );
-        assert_offboarded(&mut world, invitee, &case).await;
-        let status = python_status(&outcome.python, "accept");
-        match first {
-            First::Python => {
-                assert_eq!(status, 200, "{case}: {}", outcome.python);
-                let issued = python_token(&outcome.python, "accept");
-                assert_token_refused(&world, &issued, &case).await;
-            }
-            First::Rust => assert_eq!(status, 400, "{case}: {}", outcome.python),
-        }
-        let results = world
-            .python_now(vec![python_login("login", &invitee_email, NEW_PASSWORD)])
-            .await;
-        assert!(
-            matches!(python_status(&results, "login"), 401 | 403),
-            "{case}: {results}"
-        );
-        eprintln!("{case}: Python acceptance answered {status}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // 8. Python settlement and the responsible-person reassignment.
 // ---------------------------------------------------------------------------
-
-/// After the seller is offboarded, a Python delivery by the buyer and the
-/// reassignment of the seller side to a colleague race on the same trade;
-/// each wins once. Python settlement locks the trade before people and
-/// organizations, the reassignment the other way round, so a reassignment
-/// that waits past its 500 ms bound answers `MARKET_BUSY` with nothing kept
-/// and is repeated. Either order ends delivered, with the colleague as the
-/// seller, the terms unchanged, and payment by the colleague accepted in
-/// Python, the new person rule.
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL and Python"]
-async fn python_settlement_races_reassignment() {
-    for first in [First::Python, First::Rust] {
-        let case = format!("settlement, {first:?} first");
-        let mut world = World::new().await;
-        world.market().await;
-        let (status, body) = world.offboard(SUBJECT, Some(ORGANIZATION)).await;
-        assert_eq!(status, StatusCode::OK, "{case}: {body}");
-        let before = world.trade(CONFIRMED).await;
-        let reassign = json!({
-            "side": "SELLER", "replacement_user_id": COLLEAGUE,
-            "evidence_case_ref": CASE, "expected_current_user_id": SUBJECT,
-        });
-        let path = format!("/api/auth/admin/trades/{CONFIRMED}/reassign-responsible");
-        let python = world
-            .python(vec![python_trade(
-                "deliver",
-                CONFIRMED,
-                "deliver",
-                &token(COUNTERPARTY),
-            )])
-            .await;
-        let gate = match first {
-            First::Python => "trade-settlement",
-            First::Rust => "trade-reassignment",
-        };
-        world.call("acceptance_gate_install", &[json!(gate)]).await;
-        let mut keeper = PgConnection::connect(&world.database.admin_url)
-            .await
-            .unwrap();
-        sqlx::query("SELECT acceptance_gate_close()")
-            .execute(&mut keeper)
-            .await
-            .unwrap();
-        let start_reassignment = |served: Router, path: String, body: Value| {
-            tokio::spawn(async move {
-                send(&served, "POST", &path, Some(&token(ADMIN)), Some(body)).await
-            })
-        };
-        let (python, reassigned) = match first {
-            First::Python => {
-                let python = python.go();
-                let holder = gate_waiter(&world.observer).await;
-                let reassigned =
-                    start_reassignment(world.served.clone(), path.clone(), reassign.clone());
-                let (waiter, application) = blocked_by(&world.observer, holder).await;
-                assert_eq!(application, RUST_APPLICATION, "{case}");
-                eprintln!("{case}: Rust backend {waiter} waited for Python backend {holder}");
-                (python, reassigned)
-            }
-            First::Rust => {
-                let reassigned =
-                    start_reassignment(world.served.clone(), path.clone(), reassign.clone());
-                let holder = gate_waiter(&world.observer).await;
-                let python = python.go();
-                let (waiter, _) = blocked_by(&world.observer, holder).await;
-                eprintln!("{case}: Python backend {waiter} waited for Rust backend {holder}");
-                (python, reassigned)
-            }
-        };
-        sqlx::query("SELECT acceptance_gate_open()")
-            .execute(&mut keeper)
-            .await
-            .unwrap();
-        keeper.close().await.unwrap();
-        let python = python.await.unwrap();
-        let (mut status, mut body) = reassigned.await.unwrap();
-        world.call("acceptance_gate_remove", &[]).await;
-        assert_eq!(python_status(&python, "deliver"), 200, "{case}: {python}");
-        if status == StatusCode::CONFLICT && code(&body) == "MARKET_BUSY" {
-            assert_eq!(
-                world.trade(CONFIRMED).await["seller_user_id"],
-                json!(SUBJECT),
-                "{case}: busy kept nothing"
-            );
-            eprintln!("{case}: the reassignment waited past its lock bound; repeated");
-            (status, body) = send(
-                &world.served,
-                "POST",
-                &path,
-                Some(&token(ADMIN)),
-                Some(reassign),
-            )
-            .await;
-        }
-        assert_eq!(status, StatusCode::OK, "{case}: {body}");
-        let results = world
-            .python_now(vec![
-                python_trade("departed pays", CONFIRMED, "pay", &token(SUBJECT)),
-                python_trade("colleague pays", CONFIRMED, "pay", &token(COLLEAGUE)),
-            ])
-            .await;
-        assert!(
-            python_status(&results, "departed pays") >= 400,
-            "{case}: {results}"
-        );
-        assert_eq!(
-            python_status(&results, "colleague pays"),
-            200,
-            "{case}: {results}"
-        );
-        let after = world.trade(CONFIRMED).await;
-        assert_eq!(after["status"], "PAID", "{case}");
-        assert_eq!(after["seller_user_id"], json!(COLLEAGUE), "{case}");
-        for field in [
-            "quantity_mt",
-            "price_per_mt_usd",
-            "buyer_id",
-            "seller_id",
-            "buyer_user_id",
-        ] {
-            assert_eq!(after[field], before[field], "{case}: {field}");
-        }
-    }
-}

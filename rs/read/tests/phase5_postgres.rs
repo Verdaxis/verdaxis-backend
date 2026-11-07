@@ -190,6 +190,19 @@ fn the_overlay_year_default_is_pinned() {
 }
 
 async fn reset(connection: &mut PgConnection) {
+    // Remove the committed visibility fixture in foreign-key order so the
+    // same disposable database can run this matrix more than once.
+    for statement in [
+        "DELETE FROM inventory_items WHERE id = '9c000000-0000-0000-0000-000000000041'",
+        include_str!("fixtures/phase5_visibility_cleanup.sql"),
+        "DELETE FROM users WHERE id = '9c000000-0000-0000-0000-000000000013'",
+        "DELETE FROM organizations WHERE id = '9c000000-0000-0000-0000-000000000003'",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *connection)
+            .await
+            .unwrap();
+    }
     sqlx::query("DELETE FROM vessels WHERE id = $1")
         .bind(VESSEL)
         .execute(&mut *connection)
@@ -207,7 +220,7 @@ async fn reset(connection: &mut PgConnection) {
         .unwrap();
 }
 
-/// Two organizations: the reader's and the Python writer's, on one database.
+/// Two organizations: the reader and writer fixtures on one database.
 async fn seed(connection: &mut PgConnection) {
     sqlx::query(
         "INSERT INTO organizations (id, name, type, verification_status, provenance) VALUES \
@@ -261,9 +274,8 @@ async fn business_counts(connection: &mut PgConnection) -> Vec<i64> {
     values
 }
 
-/// A commit through the Python writer path becomes visible to the Rust
-/// demand, overlay and availability reads; an uncommitted row stays invisible
-/// until its transaction commits.
+/// A native committed fixture becomes visible to demand, overlay and
+/// availability reads on the same disposable database.
 #[tokio::test]
 async fn phase5_visibility_cases() {
     let Some((application, _writer_url)) = urls() else {
@@ -275,45 +287,11 @@ async fn phase5_visibility_cases() {
         eprintln!("cross-group matrix not run: disposable URLs required");
         return;
     };
-    let python = std::env::var("RUST_TEST_PYTHON").expect("harness python");
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
     let router = app(&application);
     let overlay_bearer = overlay_token(READER);
-
-    let run_clean = || {
-        let out = std::process::Command::new(&python)
-            .arg(repo.join("rs/read/tests/phase5_writer.py"))
-            .arg("clean")
-            .env("PYTHONPATH", &repo)
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .output()
-            .expect("python writer path must run");
-        assert!(
-            out.status.success(),
-            "python writer cleanup failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    };
-    run_clean();
-
-    let run_writer = |label: &str| {
-        let out = std::process::Command::new(&python)
-            .arg(repo.join("rs/read/tests/phase5_writer.py"))
-            .arg("commit")
-            .arg(label)
-            .env("PYTHONPATH", &repo)
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .output()
-            .expect("python writer path must run");
-        assert!(
-            out.status.success(),
-            "python writer failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    };
-
+    let mut writer = PgConnection::connect(&_writer_url).await.unwrap();
+    reset(&mut writer).await;
+    seed(&mut writer).await;
     // The committed BID reaches the demand read: one open group at Rotterdam.
     let state = {
         let config = Config {
@@ -348,9 +326,12 @@ async fn phase5_visibility_cases() {
         AppState::new(config, runtime::db::Pools { read, health }, policy).unwrap()
     };
 
-    let stdout = run_writer("committed");
-    assert!(stdout.contains("WRITER_COMMIT="), "writer output: {stdout}");
-
+    let mut transaction = writer.begin().await.unwrap();
+    sqlx::raw_sql(include_str!("fixtures/phase5_visibility_seed.sql"))
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
     // Demand: the committed BID is the one visible demand group.
     {
         use routes::demand;

@@ -1,41 +1,22 @@
 #!/usr/bin/env bash
-# Task 6: compare the shared visibility and trade-evidence SQL with the Python
-# oracle on one disposable PostgreSQL container, then run the compliance
-# overlay's populated-fixture test on that same seeded database after the
-# overlay_contract_fixture.py matrix is added.
-#
-# Docker runs locally through Colima. The container binds a Docker-assigned
-# loopback port, sets the oracle time zone, and is removed on exit. Never point
-# this at staging or production.
+# Run fixed Rust market assertions and the independent SQL overlay matrix.
+# The database is disposable and binds only an assigned loopback port.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 db='verdaxis_market_test'
 clock='2026-10-15T12:00:00+00:00'
-
-# Fail before starting a container when the caller has not pointed the suite at
-# the interpreter that carries the project's database dependencies.
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
-export RUST_TEST_PYTHON
-
+python=${RUST_TEST_PYTHON:-python3}
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-alembic="$(dirname "$RUST_TEST_PYTHON")/alembic"
-
 container=''
 log=''
-expected=''
 overlay_manifest=''
 cleanup() {
-  # An EXIT trap replaces the script's exit status with the status of its own
-  # last command. Capture the real status first and restore it after the
-  # container and scratch files are gone, so no failure is reported as success.
   local status=$?
   if [[ -n "$container" ]]; then
     docker logs "$container" || true
-    # -v removes the anonymous data volume; a forced remove skips the --rm cleanup.
     docker rm -f -v "$container" >/dev/null || true
   fi
   if [[ -n "$log" ]]; then rm -f "$log"; fi
-  if [[ -n "$expected" ]]; then rm -f "$expected"; fi
   if [[ -n "$overlay_manifest" ]]; then rm -f "$overlay_manifest"; fi
   exit "$status"
 }
@@ -45,10 +26,8 @@ if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required" >&2
   exit 2
 fi
-
-expected=$(mktemp "${TMPDIR:-/tmp}/rust-market-expected.XXXXXX")
 container=$(docker run --platform linux/amd64 -d --rm -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
-for i in {1..90}; do
+for _ in {1..90}; do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
@@ -62,40 +41,28 @@ CREATE DATABASE $db OWNER verdaxis_migrator_staging;
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER DATABASE $db SET TimeZone TO 'Asia/Singapore';
 SQL
-
-release_sha=$(git -C "$repo" rev-parse HEAD)
-writer="postgresql+asyncpg://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
-export ENVIRONMENT=test
-export RELEASE_SHA="$release_sha"
-export JWT_SECRET='test-secret-key-for-testing-minimum-32-chars'
-export DATABASE_URL="$writer"
-export MIGRATOR_DATABASE_URL="$writer"
+export RELEASE_SHA
+RELEASE_SHA=$(git -C "$repo" rev-parse HEAD)
+export SQLX_OFFLINE=true
+writer="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db"
 export RUST_MARKET_WRITER_URL="$writer"
 export RUST_MARKET_EXPECTED_DATABASE="$db"
 export RUST_MARKET_TEST_CLOCK="$clock"
-export RUST_MARKET_TEST_EXPECTED="$expected"
 export RUST_MARKET_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/$db"
+export RUST_TEST_POSTGRES_CONTAINER="$container"
 
-(
-  cd "$repo"
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$alembic" upgrade head
-  # The Rust reads use the ordinary runtime app grants: read-only, no owner.
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$RUST_TEST_PYTHON" \
-    rs/read/tests/market_contract_oracle.py
-)
-docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
-  "GRANT USAGE ON SCHEMA public TO rust_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO rust_app;"
-# The M runtime only serves an adopted database: record the exact adoption row
-# (the schema stays at the Alembic head).
-RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
+# Initialize the empty database with the native baseline before granting reads.
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="$writer" \
   cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --features contract-tests --test phase10_migrate_postgres \
   runner_database_adopts_to_the_baseline -- --ignored
+PYTHONDONTWRITEBYTECODE=1 "$python" "$repo/rs/read/tests/market_contract_fixture.py"
+docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
+  "GRANT USAGE ON SCHEMA public TO rust_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO rust_app;"
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-market-tests.XXXXXX")
 set +e
-# Optional target list, so one task can run its own equivalence file while a
-# later task's file is still being written.
+# An optional target list permits focused SQL checks on the same matrix.
 targets=${RUST_MARKET_TARGETS:---test market_contract_postgres --test meaning_curve_queries --test meaning_orderbook_queries}
 # shellcheck disable=SC2086
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
@@ -110,22 +77,11 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   exit 1
 fi
 
-# Phase 5 lane O: the compliance overlay's populated-fixture test needs the
-# oracle-seeded market database above, plus unequal tenant vessel counts and
-# explicit visible/hidden orders. Its fixture must run after the market
-# contract tests: it seeds another public ASK clone, which would change the
-# exact visibility sets those tests assert. run_postgres.sh skips this test by
-# name for the same reason.
+# Add overlay rows only after the exact market sets have been checked.
 overlay_manifest=$(mktemp "${TMPDIR:-/tmp}/rust-overlay-cases.XXXXXX")
 export RUST_OVERLAY_TEST_CASES="$overlay_manifest"
-# This runner seeds the populated matrix, so a missing URL must refuse rather
-# than let the authenticated, timeout, snapshot and index cases pass empty.
 export RUST_OVERLAY_REQUIRED=1
-(
-  cd "$repo"
-  PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$RUST_TEST_PYTHON" \
-    rs/read/tests/overlay_contract_fixture.py
-)
+PYTHONDONTWRITEBYTECODE=1 "$python" "$repo/rs/read/tests/overlay_contract_fixture.py"
 
 rm -f "$log"
 log=$(mktemp "${TMPDIR:-/tmp}/rust-overlay-tests.XXXXXX")
@@ -134,7 +90,6 @@ cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --features contract-tests --test phase5_compliance_overlay -- --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
-rm -f "$overlay_manifest"
 if (( cargo_status != 0 )); then
   exit "$cargo_status"
 fi

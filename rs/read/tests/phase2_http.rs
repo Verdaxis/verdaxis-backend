@@ -420,9 +420,7 @@ async fn admission_order_is_observed_through_http_and_early_cors() {
 
 #[test]
 fn approved_json_wording_difference_keeps_status_type_and_absolute_location() {
-    let ledger: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/phase2/json-syntax-differences.json"
-    ))
+    let ledger: serde_json::Value = serde_json::from_str(r####"{"version":1,"approval":"PM Task 7 disposition: JSON syntax wording only","rule":"json-syntax-wording-v1","required_equal":["status","detail/*/type","detail/*/loc","detail/*/input"],"allowed_differences":["detail/*/msg","detail/*/ctx/error"],"vectors":[{"id":"object-key-missing","raw":"{","python":{"status":422,"type":"json_invalid","loc":["body",1]},"rust_expected":{"status":422,"type":"json_invalid","loc":["body",1]},"approved_difference":"msg and ctx.error only"},{"id":"value-missing","raw":"{\"a\":}","python":{"status":422,"type":"json_invalid","loc":["body",5]},"rust_expected":{"status":422,"type":"json_invalid","loc":["body",5]},"approved_difference":"msg and ctx.error only"},{"id":"trailing-content","raw":"{}x","python":{"status":422,"type":"json_invalid","loc":["body",2]},"rust_expected":{"status":422,"type":"json_invalid","loc":["body",2]},"approved_difference":"msg and ctx.error only"},{"id":"multiline-value-missing","raw":"{\n\"a\":}","python":{"status":422,"type":"json_invalid","loc":["body",6]},"rust_expected":{"status":422,"type":"json_invalid","loc":["body",6]},"approved_difference":"msg and ctx.error only"},{"id":"unicode-key-value-missing","raw":"{\"\u00e9\":}","python":{"status":422,"type":"json_invalid","loc":["body",5]},"rust_expected":{"status":422,"type":"json_invalid","loc":["body",5]},"approved_difference":"msg and ctx.error only"}]}"####)
     .unwrap();
     for vector in ledger["vectors"].as_array().unwrap() {
         let error = verdaxis_read::auth::request::parse_json_body(

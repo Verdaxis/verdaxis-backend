@@ -1,360 +1,63 @@
-# Verdaxis Exchange — Backend API
+# Verdaxis Exchange backend
 
-Maritime fuel trading exchange platform backend.
+Verdaxis is a maritime fuel trading exchange. Rust is the only application
+backend. The workspace in `rs/` builds `verdaxis-read`, which serves the API and
+runs bounded maintenance, migration, monitoring and operator commands.
 
-## Local development
+## Source map
 
-Run development servers only from an isolated worktree or clone. Do not use
-the canonical production or staging checkout, and do not bind the deployed
-ports 8000 or 8001. Choose an unused loopback port from the ephemeral range:
+- `rs/read/src/routes/`: HTTP adapters and authorization boundaries.
+- `rs/read/src/`: trading, authentication, compliance, stream and storage code.
+- `rs/read/src/cli/`: service, jobs, migration, ACL and monitor commands.
+- `rs/read/migrations/1_baseline.sql`: the sqlx baseline.
+- `rs/contract/`: retained Rust contract primitives and tests.
+- `deploy/`: reviewed units, policy, Caddy configuration, host tooling and tests.
+- `tests/tooling/` and `tests/monitor/`: host-tooling tests, not an API backend.
 
-```bash
-cd /path/to/isolated/verdaxis-backend-worktree
-source venv/bin/activate
-ENVIRONMENT=development \
-  uvicorn app.main:app --host 127.0.0.1 --port <unused-ephemeral-port>
-```
+## Development and checks
 
-## Phase 0 canonical release preparation
-
-The canonical source selects `staging` in both fixed backend paths. Production
-requires `verdaxis_prod` with the existing exact roles; the preserved old release
-still requires `verdaxis`. Neither a database-name override nor an old-database
-rename is supported. Seed paths deny both production names.
-
-Use [the one-use fenced checklist](docs/runbooks/phase0-cutover.md), not an ordinary
-deploy, for the initial complete-tuple transition. It requires final union policy,
-separate host approval, outbox drain, backup-owner changes and pre-write rollback
-proof. This repository change performs no live switch or monitor activation.
-Runtime and monitor identity publish together under blocked deploy state.
-Production credentialed CORS includes the exact canary origin
-`https://canary.verdaxis.exchange`; staging does not.
-
-## Live Deployment
-
-The deployed backends run on separate hosts through systemd, not Docker
-Compose:
-
-| Environment | Host | Canonical checkout | Loopback listener |
-| --- | --- | --- | --- |
-| Production | `169.58.37.164` (`vmi3623757`) | `/home/verdaxis-prod/verdaxis/prod/be` | `127.0.0.1:8000` |
-| Staging | `194.233.68.86` (`vmi1840561.contaboserver.net`) | `/home/verdaxis-prod/verdaxis/staging/be` | `127.0.0.1:8001` |
-
-The shared host retains old production rollback material, but its local port
-8000 is retired and its production backend and recovery units are masked. Do
-not deploy production there or unmask those units. On the shared host, read
-`/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md` before deployment or
-recovery work. Treat dated release records as evidence only; read the current
-full release SHA from the target environment's `/health/ready` response.
+Use an isolated checkout and a disposable database. Never point a test runner
+at a deployed database or use a deployed listener for development.
+The toolchain is pinned in `rs/rust-toolchain.toml`.
 
 ```bash
-# Staging: run on 194.233.68.86 only.
-test "$(/usr/bin/hostname -f)" = vmi1840561.contaboserver.net && (
-  set -e
-  sudo -n -u verdaxis-prod -H bash -lc \
-    'cd /home/verdaxis-prod/verdaxis/staging/be && ./scripts/deploy.sh --dry-run'
-  sudo -n -u verdaxis-prod -H env \
-    APPROVED_RELEASE_SHA=<sha> \
-    MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
-    MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
-    MIGRATION_TARGET_REVISION=<allowlisted-target> \
-    /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh
-)
+SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml --locked --workspace
+cargo fmt --manifest-path rs/Cargo.toml --all -- --check
+SQLX_OFFLINE=true cargo clippy --manifest-path rs/Cargo.toml --locked \
+  --workspace --all-targets -- -D warnings
 ```
 
-Open a separate administrator session for production:
+PostgreSQL runners under `rs/read/tests/` own their disposable database
+containers. Their target guards and exact role assertions are part of the tests.
+Read a runner before executing it. Local shared-build rules in the lane brief
+take precedence over the generic commands above.
 
-```bash
-ssh verdaxis-admin@169.58.37.164
-```
+## Deployment
 
-Run the complete production sequence only at the EU-host prompt. A failed host
-test prevents both deploy commands:
+Both environments use systemd and a verified release binary. Production Rust
+binds `127.0.0.1:8010`; staging binds `127.0.0.1:8011`. Caddy owns public routing.
+The authoritative source policies are `deploy/rust/production-policy.json` and
+`deploy/rust/staging-policy.json`.
 
-```bash
-test "$(/usr/bin/hostname)" = vmi3623757 && (
-  set -e
-  sudo -n -u verdaxis-prod -H bash -lc \
-    'cd /home/verdaxis-prod/verdaxis/prod/be && ./scripts/deploy.sh --dry-run'
-  sudo -n -u verdaxis-prod -H env \
-    APPROVED_RELEASE_SHA=<sha> \
-    MIGRATION_APPROVED_SOURCE_SHA=<same-sha> \
-    MIGRATION_EXPECTED_CURRENT_REVISION=<exact-current> \
-    MIGRATION_TARGET_REVISION=<allowlisted-target> \
-    /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh
-)
-```
+`scripts/deploy.sh` verifies immutable source and signed artifact identity. It
+uses native migration, ACL, runtime preparation and readiness commands, then
+requires signed acceptance before clearing blocked startup state. CI does not
+deploy. Host access and service activation require separate operator authority.
 
-### Deployment contract
+Before this release, the PM must install the M binary, adopt each database to
+`sqlx_1`, transfer maintenance jobs to Rust, and stop the old Python service.
+Drain active jobs before changing timer ownership. Use the approved live-window
+runbook and current host instructions; this source change performs no host work.
 
-[scripts/deploy.sh](scripts/deploy.sh) fixes the branch, service, and guard path
-from the canonical checkout and refuses a dirty tree. It also removes ambient
-Git, database, and Python routing controls.
+## Compatibility files
 
-- Dry-run resolves one full SHA and verifies only that archived commit. It
-  checks the [unit manifest](deploy/systemd/runtime-units.manifest),
-  [migration checkpoints](deploy/migration-checkpoints.tsv), ACL bundle,
-  deploy-start guard helper, and systemd bytes without executing candidate
-  Python or opening the live database.
-- A real deploy requires the same approved SHA, an exact current revision, and
-  one literal allowlisted target. It refuses `head`, moved source, unexpected
-  live state, and unlisted transitions before source mutation.
-- Migration uses explicit application and migrator URLs with distinct roles.
-  The archived [ACL helper](scripts/converge_runtime_acls.py),
-  [policy](deploy/postgres/app_acl_policy.sql), and
-  [convergence SQL](deploy/postgres/converge_runtime_object_acls.sql) rebuild
-  runtime ACLs transactionally before restart.
-- The main per-environment deployment lock and
-  `.runtime-deploy/<environment>.state` remain in force through restart and
-  readiness. Backend units allow absent state. During the controlled restart,
-  their isolated start guard also allows the exact `restart-authorized` state
-  only when its environment and full SHA match the release artifact and both
-  the main and restart-window locks are busy. Deploy acquires the restart lock
-  while state is still blocked, writes authorization only after both locks are
-  held, and keeps both lock descriptors open until exit. A crash or reboot
-  releases the locks, so stale authorization cannot permit a later start.
-  News-refresh and product-analytics-prune units reject every present state
-  path, including a dangling symlink. The production-only
-  order-expiry-reminder unit and both auth-maintenance units retain their
-  existing conditions. Auth
-  maintenance also loads `.runtime-release.env` and preflights the effective
-  `ENVIRONMENT` before execution. These guards govern new starts only;
-  creating state does not stop or drain an already-running process.
-- `/health/ready` must return exact status, database state, environment, and
-  full SHA before the deploy state clears. `/health/live` proves only process
-  response; `/health` remains a readiness alias. By default, the readiness gate
-  makes at most 60 attempts, waits two seconds between attempts, and limits each
-  request to 15 seconds; this is not a fixed 120-second wall-clock limit, and
-  validated overrides remain bounded to 1–120 attempts and 0–300 seconds
-  between attempts.
-- Dependency installation uses [requirements.txt](requirements.txt) and
-  [constraints.txt](constraints.txt); missing constraints or an unsafe
-  environment file fails closed.
+`requirements.txt` and `constraints.txt` remain byte-identical for one release:
+the installed M deploy helper rejects a release that changes them. They are not
+backend CI inputs and are not a request to install an API environment.
 
-### Unit-install contract
-
-[scripts/install_systemd_units.sh](scripts/install_systemd_units.sh) performs
-the no-change check with `--dry-run --environment <production|staging>
---source-ref <approved-40-hex-sha>`.
-
-- It attests the fixed checkout, archives the committed allowlist and unit
-  bytes, verifies their digest manifest, and runs `systemd-analyze verify` only
-  on private staged bytes. It executes no checkout Python, preflight, Alembic,
-  or candidate backend.
-- `--apply` uses an environment lock and root-owned pending state. It prepares
-  all replacements first, rejects unsafe destinations, rolls back partial
-  replacement, and always runs `systemctl daemon-reload`. Failed reload remains
-  retryable.
-- The installer never enables, starts, restarts, or deploys a service. Timer
-  enablement is a separate operator action. The initial predeploy dry-run uses
-  the previous deploy helper, so it cannot attest a start-guard helper that the
-  target commit introduces. For this transition, record which relevant
-  environment timers are active, then stop all relevant timers before the
-  normal code and helper deploy under the previous unit bundle. Let active
-  oneshots finish naturally and confirm that no job remains pending. This
-  pre-code step is required because the previous news-refresh and
-  product-analytics-prune guards can accept `restart-authorized` state. Keep
-  the timers quiesced through the code deploy, exact readiness and absent-state
-  checks, and the now-live `scripts/deploy.sh --dry-run` against the exact
-  current origin SHA. That bootstrap dry-run archives and blob-verifies the
-  helper without executing it. Then run the canonical installer as root, first
-  in dry-run mode and then with explicit apply for the same full SHA at
-  checkout `HEAD`. After successful apply and daemon-reload, keep the timers
-  quiesced and run one first-bootstrap-only canonical real deploy with the same
-  exact approved/current source SHA and the exact verified allowlisted current
-  checkpoint as both expected and target (production:
-  `uadl_20261003_delivery_reports`; staging: `rcp_20261003_command_results`).
-  This activation exercises the new two-lock deploy path and newly loaded
-  `ExecStartPre` guard. Require exact health and absent deployment state after
-  it before final acceptance. Restore only the timers recorded as active, and
-  only after deployment state is absent. The installer verifies the unit bytes,
-  not their referenced helper. Keep the helper path and CLI compatible through
-  forward reverts while an installed backend unit references it; remove it only
-  with a compatible unit transition.
-- Rollback is a clean forward-revert release through the same health gate.
-  Never downgrade the database or release metadata independently of code.
-
-This staging branch is an integrated runtime, security, and market release. It
-keeps the staging-only FAME and UCOME B100 catalog and its literal checkpoint
-chain separate from production. Operators still approve and execute one
-allowlisted checkpoint at a time rather than traversing to `head`. Protected
-seed, quarantine, market-evidence, and existing-organization provenance writes
-remain outside the application role; audit and status history remain
-append-only. Forward reverts must preserve the authentication cutoff,
-acceptance priority, and durable command receipts. Never perform an
-identity-only or database downgrade rollback.
-
-## API contract (`openapi.json`)
-
-`openapi.json` at the repository root is the committed API contract. The
-frontend vendors this exact file by SHA and generates its API types from it, and
-the Rust read service must serve the same public contract. The backend owns the
-file, so a contract change is reviewed and versioned here.
-
-`tests/unit/test_openapi_snapshot.py` fails when the committed file differs from
-a fresh export, so drift fails the CI unit job. Regenerate the file in the same
-commit as any route or schema change:
-
-```bash
-ENVIRONMENT=test RELEASE_SHA=test \
-  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
-  DATABASE_URL=sqlite+aiosqlite:///:memory: \
-  venv/bin/python scripts/export_openapi.py
-```
-
-The export pins that test environment, drops the deployment-specific `servers`
-field, and writes sorted keys with a two-space indent and a trailing newline, so
-the bytes never depend on the machine that generates them. Add `--stdout` to
-print the document instead of writing the file; the path and schema counts go to
-stderr.
-
-## API Endpoints
-
-### Authentication
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/auth/login` | No | Login (returns access + refresh tokens) |
-| POST | `/api/auth/refresh` | No | Refresh tokens |
-| POST | `/api/auth/register` | No | Register new user |
-| GET | `/api/auth/me` | Yes | Get current user profile |
-| GET | `/api/auth/stream-token` | Yes | Issue a 60-second token for tenant-private SSE |
-| PUT | `/api/auth/me/password` | Yes | Change password (returns fresh tokens) |
-
-### Order Book
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/orderbook` | No | List all open orders |
-| GET | `/api/orderbook/bids` | No | List open BIDs |
-| GET | `/api/orderbook/asks` | No | List open ASKs |
-| POST | `/api/orderbook` | Yes | Place order (auto-matches crossing orders) |
-| GET | `/api/orderbook/my` | Yes | List user's own orders |
-| DELETE | `/api/orderbook/{id}` | Yes | Cancel own order |
-
-### Trades
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/api/trades` | Yes | Hit an order to create a trade |
-| GET | `/api/trades/my` | Yes | List user's trades |
-| PUT | `/api/trades/{id}/confirm` | Yes | Confirm trade (counterparty only) |
-| PUT | `/api/trades/{id}/decline` | Yes | Decline trade (counterparty only) |
-| PUT | `/api/trades/{id}/deliver` | Yes | Mark delivered (with final qty/price) |
-| POST | `/api/trades/{id}/pay` | Yes | Mark paid (seller only) |
-
-### Price Discovery (Public)
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/prices` | No | Aggregated trade prices (24h) with source/scope/demo provenance |
-| GET | `/api/prices/reference` | No | Daily VWAP reference prices |
-| GET | `/api/trade-tape` | No | Anonymized 7-day confirmed trade tape; filterable by `market_product`, `delivery_point_id`, `region`, and `availability_window` |
-
-Market-data surfaces use a shared provenance vocabulary:
-
-- `source_kind`: `CONFIRMED_TRADE`, `LIVE_ORDER`, `DEMO_SEED`, `BENCHMARK_REFERENCE`, `MIXED_SOURCE`, `NO_DATA`, or `UNKNOWN`.
-- `scope`: `DELIVERY_POINT`, `REGION`, `PRODUCT`, or `UNKNOWN`.
-- `demo_status`: `REAL_ONLY`, `DEMO_ONLY`, `MIXED`, `UNKNOWN`, or `NOT_APPLICABLE`.
-
-Aggregate responses expose real/demo/unknown counts. Unknown contributors remain `UNKNOWN` rather than being reported as real activity.
-
-### Compliance
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/compliance/fleet` | Yes | Fleet-wide compliance summary |
-| GET | `/api/compliance/vessels/{id}/score` | Yes | Single vessel score |
-| POST | `/api/compliance/scenario` | Yes | What-if fuel mix scenario |
-| GET | `/api/compliance/fuels` | No | Fuel GHG intensity reference |
-
-### Real-Time (SSE)
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/stream/prices` | No | Sanitized market-change invalidation signals; refetch prices through REST |
-| GET | `/api/stream/orderbook` | No | Sanitized market-change invalidation signals; refetch the order book through REST |
-| GET | `/api/stream/trades` | Stream token | Tenant-private trade lifecycle events with append-only provenance fields; use the `stream_token` query parameter, not an `Authorization` header |
-
-### Admin (ADMIN role only)
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| GET | `/api/admin/analytics/overview` | Admin | Platform stats |
-| GET | `/api/admin/analytics/daily` | Admin | Daily breakdown |
-| GET | `/api/admin/analytics/product-usage?days=7\|30\|90` | Admin | Aggregated behavioral usage plus authoritative registrations, logins, and order-placing organizations |
-| GET | `/api/admin/audit-logs` | Admin | Audit trail |
-
-Behavioral analytics is optional. Configure the server-only
-`ANALYTICS_ENABLED`, `UMAMI_BASE_URL`, `UMAMI_WEBSITE_ID`,
-`UMAMI_API_USERNAME`, `UMAMI_API_PASSWORD`, and bounded
-`ANALYTICS_REQUEST_TIMEOUT_SECONDS` values to enable it. Missing or unavailable
-Umami returns a degraded behavioral section with HTTP 200 while preserving the
-Verdaxis database counts. See `docs/behavioral-analytics-contract.md` for the
-privacy and event contracts.
-
-## Test Accounts
-
-| Email | Password | Role |
-|-------|----------|------|
-| buyer@buy.com | password | BUYER |
-| seller@sell.com | password | SUPPLIER |
-
-## Tests
-
-```bash
-ENVIRONMENT=test RELEASE_SHA=test \
-  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
-  DATABASE_URL=sqlite+aiosqlite:///:memory: \
-  python -m pytest tests/unit/ -v
-```
-
-Integration/E2E suites additionally require explicit pytest opt-in and an
-attested disposable server on a numeric-loopback ephemeral port. Production,
-staging, `localhost`, and ports 8000/8001 are refused by collection guards.
-Start the source-tree producer with `ENVIRONMENT=test`, a matching
-`DISPOSABLE_TEST_TOKEN`, a real release identity
-`RELEASE_SHA=$(git rev-parse HEAD)` (the readiness assertions require a
-full 40-hex SHA; the producer refuses the unit-test `test` sentinel), and
-`python -m tests.disposable_server --port <ephemeral-port>`.
-
-Run the mutating suites only with the explicit opt-in flags; collection
-skips them otherwise:
-
-```bash
-DISPOSABLE_ITEST_PASSWORD=... \
-  python -m pytest tests/integration -v \
-  --run-disposable-integration \
-  --disposable-target-url http://127.0.0.1:59123 \
-  --disposable-target-token <token-provisioned-into-the-disposable-server>
-```
-
-There is no staging or production integration target: mutating suites accept
-only an attested `127.0.0.1` ephemeral-port disposable server. (The former
-`ALLOW_TEST_MUTATIONS`/`TEST_RUNTIME_ENV` resolver in `tests/runtime_config.py`
-remains for staging-scoped tooling but no suite consumes it.)
-
-Use `scripts/run_product_analytics_postgres_tests.sh` for a disposable
-PostGIS container. It binds a unique loopback port, runs migrations, checks
-Alembic drift, applies and validates the idempotent app/migrator/backup role
-policy, exercises the runtime upgrade/downgrade roundtrip, and removes only
-the container it created.
-
-Credentialed API CORS is fail-closed by environment: production allows only
-the canonical production landing/app origins, staging only its staging origin,
-and development/test only enumerated localhost origins. Wildcards are never
-used with credentials.
-
-## Seed safety
-
-Every executable seeder requires `SEED_DATABASE_URL`,
-`ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS`, `SEED_RUNTIME_ENV`, and an
-exact matching `SEED_TARGET_DATABASE`. Production/system databases,
-superuser URLs, non-loopback targets, and non-canonical availability windows
-are denied. Disposable database names end in `_test`; staging is exactly
-`verdaxis_staging`. Seeders never inherit an implicit application URL.
-
-Historical repository versions contained a live database credential in seed
-scripts. Current-tree source cleanup is insufficient and does not revoke it;
-rewriting repository history is not a substitute for rotation. An operator
-must create and verify a replacement least-privilege credential, update the
-secret store and deployed environment, attest the replacement role, then
-revoke the exposed credential. This repository change performs none of those
-external actions.
-
-## Feature Branches
-
-- `feature/oauth-integration` — Google + Microsoft SSO (169 tests, ready for merge)
+`deploy/scripts/pre-m-bundle.sh` remains unchanged. It restores a captured old
+release, including its Python service. Other retained operator helpers can have
+legacy application imports; these are compatibility paths, not a second running
+backend. Their disposition and gate results are recorded in
+`outputs/ci-faster-results.md`. Do not run these paths against this checkout as
+if it still contained the old application.

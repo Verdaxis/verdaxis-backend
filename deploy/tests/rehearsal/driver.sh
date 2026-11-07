@@ -49,7 +49,7 @@ rehearsal_finish() {
         install -m 0600 "$PRIVATE/key.pub.pem" "$PUBLIC/disposable-signer.pub.pem"
     fi
     if jq -e 'all(.checks[];.status=="PASS")' "$PUBLIC/results.json" >/dev/null && (( exit_status == 0 )); then
-        /usr/bin/python3 "$ROOT/tests/rust_contract/phase10/rehearsal_evidence.py" "$PUBLIC" \
+        /usr/bin/python3 "$ROOT/tests/tooling/phase10/rehearsal_evidence.py" "$PUBLIC" \
             --environment "$REHEARSAL_ENVIRONMENT" --release-sha "$CURRENT_SHA" || exit 1
         exit 0
     fi

@@ -30,11 +30,13 @@ impl Fixture {
         assert_eq!(url.host_str(), Some("127.0.0.1"));
         assert!(url.path().ends_with("_test"));
         let mut admin = PgConnection::connect(&admin_url).await.unwrap();
-        let revision: String = sqlx::query_scalar("SELECT version_num FROM alembic_version")
-            .fetch_one(&mut admin)
-            .await
-            .unwrap();
-        assert_eq!(revision, "ob_20261031_offboarding");
+        let revision: String = sqlx::query_scalar(
+            "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success",
+        )
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        assert_eq!(revision, "sqlx_1");
         let evidence_type: String = sqlx::query_scalar("SELECT data_type FROM information_schema.columns WHERE table_schema='public' AND table_name='market_event_outbox' AND column_name='producer_evidence'")
             .fetch_one(&mut admin).await.unwrap();
         assert_eq!(evidence_type, "jsonb");

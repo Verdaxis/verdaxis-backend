@@ -59,11 +59,13 @@ impl Fixture {
         assert_ne!(au.username(), ru.username());
         let mut admin = PgConnection::connect(&a).await.unwrap();
         assert_eq!(
-            sqlx::query_scalar::<_, String>("SELECT version_num FROM alembic_version")
-                .fetch_one(&mut admin)
-                .await
-                .unwrap(),
-            "ob_20261031_offboarding"
+            sqlx::query_scalar::<_, String>(
+                "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success"
+            )
+            .fetch_one(&mut admin)
+            .await
+            .unwrap(),
+            "sqlx_1"
         );
         for sql in [
             include_str!("fixtures/phase9_trades.sql"),

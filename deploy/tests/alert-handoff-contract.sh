@@ -3,7 +3,7 @@
 #
 #   bash deploy/tests/alert-handoff-contract.sh
 #       Static ABI checks of the reviewed native unit and policy bytes in
-#       tests/rust_contract/phase10/alert-handoff/ (portable, no root).
+#       tests/tooling/phase10/alert-handoff/ (portable, no root).
 #   bash deploy/tests/alert-handoff-contract.sh --disposable-identities
 #       The static checks, then the three-identity suite: a disposable systemd
 #       container (Linux, rootless podman or docker) gets the real
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-policy="$root/tests/rust_contract/phase10/alert-handoff"
+policy="$root/tests/tooling/phase10/alert-handoff"
 binary_path=/usr/local/libexec/verdaxis/verdaxis-read
 failures=0
 
@@ -274,7 +274,7 @@ disposable_identities() {
     cp "$policy"/* "$stage/"
     cp "$root/deploy/monitor/verdaxis-monitor.sysusers" "$root/deploy/monitor/verdaxis-monitor-alert-reminder.timer" \
         "$root/deploy/monitor/alert_dispatch.py" "$root/deploy/monitor/status_state.py" "$stage/"
-    cp "$root/tests/rust_contract/phase10/backup/sample-dump.sql" "$stage/"
+    cp "$root/tests/tooling/phase10/backup/sample-dump.sql" "$stage/"
     cp "${BASH_SOURCE[0]}" "$stage/alert-handoff-contract.sh"
     write_fake_services "$stage/fake_services.py"
     chmod -R a+rX "$stage"

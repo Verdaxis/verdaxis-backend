@@ -2,7 +2,6 @@
 //!
 //! Every public target is replaced by a fake HTTP server on 127.0.0.1, the
 //! Caddy and systemctl programs by recording scripts, and ChromeDriver by a
-//! small W3C fake (Python, from `RUST_TEST_PYTHON` or `python3`). Nothing
 //! leaves the machine.
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;

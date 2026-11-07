@@ -5,7 +5,6 @@
 //!
 //! `switch_follows_the_deployed_environment` runs the deploy projection
 //! (`scripts/prepare_rust_runtime.py`) with the project's interpreter
-//! (`RUST_TEST_PYTHON`, default `python3`).
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -224,7 +223,7 @@ fn detaches(line: &str) -> bool {
 fn only_rejection_and_offboarding_detach_a_user() {
     let root = repository_root();
     let mut found: Vec<String> = Vec::new();
-    for (folder, extension) in [("rs/read/src", "rs"), ("app", "py")] {
+    for (folder, extension) in [("rs/read/src", "rs")] {
         for path in files(&root.join(folder), &[extension]) {
             let text = std::fs::read_to_string(&path).unwrap();
             for line in text.lines() {
@@ -238,8 +237,6 @@ fn only_rejection_and_offboarding_detach_a_user() {
     assert_eq!(
         found,
         [
-            // Python organization rejection.
-            "app/routers/auth_simple.py",
             // The offboarding command, which sets the marker in the same statement.
             "rs/read/src/business/offboarding.rs",
             // Rust organization rejection.
@@ -249,18 +246,6 @@ fn only_rejection_and_offboarding_detach_a_user() {
             // Test fixture module compiled only under `cfg(all(test, feature = "contract-tests"))`.
             "rs/read/src/order_write/ordered_contract.rs",
         ]
-    );
-    let python = std::fs::read_to_string(root.join("app/routers/auth_simple.py")).unwrap();
-    let assignment = python.lines().position(detaches).unwrap();
-    let function = python
-        .lines()
-        .take(assignment)
-        .filter(|line| line.starts_with("async def "))
-        .last();
-    assert_eq!(
-        function,
-        Some("async def reject_organization("),
-        "the Python statement belongs to organization rejection"
     );
     let rust = std::fs::read_to_string(root.join("rs/read/src/business/organizations.rs")).unwrap();
     let statement = rust.lines().position(detaches).unwrap();

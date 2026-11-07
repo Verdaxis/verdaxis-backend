@@ -1,12 +1,6 @@
 //! Task 3: token issuance, claim reading and cross-stack tokens.
 //!
 //! Every secret and key in this file is a fixed test value, never a runtime
-//! credential. The Python side runs the project interpreter in `venv/`, which
-//! the offline CI job and the test host both create, so a Rust-issued token is
-//! verified by the code that will accept it during the migration.
-
-use std::io::Write;
-use std::process::{Command, Stdio};
 
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -258,7 +252,7 @@ fn stream_token_carries_org_and_environment() {
 }
 
 #[test]
-fn pd7_access_token_iat_out_of_range_is_401() {
+fn access_token_iat_out_of_range_is_401() {
     let issued_at = now();
     let settings = VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into());
     let vectors = [
@@ -312,7 +306,7 @@ fn pd7_access_token_iat_out_of_range_is_401() {
 }
 
 #[test]
-fn pd7_refresh_iat_out_of_range_is_401() {
+fn refresh_iat_out_of_range_is_401() {
     let issued_at = now();
     let vectors = [
         ("i64::MAX", json!(i64::MAX)),
@@ -503,134 +497,4 @@ fn debug_output_never_contains_secret_material() {
     assert!(diagnostic.contains("[REDACTED]"));
     assert!(!diagnostic.contains(SECRET));
     assert!(!diagnostic.contains(PREVIOUS_SECRET));
-}
-
-#[test]
-fn python_issued_tokens_verify_in_rust() {
-    let script = r#"
-import json
-from datetime import UTC, datetime
-from app.config import settings
-from app.core.security import create_access_token, create_refresh_token
-
-subject = "a550c69b-2934-4b36-87f5-e4f9976d1af0"
-family = "3f1a2b4c-5d6e-4f70-8a91-b2c3d4e5f607"
-issued_at = datetime(2026, 10, 20, 12, 0, 0, 123456, tzinfo=UTC)
-print(json.dumps({
-    "issuer": settings.JWT_ISSUER,
-    "audience": settings.JWT_AUDIENCE,
-    "issued_at_us": int(issued_at.timestamp()) * 1_000_000 + issued_at.microsecond,
-    "access_token": create_access_token(subject=subject, issued_at=issued_at),
-    "refresh_token": create_refresh_token(subject=subject, family_id=family, issued_at=issued_at),
-}))
-"#;
-    let output = run_python(script, None);
-    let document: Value = serde_json::from_str(&output).unwrap();
-    let issued_at =
-        DateTime::from_timestamp_micros(document["issued_at_us"].as_i64().unwrap()).unwrap();
-    let settings = VerificationSettings::new(
-        SECRET.into(),
-        None,
-        document["issuer"].as_str().unwrap().into(),
-        document["audience"].as_str().unwrap().into(),
-    );
-
-    let verified = verify_access(
-        document["access_token"].as_str().unwrap(),
-        &settings,
-        issued_at,
-    )
-    .expect("Rust verifies a Python-issued access token");
-    assert_eq!(verified.subject, subject());
-    assert_eq!(verified.issued_at, Some(issued_at));
-
-    let refresh_claims = claims(document["refresh_token"].as_str().unwrap());
-    assert_eq!(refresh_claims["type"], "refresh");
-    assert_eq!(read_subject(&refresh_claims).unwrap(), subject());
-    assert_eq!(read_issuance(&refresh_claims).issued_at, Some(issued_at));
-    assert_eq!(
-        refresh_claims["family_id"],
-        "3f1a2b4c-5d6e-4f70-8a91-b2c3d4e5f607"
-    );
-    assert!(token_bytes::is_token_shaped(
-        refresh_claims["jti"].as_str().unwrap()
-    ));
-}
-
-#[test]
-fn rust_issued_tokens_verify_in_python() {
-    let organization = Uuid::new_v4();
-    let family = Uuid::new_v4();
-    let jti = token_bytes::generate_token();
-    let issued_at = Utc::now();
-    let document = json!({
-        "access_token": issuer().access(subject(), issued_at, None),
-        "refresh_token": issuer().refresh(subject(), family, &jti, issued_at, None),
-        "stream_token": issuer().stream(subject(), organization, "test", issued_at),
-    });
-    let script = r#"
-import json, sys
-from app.core.security import decode_token
-
-document = json.load(sys.stdin)
-def claims(token):
-    payload = decode_token(token)
-    return {
-        "sub": payload["sub"],
-        "type": payload["type"],
-        "jti": payload.get("jti"),
-        "family_id": payload.get("family_id"),
-        "org_id": payload.get("org_id"),
-        "environment": payload.get("environment"),
-        "iat_us": payload.get("iat_us"),
-    }
-print(json.dumps({name: claims(document[name]) for name in
-                  ("access_token", "refresh_token", "stream_token")}))
-"#;
-    let output = run_python(script, Some(&document.to_string()));
-    let verified: Value = serde_json::from_str(&output).unwrap();
-
-    assert_eq!(verified["access_token"]["sub"], SUBJECT);
-    assert_eq!(verified["access_token"]["type"], "access");
-    assert_eq!(
-        verified["access_token"]["iat_us"],
-        issued_at.timestamp_micros()
-    );
-    assert_eq!(verified["refresh_token"]["type"], "refresh");
-    assert_eq!(verified["refresh_token"]["jti"], jti);
-    assert_eq!(verified["refresh_token"]["family_id"], family.to_string());
-    assert_eq!(verified["stream_token"]["type"], "stream");
-    assert_eq!(verified["stream_token"]["org_id"], organization.to_string());
-    assert_eq!(verified["stream_token"]["environment"], "test");
-}
-
-fn run_python(script: &str, input: Option<&str>) -> String {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let mut child = Command::new(python)
-        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", SECRET)
-        .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-        .args(["-c", script])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the configured Python interpreter runs");
-    if let Some(input) = input {
-        child
-            .stdin
-            .as_mut()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
-    }
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
 }

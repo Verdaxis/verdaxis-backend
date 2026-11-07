@@ -22,7 +22,7 @@
 //! from the response `data` object only; nested keys are preserved, `null` and
 //! `{}` stay distinct, and no other column is hidden.
 //!
-//! Known boundaries are recorded in `tests/rust_contract/phase2/notifications.json`.
+//! Known boundaries are pinned by the fixed notification contract tests.
 
 use std::sync::Arc;
 

@@ -2,8 +2,8 @@
 //!
 //! Every refusal is a bounded class that is known before a response header
 //! exists. Fixed test values only; no key or claim here is a runtime
-//! credential. `postgres_admission` needs the disposable PostgreSQL harness
-//! (`tests/postgres/test_phase6_authorization.py`) and is ignored otherwise.
+//! credential. `postgres_admission` needs the disposable PostgreSQL runner
+//! (`rs/read/tests/run_auth_streams_cache.sh`) and is ignored otherwise.
 
 use std::time::{Duration as StdDuration, Instant};
 
@@ -636,8 +636,8 @@ fn admission_database_bounds() {
     assert_eq!(DB_LOCK_TIMEOUT, StdDuration::from_millis(500));
 }
 
-/// The rows that `tests/postgres/test_phase6_authorization.py` seeds. The
-/// harness passes their identifiers in the environment.
+/// The rows that `rs/read/tests/run_auth_streams_cache.sh` seeds. The
+/// runner passes their identifiers in the environment.
 struct Fixture {
     /// The application role.
     url: String,
@@ -683,7 +683,7 @@ impl Fixture {
 
 fn env_value(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| {
-        panic!("{name} is required: run through tests/postgres/test_phase6_authorization.py")
+        panic!("{name} is required: run through rs/read/tests/run_auth_streams_cache.sh")
     })
 }
 
@@ -695,7 +695,7 @@ fn env_id(name: &str) -> Uuid {
 /// database bounds of that read. One test runs both in turn: the bound checks
 /// lock the account table, which would stall concurrent admission checks.
 #[tokio::test]
-#[ignore = "requires the disposable PostgreSQL harness: tests/postgres/test_phase6_authorization.py"]
+#[ignore = "requires the disposable PostgreSQL runner: rs/read/tests/run_auth_streams_cache.sh"]
 async fn postgres_admission() {
     let fixture = Fixture::from_env();
     let checks = admission_checks(&fixture).await;

@@ -277,8 +277,7 @@ fn performance_gate(
         return invalid();
     }
     let manifest: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tests/rust_contract/workload.json"))
-            .expect("committed workload");
+        serde_json::from_str(crate::fixtures::WORKLOAD).expect("committed workload");
     let weights: BTreeMap<_, _> = ["routes", "tools"]
         .iter()
         .flat_map(|key| manifest[key].as_array().expect("route array"))

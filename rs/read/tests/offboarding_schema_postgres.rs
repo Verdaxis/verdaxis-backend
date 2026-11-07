@@ -9,17 +9,13 @@
 //! * `RUST_TEST_OFFBOARDING_MIGRATOR_DATABASE_URL` names a second database at
 //!   the head, owned by the migrator, on which the downgrade case runs
 //!   migrations in both directions;
-//! * `RUST_TEST_PYTHON` is the interpreter that carries the Alembic dependencies.
 //!
 //! Every case uses its own identifiers, so cases do not share rows.
-
-use std::process::{Command, Output};
 
 use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 
-const PARENT: &str = "p89_20261022_trade_freeze";
-const REVISION: &str = "ob_20261031_offboarding";
+const REVISION: &str = "sqlx_1";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 const BACKUP_ROLE: &str = "verdaxis_backup_staging";
@@ -55,10 +51,12 @@ impl Database {
         ))
         .await
         .unwrap();
-        let revision: String = sqlx::query_scalar("SELECT version_num FROM alembic_version")
-            .fetch_one(&mut migrator)
-            .await
-            .unwrap();
+        let revision: String = sqlx::query_scalar(
+            "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success",
+        )
+        .fetch_one(&mut migrator)
+        .await
+        .unwrap();
         assert_eq!(revision, REVISION);
         Self { app, migrator }
     }
@@ -529,181 +527,4 @@ async fn existing_runtime_grants_are_preserved() {
     .await
     .unwrap();
     assert!(column_write);
-}
-
-/// Run Alembic as the migrator against the downgrade database.
-fn alembic(url: &str, arguments: &[&str]) -> Output {
-    let python =
-        std::env::var("RUST_TEST_PYTHON").expect("explicit project Python interpreter required");
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let sqlalchemy_url = url.replacen("postgres://", "postgresql+asyncpg://", 1);
-    Command::new(python)
-        .args(["-m", "alembic"])
-        .args(arguments)
-        .current_dir(root)
-        .env_clear()
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-        .env("DATABASE_URL", &sqlalchemy_url)
-        .env("MIGRATOR_DATABASE_URL", &sqlalchemy_url)
-        .output()
-        .expect("run alembic")
-}
-
-async fn current_revision(conn: &mut PgConnection) -> String {
-    sqlx::query_scalar("SELECT version_num FROM alembic_version")
-        .fetch_one(conn)
-        .await
-        .unwrap()
-}
-
-async fn column_and_table_exist(conn: &mut PgConnection) -> (bool, bool) {
-    sqlx::query_as(
-        "SELECT EXISTS(SELECT 1 FROM information_schema.columns \
-                       WHERE table_schema='public' AND table_name='users' AND column_name='offboarded_at'), \
-                to_regclass('public.individual_offboardings') IS NOT NULL",
-    )
-    .fetch_one(conn)
-    .await
-    .unwrap()
-}
-
-#[tokio::test]
-#[ignore = "requires the migrated disposable PostgreSQL harness"]
-async fn downgrade_cannot_restore_access_or_erase_evidence() {
-    let url = disposable_url("RUST_TEST_OFFBOARDING_MIGRATOR_DATABASE_URL", MIGRATOR_ROLE);
-    let mut conn = PgConnection::connect(&url).await.unwrap();
-    assert_eq!(current_revision(&mut conn).await, REVISION);
-
-    let refused = |output: &Output| {
-        assert!(!output.status.success(), "the downgrade must refuse");
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            stderr.contains("cannot downgrade individual offboarding"),
-            "refusal reason missing: {stderr}"
-        );
-    };
-
-    // 1. A marked user alone blocks the downgrade; nothing changes.
-    let marked = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO users(id,email,password_hash,role,status,offboarded_at) \
-         VALUES($1,$2,'unused','BUYER','REJECTED',now())",
-    )
-    .bind(marked)
-    .bind(format!("{marked}@offboarding.example"))
-    .execute(&mut conn)
-    .await
-    .unwrap();
-    refused(&alembic(&url, &["downgrade", PARENT]));
-    assert_eq!(current_revision(&mut conn).await, REVISION);
-    assert_eq!(column_and_table_exist(&mut conn).await, (true, true));
-    let still_marked: bool =
-        sqlx::query_scalar("SELECT offboarded_at IS NOT NULL FROM users WHERE id=$1")
-            .bind(marked)
-            .fetch_one(&mut conn)
-            .await
-            .unwrap();
-    assert!(still_marked);
-
-    // 2. Retained evidence alone blocks it, even after the marker is cleared by a reinstatement.
-    let actor = Uuid::new_v4();
-    sqlx::query("INSERT INTO users(id,email,password_hash,role,status) VALUES($1,$2,'unused','ADMIN','APPROVED')")
-        .bind(actor)
-        .bind(format!("{actor}@offboarding.example"))
-        .execute(&mut conn)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO individual_offboardings(operation_id,subject_user_id,actor_user_id,occurred_at,\
-         reason_code,evidence_case_ref,urgent) VALUES($1,$2,$3,now(),'LEFT_COMPANY','CASE-DOWN-1',false)",
-    )
-    .bind(Uuid::new_v4())
-    .bind(marked)
-    .bind(actor)
-    .execute(&mut conn)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE users SET offboarded_at=NULL WHERE id=$1")
-        .bind(marked)
-        .execute(&mut conn)
-        .await
-        .unwrap();
-    refused(&alembic(&url, &["downgrade", PARENT]));
-    assert_eq!(current_revision(&mut conn).await, REVISION);
-    assert_eq!(column_and_table_exist(&mut conn).await, (true, true));
-    let records: i64 = sqlx::query_scalar("SELECT count(*) FROM individual_offboardings")
-        .fetch_one(&mut conn)
-        .await
-        .unwrap();
-    assert_eq!(records, 1);
-
-    // 3. With neither marker nor record the downgrade runs and removes exactly the new objects.
-    sqlx::query("DELETE FROM individual_offboardings")
-        .execute(&mut conn)
-        .await
-        .unwrap();
-    let output = alembic(&url, &["downgrade", PARENT]);
-    assert!(
-        output.status.success(),
-        "downgrade failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(current_revision(&mut conn).await, PARENT);
-    assert_eq!(column_and_table_exist(&mut conn).await, (false, false));
-    let leftover: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_constraint WHERE conrelid='public.users'::regclass AND conname = ANY($1)",
-    )
-    .bind(vec![REJECTED_CONSTRAINT, DETACHED_CONSTRAINT])
-    .fetch_one(&mut conn)
-    .await
-    .unwrap();
-    assert_eq!(leftover, 0);
-
-    // 4. Users that exist before the upgrade, in every existing state, survive it unchanged.
-    let organization = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO organizations(id,name,type) VALUES($1,'Offboarding upgrade','FUEL_BUYER')",
-    )
-    .bind(organization)
-    .execute(&mut conn)
-    .await
-    .unwrap();
-    let mut existing = Vec::new();
-    for status in ["PENDING", "APPROVED", "REJECTED"] {
-        for attached in [false, true] {
-            let id = Uuid::new_v4();
-            sqlx::query(
-                "INSERT INTO users(id,email,password_hash,role,status,organization_id) \
-                 VALUES($1,$2,'unused','BUYER',$3,$4)",
-            )
-            .bind(id)
-            .bind(format!("{id}@offboarding.example"))
-            .bind(status)
-            .bind(attached.then_some(organization))
-            .execute(&mut conn)
-            .await
-            .unwrap();
-            existing.push((id, status, attached));
-        }
-    }
-    let output = alembic(&url, &["upgrade", REVISION]);
-    assert!(
-        output.status.success(),
-        "upgrade failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(current_revision(&mut conn).await, REVISION);
-    assert_eq!(column_and_table_exist(&mut conn).await, (true, true));
-    for (id, status, attached) in existing {
-        let (stored, marker, member): (String, bool, bool) = sqlx::query_as(
-            "SELECT status, offboarded_at IS NOT NULL, organization_id IS NOT NULL FROM users WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_one(&mut conn)
-        .await
-        .unwrap();
-        assert_eq!((stored.as_str(), marker, member), (status, false, attached));
-    }
 }

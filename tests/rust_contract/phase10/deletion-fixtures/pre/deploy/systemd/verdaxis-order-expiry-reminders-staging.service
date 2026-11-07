@@ -1,8 +1,0 @@
-[Unit]
-Description=Verdaxis order expiry reminders (fixture staging, superseded)
-
-[Service]
-Type=oneshot
-User=fixture-verdaxis
-WorkingDirectory=/home/fixture/verdaxis/staging/be
-ExecStart=/home/fixture/verdaxis/staging/be/venv/bin/python -m app.cli.order_expiry_reminders --environment staging

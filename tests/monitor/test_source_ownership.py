@@ -8,46 +8,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MONITOR = ROOT / "deploy/monitor"
 MANIFEST = MONITOR / "artifact-manifest.json"
-# Integration note (2026-07-20): on hardening/local-monitor-v2 this compared
-# runtime-owned files against commit f31736d and proved the monitor branch
-# never touched runtime-owned source. On the integration tree those files
-# legitimately change in reviewed stages, and a single-commit stage cannot
-# pin its own commit hash, so the tripwire pins per-file git blob SHAs
-# instead. The invariant is unchanged: no monitor/test/tooling work may
-# modify a runtime-owned file silently — a stage that deliberately changes
-# one must update its pinned blob in the same reviewed commit.
-# Market Support adds feature-flag settings and one feature-flagged router.
-# Licensed Webz.io news discovery adds a backend-only token and locked endpoint.
-# B100 supplier listings add an authenticated, non-executable offer router.
-# The read-only MCP endpoint adds a non-production route and shares the public read budget.
-# The KYC execution gate switch adds one setting (app/config.py) and one
-# startup log line (app/main.py).
-# Task 12b extends scripts/deploy.sh in place with the dual-service Rust
-# staging transaction (artifact verification, runtime preparation, both
-# readiness gates). Production Phase 1 extends that same transaction with
-# environment-specific policy/unit selection and exact prod provenance.
-# The boot-enable stage adds the post-activation systemctl enable of the
-# Rust unit plus its sudoers/preflight authority; the pinned blob below
-# includes those reviewed runtime-owned changes.
-# The deploy script comment lists what the Rust runtime preparation projects
-# (the verification and invite settings), and it reads RUST_CACHE_LISTENER from
-# the backend .env, refusing values other than 0 or 1, passing
-# --cache-listener to the budget preparation.
-# The stream replay floor checkpoint, and every later checkpoint, enables the one
-# stream listener connection (--stream-listener 1) in that same budget preparation.
-# The deploy script also records the watchlist producer activation (a real UTC
-# instant, refused otherwise) and keeps it across deploys.
-# M selects sqlx_1, retains both locks/cache fences and signed acceptance, and
-# leaves the retained backend stopped/disabled while restarting only Rust.
-# The shared inert Git boundary, private bundle reader, and disposable hosted
-# rehearsal source checks are included in the reviewed deploy identity.
+# The runtime deploy transaction remains byte-pinned across monitor changes.
+# The removed Python application and demo launcher no longer own runtime source.
 RUNTIME_OWNED_BLOBS = {
-    "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
-    "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
-    "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "1f104f3353dc75b8e127a079df639f5dc313e3c2",
-    "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
+    "scripts/deploy.sh": "c28e13a80bd5e43f48efb0110e70427ffb3fe9f6",
 }
+REMOVED_API_SOURCES = (
+    "app/config.py",
+    "app/database.py",
+    "app/main.py",
+    "scripts/run_demo_activity.py",
+)
 
 # Task 10b: only native active units and their reviewed policy/docs are installed.
 EXPECTED_ARTIFACTS = {
@@ -186,6 +157,8 @@ def test_monitor_has_no_competing_installer_runtime_transaction_or_producer_unit
 
 
 def test_runtime_owned_source_matches_pinned_blobs():
+    for relative_path in REMOVED_API_SOURCES:
+        assert not (ROOT / relative_path).exists(), relative_path
     for relative_path, expected in RUNTIME_OWNED_BLOBS.items():
         content = (ROOT / relative_path).read_bytes()
         blob = hashlib.sha1(b"blob %d\x00" % len(content) + content).hexdigest()

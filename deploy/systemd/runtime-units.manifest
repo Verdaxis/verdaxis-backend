@@ -1,6 +1,5 @@
 # environment	unit filename
-# Rust units only (Phase 10). The Python backend pair stays installed from its
-# current file until Task 32; the staging reminder pair is not installed (D1).
+# Rust serve and job units only; the staging reminder pair is not installed.
 # Serve units include optional KYC credentials; digests bind the committed bytes.
 production	verdaxis-rust.service
 production	verdaxis-news-refresh.service

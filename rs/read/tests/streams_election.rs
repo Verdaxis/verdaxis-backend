@@ -1,8 +1,8 @@
 //! Sequence assignment on one elected physical PostgreSQL session.
 //!
 //! The tests without a database run in every build of this target. The
-//! database tests are ignored here: `tests/postgres/test_phase6_election.py`
-//! runs them on the disposable PostgreSQL harness, with the deployed
+//! database tests are ignored here: `rs/read/tests/run_auth_streams_cache.sh`
+//! runs them on a disposable PostgreSQL database, with the deployed
 //! application role, and requires every one of them to pass.
 
 use std::{
@@ -915,7 +915,7 @@ impl Database {
     async fn open() -> Self {
         let serial = SERIAL.lock().await;
         let url = std::env::var("STREAM_ELECTION_APP_URL")
-            .expect("run through tests/postgres/test_phase6_election.py");
+            .expect("run through rs/read/tests/run_auth_streams_cache.sh");
         let observer = connect(&url).await;
         Self {
             url,

@@ -1,24 +1,100 @@
 use verdaxis_read::mcp::voyage::voyage_plan;
 
+// These are the reviewed economic fields of the frozen voyage contract.
+// Decimal spelling may differ; values, JSON kinds, keys and array order may not.
+const DECIMAL_PATHS: &[&str] = &[
+    "/legs/*/berth_days",
+    "/legs/*/berth_energy_mj",
+    "/legs/*/berth_eu_scope_share",
+    "/legs/*/distance_nm",
+    "/legs/*/eu_scope_share",
+    "/legs/*/sea_days",
+    "/legs/*/sea_energy_mj",
+    "/strategies/*/eu_ets_cost_eur",
+    "/strategies/*/fuel_cost_usd",
+    "/strategies/*/fuel_uses/*/cost_usd",
+    "/strategies/*/fuel_uses/*/price/carbon_intensity_gco2e_per_mj",
+    "/strategies/*/fuel_uses/*/price/energy_density_mj_per_kg",
+    "/strategies/*/fuel_uses/*/price/price_usd_per_mt",
+    "/strategies/*/fuel_uses/*/tonnes",
+    "/strategies/*/fueleu_balance_tco2e",
+    "/strategies/*/fueleu_cost_eur",
+    "/strategies/*/fueleu_target_gco2e_per_mj",
+    "/strategies/*/ghg_intensity_gco2e_per_mj",
+    "/strategies/*/in_scope_energy_mj",
+    "/strategies/*/total_cost_usd",
+];
+
+fn same_meaning(actual: &serde_json::Value, expected: &serde_json::Value, path: &str) -> bool {
+    use serde_json::Value;
+    use verdaxis_read::market::amount::Amount;
+    match (actual, expected) {
+        (Value::Object(left), Value::Object(right)) => {
+            left.len() == right.len()
+                && right.iter().all(|(key, value)| {
+                    left.get(key)
+                        .is_some_and(|actual| same_meaning(actual, value, &format!("{path}/{key}")))
+                })
+        }
+        (Value::Array(left), Value::Array(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| same_meaning(left, right, &format!("{path}/*")))
+        }
+        (Value::String(left), Value::String(right)) if DECIMAL_PATHS.contains(&path) => {
+            match (Amount::parse(left), Amount::parse(right)) {
+                (Ok(left), Ok(right)) => left.compare(&right).is_eq(),
+                _ => false,
+            }
+        }
+        (Value::String(left), Value::String(right))
+            if path == "/strategies/*/fuel_uses/*/price/observed_at" =>
+        {
+            match (
+                chrono::DateTime::parse_from_rfc3339(left),
+                chrono::DateTime::parse_from_rfc3339(right),
+            ) {
+                (Ok(left), Ok(right)) => left == right,
+                _ => false,
+            }
+        }
+        _ => actual == expected,
+    }
+}
+
 fn assert_meaning(actual: &serde_json::Value, expected: &serde_json::Value) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut child =
-        Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
-            .current_dir(&root)
-            .args(["-m", "scripts.rust_contract.compare_values"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-    let pair = serde_json::json!({"expected": expected, "actual": actual, "route_id": "P1-tool-plan_voyage_fuel"});
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(pair.to_string().as_bytes())
-        .unwrap();
-    assert!(child.wait().unwrap().success(), "voyage meaning changed");
+    assert!(
+        same_meaning(actual, expected, ""),
+        "voyage contract changed"
+    );
+}
+
+#[test]
+fn fixed_comparison_preserves_types_values_keys_and_array_order() {
+    use serde_json::json;
+    let expected = json!({"legs": [{"distance_nm": "2200", "from_port": "Shanghai"}]});
+    assert!(same_meaning(
+        &json!({"legs": [{"distance_nm": "22e2", "from_port": "Shanghai"}]}),
+        &expected,
+        ""
+    ));
+    for changed in [
+        json!({"legs": [{"distance_nm": "2201", "from_port": "Shanghai"}]}),
+        json!({"legs": [{"distance_nm": 2200, "from_port": "Shanghai"}]}),
+        json!({"legs": [{"distance_nm": "2200"}]}),
+        json!({"legs": [{"distance_nm": "2200", "from_port": "Shanghai", "extra": null}]}),
+        json!({"legs": [{"distance_nm": "2200", "from_port": "Shanghai"}, {}]}),
+    ] {
+        assert!(!same_meaning(&changed, &expected, ""));
+    }
+    assert!(!same_meaning(&json!(["a", "b"]), &json!(["b", "a"]), ""));
+    assert!(!same_meaning(
+        &json!("22e2"),
+        &json!("2200"),
+        "/not-an-economic-field"
+    ));
 }
 
 #[test]

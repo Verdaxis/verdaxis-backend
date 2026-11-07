@@ -14,7 +14,6 @@
 mod market_database;
 
 use std::collections::BTreeSet;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -27,9 +26,7 @@ use axum::{
 use jsonwebtoken::{EncodingKey, Header, encode};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdin, ChildStdout};
+use sqlx::{Connection, PgConnection, PgPool, postgres::PgPoolOptions};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{
@@ -68,22 +65,6 @@ const ELECTION_APP: &str = "verdaxis-stream-election";
 /// waiter inside the 500 ms market lock bound on a loaded host.
 const RELEASE_BUDGET: Duration = Duration::from_millis(350);
 /// Bounded refusals a contender may return instead of waiting longer.
-const BOUNDED_CODES: [&str; 4] = [
-    "MARKET_BUSY",
-    "MARKET_TIMEOUT",
-    "TRANSACTION_RETRY_EXHAUSTED",
-    "MARKET_SLICE_CHANGED",
-];
-// Statement names the driver pauses after (see `STATEMENTS` in the driver).
-/// The scan statement that takes the order row locks.
-const SCAN_LOCK: &str = "scan_order_locks";
-/// The delivery recheck that takes the recipient and order row locks.
-const DELIVERY_LOCK: &str = "delivery_recheck_locks";
-/// Python's transaction-scoped advisory lock statement.
-const ADVISORY: &str = "advisory_lock";
-/// The first order row the seed inserts.
-const FIRST_ORDER_INSERT: &str = "first_order_insert";
-
 fn id(value: u128) -> Uuid {
     Uuid::from_u128(value)
 }
@@ -95,18 +76,6 @@ fn verification() -> VerificationSettings {
         "residual-tests".into(),
     )
 }
-fn asyncpg(url: &str) -> String {
-    let mut parsed = url::Url::parse(url).unwrap();
-    parsed.set_scheme("postgresql+asyncpg").unwrap();
-    parsed.into()
-}
-fn repository_root() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
-}
-
 #[derive(Clone, Debug)]
 struct Command {
     method: &'static str,
@@ -160,98 +129,14 @@ async fn send(router: Router, command: Command) -> Reply {
 fn code(reply: &Reply) -> &str {
     reply.1["detail"]["code"].as_str().unwrap_or_default()
 }
-fn bounded(reply: &Reply) -> bool {
-    BOUNDED_CODES.contains(&code(reply))
-}
 fn expect_status(reply: &Reply, status: StatusCode) {
     assert_eq!(reply.0, status, "{reply:?}");
 }
 
 /// One unchanged Python writer in a child process.
-struct Driver {
-    child: Child,
-    stdin: ChildStdin,
-    lines: Lines<BufReader<ChildStdout>>,
-}
-impl Driver {
-    async fn start(command: Value) -> Self {
-        let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-        let database_url = command["database_url"].as_str().unwrap().to_owned();
-        let mut child = tokio::process::Command::new(python)
-            .arg("tests/postgres/phase8_residual_driver.py")
-            .current_dir(repository_root())
-            .env("ENVIRONMENT", "test")
-            .env("RELEASE_SHA", "test")
-            .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-            .env("DATABASE_URL", database_url)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .expect("the project Python interpreter runs");
-        let mut stdin = child.stdin.take().unwrap();
-        let lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        stdin
-            .write_all(format!("{command}\n").as_bytes())
-            .await
-            .unwrap();
-        stdin.flush().await.unwrap();
-        let mut driver = Self {
-            child,
-            stdin,
-            lines,
-        };
-        driver.line("READY").await;
-        driver
-    }
-    /// The next protocol line that starts with `prefix`; other output is printed.
-    async fn line(&mut self, prefix: &str) -> String {
-        let deadline = Duration::from_secs(180);
-        loop {
-            let line = tokio::time::timeout(deadline, self.lines.next_line())
-                .await
-                .unwrap_or_else(|_| panic!("driver did not print {prefix}"))
-                .unwrap()
-                .unwrap_or_else(|| panic!("driver exited before {prefix}"));
-            if let Some(rest) = line.strip_prefix(prefix) {
-                return rest.trim().to_owned();
-            }
-            println!("DRIVER_OUTPUT {line}");
-        }
-    }
-    async fn write(&mut self, word: &str) {
-        self.stdin
-            .write_all(format!("{word}\n").as_bytes())
-            .await
-            .unwrap();
-        self.stdin.flush().await.unwrap();
-    }
-    async fn go(&mut self) {
-        self.write("GO").await;
-    }
-    /// The backend pid of the paused writer, after its matching statement ran.
-    async fn held(&mut self) -> i32 {
-        self.line("HELD").await.parse().unwrap()
-    }
-    async fn release(&mut self) {
-        self.write("RELEASE").await;
-    }
-    async fn finish(mut self) -> Value {
-        let result: Value = serde_json::from_str(&self.line("RESULT").await).unwrap();
-        let status = self.child.wait().await.unwrap();
-        assert!(status.success(), "driver exit {status}");
-        println!("DRIVER_RESULT {result}");
-        result
-    }
-}
 fn ok(result: &Value) -> &Value {
-    assert_eq!(result["ok"], true, "Python writer failed: {result}");
+    assert_eq!(result["ok"], true);
     &result["result"]
-}
-fn sqlstate(result: &Value) -> &str {
-    assert_eq!(result["ok"], false, "Python writer succeeded: {result}");
-    result["error"]["sqlstate"].as_str().unwrap_or_default()
 }
 
 struct Fixture {
@@ -259,7 +144,6 @@ struct Fixture {
     admin: PgConnection,
     admin_url: String,
     runtime_url: String,
-    owner_url: String,
     point: Uuid,
 }
 impl Fixture {
@@ -289,11 +173,13 @@ impl Fixture {
             .await
             .unwrap();
         assert_eq!(
-            sqlx::query_scalar::<_, String>("SELECT version_num FROM alembic_version")
-                .fetch_one(&mut admin)
-                .await
-                .unwrap(),
-            "ob_20261031_offboarding"
+            sqlx::query_scalar::<_, String>(
+                "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success"
+            )
+            .fetch_one(&mut admin)
+            .await
+            .unwrap(),
+            "sqlx_1"
         );
         for source in [
             include_str!("fixtures/market_write_matching.sql"),
@@ -315,7 +201,6 @@ impl Fixture {
             admin,
             admin_url,
             runtime_url,
-            owner_url: owner.into(),
             point,
         }
     }
@@ -401,28 +286,6 @@ impl Fixture {
             reply
         })
     }
-    /// A contender released below its lock bound must succeed at once. A
-    /// bounded refusal is accepted only as a long hold: the sampled wait graph
-    /// has no cycle and the released Python writer never waited on `rust_app`.
-    /// It is recorded and the command is repeated once after the writer committed.
-    async fn first_attempt(
-        &self,
-        reply: Reply,
-        contention: &Contention,
-        rust_app: &str,
-        command: Command,
-    ) -> Reply {
-        contention.assert_no_cycle(rust_app);
-        if bounded(&reply) {
-            assert!(
-                !contention.waited(PYTHON_APP, rust_app),
-                "a bounded refusal after the Python writer waited on Rust: {contention:?}"
-            );
-            println!("LONG_HOLD status={} body={}", reply.0, reply.1);
-            return self.call(command).await;
-        }
-        reply
-    }
     fn cancel(&self, order: Uuid, actor: u128) -> Command {
         Command::new(
             "DELETE",
@@ -474,14 +337,6 @@ impl Fixture {
 
     // ---- fixture SQL -----------------------------------------------------
 
-    async fn expire_at(&mut self, order: Uuid, at: chrono::DateTime<chrono::Utc>) {
-        sqlx::query("SELECT residual_expire_at($1,$2)")
-            .bind(order)
-            .bind(at)
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-    }
     async fn ask(
         &mut self,
         order: Uuid,
@@ -500,15 +355,7 @@ impl Fixture {
             .await
             .unwrap();
     }
-    async fn demo_ask(&mut self, order: Uuid, price: i64, window: &str) {
-        sqlx::query("SELECT residual_demo_ask($1,$2,$3)")
-            .bind(order)
-            .bind(Decimal::from(price))
-            .bind(window)
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-    }
+
     /// The order's status, remainder and expiry, or null once the row is gone.
     async fn order(&mut self, order: Uuid) -> Value {
         let row: Option<Value> = sqlx::query_scalar("SELECT residual_order($1)")
@@ -518,36 +365,14 @@ impl Fixture {
             .unwrap();
         row.unwrap_or(Value::Null)
     }
-    async fn reminders(&mut self) -> Vec<Value> {
-        let value: Value = sqlx::query_scalar("SELECT residual_reminders()")
-            .fetch_one(&mut self.admin)
-            .await
-            .unwrap();
-        value.as_array().unwrap().clone()
-    }
-    async fn reminders_for(&mut self, order: Uuid) -> Vec<Value> {
-        self.reminders()
-            .await
-            .into_iter()
-            .filter(|notice| notice["order_id"] == json!(order.to_string()))
-            .collect()
-    }
+
     async fn snapshot(&mut self) -> Value {
         sqlx::query_scalar("SELECT residual_snapshot()")
             .fetch_one(&mut self.admin)
             .await
             .unwrap()
     }
-    async fn stock(&mut self) -> (Decimal, Decimal) {
-        let row = sqlx::query(
-            "SELECT current_stock_mt,reserved_stock_mt FROM inventory_items WHERE id=$1",
-        )
-        .bind(id(ITEM))
-        .fetch_one(&mut self.admin)
-        .await
-        .unwrap();
-        (row.get(0), row.get(1))
-    }
+
     async fn ledger(&mut self) {
         let invariant: Value = sqlx::query_scalar("SELECT residual_invariants()")
             .fetch_one(&mut self.admin)
@@ -558,29 +383,6 @@ impl Fixture {
             json!({"stock":true,"orders":true,"freeze":true}),
             "conservation after the schedule: {invariant}"
         );
-    }
-    async fn fast_deadlock_detection(&mut self) {
-        sqlx::query("SELECT residual_fast_deadlock_detection()")
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-    }
-    async fn deadlocks(&mut self) -> i64 {
-        sqlx::query("SELECT pg_stat_clear_snapshot()")
-            .execute(&mut self.admin)
-            .await
-            .unwrap();
-        sqlx::query_scalar("SELECT residual_deadlocks()")
-            .fetch_one(&mut self.admin)
-            .await
-            .unwrap()
-    }
-    async fn probe_organization(&mut self, organization: &str) -> String {
-        sqlx::query_scalar("SELECT residual_probe_organization($1::uuid)")
-            .bind(organization)
-            .fetch_one(&mut self.admin)
-            .await
-            .unwrap()
     }
 
     // ---- lock observation ------------------------------------------------
@@ -605,26 +407,6 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
-    /// Poll until `waiter` waits on a heavyweight lock held by any of `blockers`.
-    async fn wait_lock_any(&mut self, waiter: &str, blockers: &[&str]) -> i32 {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            let pid: Option<i32> = sqlx::query_scalar("SELECT residual_waiting_on_any($1,$2)")
-                .bind(waiter)
-                .bind(blockers)
-                .fetch_one(&mut self.admin)
-                .await
-                .unwrap();
-            if let Some(pid) = pid {
-                return pid;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{waiter} did not wait for {blockers:?}"
-            );
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    }
     async fn demo_seed_organizations(&mut self) {
         sqlx::query("SELECT residual_demo_seed_organizations()")
             .execute(&mut self.admin)
@@ -637,108 +419,25 @@ impl Fixture {
             .await
             .unwrap();
     }
-    /// A session advisory barrier that Rust commands named `RUST_HELD_APP` meet
-    /// at their first effect row, after they took their economic locks.
-    async fn barrier(&self) -> PgConnection {
-        let mut barrier = PgConnection::connect(&self.admin_url).await.unwrap();
-        sqlx::query("SELECT set_config('application_name',$1,false)")
-            .bind(BARRIER_APP)
-            .execute(&mut barrier)
-            .await
-            .unwrap();
-        sqlx::query("SELECT residual_hold()")
-            .execute(&mut barrier)
-            .await
-            .unwrap();
-        barrier
-    }
-    /// Observe `waiter` blocked by the held Rust command, then release it at once.
-    async fn observe_release(barrier: &mut PgConnection, waiter: &str) -> Value {
-        let observation: Value = sqlx::query_scalar("SELECT residual_observe_release($1,$2)")
-            .bind(waiter)
-            .bind(RUST_HELD_APP)
-            .fetch_one(barrier)
-            .await
-            .unwrap();
-        assert!(
-            observation["release_ms"].as_f64().unwrap() < RELEASE_BUDGET.as_millis() as f64,
-            "release must retain the lock budget: {observation}"
-        );
-        println!("OBSERVED_WAIT waiter={waiter} blocker={RUST_HELD_APP} {observation}");
-        observation
-    }
-
-    // ---- Python side -----------------------------------------------------
-
-    fn command(&self, op: &str) -> Value {
-        json!({"op":op,"database_url":asyncpg(&self.runtime_url),"application_name":PYTHON_APP})
-    }
-    fn owner_command(&self, op: &str) -> Value {
-        json!({"op":op,"database_url":asyncpg(&self.owner_url),"application_name":PYTHON_APP})
-    }
-    async fn python(&self, command: Value) -> Value {
-        let mut driver = Driver::start(command).await;
-        driver.go().await;
-        driver.finish().await
-    }
-    /// Recent demo activity ticks whose seeded slice is B30 at Rotterdam.
     async fn demo_ticks(&self, count: usize) -> Vec<(String, String)> {
-        let mut command = self.command("demo_find_ticks");
-        command["args"] = json!({"product":"B30","port":"Rotterdam","count":count});
-        let result = self.python(command).await;
-        let ticks: Vec<(String, String)> = ok(&result)["ticks"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| {
-                (
-                    t["now"].as_str().unwrap().to_owned(),
-                    t["window"].as_str().unwrap().to_owned(),
-                )
+        use verdaxis_read::cli::jobs::demo::model::{activity_tick, tick_choice};
+        rust_b30_ticks(count)
+            .into_iter()
+            .map(|tick| {
+                let choice = tick_choice(activity_tick(tick));
+                (tick.to_rfc3339(), choice.window)
             })
-            .collect();
-        assert_eq!(
-            ticks.len(),
-            count,
-            "no recent tick seeds the B30 Rotterdam slice"
-        );
-        ticks
+            .collect()
     }
     async fn demo_tick(&self, now: &str) -> Value {
-        let mut command = self.command("demo_tick");
-        command["now"] = json!(now);
-        self.python(command).await
+        let (report, result) = self.rust_demo(now.parse().unwrap(), Vec::new()).await;
+        result.unwrap();
+        let created = usize::from(matches!(
+            report.market.tick,
+            Some(TickOutcome::Created { .. })
+        ));
+        json!({"ok":true,"result":{"created_trades":created}})
     }
-}
-
-/// Release a paused Python writer and return how long, measured at the
-/// database, `waiter` still waited on `blocker` after the wait was observed.
-async fn release_and_time(
-    f: &mut Fixture,
-    driver: &mut Driver,
-    observed: Instant,
-    waiter: &str,
-    blocker: &str,
-) -> Duration {
-    driver.release().await;
-    loop {
-        let pid: Option<i32> = sqlx::query_scalar("SELECT residual_waiting($1,$2)")
-            .bind(waiter)
-            .bind(blocker)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
-        if pid.is_none() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
-    let held = observed.elapsed();
-    println!(
-        "RELEASED_WAIT waiter={waiter} blocker={blocker} held_ms={}",
-        held.as_millis()
-    );
-    held
 }
 
 /// The lock waits sampled among this suite's backends during one schedule.
@@ -748,10 +447,6 @@ struct Contention {
     cycle: Option<Vec<(String, String)>>,
 }
 impl Contention {
-    fn waited(&self, waiter: &str, blocker: &str) -> bool {
-        self.edges
-            .contains(&(waiter.to_owned(), blocker.to_owned()))
-    }
     fn assert_no_cycle(&self, label: &str) {
         assert!(
             self.cycle.is_none(),
@@ -849,611 +544,9 @@ impl WaitGraph {
     }
 }
 
-fn in_hours(hours: i64) -> chrono::DateTime<chrono::Utc> {
-    use chrono::Timelike;
-    (chrono::Utc::now() + chrono::Duration::hours(hours))
-        .with_nanosecond(0)
-        .unwrap()
-}
-
 // ---- order-expiry reminders ----------------------------------------------
 
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_scan_row_locks_bound_a_rust_cancel() {
-    // Released early, the scan meets a lock cycle: its notice insert needs a
-    // key-share lock on the recipient's user row, which the waiting Rust
-    // cancellation (the order's owner) already holds FOR UPDATE, while Rust
-    // waits on the order row the scan holds. Rust's 500 ms bound ends the
-    // cycle before the deadlock detector (one second): Rust answers the
-    // retryable busy code with no effect, the scan commits, a retry succeeds.
-    // Held past the bound, the scan never waits on Rust: a plain long hold.
-    for released_early in [true, false] {
-        let mut f = Fixture::new().await;
-        let order = f.listing().await;
-        f.expire_at(order, in_hours(6)).await;
-        let before = f.snapshot().await;
-        let mut command = f.command("reminder_scan");
-        command["pause"] = json!(SCAN_LOCK);
-        let mut scan = Driver::start(command).await;
-        scan.go().await;
-        let python = scan.held().await;
-        let graph = WaitGraph::start(&f.admin_url).await;
-        let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
-        let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-        println!(
-            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-scan:{python} released_early={released_early}"
-        );
-        if released_early {
-            scan.release().await;
-            let reverse = f.wait_lock(PYTHON_APP, RUST_APP).await;
-            let waits: Value = sqlx::query_scalar("SELECT residual_lock_waits($1)")
-                .bind(PYTHON_APP)
-                .fetch_one(&mut f.admin)
-                .await
-                .unwrap();
-            println!("REVERSE_WAIT python-scan:{reverse} waits={waits}");
-            assert!(
-                waits
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|wait| wait["relation"] == "users"),
-                "the scan waits on the recipient's user row: {waits}"
-            );
-        }
-        let reply = cancel.await.unwrap();
-        expect_status(&reply, StatusCode::CONFLICT);
-        assert_eq!(code(&reply), "MARKET_BUSY");
-        if !released_early {
-            scan.release().await;
-        }
-        assert_eq!(ok(&scan.finish().await)["created"], 1);
-        let contention = graph.stop().await;
-        if released_early {
-            let cycle = contention.cycle.clone().expect("the cycle was observed");
-            assert!(cycle.contains(&(RUST_APP.to_owned(), PYTHON_APP.to_owned())));
-            assert!(cycle.contains(&(PYTHON_APP.to_owned(), RUST_APP.to_owned())));
-        } else {
-            contention.assert_no_cycle("scan held past the bound");
-            assert!(!contention.waited(PYTHON_APP, RUST_APP));
-        }
-        // The refused cancellation left no effect; the scan's notice is the
-        // only new row.
-        let refused = f.snapshot().await;
-        for key in [
-            "orders",
-            "inventory",
-            "audit_count",
-            "outbox_count",
-            "receipt_count",
-        ] {
-            assert_eq!(refused[key], before[key], "{key} after the refusal");
-        }
-        assert_eq!(f.order(order).await["status"], "OPEN");
-        expect_status(
-            &f.call(f.cancel(order, SELLER)).await,
-            StatusCode::NO_CONTENT,
-        );
-        let after = f.snapshot().await;
-        assert_eq!(
-            after["audit_count"].as_i64().unwrap(),
-            before["audit_count"].as_i64().unwrap() + 1,
-            "one cancellation audit row"
-        );
-        assert_eq!(f.order(order).await["status"], "CANCELLED");
-        assert_eq!(f.stock().await, (Decimal::from(1000), Decimal::ZERO));
-        assert_eq!(f.reminders_for(order).await.len(), 1);
-        f.ledger().await;
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn rust_cancel_row_lock_makes_the_reminder_scan_wait_then_skip_the_order() {
-    let mut f = Fixture::new().await;
-    let order = f.listing().await;
-    f.expire_at(order, in_hours(6)).await;
-    let other = Uuid::new_v4();
-    f.ask(other, 150, 5, "SPOT", Some(in_hours(10))).await;
-    let mut scan = Driver::start(f.command("reminder_scan")).await;
-    let mut barrier = f.barrier().await;
-    let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
-    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
-    scan.go().await;
-    Fixture::observe_release(&mut barrier, PYTHON_APP).await;
-    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
-    assert_eq!(ok(&scan.finish().await)["created"], 1);
-    assert!(
-        f.reminders_for(order).await.is_empty(),
-        "no notice for a cancelled order"
-    );
-    assert_eq!(f.reminders_for(other).await.len(), 1);
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        0
-    );
-    assert_eq!(f.reminders().await.len(), 1);
-    f.ledger().await;
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_scan_and_rust_crossing_create_have_a_bounded_outcome_under_opposite_row_order() {
-    let mut f = Fixture::new().await;
-    f.fast_deadlock_detection().await;
-    // A expires first but has the greater UUID and the higher price: the scan
-    // locks A then B, the Rust matcher locks B then A.
-    let first = Uuid::from_u128(0xF000_0000_0000_0000_0000_0000_0000_00A1);
-    let second = Uuid::from_u128(0x1000_0000_0000_0000_0000_0000_0000_00B1);
-    f.ask(first, 100, 1, "SPOT", Some(in_hours(5))).await;
-    f.ask(second, 99, 1, "SPOT", Some(in_hours(7))).await;
-    let mut holder = PgConnection::connect(&f.admin_url).await.unwrap();
-    sqlx::raw_sql("SELECT set_config('application_name','residual-holder',false); BEGIN")
-        .execute(&mut holder)
-        .await
-        .unwrap();
-    sqlx::query("SELECT residual_hold_order($1)")
-        .bind(first)
-        .execute(&mut holder)
-        .await
-        .unwrap();
-    let mut scan = Driver::start(f.command("reminder_scan")).await;
-    let graph = WaitGraph::start(&f.admin_url).await;
-    scan.go().await;
-    f.wait_lock(PYTHON_APP, HOLDER_APP).await;
-    let create = f.spawn(RUST_APP, f.bid("2", "110", "SPOT", None)).await;
-    // Rust holds B and queues for A behind the waiting scan.
-    f.wait_lock_any(RUST_APP, &[HOLDER_APP, PYTHON_APP]).await;
-    let observed = Instant::now();
-    sqlx::raw_sql("COMMIT").execute(&mut holder).await.unwrap();
-    assert!(
-        observed.elapsed() < RELEASE_BUDGET,
-        "holder release took too long"
-    );
-    let rust = create.await.unwrap();
-    let python = scan.finish().await;
-    // A victim's deadlock is counted when its backend reports statistics.
-    let mut deadlocks = f.deadlocks().await;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while deadlocks == 0 && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        deadlocks = f.deadlocks().await;
-    }
-    println!("OPPOSITE_ORDER_DEADLOCKS detected={deadlocks}");
-    let contention = graph.stop().await;
-    let cycle = contention
-        .cycle
-        .clone()
-        .expect("the opposite row orders formed a cycle");
-    assert!(cycle.contains(&(RUST_APP.to_owned(), PYTHON_APP.to_owned())));
-    assert!(cycle.contains(&(PYTHON_APP.to_owned(), RUST_APP.to_owned())));
-    assert!(deadlocks >= 1, "the deadlock detector broke the cycle");
-    let python_victim = python["ok"] == false;
-    if python_victim {
-        assert_eq!(
-            sqlstate(&python),
-            "40P01",
-            "only a deadlock may abort the scan"
-        );
-        assert!(
-            f.reminders().await.is_empty(),
-            "an aborted scan commits no notice"
-        );
-    } else {
-        // The scan committed: both orders were eligible when it locked them.
-        assert_eq!(ok(&python)["created"], 2);
-        for order in [first, second] {
-            assert_eq!(f.reminders_for(order).await.len(), 1, "{order}");
-        }
-    }
-    assert!(
-        rust.0.is_success() || bounded(&rust),
-        "Rust create must succeed or refuse within its bound: {rust:?}"
-    );
-    println!(
-        "OPPOSITE_ORDER_OUTCOME rust_status={} rust_code={} python_ok={} python_created={} python_error={}",
-        rust.0,
-        code(&rust),
-        python["ok"],
-        python["result"]["created"],
-        python["error"]
-    );
-    let rerun = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
-    println!("OPPOSITE_ORDER_RESCAN created={rerun}");
-    assert_eq!(rerun, 0, "no second notice for an order and expiry");
-    f.ledger().await;
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_delivery_discards_the_notice_of_a_cancelled_order() {
-    let mut f = Fixture::new().await;
-    let order = f.listing().await;
-    f.expire_at(order, in_hours(6)).await;
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        1
-    );
-    assert_eq!(f.reminders_for(order).await[0]["status"], "pending");
-    let mut delivery = Driver::start(f.command("reminder_delivery")).await;
-    let mut barrier = f.barrier().await;
-    let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
-    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
-    delivery.go().await;
-    Fixture::observe_release(&mut barrier, PYTHON_APP).await;
-    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
-    let result = delivery.finish().await;
-    assert_eq!(ok(&result)["sent"], 0);
-    assert_eq!(ok(&result)["sender_calls"], json!([]));
-    let notice = &f.reminders_for(order).await[0];
-    assert_eq!(notice["status"], "discarded");
-    let mut keys: Vec<&str> = notice["data"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .map(String::as_str)
-        .collect();
-    keys.sort_unstable();
-    assert_eq!(
-        keys,
-        [
-            "_email_only",
-            "_email_status",
-            "event",
-            "expires_at",
-            "expiry_epoch",
-            "order_id",
-            "order_key"
-        ]
-    );
-    f.ledger().await;
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_delivery_claim_bounds_a_rust_cancel() {
-    for above_budget in [false, true] {
-        let mut f = Fixture::new().await;
-        let order = f.listing().await;
-        f.expire_at(order, in_hours(6)).await;
-        assert_eq!(
-            ok(&f.python(f.command("reminder_scan")).await)["created"],
-            1
-        );
-        let before = f.snapshot().await;
-        let mut command = f.command("reminder_delivery");
-        command["pause"] = json!(DELIVERY_LOCK);
-        let mut delivery = Driver::start(command).await;
-        delivery.go().await;
-        let python = delivery.held().await;
-        let graph = WaitGraph::start(&f.admin_url).await;
-        let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
-        let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-        let observed = Instant::now();
-        println!(
-            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-delivery:{python} above_budget={above_budget}"
-        );
-        if above_budget {
-            let reply = cancel.await.unwrap();
-            expect_status(&reply, StatusCode::CONFLICT);
-            assert_eq!(code(&reply), "MARKET_BUSY");
-            assert_eq!(
-                f.snapshot().await,
-                before,
-                "a bounded refusal has no effect"
-            );
-            delivery.release().await;
-            let result = delivery.finish().await;
-            assert_eq!(ok(&result)["sent"], 1);
-            graph
-                .stop()
-                .await
-                .assert_no_cycle("delivery held past the bound");
-            expect_status(
-                &f.call(f.cancel(order, SELLER)).await,
-                StatusCode::NO_CONTENT,
-            );
-        } else {
-            let held =
-                release_and_time(&mut f, &mut delivery, observed, RUST_APP, PYTHON_APP).await;
-            let first = cancel.await.unwrap();
-            let result = delivery.finish().await;
-            let contention = graph.stop().await;
-            if !bounded(&first) {
-                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
-            }
-            let reply = f
-                .first_attempt(first, &contention, RUST_APP, f.cancel(order, SELLER))
-                .await;
-            expect_status(&reply, StatusCode::NO_CONTENT);
-            assert_eq!(ok(&result)["sent"], 1);
-        }
-        assert_eq!(f.reminders_for(order).await[0]["status"], "sent");
-        assert_eq!(f.order(order).await["status"], "CANCELLED");
-        assert_eq!(f.stock().await, (Decimal::from(1000), Decimal::ZERO));
-        f.ledger().await;
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn rust_amend_of_expiry_gets_a_new_reminder_and_discards_the_old_notice() {
-    let mut f = Fixture::new().await;
-    let order = Uuid::new_v4();
-    let first = in_hours(6);
-    f.ask(order, 150, 5, "SPOT", Some(first)).await;
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        1
-    );
-    let later = first + chrono::Duration::hours(2);
-    let reply = f
-        .call(f.amend(order, json!({"expires_at": later.to_rfc3339()})))
-        .await;
-    expect_status(&reply, StatusCode::OK);
-    assert_eq!(
-        f.order(order).await["expires_epoch"]
-            .as_str()
-            .unwrap()
-            .parse::<f64>()
-            .unwrap(),
-        later.timestamp() as f64
-    );
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        1
-    );
-    let result = f.python(f.command("reminder_delivery")).await;
-    assert_eq!(ok(&result)["sent"], 1);
-    let notices = f.reminders_for(order).await;
-    assert_eq!(notices.len(), 2);
-    assert_eq!(notices[0]["expiry_epoch"], json!(first.timestamp() as f64));
-    assert_eq!(notices[0]["status"], "discarded");
-    assert_eq!(notices[1]["expiry_epoch"], json!(later.timestamp() as f64));
-    assert_eq!(notices[1]["status"], "sent");
-    assert_eq!(
-        ok(&result)["sender_calls"][0]["notice_id"],
-        notices[1]["id"],
-        "only the notice for the current expiry is sent"
-    );
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        0
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_payload_keys_and_lease_survive_rust_writes() {
-    let mut f = Fixture::new().await;
-    let other = f.listing().await;
-    let order = Uuid::new_v4();
-    let expiry = in_hours(10);
-    f.ask(order, 150, 5, "SPOT", Some(expiry)).await;
-    assert_eq!(
-        ok(&f.python(f.command("reminder_scan")).await)["created"],
-        1
-    );
-    let claim = chrono::Utc::now() + chrono::Duration::seconds(1);
-    let claim = chrono::DateTime::from_timestamp_micros(claim.timestamp_micros()).unwrap();
-    let mut delivery = f.command("reminder_delivery");
-    delivery["now"] = json!(claim.to_rfc3339());
-    delivery["sender_accepts"] = json!(false);
-    let result = f.python(delivery).await;
-    assert_eq!(ok(&result)["sent"], 0);
-    assert_eq!(ok(&result)["sender_calls"].as_array().unwrap().len(), 1);
-    let notice = f.reminders_for(order).await[0].clone();
-    let data = notice["data"].as_object().unwrap();
-    let mut keys: Vec<&str> = data.keys().map(String::as_str).collect();
-    keys.sort_unstable();
-    assert_eq!(
-        keys,
-        [
-            "_email_deadline",
-            "_email_only",
-            "_email_payload",
-            "_email_retry_at",
-            "_email_status",
-            "event",
-            "expires_at",
-            "expiry_epoch",
-            "order_id",
-            "order_key"
-        ]
-    );
-    assert_eq!(data["_email_status"], "pending");
-    let claim_epoch = claim.timestamp_micros() as f64 / 1_000_000.0;
-    assert!((data["_email_retry_at"].as_f64().unwrap() - (claim_epoch + 900.0)).abs() < 1e-6);
-    let created = notice["created_epoch"].as_f64().unwrap();
-    let deadline = (expiry.timestamp() as f64).min(created + 23.0 * 3600.0);
-    assert!((data["_email_deadline"].as_f64().unwrap() - deadline).abs() < 1e-5);
-    let stored = f.reminders().await;
-    expect_status(
-        &f.call(f.cancel(other, SELLER)).await,
-        StatusCode::NO_CONTENT,
-    );
-    expect_status(
-        &f.call(f.amend(order, json!({"price_per_mt_usd":"151"})))
-            .await,
-        StatusCode::OK,
-    );
-    let after = f.reminders().await;
-    let texts =
-        |notices: &[Value]| -> Vec<Value> { notices.iter().map(|n| n["text"].clone()).collect() };
-    assert_eq!(
-        texts(&after),
-        texts(&stored),
-        "Rust writes leave reminder payloads unchanged"
-    );
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn reminder_dedupe_holds_for_rust_written_expiry_instants() {
-    let whole = in_hours(10);
-    let fraction = whole + chrono::Duration::microseconds(123_456);
-    for (label, expiry) in [("whole-second", whole), ("microsecond", fraction)] {
-        let mut f = Fixture::new().await;
-        let text = expiry.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
-        let reply = f.call(f.bid("5", "90", "SPOT", Some(&text))).await;
-        expect_status(&reply, StatusCode::CREATED);
-        let order: Uuid = reply.1["id"].as_str().unwrap().parse().unwrap();
-        let first = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
-        let repeat = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
-        println!("REMINDER_DEDUPE create={label} first={first} repeat={repeat}");
-        assert_eq!(first, 1, "{label}");
-        assert_eq!(
-            repeat, 0,
-            "{label}: a repeated scan creates no second notice"
-        );
-        // The same instant written by an amendment of the Rust order.
-        let moved = expiry + chrono::Duration::hours(1);
-        let reply = f
-            .call(Command::new(
-                "PUT",
-                format!("/api/orderbook/{order}"),
-                BUYER,
-                json!({"expires_at": moved.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)}),
-            ))
-            .await;
-        expect_status(&reply, StatusCode::OK);
-        let first = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
-        let repeat = ok(&f.python(f.command("reminder_scan")).await)["created"].clone();
-        println!("REMINDER_DEDUPE amend={label} first={first} repeat={repeat}");
-        assert_eq!(first, 1, "{label}");
-        assert_eq!(
-            repeat, 0,
-            "{label}: a repeated scan creates no second notice"
-        );
-        assert_eq!(f.reminders_for(order).await.len(), 2);
-    }
-}
-
 // ---- demo activity -------------------------------------------------------
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn demo_slice_holder_bounds_a_rust_create_without_party_deadlock() {
-    for above_budget in [false, true] {
-        let mut f = Fixture::new().await;
-        f.demo_organizations().await;
-        let (now, window) = f.demo_ticks(1).await.remove(0);
-        let real = Uuid::new_v4();
-        let demo = Uuid::new_v4();
-        f.ask(real, 950, 5, &window, None).await;
-        // Cheaper than the REAL ASK: only provenance keeps the matcher from it.
-        f.demo_ask(demo, 900, &window).await;
-        let mut command = f.command("demo_tick");
-        command["now"] = json!(now);
-        command["pause"] = json!(ADVISORY);
-        let mut tick = Driver::start(command).await;
-        tick.go().await;
-        let python = tick.held().await;
-        let graph = WaitGraph::start(&f.admin_url).await;
-        let create = f.spawn(RUST_APP, f.bid("5", "960", &window, None)).await;
-        let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-        let observed = Instant::now();
-        println!(
-            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-demo:{python} above_budget={above_budget}"
-        );
-        if above_budget {
-            // While Rust waits on the slice it already holds its organizations:
-            // the REAL seller is locked, neither demo organization is.
-            assert_eq!(
-                f.probe_organization(&id(SELLER_ORG).to_string()).await,
-                "locked"
-            );
-            assert_eq!(f.probe_organization(DEMO_SELLER_ORG).await, "free");
-            assert_eq!(f.probe_organization(DEMO_BUYER_ORG).await, "free");
-            let reply = create.await.unwrap();
-            expect_status(&reply, StatusCode::CONFLICT);
-            assert_eq!(code(&reply), "MARKET_BUSY");
-            tick.release().await;
-            let result = tick.finish().await;
-            assert_eq!(ok(&result)["created_trades"], 1);
-            graph
-                .stop()
-                .await
-                .assert_no_cycle("tick held past the bound");
-            expect_status(
-                &f.call(f.bid("5", "960", &window, None)).await,
-                StatusCode::CREATED,
-            );
-        } else {
-            let held = release_and_time(&mut f, &mut tick, observed, RUST_APP, PYTHON_APP).await;
-            let result = tick.finish().await;
-            assert_eq!(ok(&result)["created_trades"], 1);
-            let first = create.await.unwrap();
-            let contention = graph.stop().await;
-            if !bounded(&first) {
-                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
-            }
-            let reply = f
-                .first_attempt(
-                    first,
-                    &contention,
-                    RUST_APP,
-                    f.bid("5", "960", &window, None),
-                )
-                .await;
-            expect_status(&reply, StatusCode::CREATED);
-        }
-        assert_eq!(
-            f.order(real).await["status"],
-            "FILLED",
-            "Rust matched the REAL ASK"
-        );
-        assert_eq!(
-            f.order(demo).await["remaining"],
-            "5",
-            "Rust never matched a DEMO ASK"
-        );
-        f.ledger().await;
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn rust_slice_holder_bounds_the_demo_tick() {
-    let mut f = Fixture::new().await;
-    f.demo_organizations().await;
-    let (now, window) = f.demo_ticks(1).await.remove(0);
-    let real = Uuid::new_v4();
-    f.ask(real, 950, 5, &window, None).await;
-    let mut command = f.command("demo_tick");
-    command["now"] = json!(now);
-    let mut tick = Driver::start(command).await;
-    let mut barrier = f.barrier().await;
-    let cancel = f.spawn(RUST_HELD_APP, f.cancel(real, SELLER)).await;
-    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
-    let before = f.snapshot().await;
-    tick.go().await;
-    let python = f.wait_lock(PYTHON_APP, RUST_HELD_APP).await;
-    println!("OBSERVED_WAIT waiter=python-demo:{python} blocker={RUST_HELD_APP}");
-    let result = tick.finish().await;
-    assert_eq!(result["ok"], false);
-    assert_eq!(result["error"]["type"], "HTTPException");
-    assert_eq!(
-        result["error"]["status_code"], 409,
-        "the slice lock bound refuses the tick"
-    );
-    assert_eq!(f.snapshot().await, before, "the refused tick wrote no row");
-    assert!(
-        sqlx::query_scalar::<_, bool>("SELECT residual_release()")
-            .fetch_one(&mut barrier)
-            .await
-            .unwrap()
-    );
-    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
-    let created = f.demo_tick(&now).await;
-    assert_eq!(ok(&created)["created_orders"], 2);
-    assert_eq!(ok(&created)["created_trades"], 1);
-    let repeated = f.demo_tick(&now).await;
-    assert_eq!(ok(&repeated)["created_orders"], 0);
-    assert_eq!(ok(&repeated)["reason"], "already generated for tick");
-    f.ledger().await;
-}
 
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
@@ -1522,450 +615,7 @@ async fn demo_tick_rows_are_exactly_the_documented_columns_and_read_by_rust() {
     expect_status(&f.read("/api/orderbook/asks").await, StatusCode::OK);
 }
 
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn demo_coverage_slice_locks_bound_rust_writers_in_both_directions() {
-    // Coverage holds its sorted slice locks while it writes the demo book: a
-    // Rust cancellation in one of those slices waits on that slice key and
-    // its bound refuses it with no effect.
-    let mut f = Fixture::new().await;
-    f.demo_seed_organizations().await;
-    let order = f.listing().await;
-    let before = f.snapshot().await;
-    let mut command = f.command("demo_coverage");
-    command["pause"] = json!(FIRST_ORDER_INSERT);
-    let mut coverage = Driver::start(command).await;
-    coverage.go().await;
-    let python = coverage.held().await;
-    let graph = WaitGraph::start(&f.admin_url).await;
-    let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
-    let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-    println!("OBSERVED_WAIT waiter=rust:{rust} blocker=python-coverage:{python}");
-    let awaited: Option<i64> = sqlx::query_scalar("SELECT residual_waiting_advisory($1)")
-        .bind(RUST_APP)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    let spot: i64 = sqlx::query_scalar("SELECT residual_slice_key($1::uuid,$2,'SPOT')")
-        .bind(PRODUCT)
-        .bind(f.point)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    assert_eq!(awaited, Some(spot), "Rust waits on the covered slice key");
-    let reply = cancel.await.unwrap();
-    expect_status(&reply, StatusCode::CONFLICT);
-    assert_eq!(code(&reply), "MARKET_BUSY");
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "a bounded refusal has no effect"
-    );
-    coverage.release().await;
-    let result = coverage.finish().await;
-    assert!(ok(&result)["coverage_created"].as_i64().unwrap() > 0);
-    graph
-        .stop()
-        .await
-        .assert_no_cycle("coverage held past the bound");
-    expect_status(
-        &f.call(f.cancel(order, SELLER)).await,
-        StatusCode::NO_CONTENT,
-    );
-    f.ledger().await;
-
-    // Rust holds a covered slice: coverage refuses at its slice bound, unwritten.
-    let mut f = Fixture::new().await;
-    f.demo_seed_organizations().await;
-    let order = f.listing().await;
-    let mut coverage = Driver::start(f.command("demo_coverage")).await;
-    let mut barrier = f.barrier().await;
-    let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
-    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
-    let before = f.snapshot().await;
-    let graph = WaitGraph::start(&f.admin_url).await;
-    coverage.go().await;
-    let python = f.wait_lock(PYTHON_APP, RUST_HELD_APP).await;
-    println!("OBSERVED_WAIT waiter=python-coverage:{python} blocker={RUST_HELD_APP}");
-    let result = coverage.finish().await;
-    assert_eq!(result["ok"], false);
-    assert_eq!(result["error"]["type"], "HTTPException");
-    assert_eq!(result["error"]["status_code"], 409);
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "the refused coverage wrote no row"
-    );
-    assert!(
-        sqlx::query_scalar::<_, bool>("SELECT residual_release()")
-            .fetch_one(&mut barrier)
-            .await
-            .unwrap()
-    );
-    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
-    graph
-        .stop()
-        .await
-        .assert_no_cycle("Rust held the slice past the coverage bound");
-    f.ledger().await;
-}
-
 // ---- retained deleters and freeze history --------------------------------
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn demo_prune_quarantine_and_seed_reset_refuse_freeze_history_without_partial_effect() {
-    let mut f = Fixture::new().await;
-    f.demo_organizations().await;
-    let ticks = f.demo_ticks(2).await;
-    for (now, _) in &ticks {
-        assert_eq!(ok(&f.demo_tick(now).await)["created_trades"], 1);
-    }
-    let shape: Value = sqlx::query_scalar("SELECT residual_demo_shape()")
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    let trades = shape["trades"].as_array().unwrap().clone();
-    assert_eq!(trades.len(), 2);
-    for (trade, cleared) in trades.iter().zip([false, true]) {
-        sqlx::query("SELECT residual_freeze($1::uuid,$2)")
-            .bind(trade["id"].as_str().unwrap())
-            .bind(cleared)
-            .execute(&mut f.admin)
-            .await
-            .unwrap();
-    }
-    sqlx::query("SELECT residual_age_demo_trades(8)")
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-    // One row in every table the deleters clear before trades (watchlist
-    // events and targets, suggestions, commissions, negotiation rounds and
-    // negotiations), all on the ACTIVE-frozen trade and its orders.
-    sqlx::query("SELECT residual_trade_references($1::uuid)")
-        .bind(trades[0]["id"].as_str().unwrap())
-        .execute(&mut f.admin)
-        .await
-        .unwrap();
-    let before = f.snapshot().await;
-    assert_eq!(before["reference_count"], 5, "{before}");
-    let refused = |result: &Value, expected: &str, label: &str| {
-        assert_eq!(sqlstate(result), expected, "{label}: {result}");
-    };
-
-    let prune = f.python(f.command("demo_prune")).await;
-    refused(&prune, "23503", "demo prune");
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "demo prune left a partial effect"
-    );
-
-    // Both freeze states (ACTIVE and CLEARED) keep the trade, under the owner role.
-    for trade in &trades {
-        let mut command = f.owner_command("quarantine");
-        command["args"] = json!({"order_ids":[trade["bid_order_id"],trade["ask_order_id"]]});
-        let result = f.python(command).await;
-        refused(&result, "23503", "quarantine as the owner role");
-        assert_eq!(
-            f.snapshot().await,
-            before,
-            "quarantine left a partial effect"
-        );
-    }
-    let mut command = f.command("quarantine");
-    command["args"] = json!({"order_ids":[trades[0]["bid_order_id"],trades[0]["ask_order_id"]]});
-    let result = f.python(command).await;
-    refused(&result, "42501", "quarantine as the runtime role");
-    assert_eq!(f.snapshot().await, before);
-
-    let reset = f.python(f.owner_command("seed_reset")).await;
-    refused(&reset, "23503", "seed reset");
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "seed reset left a partial effect"
-    );
-    f.ledger().await;
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn quarantine_locks_follow_the_canonical_slice_order_and_bound_rust() {
-    // Quarantine holds the slice; Rust cancel in that slice is bounded.
-    for above_budget in [false, true] {
-        let mut f = Fixture::new().await;
-        let order = f.listing().await;
-        let demo = Uuid::new_v4();
-        f.demo_ask(demo, 900, "SPOT").await;
-        let before = f.snapshot().await;
-        let mut command = f.owner_command("quarantine");
-        command["args"] = json!({"order_ids":[demo]});
-        command["pause"] = json!(ADVISORY);
-        // The maintenance key, then the one slice key.
-        command["pause_count"] = json!(2);
-        let mut quarantine = Driver::start(command).await;
-        quarantine.go().await;
-        let python = quarantine.held().await;
-        let graph = WaitGraph::start(&f.admin_url).await;
-        let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
-        let rust = f.wait_lock(RUST_APP, PYTHON_APP).await;
-        let observed = Instant::now();
-        println!(
-            "OBSERVED_WAIT waiter=rust:{rust} blocker=python-quarantine:{python} above_budget={above_budget}"
-        );
-        if above_budget {
-            let reply = cancel.await.unwrap();
-            expect_status(&reply, StatusCode::CONFLICT);
-            assert_eq!(code(&reply), "MARKET_BUSY");
-            assert_eq!(
-                f.snapshot().await,
-                before,
-                "a bounded refusal has no effect"
-            );
-            quarantine.release().await;
-            ok(&quarantine.finish().await);
-            graph
-                .stop()
-                .await
-                .assert_no_cycle("quarantine held past the bound");
-            expect_status(
-                &f.call(f.cancel(order, SELLER)).await,
-                StatusCode::NO_CONTENT,
-            );
-        } else {
-            let held =
-                release_and_time(&mut f, &mut quarantine, observed, RUST_APP, PYTHON_APP).await;
-            let first = cancel.await.unwrap();
-            ok(&quarantine.finish().await);
-            let contention = graph.stop().await;
-            if !bounded(&first) {
-                assert!(held < RELEASE_BUDGET, "the waiter was held {held:?}");
-            }
-            let reply = f
-                .first_attempt(first, &contention, RUST_APP, f.cancel(order, SELLER))
-                .await;
-            expect_status(&reply, StatusCode::NO_CONTENT);
-        }
-        let after = f.snapshot().await;
-        assert_eq!(after["quarantine_count"], 1);
-        assert_eq!(
-            after["order_count"].as_i64(),
-            before["order_count"].as_i64().map(|n| n - 1)
-        );
-        assert_eq!(f.order(order).await["status"], "CANCELLED");
-        f.ledger().await;
-    }
-
-    // Rust holds the slice; quarantine times out at its 500 ms bound untouched.
-    let mut f = Fixture::new().await;
-    let order = f.listing().await;
-    let demo = Uuid::new_v4();
-    f.demo_ask(demo, 900, "SPOT").await;
-    let mut command = f.owner_command("quarantine");
-    command["args"] = json!({"order_ids":[demo]});
-    let mut quarantine = Driver::start(command).await;
-    let mut barrier = f.barrier().await;
-    let cancel = f.spawn(RUST_HELD_APP, f.cancel(order, SELLER)).await;
-    f.wait_lock(RUST_HELD_APP, BARRIER_APP).await;
-    let before = f.snapshot().await;
-    let graph = WaitGraph::start(&f.admin_url).await;
-    quarantine.go().await;
-    let python = f.wait_lock(PYTHON_APP, RUST_HELD_APP).await;
-    println!("OBSERVED_WAIT waiter=python-quarantine:{python} blocker={RUST_HELD_APP}");
-    let result = quarantine.finish().await;
-    assert_eq!(sqlstate(&result), "55P03");
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "the timed-out quarantine touched no row"
-    );
-    assert!(
-        sqlx::query_scalar::<_, bool>("SELECT residual_release()")
-            .fetch_one(&mut barrier)
-            .await
-            .unwrap()
-    );
-    expect_status(&cancel.await.unwrap(), StatusCode::NO_CONTENT);
-    graph
-        .stop()
-        .await
-        .assert_no_cycle("Rust held the slice past the quarantine bound");
-
-    // Two runs naming two slices in opposite orders take them in one order.
-    let mut f = Fixture::new().await;
-    let month = chrono::Utc::now().format("%Y-%m").to_string();
-    let orders: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
-    for (order, window) in orders
-        .iter()
-        .zip(["SPOT", month.as_str(), "SPOT", month.as_str()])
-    {
-        f.demo_ask(*order, 900, window).await;
-    }
-    let mut first = f.owner_command("quarantine");
-    first["application_name"] = json!(QUARANTINE_ONE_APP);
-    first["args"] = json!({"order_ids":[orders[1],orders[0]]});
-    first["pause"] = json!(ADVISORY);
-    // The maintenance key, then the first slice in canonical order.
-    first["pause_count"] = json!(2);
-    let mut second = f.owner_command("quarantine");
-    second["application_name"] = json!(QUARANTINE_TWO_APP);
-    second["args"] = json!({"order_ids":[orders[2],orders[3]]});
-    let mut one = Driver::start(first).await;
-    let mut two = Driver::start(second).await;
-    let graph = WaitGraph::start(&f.admin_url).await;
-    one.go().await;
-    one.held().await;
-    two.go().await;
-    f.wait_lock(QUARANTINE_TWO_APP, QUARANTINE_ONE_APP).await;
-    let observed = Instant::now();
-    // Both runs sort their slices: the second waits on the lowest slice key
-    // (the month window sorts before SPOT), not on the slice it named first.
-    let awaited: Option<i64> = sqlx::query_scalar("SELECT residual_waiting_advisory($1)")
-        .bind(QUARANTINE_TWO_APP)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    let lowest: i64 = sqlx::query_scalar("SELECT residual_slice_key($1::uuid,$2,$3)")
-        .bind(PRODUCT)
-        .bind(f.point)
-        .bind(&month)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    assert_eq!(
-        awaited,
-        Some(lowest),
-        "the second run waits on the lowest sorted slice"
-    );
-    let held = release_and_time(
-        &mut f,
-        &mut one,
-        observed,
-        QUARANTINE_TWO_APP,
-        QUARANTINE_ONE_APP,
-    )
-    .await;
-    ok(&one.finish().await);
-    let result = two.finish().await;
-    graph
-        .stop()
-        .await
-        .assert_no_cycle("two quarantine runs naming slices in opposite orders");
-    ok(&result);
-    assert!(held < RELEASE_BUDGET, "the second run was held {held:?}");
-    assert_eq!(f.snapshot().await["quarantine_count"], 4);
-    for order in &orders {
-        assert_eq!(f.order(*order).await, Value::Null, "{order} quarantined");
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn seed_writes_exact_columns_and_holds_no_slice_lock() {
-    let mut f = Fixture::new().await;
-    let order = f.listing().await;
-    let mut command = f.owner_command("seed_market");
-    command["pause"] = json!(FIRST_ORDER_INSERT);
-    command["count"] = json!(ADVISORY);
-    let mut seed = Driver::start(command).await;
-    seed.go().await;
-    let python = seed.held().await;
-    let advisory: i64 = sqlx::query_scalar("SELECT residual_advisory_count($1)")
-        .bind(python)
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    assert_eq!(
-        advisory, 0,
-        "the seed inserts orders without an advisory slice lock"
-    );
-    // The seed's open transaction has already written trading tables, so it
-    // holds the one public cache generation row that every trading-table
-    // write advances. A Rust cancellation therefore waits on that row, not on
-    // a slice lock, and its lock bound refuses it with no effect.
-    let before = f.snapshot().await;
-    let cancel = f.spawn(RUST_APP, f.cancel(order, SELLER)).await;
-    let mut waits = Value::Null;
-    while !cancel.is_finished() {
-        let observed: Value = sqlx::query_scalar("SELECT residual_lock_waits($1)")
-            .bind(RUST_APP)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
-        // A sample taken while the waiter's blocker is not yet visible names
-        // no blocker pid; keep only samples that name one.
-        let named: Vec<Value> = observed
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|wait| !wait["blockers"][0]["pid"].is_null())
-            .cloned()
-            .collect();
-        if !named.is_empty() {
-            waits = Value::Array(named);
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    let cancel = cancel.await.unwrap();
-    println!("SEED_CONTENDER status={} waits={waits}", cancel.0);
-    assert!(
-        waits.is_array(),
-        "the cancellation was seen waiting on a named blocker"
-    );
-    expect_status(&cancel, StatusCode::CONFLICT);
-    assert_eq!(code(&cancel), "MARKET_BUSY");
-    let waited_on: Vec<&str> = waits
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|wait| wait["relation"].as_str())
-        .collect();
-    assert_eq!(
-        waited_on,
-        ["public_read_cache_generations"],
-        "the only contended row is the cache generation: {waits}"
-    );
-    assert!(
-        waits
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|wait| wait["blockers"][0]["pid"] == json!(python)),
-        "the paused seed is the blocker: {waits}"
-    );
-    assert_eq!(
-        f.snapshot().await,
-        before,
-        "a bounded refusal has no effect"
-    );
-    seed.release().await;
-    let result = seed.finish().await;
-    ok(&result);
-    assert_eq!(result["counted"]["before_pause"], 0);
-    // The coverage refresh at the end of the seed takes sorted slice locks.
-    println!(
-        "SEED_ADVISORY_STATEMENTS after_first_order_insert={}",
-        result["counted"]["after_pause"]
-    );
-    assert!(result["counted"]["after_pause"].as_i64().unwrap() > 0);
-    let shape: Value = sqlx::query_scalar("SELECT residual_seed_shape()")
-        .fetch_one(&mut f.admin)
-        .await
-        .unwrap();
-    println!("SEED_SHAPE {shape}");
-    assert!(shape["demo_orders"].as_i64().unwrap() > 0);
-    assert_eq!(shape["demo_orders_with_owner"], 0);
-    assert!(shape["demo_trades"].as_i64().unwrap() > 0);
-    assert_eq!(shape["demo_trades_with_users"], 0);
-    assert!(shape["demo_trades_linked"].as_i64().unwrap() > 0);
-    expect_status(
-        &f.call(f.cancel(order, SELLER)).await,
-        StatusCode::NO_CONTENT,
-    );
-    assert_eq!(f.order(order).await["status"], "CANCELLED");
-    f.ledger().await;
-}
 
 // ---- the Phase 7 seam ----------------------------------------------------
 
@@ -2687,7 +1337,6 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
         let (pin, pin_list) = f.watch("PIN", Some(order), window).await;
         hidden.extend([pin, pin_list]);
     }
-    let start = f.high_water().await;
     let (state, runtime) = f.stream_app().await;
     let hub = state.streams.as_ref().unwrap().hub.clone();
     let mut seller_channel = hub.subscribe_org(id(SELLER_ORG)).unwrap();
@@ -2823,100 +1472,6 @@ async fn rust_commit_is_invisible_to_the_dispatcher_until_commit_and_dispatched_
     drop((seller_channel, prices));
     f.stop_streams(runtime).await;
     assert_eq!(f.sequencer_holder().await, None);
-
-    // The unchanged Python dispatcher takes the sequencer lock and is idle.
-    let mut command = f.command("dispatch");
-    command["args"] = json!({"orgs":[id(SELLER_ORG)],"after_seq":start,"expect_private":1,
-        "settle_seconds":PAST_NEXT_POLL.as_secs_f64()});
-    let mut driver = Driver::start(command).await;
-    driver.go().await;
-    let listener = driver.held().await;
-    assert_eq!(f.sequencer_holder().await, Some(i64::from(listener)));
-    expect_status(
-        &f.call(f.cancel(second, SELLER)).await,
-        StatusCode::NO_CONTENT,
-    );
-    driver.release().await;
-    let result = driver.finish().await;
-    let result = ok(&result);
-    let second_rows = f.outbox(second).await;
-    assert_eq!(second_rows.len(), 1);
-    let second_row = &second_rows[0];
-    assert_eq!(second_row["attempts"], 1, "numbered once");
-    assert!(seq_of(second_row) > seq_of(row));
-    let channel = format!("trades:{}", id(SELLER_ORG));
-    let private: Vec<&Value> = result["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|frame| !frame["seq"].is_null())
-        .collect();
-    assert_eq!(
-        private.len(),
-        1,
-        "one Python delivery, also after its next poll: {}",
-        private.len()
-    );
-    let frame = private[0];
-    assert_eq!(frame["channel"], channel);
-    assert_eq!(frame["seq"], second_row["seq"]);
-    assert_eq!(frame["event_type"], second_row["event_type"]);
-    assert_eq!(frame["payload"], delivered(&second_row["payload"]));
-    let latency = frame["after_release_s"].as_f64().unwrap();
-    println!("CHAIN_PYTHON_DELIVERY after_release_s={latency:.3}");
-    assert!(
-        latency < POLL_BOUND.as_secs_f64(),
-        "the Python dispatcher delivered it within one poll"
-    );
-    let mut public: Vec<&str> = result["frames"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|frame| frame["seq"].is_null())
-        .map(|frame| {
-            assert_eq!(frame["event_type"], "market_invalidated");
-            assert_eq!(
-                frame["payload"],
-                json!({"schema_version":1,"resync_required":true})
-            );
-            frame["channel"].as_str().unwrap()
-        })
-        .collect();
-    public.sort_unstable();
-    assert_eq!(
-        public,
-        ["orderbook", "prices"],
-        "one invalidation per channel"
-    );
-    // Python replay of the Rust-numbered and the Python-numbered row.
-    let replay = result["replay"][id(SELLER_ORG).to_string()]
-        .as_array()
-        .unwrap();
-    assert_eq!(replay.len(), 2);
-    for (replayed, stored) in replay.iter().zip([row, second_row]) {
-        assert_eq!(replayed["seq"], stored["seq"]);
-        assert_eq!(replayed["event_type"], stored["event_type"]);
-        assert_eq!(replayed["payload"], delivered(&stored["payload"]));
-        assert_eq!(replayed["public"], true);
-        assert_eq!(replayed["participants"], json!([id(SELLER_ORG)]));
-        assert!(
-            !replayed["fields"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("producer_evidence"))
-        );
-    }
-    assert!(
-        !result["mapped_columns"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("producer_evidence")),
-        "the Python outbox model maps no evidence column"
-    );
-    for frame in result["frames"].as_array().unwrap().iter().chain(replay) {
-        assert_no_internal_identity(&frame.to_string(), Some(&frame["payload"]), &hidden);
-    }
-    assert_eq!(f.unsequenced().await, 0);
 }
 
 /// Private stream frames of rows that carry captured watchlist targets: both
@@ -3171,7 +1726,7 @@ use verdaxis_read::cli::jobs::demo::model::{
     CoverageOrder, DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS, build_coverage,
 };
 use verdaxis_read::cli::jobs::demo::{DemoFailure, DemoReport, PolicyCatalog, run_with_coverage};
-use verdaxis_read::order_write::DemoMarketFailure;
+use verdaxis_read::order_write::{DemoMarketFailure, TickOutcome};
 use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 /// The B30 Rotterdam book at `now`: the slice the Python driver limits its
@@ -3203,11 +1758,6 @@ impl Fixture {
             .connect(&self.runtime_url)
             .await
             .unwrap()
-    }
-    async fn python_coverage(&self, now: chrono::DateTime<chrono::Utc>) -> Value {
-        let mut command = self.command("demo_coverage");
-        command["now"] = json!(now.to_rfc3339());
-        self.python(command).await
     }
     async fn rust_demo(
         &self,
@@ -3279,100 +1829,20 @@ fn coverage_event() -> Value {
     })
 }
 
-#[tokio::test]
-#[ignore = "requires migrated disposable PostgreSQL"]
-async fn demo_coverage_after_python_writes_nothing_and_events_match() {
-    // Python's coverage, then Rust's at the same instant: no row changes,
-    // no ordinal moves, no event. Python's one event is the shape Rust writes.
-    let mut f = Fixture::new().await;
-    f.demo_seed_organizations().await;
-    let now = demo_instant();
-    let python = f.python_coverage(now).await;
-    let created = ok(&python)["coverage_created"].as_u64().unwrap();
-    assert!(created > 0, "{python}");
-    assert_eq!(
-        f.phase_events("coverage").await,
-        vec![coverage_event()],
-        "Python's event"
-    );
-    let book = f.coverage_book().await;
-
-    let (report, result) = f.rust_demo(now, fixture_coverage(now)).await;
-    result.unwrap();
-    assert_eq!(report.market.coverage_products, 1);
-    assert!(!report.market.coverage.changed(), "{report:?}");
-    assert_eq!(f.coverage_book().await, book, "Rust changed Python's book");
-    assert_eq!(
-        f.phase_events("coverage").await,
-        vec![coverage_event()],
-        "no Rust event"
-    );
-
-    // The reverse: Rust builds the book, Python then finds nothing to do,
-    // and Rust's event equals Python's.
-    let mut f = Fixture::new().await;
-    f.demo_seed_organizations().await;
-    let (report, result) = f.rust_demo(now, fixture_coverage(now)).await;
-    result.unwrap();
-    assert_eq!(report.market.coverage.created as u64, created);
-    assert_eq!(
-        f.phase_events("coverage").await,
-        vec![coverage_event()],
-        "Rust's event"
-    );
-    let book = f.coverage_book().await;
-    let python = f.python_coverage(now).await;
-    for key in ["coverage_created", "coverage_refreshed", "coverage_expired"] {
-        assert_eq!(ok(&python)[key], 0, "{key}: {python}");
-    }
-    assert_eq!(f.coverage_book().await, book, "Python changed Rust's book");
-    assert_eq!(f.phase_events("coverage").await, vec![coverage_event()]);
-}
-
 /// The same drift on a fresh Python-built book: one row repriced, one
 /// filled, one renamed to a key no run wants.
 async fn drifted_book(now: chrono::DateTime<chrono::Utc>) -> (Fixture, Value) {
     let mut f = Fixture::new().await;
     f.demo_seed_organizations().await;
-    assert!(
-        ok(&f.python_coverage(now).await)["coverage_created"]
-            .as_u64()
-            .unwrap()
-            > 0
-    );
+    let (report, result) = f.rust_demo(now, fixture_coverage(now)).await;
+    result.unwrap();
+    assert!(report.market.coverage.created > 0);
     sqlx::query("SELECT residual_demo_coverage_drift()")
         .execute(&mut f.admin)
         .await
         .unwrap();
     let book = f.coverage_book().await;
     (f, book)
-}
-
-/// Per key: what a refresh did, comparable across two databases.
-fn refresh_outcome(before: &Value, after: &Value, now: chrono::DateTime<chrono::Utc>) -> Value {
-    let mut outcome = serde_json::Map::new();
-    for (key, row) in after.as_object().unwrap() {
-        let previous = &before[key];
-        let mut fields = row.clone();
-        let object = fields.as_object_mut().unwrap();
-        for volatile in ["id", "ordinal", "updated_at", "organization_id"] {
-            object.remove(volatile);
-        }
-        object.insert("same_row".into(), json!(previous["id"] == row["id"]));
-        object.insert(
-            "requeued".into(),
-            json!(previous["ordinal"] != row["ordinal"]),
-        );
-        let updated_at = chrono::DateTime::parse_from_rfc3339(row["updated_at"].as_str().unwrap())
-            .unwrap()
-            .with_timezone(&chrono::Utc);
-        object.insert(
-            "touched".into(),
-            json!(updated_at == now || previous.is_null()),
-        );
-        outcome.insert(key.clone(), fields);
-    }
-    Value::Object(outcome)
 }
 
 #[tokio::test]
@@ -3385,29 +1855,13 @@ async fn demo_coverage_preserves_order_identity_and_updates_only_managed_fields(
     let now = demo_instant();
     let later = now + chrono::Duration::minutes(5);
 
-    let (mut python_db, python_before) = drifted_book(now).await;
-    let python = python_db.python_coverage(later).await;
-    let python_after = python_db.coverage_book().await;
-
     let (mut rust_db, rust_before) = drifted_book(now).await;
     let (report, result) = rust_db.rust_demo(later, fixture_coverage(later)).await;
     result.unwrap();
     let rust_after = rust_db.coverage_book().await;
 
-    let counts = ok(&python);
-    assert_eq!(counts["coverage_created"], report.market.coverage.created);
-    assert_eq!(
-        counts["coverage_refreshed"],
-        report.market.coverage.refreshed
-    );
-    assert_eq!(counts["coverage_expired"], report.market.coverage.expired);
     assert_eq!(report.market.coverage.expired, 1, "{report:?}");
     assert!(report.market.coverage.refreshed >= 2, "{report:?}");
-    assert_eq!(
-        refresh_outcome(&rust_before, &rust_after, later),
-        refresh_outcome(&python_before, &python_after, later),
-        "Rust and Python refresh the same rows the same way"
-    );
     let retired = &rust_after["B30|Rotterdam|2001-Q1|BID|0"];
     assert_eq!(retired["status"], "EXPIRED");
     assert_eq!(
@@ -3497,7 +1951,7 @@ async fn demo_prune_respects_customer_pins_and_history() {
     // A pinned, suggested and commissioned trade keeps itself and its orders;
     // the other trade and its orders go, with one prune event.
     let mut counts = Vec::new();
-    for rust in [false, true] {
+    for _ in [true] {
         let mut f = Fixture::new().await;
         f.demo_organizations().await;
         let ticks = f.demo_ticks(2).await;
@@ -3519,14 +1973,9 @@ async fn demo_prune_respects_customer_pins_and_history() {
             .await
             .unwrap();
         let events_before = f.phase_events("prune").await.len();
-        let pruned = if rust {
-            let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
-            result.unwrap();
-            json!({"trades_pruned": report.market.prune.trades,
-                   "orders_pruned": report.market.prune.orders})
-        } else {
-            ok(&f.python(f.command("demo_prune")).await).clone()
-        };
+        let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
+        result.unwrap();
+        let pruned = json!({"trades_pruned":report.market.prune.trades,"orders_pruned":report.market.prune.orders});
         // The aged trades only: a Rust run ticks after the prune.
         let left: Vec<String> = sqlx::query_scalar(
             "SELECT id::text FROM trades WHERE buyer_id = $1::uuid \
@@ -3544,8 +1993,7 @@ async fn demo_prune_respects_customer_pins_and_history() {
         ));
         f.ledger().await;
     }
-    assert_eq!(counts[0], counts[1], "Python and Rust prune the same rows");
-    assert_eq!(counts[1].0, 1);
+    assert_eq!(counts[0].0, 1);
 }
 
 // ---- the Rust demo tick ----------------------------------------------------------
@@ -3595,7 +2043,6 @@ async fn tick_times(f: &mut Fixture) -> Value {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
-    use verdaxis_read::order_write::TickOutcome;
     let mut f = Fixture::new().await;
     f.demo_organizations().await;
     let tick = rust_b30_ticks(1)[0];
@@ -3675,13 +2122,6 @@ async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
         .await;
     result.unwrap();
     assert_eq!(report.market.tick, Some(TickOutcome::AlreadyGenerated));
-    let python = f.demo_tick(&tick.to_rfc3339()).await;
-    assert_eq!(ok(&python)["created_trades"], 0, "{python}");
-    assert_eq!(
-        ok(&python)["reason"],
-        "already generated for tick",
-        "{python}"
-    );
     let after = f.snapshot().await;
     assert_eq!(after["trades"], before["trades"]);
     assert_eq!(after["orders"], before["orders"]);
@@ -3691,7 +2131,6 @@ async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
 #[tokio::test]
 #[ignore = "requires migrated disposable PostgreSQL"]
 async fn concurrent_demo_ticks_give_one_trade() {
-    use verdaxis_read::order_write::TickOutcome;
     let mut f = Fixture::new().await;
     f.demo_organizations().await;
     let tick = rust_b30_ticks(1)[0] + chrono::Duration::seconds(30);

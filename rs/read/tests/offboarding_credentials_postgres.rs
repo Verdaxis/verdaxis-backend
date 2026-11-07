@@ -1,20 +1,13 @@
 //! PostgreSQL and cross-stack checks of the account credential cutoff.
 //!
 //! These cases need a migrated disposable database and the project's Python
-//! interpreter (`RUST_TEST_PYTHON`, default `python3`):
 //!
 //! - `OFFBOARDING_TEST_DATABASE_URL`: the runtime application role;
 //! - `OFFBOARDING_TEST_OWNER_URL`: the schema owner, used only for fixtures.
 //!
-//! Run them with `--include-ignored --test-threads=1`. The Python half runs the
-//! unchanged Python application code through
-//! `tests/fixtures/offboarding_python_harness.py` against the same database.
 #![cfg(feature = "contract-tests")]
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
@@ -57,12 +50,6 @@ const HOLD: Duration = Duration::from_millis(20);
 /// bcrypt's minimum cost keeps fixture password checks short while a row
 /// lock is held; verification accepts any cost.
 const FIXTURE_HASH_COST: u32 = 4;
-/// Python private streams recheck authorization every 15 seconds.
-const STREAM_RECHECK: Duration = Duration::from_secs(15);
-/// Allowance for the streams' own loop timeouts and a loaded test host.
-const STREAM_SLACK: Duration = Duration::from_secs(2);
-const HARNESS: &str = "rs/read/tests/fixtures/offboarding_python_harness.py";
-const RESULT_PREFIX: &str = "OFFBOARDING_RESULT ";
 
 // ---------------------------------------------------------------------------
 // Database fixture.
@@ -76,8 +63,6 @@ struct Database {
     cutoff: PgPool,
     cutoff_tag: String,
     session_tag: String,
-    runtime_url: String,
-    owner_url: String,
     /// Prepared once, before any lock, as a real caller does.
     unusable: UnusablePasswordHash,
 }
@@ -135,8 +120,6 @@ impl Database {
             cutoff,
             cutoff_tag,
             session_tag,
-            runtime_url,
-            owner_url,
             unusable: UnusablePasswordHash::prepare().await.unwrap(),
         }
     }
@@ -339,93 +322,6 @@ async fn rust_cleanup(pool: &PgPool, token: &str) -> Result<(), AuthError> {
     cutoff_refusal(verified.issuance(), &account).map_or(Ok(()), Err)
 }
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repository root")
-}
-
-/// SQLAlchemy's asyncpg form of a PostgreSQL URL.
-fn python_url(url: &str) -> String {
-    let rest = url
-        .strip_prefix("postgresql://")
-        .or_else(|| url.strip_prefix("postgres://"))
-        .expect("a postgres:// or postgresql:// URL");
-    format!("postgresql+asyncpg://{rest}")
-}
-
-fn python_command(command: &str, database_url: &str) -> Command {
-    let root = repository_root();
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let mut process = Command::new(python);
-    process
-        .current_dir(&root)
-        .env("PYTHONPATH", &root)
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", SECRET)
-        .env("JWT_ISSUER", ISSUER)
-        .env("JWT_AUDIENCE", AUDIENCE)
-        .env("DATABASE_URL", python_url(database_url))
-        .arg(root.join(HARNESS))
-        .arg(command);
-    process
-}
-
-/// Run one harness command and return its JSON result.
-async fn python(command: &'static str, database_url: &str, request: Value) -> Value {
-    let mut process = python_command(command, database_url);
-    tokio::task::spawn_blocking(move || {
-        let mut child = process
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-        child
-            .stdin
-            .take()
-            .expect("stdin")
-            .write_all(request.to_string().as_bytes())
-            .expect("write request");
-        let output = child.wait_with_output().expect("Python harness finished");
-        assert!(
-            output.status.success(),
-            "Python harness {command} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let stdout = String::from_utf8(output.stdout).expect("UTF-8 output");
-        let line = stdout
-            .lines()
-            .find_map(|line| line.strip_prefix(RESULT_PREFIX))
-            .expect("one result line");
-        serde_json::from_str(line).expect("JSON result")
-    })
-    .await
-    .unwrap()
-}
-
-/// Python's normal and owner-cleanup authentication for named tokens.
-async fn python_auth(db: &Database, tokens: &[(String, String)]) -> Value {
-    let tokens: Vec<Value> = tokens
-        .iter()
-        .map(|(name, token)| json!({"name": name, "token": token}))
-        .collect();
-    python("auth", &db.runtime_url, json!({"tokens": tokens})).await["tokens"].clone()
-}
-
-fn python_refused(outcome: &Value) -> bool {
-    let outcome = outcome.as_str().expect("outcome text");
-    outcome.starts_with("refused:") || outcome.starts_with("error:")
-}
-
-// ---------------------------------------------------------------------------
-// Rust login and refresh through their routers.
-// ---------------------------------------------------------------------------
-
-/// The serving composition: the login's unknown-account hash is prepared
-/// before any request, so no attempt computes it while holding a row lock.
 async fn login_state(pool: &PgPool, held: Option<Arc<Barrier>>) -> login::LoginState {
     let mut state = login::LoginState::new(
         pool.clone(),
@@ -591,7 +487,6 @@ fn assert_cutoff_after_lock(
 #[ignore = "requires a migrated disposable PostgreSQL database and Python"]
 async fn cutoff_is_taken_after_user_lock() {
     let db = Database::connect().await;
-    let mut python_cases: Vec<(String, String)> = Vec::new();
 
     // Login holds the user row lock; the cutoff transaction waits for it.
     let user = db.user(None).await;
@@ -631,7 +526,6 @@ async fn cutoff_is_taken_after_user_lock() {
         replayed.status, 401,
         "the login's refresh family is revoked"
     );
-    python_cases.push(("login_during_wait".into(), access));
 
     // Refresh holds the user row lock; the cutoff transaction waits for it.
     let user = db.user(None).await;
@@ -667,7 +561,6 @@ async fn cutoff_is_taken_after_user_lock() {
         successor.status, 401,
         "the rotated successor is revoked too"
     );
-    python_cases.push(("refresh_during_wait".into(), access));
 
     // The cutoff transaction holds the lock; a login waits and then fails.
     let user = db.user(None).await;
@@ -709,18 +602,6 @@ async fn cutoff_is_taken_after_user_lock() {
     assert_eq!(refused.status, 401);
     assert_eq!(error_code(&refused), "REFRESH_PASSWORD_CHANGED");
     assert_eq!(db.live_families(user.id).await, 0, "no session was issued");
-
-    // Python refuses both tokens issued by a lock holder, on normal and
-    // owner-cleanup routes.
-    let outcomes = python_auth(&db, &python_cases).await;
-    for (name, _) in &python_cases {
-        for route in ["normal", "cleanup"] {
-            assert_eq!(
-                outcomes[name][route], "refused:401:AUTH_PASSWORD_CHANGED",
-                "Python {route} route accepted the {name} token"
-            );
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -856,78 +737,6 @@ async fn seed_credentials(db: &Database, user: Uuid, invitation_secret: &str) {
     .unwrap();
 }
 
-struct PythonService {
-    child: Child,
-    base: String,
-    token: String,
-}
-
-impl PythonService {
-    async fn start(db: &Database) -> Self {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        let token = generate_token();
-        let child = python_command("serve", &db.runtime_url)
-            .env("OFFBOARDING_HARNESS_PORT", port.to_string())
-            .env("OFFBOARDING_HARNESS_TOKEN", &token)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .spawn()
-            .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-        let mut service = Self {
-            child,
-            base: format!("http://127.0.0.1:{port}"),
-            token,
-        };
-        let client = client();
-        let started = Instant::now();
-        loop {
-            if let Some(status) = service.child.try_wait().unwrap() {
-                panic!("the Python service exited early: {status}");
-            }
-            let ready = client
-                .get(format!("{}/__harness/ready", service.base))
-                .send()
-                .await
-                .is_ok_and(|response| response.status().is_success());
-            if ready {
-                return service;
-            }
-            assert!(
-                started.elapsed() < Duration::from_secs(120),
-                "the Python service did not start"
-            );
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-    }
-
-    /// Publish one event on the Python in-process bus: an event in flight.
-    async fn publish(&self, channel: &str, event: &str) {
-        let response = client()
-            .post(format!("{}/__harness/publish", self.base))
-            .header("x-harness-token", &self.token)
-            .json(&json!({"channel": channel, "event": event, "data": {"marker": event}}))
-            .send()
-            .await
-            .unwrap();
-        assert!(response.status().is_success());
-    }
-}
-
-impl Drop for PythonService {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-fn client() -> reqwest::Client {
-    reqwest::Client::builder().no_proxy().build().unwrap()
-}
-
 #[tokio::test]
 #[ignore = "requires a migrated disposable PostgreSQL database and Python"]
 async fn all_refresh_families_and_credentials_are_invalidated() {
@@ -994,29 +803,6 @@ async fn all_refresh_families_and_credentials_are_invalidated() {
         None
     );
     drop(connection);
-
-    // Python's reset route resolves the invitation and reset secret it reads
-    // from the users row; the subject's no longer resolves, a control's does.
-    let service = PythonService::start(&db).await;
-    let reset = |secret: String| {
-        let url = format!("{}/api/auth/reset-password", service.base);
-        async move {
-            client()
-                .post(url)
-                .json(&json!({"token": secret, "new_password": "Replacement-password-123"}))
-                .send()
-                .await
-                .unwrap()
-                .status()
-                .as_u16()
-        }
-    };
-    assert_eq!(reset(subject_secret).await, 400);
-    assert_eq!(
-        reset(other_secret).await,
-        200,
-        "the control secret still works"
-    );
 }
 
 #[tokio::test]
@@ -1066,52 +852,28 @@ async fn old_equal_malformed_and_future_iat_fail_closed() {
             ),
         ),
     ];
-    let named: Vec<(String, String)> = cases
-        .iter()
-        .map(|(name, token)| ((*name).to_owned(), token.clone()))
-        .collect();
-
     // The cutoff alone, on an account that is still approved and attached.
-    let approved = python_auth(&db, &named).await;
     for (name, token) in &cases {
         let rust = rust_normal(&db.owner, token).await;
         if *name == "issued_after" {
             assert_eq!(rust, Ok(()), "the control token passes Rust");
-            assert_eq!(
-                approved[name]["normal"], "accepted",
-                "the control token passes Python"
-            );
         } else {
             assert!(rust.is_err(), "Rust normal route accepted {name}");
-            assert!(
-                python_refused(&approved[name]["normal"]),
-                "Python normal route accepted {name}: {}",
-                approved[name]["normal"]
-            );
         }
     }
     assert_eq!(
         rust_normal(&db.owner, &cases[1].1).await,
         Err(AuthError::PasswordChanged)
     );
-    assert_eq!(
-        approved["equal"]["normal"],
-        "refused:401:AUTH_PASSWORD_CHANGED"
-    );
 
     // The offboarded account: rejected and detached. The owner-cleanup routes
     // skip the revocation cutoff for a rejected account; the password cutoff
     // still refuses every token issued up to the cutoff.
     db.detach(user.id).await;
-    let rejected = python_auth(&db, &named).await;
     for (name, token) in &cases {
         assert!(
             rust_normal(&db.owner, token).await.is_err(),
             "Rust normal route accepted {name}"
-        );
-        assert!(
-            python_refused(&rejected[name]["normal"]),
-            "Python normal route accepted {name}"
         );
         let rust = rust_cleanup(&db.owner, token).await;
         if *name == "issued_after" {
@@ -1120,27 +882,13 @@ async fn old_equal_malformed_and_future_iat_fail_closed() {
                 Ok(()),
                 "the cleanup control shows the check is not vacuous"
             );
-            assert_eq!(rejected[name]["cleanup"], "accepted");
         } else {
             assert!(rust.is_err(), "Rust cleanup rule accepted {name}");
-            assert!(
-                python_refused(&rejected[name]["cleanup"]),
-                "Python cleanup route accepted {name}: {}",
-                rejected[name]["cleanup"]
-            );
         }
     }
     assert_eq!(
         rust_cleanup(&db.owner, &cases[1].1).await,
         Err(AuthError::PasswordChanged)
-    );
-    assert_eq!(
-        rejected["equal"]["cleanup"],
-        "refused:401:AUTH_PASSWORD_CHANGED"
-    );
-    assert_eq!(
-        rejected["old"]["cleanup"],
-        "refused:401:AUTH_PASSWORD_CHANGED"
     );
 }
 
@@ -1245,333 +993,3 @@ async fn credential_cutoff_refuses_without_the_caller_lock() {
 }
 
 // ---------------------------------------------------------------------------
-// Streams and delivery (the unchanged Python code).
-// ---------------------------------------------------------------------------
-
-#[derive(Default)]
-struct Observed {
-    frames: Vec<(Instant, String)>,
-    closed_at: Option<Instant>,
-}
-
-impl Observed {
-    fn has(&self, needle: &str) -> bool {
-        self.frames.iter().any(|(_, frame)| frame.contains(needle))
-    }
-}
-
-struct EventStream {
-    observed: Arc<Mutex<Observed>>,
-    reader: tokio::task::JoinHandle<()>,
-}
-
-impl EventStream {
-    async fn open(url: String) -> Self {
-        let response = client().get(url).send().await.unwrap();
-        assert_eq!(response.status().as_u16(), 200, "the stream must open");
-        let observed = Arc::new(Mutex::new(Observed::default()));
-        let shared = observed.clone();
-        let reader = tokio::spawn(async move {
-            let mut response = response;
-            let mut buffer = String::new();
-            loop {
-                match tokio::time::timeout(Duration::from_secs(45), response.chunk()).await {
-                    Ok(Ok(Some(bytes))) => {
-                        buffer.push_str(&String::from_utf8_lossy(&bytes));
-                        while let Some(end) = buffer.find("\n\n") {
-                            let frame = buffer[..end].to_owned();
-                            buffer.drain(..end + 2);
-                            shared.lock().unwrap().frames.push((Instant::now(), frame));
-                        }
-                    }
-                    _ => {
-                        shared.lock().unwrap().closed_at = Some(Instant::now());
-                        return;
-                    }
-                }
-            }
-        });
-        Self { observed, reader }
-    }
-
-    fn has(&self, needle: &str) -> bool {
-        self.observed.lock().unwrap().has(needle)
-    }
-
-    fn closed_at(&self) -> Option<Instant> {
-        self.observed.lock().unwrap().closed_at
-    }
-
-    fn last_frame(&self) -> String {
-        let observed = self.observed.lock().unwrap();
-        observed
-            .frames
-            .last()
-            .map(|(_, frame)| frame.clone())
-            .unwrap_or_default()
-    }
-
-    fn received_before_close(&self, needle: &str) -> bool {
-        let observed = self.observed.lock().unwrap();
-        let revoked = observed
-            .frames
-            .iter()
-            .position(|(_, frame)| frame.contains("auth_revoked"));
-        observed
-            .frames
-            .iter()
-            .position(|(_, frame)| frame.contains(needle))
-            .is_some_and(|index| revoked.is_none_or(|revoked| index < revoked))
-    }
-}
-
-impl Drop for EventStream {
-    fn drop(&mut self) {
-        self.reader.abort();
-    }
-}
-
-async fn wait_until(deadline: Duration, mut condition: impl FnMut() -> bool) -> bool {
-    let started = Instant::now();
-    while started.elapsed() < deadline {
-        if condition() {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    condition()
-}
-
-#[tokio::test]
-#[ignore = "requires a migrated disposable PostgreSQL database and Python"]
-async fn detached_streams_close_after_membership_recheck() {
-    let db = Database::connect().await;
-    let organization = db.organization().await;
-    let departed = db.user(Some(organization)).await;
-    let cut_only = db.user(Some(organization)).await;
-    let colleague = db.user(Some(organization)).await;
-    let mut replay_after = i64::MAX;
-    for _ in 0..2 {
-        let marker = format!("replay-{}", Uuid::new_v4());
-        let sequence: i64 =
-            sqlx::query_scalar(include_str!("fixtures/offboarding_stream_outbox.sql"))
-                .bind(Uuid::new_v4())
-                .bind(&marker)
-                .bind(organization.to_string())
-                .fetch_one(&db.owner)
-                .await
-                .unwrap();
-        replay_after = replay_after.min(sequence - 1);
-    }
-    let service = PythonService::start(&db).await;
-    // Each member's stream token is issued once, before the account change; a
-    // departed account cannot obtain a new one.
-    let tokens: std::collections::HashMap<Uuid, String> = [departed.id, cut_only.id, colleague.id]
-        .into_iter()
-        .map(|user| {
-            (
-                user,
-                issuer().stream(user, organization, "test", Utc::now()),
-            )
-        })
-        .collect();
-    let activity = |user: Uuid| {
-        format!(
-            "{}/api/stream/activity?stream_token={}",
-            service.base, tokens[&user]
-        )
-    };
-    let trades = |user: Uuid| {
-        format!(
-            "{}/api/stream/trades?stream_token={}",
-            service.base, tokens[&user]
-        )
-    };
-
-    let departed_activity = EventStream::open(activity(departed.id)).await;
-    let departed_trades = EventStream::open(format!(
-        "{}&last_event_id={replay_after}",
-        trades(departed.id)
-    ))
-    .await;
-    let cut_activity = EventStream::open(activity(cut_only.id)).await;
-    let cut_trades = EventStream::open(trades(cut_only.id)).await;
-    let colleague_activity = EventStream::open(activity(colleague.id)).await;
-    let activity_streams = [&departed_activity, &cut_activity, &colleague_activity];
-    let trade_streams = [&departed_trades, &cut_trades];
-
-    // Every stream is subscribed before the account changes.
-    assert!(
-        wait_until(Duration::from_secs(10), || trade_streams
-            .iter()
-            .all(|stream| stream.has("stream-origin")))
-        .await,
-        "both trade streams started"
-    );
-    let mut subscribed = false;
-    for _ in 0..10 {
-        service
-            .publish(&format!("activity:{organization}"), "synthetic_before")
-            .await;
-        if wait_until(Duration::from_secs(1), || {
-            activity_streams
-                .iter()
-                .all(|stream| stream.has("synthetic_before"))
-        })
-        .await
-        {
-            subscribed = true;
-            break;
-        }
-    }
-    assert!(subscribed, "every activity stream receives live events");
-    assert!(
-        departed_trades.has("synthetic_replay"),
-        "the reconnecting stream replayed the outbox"
-    );
-
-    // One transaction: detach the departed member and cut off both accounts.
-    let mut transaction = db.cutoff.begin().await.unwrap();
-    sqlx::query("SELECT id FROM users WHERE id = ANY($1) ORDER BY id FOR UPDATE")
-        .bind(vec![departed.id, cut_only.id])
-        .fetch_all(&mut *transaction)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE users SET status = 'REJECTED', organization_id = NULL WHERE id = $1")
-        .bind(departed.id)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE users SET status = status WHERE id = $1")
-        .bind(cut_only.id)
-        .execute(&mut *transaction)
-        .await
-        .unwrap();
-    revoke_account_credentials(&mut transaction, departed.id, &db.unusable)
-        .await
-        .unwrap();
-    revoke_account_credentials(&mut transaction, cut_only.id, &db.unusable)
-        .await
-        .unwrap();
-    transaction.commit().await.unwrap();
-    let committed = Instant::now();
-
-    // An organization event already in flight after the commit. The streams
-    // deliver it until their next recheck: the accepted bounded window.
-    service
-        .publish(&format!("activity:{organization}"), "synthetic_in_flight")
-        .await;
-    service
-        .publish(&format!("trades:{organization}"), "synthetic_in_flight")
-        .await;
-
-    let closing = [
-        &departed_activity,
-        &departed_trades,
-        &cut_activity,
-        &cut_trades,
-    ];
-    assert!(
-        wait_until(STREAM_RECHECK + STREAM_SLACK, || closing
-            .iter()
-            .all(|stream| stream.closed_at().is_some()))
-        .await,
-        "every affected stream closes within one recheck interval"
-    );
-    for stream in closing {
-        let closed = stream.closed_at().unwrap();
-        let window = closed.duration_since(committed);
-        assert!(
-            window <= STREAM_RECHECK + STREAM_SLACK,
-            "closed {window:?} after commit"
-        );
-        assert!(
-            stream.last_frame().contains("event: auth_revoked"),
-            "closed by the recheck"
-        );
-        println!(
-            "stream closed {window:?} after commit; in-flight event delivered: {}",
-            stream.received_before_close("synthetic_in_flight")
-        );
-        assert!(
-            stream.received_before_close("synthetic_in_flight"),
-            "an event in flight before the recheck may still be delivered"
-        );
-    }
-    assert!(
-        colleague_activity.closed_at().is_none(),
-        "a current member keeps the stream"
-    );
-    assert!(colleague_activity.has("synthetic_in_flight"));
-
-    // After the recheck nothing more reaches the departed member.
-    service
-        .publish(&format!("activity:{organization}"), "synthetic_after")
-        .await;
-    assert!(
-        wait_until(Duration::from_secs(5), || colleague_activity
-            .has("synthetic_after"))
-        .await
-    );
-    assert!(!departed_activity.has("synthetic_after"));
-
-    // Reconnecting, including outbox replay, is refused.
-    for url in [
-        format!("{}&last_event_id={replay_after}", trades(departed.id)),
-        activity(departed.id),
-        trades(cut_only.id),
-        activity(cut_only.id),
-    ] {
-        let status = client().get(url).send().await.unwrap().status().as_u16();
-        assert_eq!(status, 401, "a new private stream is refused");
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires a migrated disposable PostgreSQL database and Python"]
-async fn detachment_suppresses_future_org_notices() {
-    let db = Database::connect().await;
-    let organization = db.organization().await;
-    let departed = db.user(Some(organization)).await;
-    let colleague = db.user(Some(organization)).await;
-    let request = json!({"organization_id": organization.to_string()});
-    let mut both = vec![departed.id.to_string(), colleague.id.to_string()];
-    both.sort();
-    let before = python("org-notice", &db.owner_url, request.clone()).await;
-    assert_eq!(
-        before["recipients"],
-        json!(both),
-        "both members receive a notice first"
-    );
-
-    db.detach(departed.id).await;
-    cut_off(&db.cutoff, departed.id).await;
-    let after = python("org-notice", &db.owner_url, request).await;
-    assert_eq!(after["recipients"], json!([colleague.id.to_string()]));
-}
-
-#[tokio::test]
-#[ignore = "requires a migrated disposable PostgreSQL database and Python"]
-async fn withdrawn_order_has_no_future_expiry_notice() {
-    let db = Database::connect().await;
-    let organization = db.organization().await;
-    let departed = db.user(Some(organization)).await;
-    let colleague = db.user(Some(organization)).await;
-    db.detach(departed.id).await;
-    cut_off(&db.cutoff, departed.id).await;
-    let result = python(
-        "expiry-reminder",
-        &db.owner_url,
-        json!({
-            "organization_id": organization.to_string(),
-            "withdrawn_owner_id": departed.id.to_string(),
-            "recipients": [departed.id.to_string(), colleague.id.to_string()],
-        }),
-    )
-    .await;
-    assert_eq!(
-        result["reminders"],
-        json!([["open", colleague.id.to_string()]]),
-        "only the open order reminds, and only a current member"
-    );
-}

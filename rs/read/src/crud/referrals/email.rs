@@ -4,9 +4,9 @@
 //! `email_validator` 2.3.0 with `check_deliverability=False`, and the `idna`
 //! 3.18 package it calls. The reason strings are part of the public 422 body,
 //! so every branch below keeps the original order and wording. The Python
-//! oracle's vectors (`tests/rust_contract/phase2/referral-email-vectors.json`)
-//! pin the behaviour; the Unicode and IDNA data are generated from the same
-//! pinned interpreter by `scripts/rust_contract/referral_email_tables.py`.
+//! validation vectors embedded in `crud_referral_invite.rs` pin the behaviour.
+//! The Unicode and IDNA tables retain their pinned data versions in
+//! `email_tables.rs`; no application interpreter is used at runtime.
 //!
 //! Name comparison with the source: `validate` is `validate_email`; the
 //! `split_*`, `validate_*` and `check_*` functions keep the names of their

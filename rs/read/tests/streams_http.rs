@@ -6,7 +6,7 @@
 //! the case that needs an unreachable account store closes its pool first.
 //!
 //! The two cases marked `ignore` serve the private route against the
-//! disposable database that `tests/postgres/test_phase6_http.py` prepares.
+//! disposable database that `rs/read/tests/run_auth_streams_cache.sh` prepares.
 
 use std::{
     convert::Infallible,
@@ -1380,7 +1380,7 @@ async fn body_drop_cleans_subscription() {
     }
 }
 
-/// The disposable database that `tests/postgres/test_phase6_http.py` seeds:
+/// The disposable database that `rs/read/tests/run_auth_streams_cache.sh` seeds:
 /// an approved organization with one approved member, a second approved
 /// organization, and a pending organization with one approved member. The
 /// application role serves the route; the owner role writes outbox rows and
@@ -1400,7 +1400,7 @@ mod postgres {
 
     fn variable(name: &str) -> String {
         std::env::var(name).unwrap_or_else(|_| {
-            panic!("{name} is required: run tests/postgres/test_phase6_http.py")
+            panic!("{name} is required: run rs/read/tests/run_auth_streams_cache.sh")
         })
     }
 

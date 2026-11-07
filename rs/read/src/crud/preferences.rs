@@ -106,7 +106,7 @@ pub fn validate_value(namespace: &str, value: Value) -> Result<Value, ApiError> 
     };
     // The exported DTO retains Python enum order as well as accepted values.
     let schemas: Value = serde_json::from_str(include_str!(
-        "../../../../tests/rust_contract/phase2/routes.json"
+        "../../../../deploy/rust/preference-schemas.json"
     ))
     .expect("pinned schema export");
     let products = schemas["schemas"]["preference:market_watch"]["$defs"]["MarketProduct"]["enum"]

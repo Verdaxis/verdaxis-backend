@@ -1,43 +1,20 @@
 //! Task 7c pure projection checks.
 
 #[test]
-fn listing_fame_normalization_matches_python_without_changing_snapshot_projection() {
-    use verdaxis_read::market::terms::{public_response_terms, redact_terms};
-    let script = r#"
-import json
-from scripts.rust_contract.export_terms_vectors import _fame_private_terms
-from app.services.fame_order import public_fame_terms
-vectors = []
-for whitespace in [' ', '\t\n', ' ', ' ', '　', '\x1c', '\x1d', '\x1e', '\x1f']:
-    terms = _fame_private_terms()
-    for field in ['standard_edition', 'en_climate_class', 'production_origin',
-                  'feedstock_origin', 'shipping_location', 'ci_methodology', 'ci_boundary']:
-        terms[field] = whitespace + terms[field] + whitespace
-    vectors.append([terms, public_fame_terms(terms)])
-print(json.dumps(vectors))
-"#;
-    let output = std::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
-    )
-    .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-    .env("ENVIRONMENT", "test")
-    .env("RELEASE_SHA", "test")
-    .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-    .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-    .args(["-c", script])
-    .output()
-    .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let vectors: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    for vector in vectors.as_array().unwrap() {
-        assert_eq!(redact_terms("fame_v1", &vector[0]).unwrap(), vector[1]);
+fn listing_snapshot_keeps_supplied_whitespace() {
+    use verdaxis_read::market::terms::public_response_terms;
+    let base: serde_json::Value = serde_json::from_str(r####"{"schema_version":1,"side":"ASK","neat_fame":true,"nomination_status":"IDENTIFIED","uco_mass_pct":100,"standard":"EN_14214","standard_edition":"EN 14214:2019","astm_grade":null,"en_climate_class":"B","production_origin":"Singapore","feedstock_origin":"Malaysia","shipping_location":"Jurong","cfpp_c":"-5","cloud_point_c":"-3","ci_gco2e_mj":"18.40","ci_methodology":"ISCC","ci_boundary":"WELL_TO_WAKE","ci_basis":"ACTUAL","lhv_mj_kg":"37.20","sustainability_scheme":"ISCC_EU","certificate_reference":"CERT-0001","certificate_holder":"Jurong Renewables Pte Ltd","certificate_valid_until":"2027-06-30","certificate_scope":null,"evidence_status":"AVAILABLE","document_references":["DOC-1"],"batch_reference":"BATCH-9","producing_site":"Jurong Plant","quality_evidence":{"status":"AVAILABLE","reference":"Q-1","batch_reference":"BATCH-9","laboratory":"SGS","sampled_on":"2026-09-01","tested_on":"2026-09-03","results":[{"property":"WATER_MG_KG","value":"120","method":"EN ISO 12937"}]},"sustainability_evidence":{"status":"AVAILABLE","document_type":"POS","reference":"S-1","issuer":"ISCC","quantity_mt":"500.00","supply_date":"2026-10-01","due":"BEFORE_LOADING"},"evidence_due":"BEFORE_LOADING"}"####).unwrap();
+    for whitespace in [
+        " ", "\t\n", "\u{a0}", "\u{2003}", "\u{3000}", "\u{1c}", "\u{1d}", "\u{1e}", "\u{1f}",
+    ] {
+        let mut terms = base.clone();
+        terms["standard_edition"] = serde_json::json!(format!(
+            "{whitespace}{}{whitespace}",
+            base["standard_edition"].as_str().unwrap()
+        ));
         assert_eq!(
-            public_response_terms("fame_v1", &vector[0]).unwrap()["standard_edition"],
-            vector[0]["standard_edition"]
+            public_response_terms("fame_v1", &terms).unwrap()["standard_edition"],
+            terms["standard_edition"]
         );
     }
 }
@@ -54,11 +31,15 @@ fn map_decimal_matches_python_context_and_exact_comparison() {
         ("1E+40", "9E+39"),
         ("0.00000001", "0.000000001"),
     ];
-    let output = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
-        .args(["-c", "import json,sys; from decimal import Decimal; print(json.dumps([[str(Decimal(a)+Decimal(b)), (Decimal(a)>Decimal(b))-(Decimal(a)<Decimal(b))] for a,b in json.loads(sys.argv[1])]))"])
-        .arg(serde_json::to_string(&vectors).unwrap()).output().unwrap();
-    assert!(output.status.success());
-    let expected: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let expected: serde_json::Value = serde_json::json!([
+        ["0.00", 0],
+        ["3E-29", -1],
+        ["13.000", 1],
+        ["1.234567890123456789012345679E+28", 1],
+        ["1.000000000000000000000000000E+29", 1],
+        ["1.9E+40", 1],
+        ["1.1E-8", 1]
+    ]);
     for ((left, right), result) in vectors.iter().zip(expected.as_array().unwrap()) {
         assert_eq!(
             map_decimal::compare(

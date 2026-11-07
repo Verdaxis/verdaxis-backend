@@ -436,27 +436,6 @@ async fn role_membership_refuses_startup() {
     );
 }
 
-#[test]
-fn singleton_revision_uses_existing_migrator_verifier() {
-    let app = config("RUST_TEST_DATABASE_URL");
-    let migrator = config("RUST_TEST_MIGRATOR_DATABASE_URL");
-    let python =
-        std::env::var("RUST_TEST_PYTHON").expect("explicit project Python interpreter required");
-    let result = std::process::Command::new(python)
-        .arg(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/runtime_revision.py"
-        ))
-        .env_clear()
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("DATABASE_URL", app.database_url)
-        .env("MIGRATOR_DATABASE_URL", migrator.database_url)
-        .status()
-        .expect("run existing revision verifier");
-    assert!(result.success());
-}
-
 #[tokio::test]
 async fn caching_stays_off_against_a_schema_without_the_cache_checkpoint() {
     use verdaxis_read::runtime::cache_authority::database_state;

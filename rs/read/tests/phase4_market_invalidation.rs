@@ -198,7 +198,7 @@ fn p4_t7_c06() {
         ]
     );
     let vectors: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/phase2/market-write-spec.json"
+        "../../../deploy/rust/market-write-vectors.json"
     ))
     .unwrap();
     for vector in vectors["slice_lock_keys"].as_array().unwrap() {

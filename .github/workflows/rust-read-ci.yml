@@ -16,7 +16,7 @@ name: Rust read CI
 
 on:
   pull_request:
-    branches: [staging, prod]
+    branches: [staging, prod, main]
   push:
     branches: [staging, prod]
   workflow_dispatch:
@@ -44,6 +44,41 @@ env:
   SQLX_CLI_VERSION: "0.9.0"
 
 jobs:
+  # Keep the staging-required check name, with host tooling only.
+  test:
+    runs-on: ubuntu-22.04
+    env:
+      ENVIRONMENT: test
+      RELEASE_SHA: test
+      JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # Budget compatibility tests read the immutable pre-removal settings.
+          fetch-depth: 0
+      - name: Install the tooling test packages with system Python
+        # Install into the system site, not the user site: the budget and
+        # runtime helpers start `python3 -I`, which ignores the user site.
+        # The runtime helper projects the two pinned email-domain datasets.
+        run: |
+          sudo /usr/bin/python3 -m pip install \
+            pytest==9.1.1 pytest-asyncio==1.4.0 python-dotenv==1.2.2 \
+            cryptography==50.0.0 httpx==0.28.1 SQLAlchemy==2.0.51 \
+            pydantic==2.13.4 pydantic-settings==2.14.2 \
+            PyYAML==6.0.3 jsonschema==4.25.1 \
+            disposable-email-domains==0.0.225 free-email-domains==1.0.2
+      - name: Install the pinned Caddy for tooling routing tests
+        shell: bash -euo pipefail {0}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/caddy.tar.gz" \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$CADDY_SHA256" "$RUNNER_TEMP/caddy.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP" caddy
+          sudo install -m 0755 "$RUNNER_TEMP/caddy" /usr/local/bin/caddy
+      - name: Run the retained tooling and monitor tests
+        run: /usr/bin/python3 -m pytest tests/tooling tests/monitor -q
+
   phase10-shellcheck:
     runs-on: ubuntu-22.04
     steps:
@@ -68,13 +103,10 @@ jobs:
           (( ${#reviewed_scripts[@]} > 0 ))
           for script in "${reviewed_scripts[@]}"; do bash -n "$script"; done
           shellcheck --severity=style --external-sources "${reviewed_scripts[@]}"
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
       - name: Run the disposable artifact contract
         shell: bash -euo pipefail {0}
         run: |
-          python -m venv "$RUNNER_TEMP/artifact-test-venv"
+          python3 -m venv "$RUNNER_TEMP/artifact-test-venv"
           "$RUNNER_TEMP/artifact-test-venv/bin/pip" install cryptography==50.0.0 PyYAML==6.0.3 jsonschema==4.25.1
           ARTIFACT_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/artifact-contract.sh
           HOST_INVENTORY_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/host-inventory-contract.sh
@@ -85,104 +117,75 @@ jobs:
         shell: bash -euo pipefail {0}
         run: bash deploy/tests/units-contract.sh --static
 
-  # Pure tests plus the release build, disposable host-automation identity cells,
-  # the glibc floor check and the archivable artifact. No live database or secrets.
   offline:
     runs-on: ubuntu-22.04
+    env:
+      SQLX_OFFLINE: "true"
+      RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-
+      - name: Install retained host-tooling helper packages
+        run: |
+          sudo /usr/bin/python3 -m pip install \
+            python-dotenv==1.2.2 disposable-email-domains==0.0.225 free-email-domains==1.0.2
       - name: Install the pinned Rust toolchain
-        shell: bash
+        shell: bash -euo pipefail {0}
         run: |
           channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
           rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
           rustup default "$channel"
           rustup show
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          # Cache downloads, installed pinned tools and debug compilation only.
-          # Release output is never restored: the artifact is built from scratch.
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-            rs/target/debug
-          key: cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-
-            cargo-v2-offline-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml') }}-
-
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      # The artifact tests import only the standard library and cryptography, but
-      # the shared tests/conftest.py imports httpx and SQLAlchemy, so the offline
-      # job installs the same requirements the existing backend CI does. The
-      # Rust-launched Python checks use RUST_TEST_PYTHON. Export the workflow's
-      # interpreter explicitly and put it on PATH for portable Python launchers.
-      - name: Install the Python test environment
-        run: |
-          python -m venv venv
-          # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
-          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
-          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
-          "$PWD/venv/bin/python" -m pip install --upgrade pip
-          "$PWD/venv/bin/python" -m pip install -r requirements.txt -c constraints.txt
-
-      - name: Run the artifact verifier unit tests
-        env:
-          ENVIRONMENT: test
-          RELEASE_SHA: test
-          JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: python3 -m pytest tests/unit/test_rust_artifact.py -q
-
-      - name: Run Phase 2 runner Python tests
-        env:
-          ENVIRONMENT: test
-          RELEASE_SHA: test
-          JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: python3 -m pytest tests/rust_contract/test_phase2_scenarios.py tests/rust_contract/test_phase2_runner.py -q
-
-      - name: Run Phase 5 inventory and gate tests
-        env:
-          ENVIRONMENT: test
-          RELEASE_SHA: test
-          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_inventory.py tests/rust_contract/test_phase5_gate.py -q
+          workspaces: rs -> target
+          key: offline-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml', 'rs/Cargo.lock') }}
+          # Only stable build inputs affect the key; RELEASE_SHA must not.
+          env-vars: RUST_TARGET SQLX_OFFLINE CARGO_INCREMENTAL
 
       - name: Check dependency advisories
         working-directory: rs
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit
-
-      - name: Fetch dependencies
+      - name: Fetch locked dependencies
         run: cargo fetch --manifest-path rs/Cargo.toml --locked
-
-      - name: Run the offline Rust tests
+      - name: Run the whole offline Rust workspace
         env:
           RELEASE_SHA: ${{ github.sha }}
-          SQLX_OFFLINE: "true"
-        run: cargo test --manifest-path rs/Cargo.toml --locked --workspace
-
-      - name: Check formatting and lints
+        run: cargo test --manifest-path rs/Cargo.toml --locked --workspace --no-fail-fast
+      - name: Check formatting and both feature configurations
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           cargo fmt --manifest-path rs/Cargo.toml --all -- --check
           cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets -- -D warnings
+          cargo clippy --manifest-path rs/Cargo.toml --locked --workspace --all-targets --features verdaxis-read/contract-tests -- -D warnings
+
+  # Build in parallel with tests. Release output is never restored from cache.
+  release:
+    runs-on: ubuntu-22.04
+    env:
+      SQLX_OFFLINE: "true"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Install the pinned Rust toolchain
+        shell: bash -euo pipefail {0}
+        run: |
+          channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
+          rustup default "$channel"
+          rustup show
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rs -> target
+          key: release-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml', 'rs/Cargo.lock') }}
+          # Only stable build inputs affect the key; RELEASE_SHA must not.
+          env-vars: RUST_TARGET SQLX_OFFLINE CARGO_INCREMENTAL
+          cache-targets: "false"
 
       - name: Build the release artifact for the host target
         env:
@@ -241,7 +244,7 @@ jobs:
   # This optional identity step never changes the normal release publisher.
   rehearsal-provenance:
     if: github.event_name == 'workflow_dispatch' && inputs.rehearsal
-    needs: offline
+    needs: release
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -262,7 +265,7 @@ jobs:
   # Manual-only VM lanes. They do not join the normal publication dependency graph.
   rehearsal:
     if: github.event_name == 'workflow_dispatch' && inputs.rehearsal
-    needs: [offline, rehearsal-provenance]
+    needs: [release, rehearsal-provenance]
     permissions:
       contents: read
       actions: read
@@ -286,9 +289,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: "3.12"
       - name: Set private disposable workspace paths
         shell: bash -euo pipefail {0}
         run: |
@@ -300,7 +300,7 @@ jobs:
             printf 'REHEARSAL_PREVIOUS_ARTIFACT_DIR=%s/rehearsal-previous\n' "$RUNNER_TEMP"
             printf 'REHEARSAL_EVIDENCE_DIR=%s/rehearsal-evidence\n' "$RUNNER_TEMP"
           } >> "$GITHUB_ENV"
-      - name: Download this run's offline artifact
+      - name: Download this run's release artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-read-artifact
@@ -379,7 +379,7 @@ jobs:
             REHEARSAL_CURRENT_ARTIFACT_DIR="$REHEARSAL_CURRENT_ARTIFACT_DIR" \
             REHEARSAL_PREVIOUS_ARTIFACT_DIR="$REHEARSAL_PREVIOUS_ARTIFACT_DIR" \
             REHEARSAL_EVIDENCE_DIR="$REHEARSAL_EVIDENCE_DIR" \
-            REHEARSAL_PYTHON="$(command -v python)" \
+            REHEARSAL_PYTHON="$(command -v python3)" \
             CADDY_VERSION="$CADDY_VERSION" CADDY_SHA256="$CADDY_SHA256" \
             bash deploy/tests/rehearsal-ci-setup.sh --disposable
       - name: Run the complete disposable rehearsal
@@ -415,52 +415,121 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Independent checks run on separate runners. The existing scripts create
-  # and remove their own pinned disposable PostgreSQL containers as needed.
-  contract-checks:
-    needs: offline
+  # No timing-balanced split is claimed: run_postgres.sh alone took 23m14s
+  # before failing in the measured run; the other ten runners never started.
+  postgres:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        check: [combined, sqlx, caddy, postgres, phase2]
+        include:
+          # run_postgres.sh builds its databases in every shard and then runs
+          # only the named groups; each of its four groups runs in one shard.
+          - shard: workspace
+            runners: run_postgres.sh
+            postgres_groups: workspace
+          - shard: market-settlement
+            runners: run_postgres.sh
+            postgres_groups: market_settlement
+          - shard: market-orders
+            runners: run_postgres.sh
+            postgres_groups: market_orders
+          - shard: schema
+            runners: run_postgres.sh
+            postgres_groups: schema
+          - shard: authority
+            runners: run_phase4_authority.sh run_phase10_reminders.sh run_abilities.sh run_phase10_inspect.sh run_feedback.sh
+          - shard: account
+            runners: run_offboarding_schema.sh run_offboarding_admission.sh run_offboarding_credentials.sh run_offboarding_command.sh run_compliance_scores.sh run_phase5_bounds.sh
+          - shard: market
+            runners: run_offboarding_market.sh run_offboarding_composition.sh run_offboarding_acceptance.sh run_market_contract.sh
+          # Auth, stream, public-cache and alert targets that read their own
+          # database variables and run only against a seeded disposable database.
+          - shard: components
+            runners: run_auth_streams_cache.sh
+    env:
+      SQLX_OFFLINE: "true"
+      RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
+      - name: Install retained host-tooling helper packages
+        run: |
+          sudo /usr/bin/python3 -m pip install \
+            python-dotenv==1.2.2 disposable-email-domains==0.0.225 free-email-domains==1.0.2
       - name: Install the pinned Rust toolchain
-        shell: bash
+        shell: bash -euo pipefail {0}
         run: |
           channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
           rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
           rustup default "$channel"
           rustup show
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          python-version: "3.12"
+          workspaces: rs -> target
+          key: postgres-${{ matrix.shard }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml', 'rs/Cargo.lock') }}
+          # Only stable build inputs affect the key; RELEASE_SHA must not.
+          env-vars: RUST_TARGET SQLX_OFFLINE CARGO_INCREMENTAL
 
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-            rs/target/debug
-          key: cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-${{ hashFiles('rs/Cargo.lock') }}-
-            cargo-v2-contract-${{ matrix.check }}-${{ runner.os }}-${{ env.RUST_TARGET }}-${{ env.SQLX_CLI_VERSION }}-${{ hashFiles('rs/rust-toolchain.toml') }}-
-
-      - name: Install the Python environment the runner expects
+      - name: Install the PostgreSQL client
         run: |
-          python -m venv venv
-          # Rust tests that start Python use this interpreter (RUST_TEST_PYTHON).
-          echo "$PWD/venv/bin" >> "$GITHUB_PATH"
-          echo "RUST_TEST_PYTHON=$PWD/venv/bin/python" >> "$GITHUB_ENV"
-          "$PWD/venv/bin/python" -m pip install --upgrade pip
-          "$PWD/venv/bin/python" -m pip install -r requirements.txt -c constraints.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+      - name: Run every runner in this explicit shard
+        shell: bash -euo pipefail {0}
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RUNNERS: ${{ matrix.runners }}
+          RUN_POSTGRES_GROUPS: ${{ matrix.postgres_groups }}
+        run: |
+          status=0
+          for runner in $RUNNERS; do
+            printf '\nRunning %s\n' "$runner"
+            if bash "rs/read/tests/$runner"; then
+              printf 'PASS %s\n' "$runner"
+            else
+              printf 'FAIL %s\n' "$runner"
+              status=1
+            fi
+          done
+          exit "$status"
+
+  # Preserve the staging-required name and fail on failed or skipped shards.
+  postgres-analytics:
+    needs: postgres
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require every PostgreSQL shard
+        env:
+          RESULT: ${{ needs.postgres.result }}
+        run: test "$RESULT" = success
+
+  native-checks:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [sqlx, caddy]
+    env:
+      SQLX_OFFLINE: "true"
+      RUST_TEST_PYTHON: /usr/bin/python3
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install the pinned Rust toolchain
+        shell: bash -euo pipefail {0}
+        run: |
+          channel="$(grep -oP 'channel = "\K[^"]+' rs/rust-toolchain.toml)"
+          rustup toolchain install "$channel" --profile minimal --component rustfmt,clippy
+          rustup default "$channel"
+          rustup show
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rs -> target
+          key: native-${{ matrix.check }}-${{ env.RUST_TARGET }}-${{ hashFiles('rs/rust-toolchain.toml', 'rs/Cargo.lock') }}
+          # Only stable build inputs affect the key; RELEASE_SHA must not.
+          env-vars: RUST_TARGET SQLX_OFFLINE CARGO_INCREMENTAL
 
       - name: Install sqlx-cli
         if: matrix.check == 'sqlx'
@@ -469,29 +538,38 @@ jobs:
             cargo install sqlx-cli --version "$SQLX_CLI_VERSION" --locked \
               --no-default-features --features postgres,rustls
           fi
-
-      - name: Install the pinned Caddy
-        if: matrix.check == 'combined' || matrix.check == 'caddy' || matrix.check == 'phase2'
-        shell: bash
-        run: |
-          curl -fsSL -o "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" \
-            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
-          echo "${CADDY_SHA256}  caddy_${CADDY_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
-          tar -xzf "caddy_${CADDY_VERSION}_linux_amd64.tar.gz" caddy
-          install -D -m 0755 caddy "$RUNNER_TEMP/bin/caddy"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-
-      - name: Run the Phase 5 routing tests against the pinned Caddy
-        if: matrix.check == 'caddy'
+      - name: Validate SQLx metadata against a disposable baseline
+        if: matrix.check == 'sqlx'
+        shell: bash -euo pipefail {0}
         env:
-          ENVIRONMENT: test
-          RELEASE_SHA: test
-          JWT_SECRET: test-secret-key-for-testing-minimum-32-characters-long
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: venv/bin/python -m pytest tests/rust_contract/test_phase5_routing.py tests/unit/test_rust_phase5_candidate.py -q
-
-      # The offboarding snippet in a real Caddy, in front of the served Rust
-      # router with its release switch off and on and a Python stand-in.
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          container=''
+          trap 'if [[ -n "$container" ]]; then docker rm -f -v "$container" >/dev/null; fi' EXIT
+          container=$(docker run -d --rm -e POSTGRES_PASSWORD=disposable_pw \
+            -e POSTGRES_DB=verdaxis_sqlx_test -p 127.0.0.1::5432 \
+            postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272)
+          for _ in {1..90}; do
+            if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec "$container" pg_isready -U postgres
+          port=$(docker port "$container" 5432/tcp)
+          port=${port##*:}
+          export DATABASE_URL="postgres://postgres:disposable_pw@127.0.0.1:$port/verdaxis_sqlx_test"
+          cd rs || exit 1
+          cargo sqlx migrate run --source read/migrations
+          SQLX_OFFLINE=false cargo sqlx prepare --check --workspace
+      - name: Install the pinned Caddy
+        if: matrix.check == 'caddy'
+        shell: bash -euo pipefail {0}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/caddy.tar.gz" \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$CADDY_SHA256" "$RUNNER_TEMP/caddy.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP" caddy
+          install -D -m 0755 "$RUNNER_TEMP/caddy" "$RUNNER_TEMP/bin/caddy"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Run the offboarding routing test against the pinned Caddy
         if: matrix.check == 'caddy'
         shell: bash
@@ -505,15 +583,17 @@ jobs:
             -- --ignored --exact caddy_routes_the_group_only_when_enabled 2>&1 | tee offboarding-caddy.log
           grep -Eq '^test result: ok\. 1 passed; 0 failed' offboarding-caddy.log
 
+
+  artifact-check:
+    needs: release
+    runs-on: ubuntu-22.04
+    steps:
       - name: Download the release artifact
-        if: matrix.check == 'combined'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: rust-read-artifact
           path: release
-
       - name: Test the release binary identity
-        if: matrix.check == 'combined'
         shell: bash
         env:
           RELEASE_SHA: ${{ github.sha }}
@@ -538,160 +618,47 @@ jobs:
           print("TESTED " + json.dumps({"binary_sha256": digest}))
           PY
 
-      - name: Run the combined contract gate
-        if: matrix.check == 'combined'
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-        run: |
-          python3 -m scripts.rust_contract.run_disposable \
-            --group all --rust-target all --mixed-caddy --require-complete-ledger \
-            --profile phase1-meaning-v1 \
-            --rules-sha256 f68125dd74d59f0af49f120b839d8e3cdadef1deca8027f9d0f08fc8a0b99e0e \
-            --report docs/rust-phase1/ci-contract.json
-
-      - name: Check the SQLx query metadata
-        if: matrix.check == 'sqlx'
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-        run: python3 scripts/rust_contract/sqlx_offline_check.py
-
-      # The published Caddy binary adapts the reviewed snippets and proves the
-      # exact method/path ownership and the decision-78 admin gate, including
-      # the 300-request stop across Python-owned and Rust-owned admin paths.
-      - name: Run the real-Caddy ownership matrix
-        if: matrix.check == 'caddy'
-        env:
-          ENVIRONMENT: test
-          RELEASE_SHA: test
-          JWT_SECRET: test-secret-key-for-testing-minimum-32-chars
-          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
-        run: |
-          python3 -m pytest \
-            tests/rust_contract/test_routing.py \
-            tests/rust_contract/test_phase2_caddy.py \
-            tests/unit/test_rust_caddy_candidate.py \
-            tests/rust_contract/test_phase2_report.py -q
-
-      - name: Run the Rust PostgreSQL integration and race tests
-        if: matrix.check == 'postgres'
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_postgres.sh
-      - name: Phase 4 migrated database authority
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_phase4_authority.sh
-      - name: Phase 10 order-expiry reminder job
-        if: matrix.check == 'postgres'
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_phase10_reminders.sh
-      - name: Individual account state marker schema
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_schema.sh
-      - name: Account access marker admission
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_admission.sh
-      - name: Account credential cutoff
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_credentials.sh
-      - name: Account offboarding command
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_command.sh
-      - name: Market invalidation, reassignment, matching, conservation and locks
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_market.sh
-      - name: Composed account offboarding
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_composition.sh
-      - name: Integrated offboarding acceptance across both stacks
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_offboarding_acceptance.sh
-      - name: Abilities on a migrated database, and hint parity with the enforcing routes
-        if: matrix.check == 'postgres'
-        env:
-          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
-        run: bash rs/read/tests/run_abilities.sh
-
-      - name: Run every Phase 2 route scenario and race schedule
-        if: matrix.check == 'phase2'
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-        run: |
-          python3 -m scripts.rust_contract.run_disposable \
-            --phase2 --phase2-group all \
-            --report docs/rust-phase2/ci-scenarios.json
-          python3 - <<'PY'
-          import subprocess, sys
-          from scripts.rust_contract.phase2_scenarios import REGISTRY
-          command = [sys.executable, "-m", "scripts.rust_contract.run_disposable",
-                     "--phase2", "--phase2-races",
-                     "--report", "docs/rust-phase2/ci-races.json"]
-          for scenario in REGISTRY.values():
-              if scenario.route_qualification and scenario.races is not None:
-                  command.extend(["--phase2-scenario", scenario.name])
-          subprocess.run(command, check=True)
-          PY
-
-      # Each lane stages only its own reports, flat for the aggregate download.
-      # Keep evidence from failed lanes without allowing publication.
-      - name: Stage the contract evidence
-        if: always()
-        run: |
-          mkdir -p contract-evidence
-          case "${{ matrix.check }}" in
-            combined) files="docs/rust-phase1/ci-contract.json tested-binary.json" ;;
-            phase2) files="docs/rust-phase2/ci-scenarios.json docs/rust-phase2/ci-races.json" ;;
-            *) files="" ;;
-          esac
-          for file in $files; do
-            if [ -f "$file" ]; then cp "$file" contract-evidence/; fi
-          done
-      - name: Upload the contract evidence
-        if: always()
+      - name: Upload the tested binary identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rust-contract-evidence-${{ matrix.check }}
-          if-no-files-found: warn
+          name: rust-tested-binary
+          if-no-files-found: error
           retention-days: 7
-          path: contract-evidence/
+          path: tested-binary.json
 
-  # Preserve the required contract check and the evidence artifact consumed by
-  # publish. An unsuccessful or skipped matrix lane makes this check fail.
+  # Publication requires every retained check, not only a green aggregate.
   contract:
-    needs: contract-checks
+    needs: [test, phase10-shellcheck, offline, release, native-checks, postgres-analytics, artifact-check]
     if: always()
     runs-on: ubuntu-22.04
     steps:
-      - name: Require every contract check to succeed
+      - name: Require every native and tooling check to succeed
         env:
-          CONTRACT_RESULT: ${{ needs.contract-checks.result }}
-        run: test "$CONTRACT_RESULT" = success
-
-      - name: Download all contract evidence
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ["CHECK_RESULTS"])
+          failed = [name for name, result in results.items() if result["result"] != "success"]
+          assert not failed, f"checks did not succeed: {failed}"
+          PY
+      - name: Download the tested binary identity
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: rust-contract-evidence-*
-          merge-multiple: true
+          name: rust-tested-binary
           path: contract-evidence
-
+      - name: Record the native check results
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          results = json.loads(os.environ["CHECK_RESULTS"])
+          report = {"source_sha": os.environ["GITHUB_SHA"], "checks": results,
+                    "failed_groups": [name for name, item in results.items() if item["result"] != "success"]}
+          Path("contract-evidence/ci-contract.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+          PY
       - name: Upload the contract evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -700,15 +667,14 @@ jobs:
           retention-days: 7
           path: contract-evidence/
 
-  # Publish attests the exact binary digest the combined contract lane tested,
-  # only after offline, every matrix lane and the aggregate check succeed.
+  # Publish attests the exact binary digest the native artifact lane tested,
+  # only after every retained check and the aggregate succeed.
   publish:
-    needs: [offline, contract-checks, contract]
+    needs: [release, contract]
     if: >-
       github.event_name == 'push' &&
       (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/prod') &&
-      needs.offline.result == 'success' &&
-      needs.contract-checks.result == 'success' &&
+      needs.release.result == 'success' &&
       needs.contract.result == 'success'
     runs-on: ubuntu-22.04
     permissions:

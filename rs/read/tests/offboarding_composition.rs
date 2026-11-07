@@ -216,43 +216,6 @@ async fn the_group_shares_the_administrator_quota() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
-fn python_sources(path: &Path, found: &mut Vec<std::path::PathBuf>) {
-    for entry in std::fs::read_dir(path).unwrap().flatten() {
-        let child = entry.path();
-        if child.is_dir() {
-            python_sources(&child, found);
-        } else if child.extension().and_then(|value| value.to_str()) == Some("py") {
-            found.push(child);
-        }
-    }
-}
-
-/// The Python application serves none of the four paths, so a disabled
-/// switch leaves no owner at all. The application code is scanned for every
-/// path segment the group uses.
-#[test]
-fn python_serves_no_offboarding_route() {
-    let application = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-    let mut sources = Vec::new();
-    python_sources(&application, &mut sources);
-    assert!(sources.len() > 50, "the Python application is present");
-    for path in sources {
-        let text = std::fs::read_to_string(&path).unwrap();
-        for segment in [
-            "/offboard",
-            "offboarding-preview",
-            "offboarding-trades",
-            "reassign-responsible",
-        ] {
-            assert!(
-                !text.contains(segment),
-                "{} names {segment}",
-                path.display()
-            );
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Caddy routing.
 // ---------------------------------------------------------------------------

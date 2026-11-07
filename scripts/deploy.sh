@@ -901,6 +901,16 @@ readiness_exact() {
     printf '%s' "$payload" | run_release_binary "$ACTIVE_BINARY" guard health
 }
 
+# The retained backend unit was removed from both hosts after the cutover. A
+# unit that systemd does not know is already stopped and disabled, so its
+# stop/disable commands and their sudo authority are not needed. Any other
+# answer, including an unreadable one, keeps the installed-unit path.
+retained_backend_installed() {
+    local load_state
+    load_state="$(systemctl show --property=LoadState --value "$SERVICE_NAME")" || return 0
+    [[ "$load_state" != "not-found" ]]
+}
+
 preserve_failed_release() {
     local status="$?"
     trap - EXIT
@@ -1180,11 +1190,13 @@ fi
 
 # Prove every exact privileged service command before state/source mutation.
 # Noninteractive execution must never discover missing authority at restart.
-for action in stop disable; do
-    sudo -n -l systemctl "$action" "$SERVICE_NAME" >/dev/null || {
-        echo "Required retained backend stop/disable authority is unavailable." >&2; exit 1;
-    }
-done
+if retained_backend_installed; then
+    for action in stop disable; do
+        sudo -n -l systemctl "$action" "$SERVICE_NAME" >/dev/null || {
+            echo "Required retained backend stop/disable authority is unavailable." >&2; exit 1;
+        }
+    done
+fi
 if [[ "$RUST_ENABLED" == "1" ]]; then
     for action in restart stop disable enable; do
         sudo -n -l systemctl "$action" "$RUST_UNIT_NAME" >/dev/null || {
@@ -1256,11 +1268,13 @@ acquire_restart_window_lock
 
 # The retained runtime is idle throughout M; a retry repeats these fences.
 # Do not restart it, even on a failed native activation.
-sudo -n systemctl stop "$SERVICE_NAME"
-sudo -n systemctl disable "$SERVICE_NAME"
-if systemctl is-active --quiet "$SERVICE_NAME" \
-    || systemctl is-enabled --quiet "$SERVICE_NAME"; then
-    echo "Retained backend did not become stopped and disabled." >&2; exit 1
+if retained_backend_installed; then
+    sudo -n systemctl stop "$SERVICE_NAME"
+    sudo -n systemctl disable "$SERVICE_NAME"
+    if systemctl is-active --quiet "$SERVICE_NAME" \
+        || systemctl is-enabled --quiet "$SERVICE_NAME"; then
+        echo "Retained backend did not become stopped and disabled." >&2; exit 1
+    fi
 fi
 sudo -n systemctl stop "$RUST_UNIT_NAME"
 # Revoke every cached-read lease before source/identity changes. The native
@@ -1497,8 +1511,9 @@ for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
     fi
     sleep "$HEALTH_RETRY_DELAY"
 done
-if systemctl is-active --quiet "$SERVICE_NAME" \
-    || systemctl is-enabled --quiet "$SERVICE_NAME"; then
+if retained_backend_installed \
+    && { systemctl is-active --quiet "$SERVICE_NAME" \
+        || systemctl is-enabled --quiet "$SERVICE_NAME"; }; then
     echo "Retained backend must remain stopped and disabled." >&2; exit 1
 fi
 # Both surfaces and signed acceptance passed; preserve selection on reboot.

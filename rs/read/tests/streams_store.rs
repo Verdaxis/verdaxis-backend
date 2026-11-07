@@ -3,7 +3,7 @@
 //! The pure tests cover barrier interpretation, page planning and participant
 //! decoding. The `postgres_` tests run only when
 //! `STREAMS_STORE_TEST_DATABASE_URL` names a disposable read-only database;
-//! `tests/postgres/test_phase6_retention.py` seeds those fixtures and invokes
+//! `rs/read/tests/run_auth_streams_cache.sh` seeds those fixtures and invokes
 //! them so the page SQL and the deployed schema are proved together.
 
 use sqlx::PgPool;

@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 # Phase 10 Task 23 runner: the read-only inspection tools against a migrated
-# disposable database, with the Python report as the reference.
+# disposable database with fixed expected report values.
 #
 # Docker runs locally. The container binds a Docker-assigned loopback port and
 # is removed on exit. Never point this at staging or production.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 
-: "${RUST_TEST_PYTHON:?Set an absolute Python path with the project database dependencies}"
-export RUST_TEST_PYTHON
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-alembic="$(dirname "$RUST_TEST_PYTHON")/alembic"
 fixtures="$repo/rs/read/tests/fixtures"
 
 container=''
@@ -54,8 +51,6 @@ done
 export ENVIRONMENT=test
 export RELEASE_SHA=test
 export JWT_SECRET='test-secret-key-for-testing-minimum-32-chars'
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$repo"
 
 load() { # database fixture-file
   docker exec -i -e PGPASSWORD=disposable_owner_pw "$container" \
@@ -64,8 +59,8 @@ load() { # database fixture-file
 
 stamp migrate
 for database in verdaxis_inspect_test verdaxis_inspect_clean_test; do
-  owner_url="postgresql+asyncpg://inspect_owner:disposable_owner_pw@127.0.0.1:$port/$database"
-  DATABASE_URL="$owner_url" MIGRATOR_DATABASE_URL="$owner_url" "$alembic" upgrade head >/dev/null
+  docker exec -i "$container" psql -X -q -U inspect_owner -d "$database" \
+    -v ON_ERROR_STOP=1 < "$repo/rs/read/migrations/1_baseline.sql" >/dev/null
 done
 
 stamp fixtures
@@ -97,8 +92,8 @@ if (( cargo_status != 0 )); then
   exit "$cargo_status"
 fi
 # A green run that executed no PostgreSQL case is a false pass; refuse it.
-if ! grep -Eq '^test inspect_blockers_matches_the_python_counts_on_the_same_fixture \.\.\. ok' "$log"; then
-  echo "the Python comparison did not run: refusing a green result" >&2
+if ! grep -Eq '^test inspect_blockers_matches_fixed_counts \.\.\. ok' "$log"; then
+  echo "the fixed-count inspection case did not run: refusing a green result" >&2
   exit 1
 fi
 if grep -Eq '[1-9][0-9]* (ignored|filtered out)' "$log"; then

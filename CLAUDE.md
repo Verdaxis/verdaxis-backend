@@ -1,365 +1,40 @@
-# Verdaxis Backend - Claude Code Instructions
-
-## Bio-LNG contract
-
-Bio-LNG uses `app/schemas/lng_order.py` and `app/services/lng_order.py` for typed
-`lng_terms`, shared matching compatibility and identity redaction. It is available
-only at Rotterdam; no demo or benchmark seed price is permitted. WTT emissions
-must never populate lifecycle CI. Trades freeze `lng_terms_snapshot`; incompatible
-takes return HTTP 409 `LNG_TERMS_INCOMPATIBLE`. Inventory publication is refused.
-Production country uses `app/reference/iso_countries.py` assigned ISO codes.
-FUEL_TRADER supplier admission is admin-invitation only. The staging checkpoint is
-`blng_20261014_staging`; see the approved 2026-10-14 design and ARCHITECTURE.md.
-
-## Live VPS Layout
-
-Production API and PostgreSQL run on the EU VPS `169.58.37.164` (`vmi3623757`). Staging runs on the shared host `194.233.68.86`. Read `/home/verdaxis-prod/verdaxis/PRODUCTION_HOST.md` and `/home/jons-openclaw/VPS_MAP.md` before any deployment or recovery. The old shared-host production checkout is retired.
-
-The live VPS deployment is systemd-based, not Docker-based:
-
-- Production backend: `/home/verdaxis-prod/verdaxis/prod/be`, branch `prod`, service `verdaxis-backend.service`, readiness `https://api.verdaxis.exchange/health/ready`
-- Staging backend: `/home/verdaxis-prod/verdaxis/staging/be`, branch `staging`, service `verdaxis-backend-staging.service`, readiness `https://api-staging.verdaxis.exchange/health/ready`
-- Production Uvicorn binds `127.0.0.1:8000`; staging binds `127.0.0.1:8001`. Caddy/reverse-proxy health URLs are the public surfaces.
-- Deploy helper: `./scripts/deploy.sh`
-- Unit installer: `./scripts/install_systemd_units.sh --dry-run --environment <production|staging> --source-ref <approved-40-hex-sha>` from that environment's fixed, clean checkout. It stages the exact committed environment allowlist and unit bytes with a digest manifest in a private root-owned directory before preflight; production and staging refs are independent.
-- News refresh is owned only by `verdaxis-news-refresh.timer` in production and `verdaxis-news-refresh-staging.timer` in staging. Both run every six hours. Production uses one bounded licensed Webz.io request when `WEBZ_API_TOKEN` is configured and falls back to maritime RSS; staging normally has no Webz token. Web workers do not schedule it, and the API has no manual refresh route. Webz results are news only and never trusted market signals or benchmarks.
-- Product-analytics pruning is owned only by its environment-specific timer. Its service requires PostgreSQL/network readiness, uses bounded retries and the news sandbox, and its destructive CLI requires an explicit deployed environment and full SHA matching `.runtime-release.env`; it has no development default.
-
-The deploy helper always refuses dirty worktrees. Canonical checkouts fix their branch, guard directory, and trusted tool path and discard ambient Git/database routing overrides. Dry-run resolves and archives one remote full SHA, verifies only its immutable unit manifest, migration policy, ACL convergence bundle, deploy-start guard helper, and systemd bytes with trusted tooling, and never executes candidate Python/build/Alembic code or supplies it with `.env`, live DB, home, agent, or network access.
-
-It prints `APPROVED_RELEASE_SHA=<sha>`; real deploy requires that exact release SHA, the same exact `MIGRATION_APPROVED_SOURCE_SHA`, an exact expected current revision, and an allowlisted literal target from that SHA's `deploy/migration-checkpoints.tsv`. Missing values, aliases such as `head`, moved source, unexpected live state, and unlisted transitions refuse before source mutation. Checkpoint application and startup revision verification require explicit app/migrator URLs on the same database endpoint with distinct exact roles; they never fall back to `DATABASE_URL`. The release artifact publishes the exact target as `MIGRATION_REVISION`; backend units verify that revision rather than source head, so reviewed pauses remain startable.
-
-Actual deploy holds a durable main per-environment flock and `.runtime-deploy/<environment>.state` before source mutation. Backend units allow absent state; their isolated stdlib start guard accepts exact `restart-authorized` state only when environment and SHA match and both the main and restart-window locks are busy. Deploy acquires the restart lock while state is blocked, writes authorization only after both locks are held, and keeps both descriptors open until exit. News-refresh and product-analytics-prune reject every present state path, including dangling symlinks; the production-only order-expiry-reminder unit and both auth-maintenance units retain their existing conditions. State remains through restart/readiness and any failure or interruption, then clears only after exact readiness. A crash or reboot releases both locks, so stale authorization denies a later backend start.
-
-There is no identity-only rollback or destructive Git reset. It accepts readiness only when parsed JSON reports exact `status=ok`, `db=ok`, environment, and full release SHA. The app consumes this artifact from systemd and never invokes Git.
-
-For the initial guard rollout, stop the relevant environment timers before the code deploy, let active oneshots drain naturally, and confirm no job remains pending. Keep those timers quiesced through final acceptance, then restore only timers that were previously active and only after deploy state is absent. Follow [the detailed bootstrap order](docs/runtime-hardening.md), including its repeat helper-attesting dry-run, unit installation gate, and forward-revert helper ABI. After dry-run, pass all four approval/checkpoint variables shown in `README.md`; never use `alembic upgrade head` for staging or production deployment.
-
-Integration gate: leave `rh_20260720_runtime_metadata` directly after `pa_20260715_analytics_facts`; the combined tree reparents `sec_20260720_identity` onto `rh` and keeps security linear through `sec_20260720_device` before market migrations. Add explicit checkpoint transitions at each reviewed identity/device/quarantine pause. At the security checkpoint, extend the ACL policy with exact pending-registration, organization-join, refresh-session, and user admission/KYC table/column writes; do not let new columns inherit authority. The combined immutable unit manifest must add both environments' audited auth-maintenance service/timer bytes without changing installer code. Audit/status history is app-append-only. Seed, quarantine, and market evidence require integration-owned trusted writers. The runtime may insert provenance for a new admin-invited organization; the database trigger classifies an ordinary UNKNOWN organization as REAL on an administrator company-approval transition, with the change included in the company approval audit. Direct provenance UPDATE remains denied to the runtime, and previously approved UNKNOWN records require exact operator remediation. The legacy market-signal CLI needs a separately approved operator identity, never blanket app DML. Preserve four Uvicorn workers; the shared SSE transport is built (market_event_dispatch outbox sequencer + org-bound hub; see docs/market-event-dispatch.md) and its staging activation stays behind the combined gates. Do not retain local-monitor's identity-only failure rollback, which would pair stale SHA with new bytes.
-The local-monitor source does not modify or own the deploy helper, application
-settings/readiness producer, runtime release transaction, database preflight,
-or Alembic execution. Canonical runtime integration must atomically publish
-matching environment/full-SHA runtime and monitor identity, keep both aligned
-with the code that remains checked out after a failure, and validate the exact
-four-key `/health/ready` corpus before declaring a restart successful. The
-monitor contract and integration seams are in `deploy/monitor/README.md`.
-There is no monitor-owned installer or activation path in this branch. Any
-live deploy, even a dry run, requires separate operator authorization.
-
-Read ARCHITECTURE.md before exploring the codebase.
-
-## Project Overview
-
-Backend API for Verdaxis -- a maritime intelligence and procurement platform. Handles fuel procurement (order book with BID/ASK matching), compliance auditing (EU ETS, FuelEU Maritime), port intelligence with geospatial data, AI copilot via Google Gemini, and a trade lifecycle (create -> confirm -> deliver -> pay).
-
-**Repo:** `Verdaxis/verdaxis-backend`
-**Runtime:** Python 3.10+ / FastAPI / PostgreSQL 17.9 with PostGIS 3.6.2 / SQLAlchemy 2 (async) / Alembic
-
-## Development Commands
-
-```bash
-# From an isolated worktree or clone, activate its virtual environment
-source ./venv/bin/activate
-
-# Run locally on an OS-assigned loopback port; deployed ports are 8000/8001
-ENVIRONMENT=development \
-  uvicorn app.main:app --reload --host 127.0.0.1 --port 0
-
-# Run all unit tests (no DB required, uses sqlite in-memory)
-ENVIRONMENT=test RELEASE_SHA=test \
-  JWT_SECRET=test-secret-key-for-testing-minimum-32-chars \
-  DATABASE_URL="sqlite+aiosqlite:///:memory:" pytest tests/unit/ -v
-
-# Integration/E2E is mutating and requires an explicitly started disposable
-# server on a numeric-loopback ephemeral port. The source-tree producer is:
-ENVIRONMENT=test \
-RELEASE_SHA=$(git rev-parse HEAD) \
-DISPOSABLE_TEST_TOKEN=<32-plus-character-token> \
-venv/bin/python -m tests.disposable_server --port <ephemeral-port>
-
-# Run pytest with the same token; without these flags collection skips the
-# integration/E2E suites. Staging/production are never integration targets.
-DISPOSABLE_ITEST_PASSWORD=... pytest tests/integration/ -v \
-  --run-disposable-integration \
-  --disposable-target-url http://127.0.0.1:<ephemeral-port> \
-  --disposable-target-token <matching-32-plus-character-token>
-
-# Build a disposable/development schema only; deployed environments use the
-# source-attested literal checkpoint helper, never `upgrade head`
-alembic upgrade head
-
-# Create a new migration
-alembic revision --autogenerate -m "description_here"
-
-# Seed an explicitly attested staging/disposable database only; see README
-SEED_DATABASE_URL=... SEED_TARGET_DATABASE=verdaxis_staging \
-  SEED_RUNTIME_ENV=staging ALLOW_SEED_MUTATIONS=I_UNDERSTAND_SEED_MUTATIONS \
-  python scripts/seed.py
-
-# Full deploy script (on server, from prod/be or staging/be)
-./scripts/deploy.sh --dry-run
-./scripts/deploy.sh
-
-# No-change unit provenance/install preflight for one independently promoted env
-./scripts/install_systemd_units.sh --dry-run \
-  --environment staging --source-ref <approved-staging-40-hex-sha>
-```
-
-## Deployment
-
-**Staging SSH:** `jons-openclaw@194.233.68.86`.
-**Production SSH:** alias `verdaxis-prod-eu`, administrator `verdaxis-admin`, EU VPS `169.58.37.164`.
-**Service account:** Run `sudo su - verdaxis-prod` after login; no password is required.
-**API:** `https://api.verdaxis.exchange/api` (Caddy reverse proxy -> `127.0.0.1:8000`; staging -> `127.0.0.1:8001`)
-**Swagger:** `https://api.verdaxis.exchange/docs`
-**Admin Panel:** `https://api.verdaxis.exchange/admin` (credentials from `ADMIN_USERNAME`/`ADMIN_PASSWORD` in `.env`)
-
-The production frontend (`app.verdaxis.exchange`) is hosted on Vercel. EU Caddy
-fronts the production API. Shared-host Caddy fronts the staging API and frontend.
-Neither host serves the production frontend build.
-
-Before deployment, confirm current DNS for the target site/API and the live
-systemd unit's `User` and `WorkingDirectory`. Production runs on `vmi3623757`;
-staging runs on `vmi1840561`. Historical `144.126.151.136` references are not
-deployment authority. Keep the SSH login and service account distinct.
-
-### CI/CD (GitHub Actions)
-
-CI (`.github/workflows/backend-ci.yml`) runs the unit-test suite and a strict `pip-audit` dependency gate on pushes and PRs to `staging` and `prod` — the branches that are actually deployed. CI does NOT deploy: deploys are operator-run on the VPS via `scripts/deploy.sh` against the systemd services described above. Any remaining docs referring to Docker-based CI or a `main` deploy branch are legacy.
-
-### Manual Deploy
-
-```bash
-# Production: use the EU host only.
-ssh verdaxis-prod-eu
-test "$(hostname)" = vmi3623757
-sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/prod/be/scripts/deploy.sh --dry-run
-
-# Staging: run on the shared host.
-sudo -n -u verdaxis-prod /home/verdaxis-prod/verdaxis/staging/be/scripts/deploy.sh --dry-run
-```
-
-## Database & Migrations
-
-- **Current deployed databases use host PostgreSQL 17 on loopback port 5432.** The optional Compose database mapping `5433 -> 5432` is not the current production/staging app database.
-- The database URL is assembled from individual env vars (`DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`) unless `DATABASE_URL` is explicitly set
-- Only the optional Compose topology uses `DATABASE_HOST=verdaxis-db`; do not infer a deployed database target from that file.
-- Alembic's `env.py` overrides `sqlalchemy.url` from Settings at runtime. The `alembic.ini` value (`driver://user:pass@localhost/dbname`) is never used.
-- Alembic compares columns, foreign keys, indexes, types, defaults, and comments. It excludes only explicitly enumerated PostGIS/system or documented legacy objects; targeted callbacks cover non-native enum storage and Python-owned defaults.
-- All models MUST be imported in `app/models/__init__.py` or Alembic autogenerate will miss them
-
-### Key Tables
-
-| Table                | Purpose                                           |
-| -------------------- | ------------------------------------------------- |
-| `kyc_documents` | Append-only AES-256-GCM encrypted KYC evidence; RESTRICT user/org ownership |
-| `users`              | Auth, role (BUYER/SUPPLIER/ADMIN), status         |
-| `organizations`      | Companies. Users belong to orgs. Has `domain` for auto-matching on registration |
-| `orderbook_orders`   | Unified order book. side=BID (buyer wants) or ASK (seller offers) |
-| `market_support_authorizations` | Exact, one-use customer authority and evidence for an assisted ASK |
-| `staff_capability_assignments` | Revocable, expiring administrator capabilities for market support |
-| `trades`             | Matched transactions. Lifecycle: PENDING -> CONFIRMED -> DELIVERED -> PAID |
-| `match_suggestions`  | AI-scored potential matches between BID and ASK orders |
-| `commissions`        | Verdaxis revenue tracking per trade; new seller-paid per-MT rates are stored on `trades` (see `docs/transaction-fees.md`) |
-| `ports`              | PostGIS POINT geometry. ID format: `SGSIN`, `NLRTM`, etc. |
-| `vessels`            | Buyer fleet. PostGIS current/previous location    |
-| `inventory_items`    | Supplier stock per port per fuel type              |
-| `notifications`      | In-app notifications with JSON `data` payload     |
-| `producer_projects`  | Fuel production facilities for the map (GENA data) |
-| `compliance_ledger`  | EU ETS/FuelEU financial transactions               |
-
-## API Routes (all prefixed with `/api`)
-
-### Public (no auth)
-- `POST /mcp` -- read-only MCP endpoint (development/test/staging only; see docs/agent-mcp.md)
-- `GET /api/prices` -- Aggregated trade price summaries (price ticker)
-- `GET /api/availability` -- Fuel availability by port (map data)
-- `GET /api/demand` -- Anonymized buyer demand signals
-- `GET /api/producers` -- Producer project list (map data)
-- `GET /api/orderbook` -- All open orders
-- `GET /api/orderbook/bids` -- Open BID orders
-- `GET /api/orderbook/asks` -- Open ASK orders
-- `GET /api/orderbook/aggregated` -- Market data grouped by region/fuel/side
-- `GET /api/orderbook/regions` -- Distinct regions
-- `GET /api/orderbook/fuel-types` -- Distinct fuel types
-- `GET /api/orderbook/with-ci` -- Orders enriched with CI-adjusted pricing
-- `GET /api/listings` -- Backward-compatible ASK listing view
-- `GET /` -- Health message
-- `GET /health/ready` -- Bounded database readiness; use for off-host monitoring
-- `GET /health/live` -- Process-only liveness
-- `GET /health` -- Backward-compatible readiness alias
-
-### Auth (`/api/auth`)
-- `POST /api/auth/login` -- OAuth2 password form (email in `username` field) -> JWT
-- `POST /api/auth/register` -- Returns `{status: "created", user}` or `{status: "requires_org", registration_token}` if org not found by email domain
-- `POST /api/auth/register-with-org` -- Complete registration with new org creation
-- `POST /api/auth/invitations/resolve` -- Resolve a valid admin-issued invitation secret
-- `POST /api/auth/invitations/accept` -- Accept a pre-approved invitation, set a password, and issue a session
-- `GET /api/auth/me` -- Current user info
-
-### Authenticated
-- `POST /api/orderbook` -- Place BID (BUYER) or ASK (SUPPLIER) order
-- `PUT /api/orderbook/{id}` -- Update own order
-- `DELETE /api/orderbook/{id}` -- Cancel own order
-- `GET /api/orderbook/my` -- Own orders with trade counts
-- `POST /api/trades/` -- Hit an order to create a trade
-- `GET /api/trades/my` -- Own trades
-- `PUT /api/trades/{id}/confirm` -- Counterparty confirms
-- `PUT /api/trades/{id}/decline` -- Counterparty declines (restores order quantity)
-- `PUT /api/trades/{id}/deliver` -- Mark delivered with final qty/price (calculates commission)
-- `POST /api/trades/{id}/pay` -- Seller marks as paid
-- `GET /api/notifications` -- User's notifications
-- `GET /api/notifications/unread-count`
-- `PATCH /api/notifications/{id}/read`
-- `PATCH /api/notifications/read-all`
-- `GET /api/vessels` -- Org-scoped (admin sees all)
-- `GET /api/inventory` -- Supplier's inventory
-- `POST /api/inventory` -- Add inventory item
-- `POST /api/inventory/{id}/publish` -- Convert inventory to ASK order
-- `POST /api/ai/chat` -- Gemini chat
-- `GET /api/matchmaking/suggestions` -- Match suggestions for org
-- `POST /api/matchmaking/generate/{order_id}` -- Trigger match generation
-- `PATCH /api/matchmaking/suggestions/{id}/dismiss`
-
-- `POST /api/kyc/submit` -- Retain encrypted ID and company documents; no external provider
-
-### Admin Only
-- `GET /api/kyc/admin/{user_id}/documents` -- Up to 50 newest document metadata rows
-- `GET /api/kyc/admin/documents/{document_id}` -- Audited, no-store encrypted-vault download
-- `GET /api/auth/admin/invitations/organizations` -- Eligible real organizations for pre-approved invitations
-- `POST /api/auth/admin/invitations` -- Create or rotate a single-use pre-approved invitation, optionally creating its onboarding-approved organization atomically
-- `PUT /api/auth/approve/{user_id}` -- Approve a verified account and queue a frozen, transition-scoped sign-in email for row-serialized post-commit delivery
-- `GET /api/orders/admin/commissions` -- All commissions
-- `GET /api/orders/admin/commissions/summary` -- Commission stats
-- `PUT /api/orders/admin/commissions/{id}` -- Update commission status
-
-## Authentication
-
-- **Protocol:** JWT HS256, self-signed with `JWT_SECRET` from `.env`
-- **Token lifetime:** 15-minute access tokens plus 7-day refresh tokens
-- **Login:** `POST /api/auth/login` uses OAuth2 `username`/`password` form fields. The `username` field contains the email address.
-- **Refresh transport:** `POST /api/auth/refresh` accepts the refresh token from either the JSON body or the HttpOnly `refresh_token` cookie scoped to `/api/auth`. Login, refresh, logout, and password change rotate or clear that cookie.
-- **Registration flow:** If the user's email domain matches an existing `Organization.domain`, the user is created immediately linked to that org. Otherwise, a short-lived registration token is returned and the user must call `/register-with-org` to create their org first.
-- **Admin invitation flow:** An admin may prepare buyer or supplier accounts in an existing approved `REAL` or `UNKNOWN` organization, or create an approved `REAL` organization and an invited account in one transaction. Creating the organization is an audited administrator trust decision. Ordinary registration retains database-owned `UNKNOWN` market provenance. The recipient accepts the single-use link, agrees to Terms/Privacy, sets a password, and receives a normal session without another onboarding approval. The admin is responsible for delivering the copied link securely to the intended recipient.
-
-### Test Credentials
-
-| Role     | Email                  | Password    |
-| -------- | ---------------------- | ----------- |
-| Admin    | admin@verdaxis.com     | ***REMOVED***    |
-| Buyer    | buyer1@verdaxis.com    | password123 |
-| Supplier | supplier1@verdaxis.com | password123 |
-
-## Coding Conventions
-
-1. **All I/O is async.** DB queries use `AsyncSession`, all route handlers are `async def`.
-2. **Dependency injection** via `Depends()` for `get_db` (session) and `get_current_user` (auth).
-3. **Pydantic v2 schemas** with `class Config: from_attributes = True` for ORM serialization.
-4. **Enums are `(str, enum.Enum)`** in both models and schemas. They are duplicated between model and schema layers (not shared).
-5. **UUIDs for all primary keys** except `Port.id` (which uses string codes like `SGSIN`).
-6. **Numeric fields use `Decimal`** in models and schemas, mapped to `Numeric(precision, scale)` in PostgreSQL.
-7. **PostGIS geography columns** (`Geography(POINT, 4326)`) are set to `None` before serialization since Pydantic cannot serialize `WKBElement`. Lat/lng are extracted via `ST_X`/`ST_Y` and set as dynamic attributes on the ORM object.
-8. **Role-based access control** is checked inline in route handlers (`if current_user.role != UserRole.BUYER: raise HTTPException(403, ...)`).
-9. **Router prefix pattern:** Some routers define their prefix in `APIRouter(prefix="/...")`, others rely on `@router.get("/endpoint")` path. All are mounted with `prefix=settings.API_V1_STR` (`/api`) in `main.py`.
-10. **Orderbook router: static routes before parametric.** `/bids`, `/asks`, `/my`, `/aggregated`, `/regions`, `/fuel-types`, `/with-ci` are defined before `/{order_id}` to avoid path conflicts.
-11. **After completing work, update ARCHITECTURE.md if file structure or key relationships changed.**
-
-## KYC document retention
-
-KYC uses no Gemini or other external document provider. An advisory DeepSeek V4.1 Flash check on a non-PRC host is planned, not built. Store both encrypted rows with status and audit; retain history. Runtime access is SELECT/INSERT only. Never weaken RESTRICT or register documents in SQLAdmin. Keys come from systemd credentials (explicit file path only for development/test); missing/invalid keys disable storage, not readiness. See the security operator runbook for offline backup and rotation.
-
-## KYC execution gate
-
-- New execution requires organization-bound APPROVED KYC or valid migration-owned grace. Rejection overrides grace. Use `app/services/kyc_execution.py`, not a reject-only mirror.
-- Exact committed replays precede KYC admission. Cleanup (cancel, decline, deliver, pay, retract) must remain available with authentication and ownership checks. Indicative routes retain their prior admission policy.
-- Assisted execution uses the shared customer-organization helper in `execution_policy.py`; administrator KYC is irrelevant. Never seed fake demo KYC.
-- `kyc_execution_grace` is runtime SELECT-only. Notice claims live separately. The operator-only `app.cli.send_kyc_grace_notices` requires explicit deployed environment and full release SHA; no timer is installed. Uncertain sends remain claimed and are not automatically retried.
-- `/api/auth/me` includes `kyc_status` and `execution_eligibility`. Positive execution fixtures must explicitly bind approved KYC to their organization.
-- The whole gate is behind one switch, `KYC_EXECUTION_GATE_ENABLED` (default `true`, fail safe). It lives only in `app/services/kyc_execution.py` — the one decision point — and the SQL mirror and every caller follow it. Do not add `if settings...` gate checks in routes or services. Prod and staging set it `false` for Private Beta; see `docs/security-hardening-v2.md` and the security operator runbook.
-
-## Known Gotchas
-
-1. **API returns numbers as strings.** Pydantic serializes `Decimal` fields as strings by default. The frontend must wrap numeric fields with `Number()` before arithmetic. Affected fields: `quantity_mt`, `price_per_mt_usd`, `final_quantity_mt`, `final_price_per_mt`, `final_total_usd`, etc.
-
-2. **Authentication is centralized in `app.routers.auth_simple`.** The old `app.core.auth` module is absent. Reuse the current authenticated-user and execution-eligibility dependencies; do not restore legacy bypass or just-in-time user provisioning.
-
-3. **`scripts/seed.py` is now a thin runner over `app.seeds.seed_all()`.** If you need to change demo market data, update `app/seeds/catalog_seed.py` and `app/seeds/market_seed.py` rather than reintroducing ad hoc legacy seed logic in the script itself.
-
-4. **PostGIS serialization.** Never return a raw `Geography`/`Geometry` column to Pydantic. Always extract coordinates with `ST_X`/`ST_Y`, set them as attributes, and null out the geography column before returning. See `routers/ports.py` for the pattern.
-
-5. **Deployed database authority is explicit.** Production and staging use host PostgreSQL on `127.0.0.1:5432`, with separate app, migrator, and backup roles. Do not substitute optional Compose port 5433 or app credentials for a migrator operation.
-
-6. **`alembic.ini` sqlalchemy.url is a dummy.** The real URL comes from `app.config.settings.DATABASE_URL` and is set in `alembic/env.py`. Do not edit the URL in `alembic.ini`.
-
-7. **Authentik is deprecated.** References to Authentik in config and old code are dead. Auth is purely self-managed JWT. Do not re-enable Authentik integration.
-
-8. **Commission retains a legacy identifier.** `Commission.match_id` is a non-null unique identifier, not a foreign key to the absent legacy `orders` table. `Commission.trade_id` is the nullable foreign key to `trades`.
-
-9. **Legacy UTC helpers produce deprecation warnings.** Prefer timezone-aware UTC timestamps in new code. Check existing column and comparison semantics before replacing naive timestamps across the application.
-
-10. **Trade lifecycle is strict.** The state machine is: `PENDING_CONFIRMATION -> CONFIRMED -> DELIVERED -> PAID`. Decline from PENDING restores order quantity. Only the counterparty (non-initiator) can confirm/decline. Only the seller can mark as paid.
-
-11. **Availability windows are canonical strings, not a static enum.** Persist `SPOT`, `YYYY-MM`, `YYYY-QN`, and legacy-compatible `YYYY-CAL`. UI labels like `M`, `M+1`, and `Next Quarter` must be resolved to canonical codes before they hit the API.
-
-12. **JWT helpers use the declared `PyJWT` dependency.** Do not reintroduce undeclared `python-jose` imports in scripts or tests.
-
-13. **Password helpers already use direct `bcrypt`.** Async request handlers use the bounded offload wrappers in `app/core/security.py`; synchronous maintenance callers retain the synchronous helpers. Do not reintroduce `passlib`.
-
-14. **Redis is an intentional Docker Compose dependency.** `docker-compose.yml` provisions Redis for the upcoming shared event/rate-limit work; keep the service and its configuration intact.
-
-15. **Never use `--reload` in production Docker.** The `docker-compose.yml` `command:` used to include `--reload`, which caused uvicorn's `StatReload` to poll all 11,243 files in the bind-mounted `/app` directory (including `venv/` with 3,267 `.py` files and `postgres_data/`). This burned 243% CPU doing nothing. The current Compose command uses plain `uvicorn` without `--reload`. For local development, follow the isolated-worktree procedure in [README.md](README.md#local-development).
-
-16. **`.dockerignore` does NOT affect bind mounts.** The existing `.dockerignore` correctly excludes `venv/` and `postgres_data/` from `docker build` context, but the `volumes: - .:/app` bind mount bypasses it entirely. If using `--reload` with a bind mount, you MUST use `--reload-dir` to whitelist directories, not rely on `.dockerignore`.
-
-17. **Production backend exposure is systemd-loopback only.** Production binds `127.0.0.1:8000` and staging binds `127.0.0.1:8001`; Caddy handles external traffic. Docker Compose remains a development/disposable topology and is not the live service manager.
-
-18. **The KYC execution gate has one on/off switch.** `KYC_EXECUTION_GATE_ENABLED` (default true, fail safe) is read only in `app/services/kyc_execution.py` — the one decision point — and its SQL mirror and every caller follow it automatically. Do not add `if settings...` gate checks in routes or services; change the switch and the shared helpers. When it is false (Private Beta on prod and staging) the EXECUTION policy behaves as the pre-gate advisory rule: only `REJECTED` or a review bound to another organization blocks, and an eligible user reports `KYC_NOT_ENFORCED`. The lifespan logs one line with the state, and `python -m app.cli.send_kyc_grace_notices` refuses with a non-zero exit. Keep all KYC code and data; turning the gate back on blocks every user without approved KYC at once. See the KYC runbook (`docs/security-hardening-v2.md`).
-
-## Environment Variables
-
-Key variables in `.env` (loaded by `pydantic-settings`):
-
-```
-ENVIRONMENT=production          # development/test/staging/production
-RELEASE_SHA=...                 # Full 40-hex SHA required in staging/production
-DATABASE_HOST=verdaxis-db       # "localhost" for non-Docker
-DATABASE_PORT=5432
-DATABASE_NAME=verdaxis
-DATABASE_USER=verdaxis_app       # prod exact; staging is verdaxis_app_staging
-DATABASE_PASSWORD=...
-DATABASE_URL=                   # Optional override (e.g. sqlite+aiosqlite:///:memory: for tests)
-MIGRATOR_DATABASE_URL=          # Required deployed: verdaxis_migrator[_staging], same DB, explicit non-placeholder password
-JWT_SECRET=...                  # MUST be strong in production
-GEMINI_API_KEY=...              # Optional, AI features degrade gracefully without it
-ADMIN_USERNAME=...              # For /admin panel login
-ADMIN_PASSWORD=...
-ENABLE_AUTH_BYPASS=false        # Never true in production
-DB_POOL_SIZE=2                  # Per-worker SQLAlchemy pool
-DB_MAX_OVERFLOW=1               # Per-worker overflow; see docs/runtime-hardening.md
-UVICORN_WORKERS=4               # Authoritative systemd/config/pool worker count
-DB_SERVICE_COUNT=2              # Immutable deployed prod + staging topology
-DB_MAX_CONNECTIONS=100
-DB_RESERVED_CONNECTIONS=20      # Deployed minimum maintenance reserve
-DB_STATEMENT_TIMEOUT_MS=30000
-DB_LOCK_TIMEOUT_MS=3000
-DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=60000
-MIGRATOR_STATEMENT_TIMEOUT_MS=300000
-MIGRATOR_LOCK_TIMEOUT_MS=30000
-MIGRATOR_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS=300000
-KYC_MAX_FILE_BYTES=10485760   # 10 MiB per document
-KYC_MAX_TOTAL_BYTES=20971520  # 20 MiB per KYC request
-KYC_EXECUTION_GATE_ENABLED=true  # Prod/staging set false for Private Beta; true at launch
-HEALTH_READINESS_TIMEOUT_SECONDS=2
-BACKEND_CORS_ORIGINS=          # Omit for exact environment-specific allowlist
-```
-
-## Git Workflow
-
-- **`staging`** branch: live staging backend source at `/home/verdaxis-prod/verdaxis/staging/be`.
-- **`prod`** branch: live production backend source at `/home/verdaxis-prod/verdaxis/prod/be`.
-- **`main`** branch: legacy/default development branch in older docs and workflows.
-- Do not assume a push to `main` deploys the current live topology; verify `.github/workflows/backend-ci.yml` before relying on CI/CD.
-
-## Local Development
-
-Use the isolated-worktree procedure in [README.md](README.md#local-development).
+# Verdaxis backend instructions
+
+## Application ownership
+
+Rust (`rs/`) is the only backend. Do not add a Python application or API
+comparison stack. Read current Rust source and the relevant project rules before
+editing. Preserve user work and keep changes within the assigned branch.
+
+## Runtime and release
+
+- Production and staging use systemd, verified artifacts and loopback Rust
+  listeners defined in `deploy/rust/*-policy.json`.
+- `scripts/deploy.sh` is the deploy transaction. CI builds and signs artifacts;
+  it never deploys to hosts.
+- Host access, activation, Caddy reloads and timer transfers require explicit
+  authorization. Read the current host instructions and live-window runbook
+  before any authorized host action.
+- Keep `requirements.txt` and `constraints.txt` byte-identical in this release.
+  The installed M helper checks them against the next source release.
+- Keep `deploy/scripts/pre-m-bundle.sh` unchanged. Its rollback restores the old
+  release and its Python service, not this checkout.
+- Preserve other operator compatibility paths that could block the next deploy;
+  report them rather than silently change their protocol.
+
+## Coding rules
+
+Use clear Rust types, checked arithmetic and explicit error boundaries. Keep
+financial values exact. Preserve authorization, organization scope, transaction
+ordering, row locks, bounded I/O and idempotent replay behavior. KYC cleanup
+operations must remain available under their existing authentication and
+ownership checks. Never add synthetic identity or KYC data to a live database.
+
+## Verification
+
+Run formatting, both workflow clippy commands, the whole locked workspace test
+suite, affected disposable PostgreSQL runners, tooling and monitor tests, and
+ShellCheck on the reviewed list. Report failures and skips honestly. Follow the
+lane's shared Cargo target and lock rules; never create a per-worktree target.
+Update `ARCHITECTURE.md` when structure or ownership changes. Do not commit
+`.codesight/`, runtime secrets, test databases or temporary gate logs.

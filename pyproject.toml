@@ -1,8 +1,4 @@
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests/tooling", "tests/monitor"]
 python_files = "test_*.py"
 pythonpath = ["."]
-markers = [
-    "disposable_integration: mutating integration/E2E test requiring an attested disposable server",
-]

@@ -1,7 +1,0 @@
-[Unit]
-Description=Six-hourly Verdaxis news refresh (fixture)
-
-[Service]
-Type=oneshot
-User=fixture-verdaxis
-ExecStart=/home/fixture/verdaxis/be/.runtime-rust/verdaxis-read job news --environment production --release-sha ${RELEASE_SHA} --apply

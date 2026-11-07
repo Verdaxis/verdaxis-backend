@@ -151,7 +151,7 @@ pub struct AlertObservation {
 pub struct Sequence(pub u64);
 
 /// A committed entry. Fields are in key order, so the compact JSON has sorted
-/// keys; `tests/rust_contract/phase10/alert-journal.schema.json` describes it.
+/// keys; `tests/tooling/phase10/alert-journal.schema.json` describes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalEntry {
