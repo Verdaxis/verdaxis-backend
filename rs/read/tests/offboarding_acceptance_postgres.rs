@@ -266,7 +266,7 @@ fn deliver_body() -> Value {
 // ---------------------------------------------------------------------------
 
 struct World {
-    database: market_database::MarketDatabase,
+    _database: market_database::MarketDatabase,
     admin: PgConnection,
     pool: PgPool,
     served: Router,
@@ -283,7 +283,7 @@ impl World {
         ] {
             sqlx::raw_sql(fixture).execute(&mut admin).await.unwrap();
         }
-        // The Python models load only their current organization types.
+        // Seed the current organization types for these actor fixtures.
         for (organization, kind, member, role) in [
             (Some(ORGANIZATION), "FUEL_SUPPLIER", SUBJECT, "SUPPLIER"),
             (Some(ORGANIZATION), "FUEL_SUPPLIER", COLLEAGUE, "SUPPLIER"),
@@ -332,7 +332,7 @@ impl World {
         let state = application(&database.runtime_url, pool.clone());
         let served = verdaxis_read::router(state.clone());
         Self {
-            database,
+            _database: database,
             admin,
             pool,
             served,

@@ -9,7 +9,6 @@
 # staging or production.
 set -euo pipefail
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
-test_home="${VERDAXIS_TEST_HOME:-/home/verdaxis-test}"
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
@@ -51,7 +50,7 @@ CREATE DATABASE availability_test;
 CREATE EXTENSION postgis;
 SQL
 
-availability_log=$(mktemp "${test_home}/runs/phase5-availability.XXXXXX")
+availability_log=$(mktemp "${TMPDIR:-/tmp}/phase5-availability.XXXXXX")
 export AVAILABILITY_TEST_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/availability_test"
 stamp availability-test
 set +e
@@ -99,7 +98,7 @@ RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://
 docker exec -i "$producer_container" psql -q -U postgres -d producer_bounds_test -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO phase5_bounds_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO phase5_bounds_app;"
 
-producer_log=$(mktemp "${test_home}/runs/phase5-producers.XXXXXX")
+producer_log=$(mktemp "${TMPDIR:-/tmp}/phase5-producers.XXXXXX")
 export PRODUCER_TEST_APP_URL="postgres://phase5_bounds_app:disposable_app_pw@127.0.0.1:$port/producer_bounds_test"
 export PRODUCER_TEST_WRITER_URL="postgres://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test"
 stamp producer-test
