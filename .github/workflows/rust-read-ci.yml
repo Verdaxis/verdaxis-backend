@@ -120,6 +120,10 @@ jobs:
       RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install retained host-tooling helper packages
+        run: |
+          sudo /usr/bin/python3 -m pip install \
+            python-dotenv==1.2.2 disposable-email-domains==0.0.225 free-email-domains==1.0.2
       - name: Install the pinned Rust toolchain
         shell: bash -euo pipefail {0}
         run: |
@@ -428,6 +432,10 @@ jobs:
       RUST_TEST_PYTHON: /usr/bin/python3
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install retained host-tooling helper packages
+        run: |
+          sudo /usr/bin/python3 -m pip install \
+            python-dotenv==1.2.2 disposable-email-domains==0.0.225 free-email-domains==1.0.2
       - name: Install the pinned Rust toolchain
         shell: bash -euo pipefail {0}
         run: |
