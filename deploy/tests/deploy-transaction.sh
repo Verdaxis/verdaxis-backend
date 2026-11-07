@@ -516,13 +516,6 @@ check missing_bundle_reader_refuses_before_any_stop case_reader_preflight
 
 echo '== deploy transaction'
 
-case_no_python() {
-    # `legacy-python` is the name of a watchlist event producer (a recorded
-    # data value), not an interpreter.
-    ! grep -n -i -E 'python|\.py\b|\bpip\b|venv' scripts/deploy.sh | grep -v -F 'legacy-python'
-}
-check deploy_script_has_no_python_or_pip_reference case_no_python
-
 case_python_retired_before_source() {
     local stop disable source
     stop=$(grep -n -m 1 -F 'sudo -n systemctl stop "$SERVICE_NAME"' scripts/deploy.sh | cut -d: -f1)

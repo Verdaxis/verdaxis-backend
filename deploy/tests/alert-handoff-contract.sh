@@ -2,8 +2,8 @@
 # Alert handoff contract (Phase 10 Task 28, plan section 6.4).
 #
 #   bash deploy/tests/alert-handoff-contract.sh
-#       Static ABI checks of the reviewed native unit and policy bytes in
-#       tests/tooling/phase10/alert-handoff/ (portable, no root).
+#       Static ABI checks of the native alert units and handoff policy in
+#       deploy/monitor/ (portable, no root).
 #   bash deploy/tests/alert-handoff-contract.sh --disposable-identities
 #       The static checks, then the three-identity suite: a disposable systemd
 #       container (Linux, rootless podman or docker) gets the real
@@ -19,7 +19,11 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-policy="$root/tests/tooling/phase10/alert-handoff"
+policy="$root/deploy/monitor"
+# The units and tmpfiles policy that make up the alert handoff.
+handoff_units=(verdaxis-health.service verdaxis-backup-verify.service
+    verdaxis-monitor-alert@.service verdaxis-monitor-alert-reminder.service)
+handoff_policy=(verdaxis-monitor.tmpfiles verdaxis-monitor-handoff.acl.tmpfiles)
 binary_path=/usr/local/libexec/verdaxis/verdaxis-read
 failures=0
 
@@ -79,25 +83,9 @@ static_unit_abi() {
         check "$cell" has_line "$unit" "EnvironmentFile=/etc/verdaxis-monitor/alert.env"
         check "$cell" has_line "$unit" "ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status"
     done
-    for unit in "$policy"/*.service; do
-        check "$cell" lacks_text "$unit" "python"
-        check "$cell" lacks_text "$unit" "venv"
-    done
-    if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
-}
-
-# Every sandbox line of the current unit survives in the reviewed unit; only
-# the command, wakeup, state mode, timeout and description lines change.
-static_sandbox_kept() {
-    local cell=alert_handoff_unit_sandbox_kept before=$failures name line
-    for name in verdaxis-health.service verdaxis-backup-verify.service \
-        verdaxis-monitor-alert@.service verdaxis-monitor-alert-reminder.service; do
-        while IFS= read -r line; do
-            case "$line" in
-                ExecStart=* | OnFailure=* | OnSuccess=* | StateDirectoryMode=* | TimeoutStartSec=* | Description=* | "") continue ;;
-            esac
-            check "$cell" has_line "$policy/$name" "$line"
-        done < "$root/deploy/monitor/$name"
+    for unit in "${handoff_units[@]}"; do
+        check "$cell" lacks_text "$policy/$unit" "python"
+        check "$cell" lacks_text "$policy/$unit" "venv"
     done
     if [ "$failures" -eq "$before" ]; then pass "$cell"; fi
 }
@@ -271,7 +259,7 @@ disposable_identities() {
     stage=$(mktemp -d "${TMPDIR:-/tmp}/alert-handoff.XXXXXX")
     trap cleanup_target EXIT
     cp "$binary" "$stage/verdaxis-read"
-    cp "$policy"/* "$stage/"
+    for name in "${handoff_units[@]}" "${handoff_policy[@]}"; do cp "$policy/$name" "$stage/"; done
     cp "$root/deploy/monitor/verdaxis-monitor.sysusers" "$root/deploy/monitor/verdaxis-monitor-alert-reminder.timer" \
         "$root/deploy/monitor/alert_dispatch.py" "$root/deploy/monitor/status_state.py" "$stage/"
     cp "$root/tests/tooling/phase10/backup/sample-dump.sql" "$stage/"
@@ -916,7 +904,6 @@ case "${1:-}" in
         ;;
     "" | --disposable-identities)
         static_unit_abi
-        static_sandbox_kept
         static_policy
         if [ "${1:-}" = --disposable-identities ]; then
             disposable_identities
