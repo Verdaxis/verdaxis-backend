@@ -257,8 +257,9 @@ def test_rust_runtime_files_are_owner_only_and_executable_by_the_service_user():
         # The owner is the account the unit runs as and the account that runs
         # the deploy helper: one deployment identity, not two.
         assert f"User={STAGING_USER}\n" in _text(UNIT)
-        readme = _text("README.md")
-        assert f"sudo -n -u {STAGING_USER}" in readme
+        sudoers = _text("deploy/sudoers/verdaxis-deploy-staging")
+        assert f"{STAGING_USER} ALL=(root) NOPASSWD: " in sudoers
+        assert f"/usr/bin/systemctl restart {RUST_UNIT_NAME}" in sudoers
         assert STAGING_BACKEND == f"/home/{STAGING_USER}/verdaxis/staging/be"
 
 

@@ -216,5 +216,18 @@ def test_prod_publication_is_a_push_gate_not_a_pr_artifact():
     workflow = (ROOT / ".github/workflows/rust-read-ci.yml").read_text()
     assert "branches: [staging, prod]" in workflow
     assert "github.event_name == 'push'" in workflow
-    assert "needs.offline.result == 'success'" in workflow
-    assert "needs.contract.result == 'success'" in workflow
+    import yaml
+
+    jobs = yaml.safe_load(workflow)["jobs"]
+    publish = jobs["publish"]
+    assert set(publish["needs"]) == {"release", "contract"}
+    assert "needs.release.result == 'success'" in publish["if"]
+    assert "needs.contract.result == 'success'" in publish["if"]
+    aggregate = jobs["contract"]
+    assert "offline" in aggregate["needs"]
+    assert aggregate["if"] == "always()"
+    check = next(step for step in aggregate["steps"] if step.get("name") ==
+                 "Require every native and tooling check to succeed")
+    assert check["env"]["CHECK_RESULTS"] == "${{ toJSON(needs) }}"
+    assert 'result["result"] != "success"' in check["run"]
+    assert "assert not failed" in check["run"]
