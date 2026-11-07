@@ -418,11 +418,11 @@ jobs:
           - shard: workspace
             runners: run_postgres.sh
           - shard: authority
-            runners: run_phase4_authority.sh run_phase10_reminders.sh run_abilities.sh
+            runners: run_phase4_authority.sh run_phase10_reminders.sh run_abilities.sh run_phase10_inspect.sh run_feedback.sh
           - shard: account
-            runners: run_offboarding_schema.sh run_offboarding_admission.sh run_offboarding_credentials.sh run_offboarding_command.sh
+            runners: run_offboarding_schema.sh run_offboarding_admission.sh run_offboarding_credentials.sh run_offboarding_command.sh run_compliance_scores.sh run_phase5_bounds.sh
           - shard: market
-            runners: run_offboarding_market.sh run_offboarding_composition.sh run_offboarding_acceptance.sh
+            runners: run_offboarding_market.sh run_offboarding_composition.sh run_offboarding_acceptance.sh run_market_contract.sh
     env:
       SQLX_OFFLINE: "true"
       RUST_TEST_PYTHON: /usr/bin/python3
