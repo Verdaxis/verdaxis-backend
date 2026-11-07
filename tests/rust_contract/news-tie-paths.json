@@ -1,8 +1,0 @@
-[
-  {
-    "rule": "news-published-at-tie-multiset",
-    "request_path": "/api/news",
-    "json_path": "/body",
-    "sort_key": "published_at"
-  }
-]

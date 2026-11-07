@@ -1,1 +1,0 @@
-{"jsonrpc":"2.0","id":18,"result":{"content":[{"text":"Error executing tool plan_voyage_fuel: start_date must be within 30 days before and 730 days after today","type":"text"}],"isError":true}}

@@ -1,8 +1,0 @@
-[
-  {
-    "rule": "trade-tape-confirmed-at-tie-multiset",
-    "request_path": "/api/trade-tape",
-    "json_path": "/body/items",
-    "sort_key": "confirmed_at"
-  }
-]

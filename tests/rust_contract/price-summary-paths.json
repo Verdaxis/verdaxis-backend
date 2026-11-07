@@ -1,7 +1,0 @@
-[
-  {
-    "rule": "price-summary-exact-item-multiset",
-    "request_path": "/api/prices",
-    "json_path": "/body/summaries"
-  }
-]
