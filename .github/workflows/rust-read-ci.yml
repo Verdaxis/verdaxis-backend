@@ -58,12 +58,16 @@ jobs:
           # Budget compatibility tests read the immutable pre-removal settings.
           fetch-depth: 0
       - name: Install the tooling test packages with system Python
+        # Install into the system site, not the user site: the budget and
+        # runtime helpers start `python3 -I`, which ignores the user site.
+        # The runtime helper projects the two pinned email-domain datasets.
         run: |
-          python3 -m pip install --user \
+          sudo /usr/bin/python3 -m pip install \
             pytest==9.1.1 pytest-asyncio==1.4.0 python-dotenv==1.2.2 \
             cryptography==50.0.0 httpx==0.28.1 SQLAlchemy==2.0.51 \
             pydantic==2.13.4 pydantic-settings==2.14.2 \
-            PyYAML==6.0.3 jsonschema==4.25.1
+            PyYAML==6.0.3 jsonschema==4.25.1 \
+            disposable-email-domains==0.0.225 free-email-domains==1.0.2
       - name: Install the pinned Caddy for tooling routing tests
         shell: bash -euo pipefail {0}
         run: |
@@ -73,7 +77,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP" caddy
           sudo install -m 0755 "$RUNNER_TEMP/caddy" /usr/local/bin/caddy
       - name: Run the retained tooling and monitor tests
-        run: python3 -m pytest tests/tooling tests/monitor -q
+        run: /usr/bin/python3 -m pytest tests/tooling tests/monitor -q
 
   phase10-shellcheck:
     runs-on: ubuntu-22.04
