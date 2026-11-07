@@ -652,6 +652,17 @@ fn timestamp(value: &Value) -> DateTime<Utc> {
         .unwrap()
 }
 
+/// Sleep until `instant` is in the past on this host's clock.
+///
+/// Offboarding moves both cutoffs `CUTOFF_SKEW_MARGIN_SECONDS` past the
+/// database clock. Until then a sign-in issues a token whose `iat` lies in the
+/// future, and token verification refuses it, as designed.
+async fn wait_until_passed(instant: DateTime<Utc>) {
+    if let Ok(remaining) = (instant - Utc::now()).to_std() {
+        tokio::time::sleep(remaining).await;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 1. Both stacks: cutoffs, constraints and streams.
 // ---------------------------------------------------------------------------
@@ -959,6 +970,15 @@ async fn reinstatement_requires_reviewed_marker_clear_new_invitation_password_an
     assert!(rejoined["kyc_organization_id"].is_null());
     assert_eq!(rejoined["password_hash"], offboarded["password_hash"]);
     stale("after re-approval and rejoin", &world).await;
+
+    // A person returns after the offboarding cutoff, which lies a few seconds
+    // ahead of the database clock. These in-process steps finish sooner, so
+    // wait for the cutoff before the new password is tried.
+    wait_until_passed(
+        timestamp(&offboarded["password_changed_at"])
+            .max(timestamp(&offboarded["authentication_revoked_at"])),
+    )
+    .await;
 
     // A new password from a fresh reset secret is the only way back in.
     let secret = format!("fresh-reset-{}", Uuid::new_v4());
