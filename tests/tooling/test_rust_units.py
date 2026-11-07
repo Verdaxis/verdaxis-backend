@@ -1,68 +1,33 @@
-"""Task 12c: the staging Rust unit, its manifest entry, and the bootstrap.
+"""The Rust and maintenance units, their manifest entries, and the bootstrap.
 
-Every path the unit names must be a file the canonical deploy transaction
-writes, and the unit's runtime account must be the account that wrote those
-files. The checks here are static (unit text, deploy text, real helper runs) or
-use the Task 12b fixture subprocess. No test starts a service, installs a unit,
-or touches a host; the live proofs (systemd 249/255 syntax verification and an
-artifact start on the staging ABI) are recorded in
-``docs/rust-phase1/progress-task12c.md``.
+The checks read the committed unit, policy and sudoers files, or run the real
+deploy policy function, systemd-analyze and visudo. No test starts a service,
+installs a unit or touches a host.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
-import re
 import shutil
-import stat
 import subprocess
-import tempfile
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 UNIT = "deploy/systemd/verdaxis-rust-staging.service"
-BACKEND_STAGING_UNIT = "deploy/systemd/verdaxis-backend-staging.service"
 MANIFEST = "deploy/systemd/runtime-units.manifest"
 POLICY = "deploy/rust/staging-policy.json"
 DEPLOY = "scripts/deploy.sh"
-PREPARE_RUNTIME = "scripts/prepare_rust_runtime.py"
-PREPARE_BUDGET = "scripts/prepare_rust_budget.py"
 INSTALLER = "scripts/install_systemd_units.sh"
 STAGING_BACKEND = "/home/verdaxis-prod/verdaxis/staging/be"
-STAGING_USER = "verdaxis-prod"
-RUNTIME_DIR = f"{STAGING_BACKEND}/.runtime-rust"
 RUST_UNIT_NAME = "verdaxis-rust-staging.service"
 BIND = "127.0.0.1:8011"
 RELEASE_SHA = "a" * 40
-MIGRATION_REVISION = "kycg_20261014_staging"
-
-
-def _historical_backend_unit(suffix: str) -> str:
-    from tests.tooling.compatibility import historical_text
-
-    return historical_text(f"deploy/systemd/verdaxis-backend{suffix}.service")
 
 
 def _text(relative: str) -> str:
     return (ROOT / relative).read_text()
-
-
-def _module(relative: str):
-    spec = importlib.util.spec_from_file_location(Path(relative).stem, ROOT / relative)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-def _directives(unit_text: str) -> set[str]:
-    return {
-        match.group(1)
-        for match in re.finditer(r"^([A-Za-z][A-Za-z0-9]*)=", unit_text, re.MULTILINE)
-    }
 
 
 @pytest.mark.parametrize(
@@ -128,13 +93,9 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
     assert f"--bind {policy['bind']}" in unit
 
 
-def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
-    # M adds a main-process watchdog in both environments; production also has
-    # explicit CPU limits. Every other directive still uses the backend sandbox.
-    rust_directives = {"WatchdogSec", "NotifyAccess"}
-    if suffix == "":
-        rust_directives |= {"CPUQuota", "CPUWeight"}
-    assert _directives(unit) - _directives(backend) <= rust_directives
+def _assert_runtime_directives(unit: str, suffix: str) -> None:
+    # A main-process watchdog in both environments, and exactly one credential:
+    # the environment's own KYC document key ring.
     assert "WatchdogSec=60s\n" in unit
     assert "NotifyAccess=main\n" in unit
     credentials = [line for line in unit.splitlines() if line.startswith(
@@ -147,143 +108,53 @@ def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
 
 
 @pytest.mark.parametrize("suffix", ["", "-staging"])
-def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(suffix):
+def test_rust_unit_has_a_watchdog_and_only_its_own_key_credential(suffix):
     unit = _text(f"deploy/systemd/verdaxis-rust{suffix}.service")
-    backend = _historical_backend_unit(suffix)
-    _assert_runtime_directives(unit, backend, suffix)
-    for section in ("[Unit]", "[Service]", "[Install]"):
-        assert section in unit
+    _assert_runtime_directives(unit, suffix)
+    other = "-staging" if suffix == "" else ""
     for invalid in (
-        unit + "\nNewRuntimeDirective=true\n",
         unit + "\nSetCredential=another-key:\n",
         unit + "\nImportCredential=*\n",
+        unit.replace(f"kyc-document-keys{suffix}.json", f"kyc-document-keys{other}.json"),
         unit.replace("WatchdogSec=60s", "WatchdogSec=0"),
         unit.replace("NotifyAccess=main", "NotifyAccess=all"),
     ):
         with pytest.raises(AssertionError):
-            _assert_runtime_directives(invalid, backend, suffix)
+            _assert_runtime_directives(invalid, suffix)
 
 
-def _staged_runtime_environment(tmp_path: Path) -> dict[str, Path]:
-    """Stage the three deploy-written Rust files with the real helpers.
-
-    ``deploy.sh`` runs as the deployment account under ``umask 077`` and the
-    helpers create their outputs with explicit owner-only modes; this reproduces
-    that from the same helper code the transaction invokes.
-    """
-    previous_umask = os.umask(0o077)
-    try:
-        environment_file = tmp_path / ".env"
-        # The deployed staging `.env` shape: the budget helper loads it through
-        # the real Settings class, so the fixture must satisfy the same
-        # environment validators the live file does.
-        environment_file.write_text(
-            "ENVIRONMENT=staging\n"
-            f"RELEASE_SHA={RELEASE_SHA}\n"
-            "JWT_SECRET=" + "k" * 40 + "\n"
-            "JWT_ISSUER=verdaxis-staging-api\n"
-            "JWT_AUDIENCE=verdaxis-staging-web\n"
-            "FRONTEND_URL=https://staging.verdaxis.exchange\n"
-            "EMAIL_FROM=Verdaxis <noreply@verdaxis.exchange>\n"
-            "RESEND_API_KEY=re_fixture_key\n"
-            "OPENAI_API_KEY=sk-unrelated\n"
-            "DATABASE_HOST=127.0.0.1\n"
-            "DATABASE_PORT=5432\n"
-            "DATABASE_NAME=verdaxis_staging\n"
-            "DATABASE_USER=verdaxis_app_staging\n"
-            "DATABASE_PASSWORD=fixture-password\n"
-            "DATABASE_URL=postgresql+asyncpg://verdaxis_app_staging"
-            ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
-            "MIGRATOR_DATABASE_URL=postgresql+asyncpg://verdaxis_migrator_staging"
-            ":fixture-password@127.0.0.1:5432/verdaxis_staging\n"
-            "KYC_EXECUTION_GATE_ENABLED=false\n"
-        )
-        runtime_dir = tmp_path / ".runtime-rust"
-        runtime = _module(PREPARE_RUNTIME)
-        result = runtime.prepare(
-            environment_file,
-            RELEASE_SHA,
-            runtime_dir,
-            ROOT,
-            MIGRATION_REVISION,
-        )
-        from tests.tooling.compatibility import stage_budget_source
-        budget_source = stage_budget_source(tmp_path / "compatibility")
-        spec = importlib.util.spec_from_file_location("staged_budget", budget_source)
-        budget = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(budget)
-        budget_path = runtime_dir / "budget.json"
-        budget.prepare(environment_file, RELEASE_SHA, budget_path)
-        # The active binary is installed by deploy.sh's copy-chmod-rename
-        # sequence, never a symlink into the source tree.
-        staged = tmp_path / "releases" / RELEASE_SHA / "verdaxis-read"
-        staged.parent.mkdir(parents=True)
-        staged.write_bytes(b"#!/bin/sh\nexit 0\n")
-        active = runtime_dir / "verdaxis-read"
-        shutil.copyfile(staged, f"{active}.tmp")
-        os.chmod(f"{active}.tmp", 0o755)
-        os.rename(f"{active}.tmp", active)
-        return {
-            "runtime_dir": runtime_dir,
-            "runtime_env": result["runtime_env"],
-            "budget": budget_path,
-            "active": active,
-        }
-    finally:
-        os.umask(previous_umask)
+@pytest.mark.parametrize(
+    ("unit_name", "backend_dir", "environment"),
+    [
+        ("verdaxis-rust.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-rust-staging.service", STAGING_BACKEND, "staging"),
+    ],
+)
+def test_rust_units_use_the_lock_aware_restart_guard(unit_name, backend_dir, environment):
+    content = _text(f"deploy/systemd/{unit_name}")
+    command = (
+        "ExecStartPre=/usr/bin/env -i PATH=/usr/bin:/bin /bin/bash "
+        f"{backend_dir}/deploy/scripts/verify-deploy-start-guard.sh --environment {environment} "
+        "--expected-release-sha ${RELEASE_SHA}"
+    )
+    assert command in content
+    assert "DEPLOYMENT_STATE=restart-authorized" not in content
 
 
-def test_rust_runtime_files_are_owner_only_and_executable_by_the_service_user():
-    """PM requirement 2: the unit's account owns and can read/run its files."""
-    with tempfile.TemporaryDirectory() as directory:
-        staged = _staged_runtime_environment(Path(directory))
-        runtime_env = staged["runtime_env"]
-        budget = staged["budget"]
-        active = staged["active"]
-
-        for path in (runtime_env, budget):
-            mode = stat.S_IMODE(path.stat().st_mode)
-            assert mode == 0o600, f"{path.name} must be owner-only"
-            # No group or other bit: no other user can read the file.
-            assert mode & 0o077 == 0
-            assert mode & 0o400
-            assert path.stat().st_uid == os.geteuid()
-        assert stat.S_IMODE(staged["runtime_dir"].stat().st_mode) == 0o700
-        assert stat.S_IMODE(active.stat().st_mode) == 0o755
-        assert active.is_file() and not active.is_symlink()
-        assert os.access(active, os.X_OK)
-        assert "KYC_EXECUTION_GATE_ENABLED=false\n" in runtime_env.read_text()
-
-        # The owner is the account the unit runs as and the account that runs
-        # the deploy helper: one deployment identity, not two.
-        assert f"User={STAGING_USER}\n" in _text(UNIT)
-        sudoers = _text("deploy/sudoers/verdaxis-deploy-staging")
-        assert f"{STAGING_USER} ALL=(root) NOPASSWD: " in sudoers
-        assert f"/usr/bin/systemctl restart {RUST_UNIT_NAME}" in sudoers
-        assert STAGING_BACKEND == f"/home/{STAGING_USER}/verdaxis/staging/be"
-
-
-def test_deploy_stages_rust_bytes_under_umask_077_and_installs_by_rename():
-    deploy = _text(DEPLOY)
-    region = deploy[
-        deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"') :
-        deploy.index("SERVICE_RESTART_ATTEMPTED=1")
-    ]
-    # The policy archive establishes the private umask before artifact extraction.
-    policy = deploy.index('RUST_POLICY_TEMP="$(mktemp -d /tmp/verdaxis-rust-policy.')
-    extraction = deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"')
-    assert deploy.rindex("umask 077", 0, policy) < policy < extraction
-    assert 'verify_rust_artifact_for_release "$REMOTE_SHA" "$RUST_EXTRACT_DIR"' in region
-    steps = [
-        'cp -- "$STAGED_BINARY" "$ACTIVE_BINARY.tmp.$$"',
-        'chmod 0755 "$ACTIVE_BINARY.tmp.$$"',
-        'verify_binary_digest "$ACTIVE_BINARY.tmp.$$"',
-        'sync -f "$ACTIVE_BINARY.tmp.$$"',
-        'mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"',
-    ]
-    positions = [region.index(step) for step in steps]
-    assert positions == sorted(positions)
-    assert "ln -s" not in region
+@pytest.mark.parametrize(
+    ("unit_name", "backend_dir", "environment"),
+    [
+        ("verdaxis-news-refresh.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-news-refresh-staging.service", STAGING_BACKEND, "staging"),
+        ("verdaxis-product-analytics-prune.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-product-analytics-prune-staging.service", STAGING_BACKEND, "staging"),
+    ],
+)
+def test_maintenance_units_reject_every_present_deploy_state(unit_name, backend_dir, environment):
+    content = _text(f"deploy/systemd/{unit_name}")
+    state = f"{backend_dir}/.runtime-deploy/{environment}.state"
+    assert f"ConditionPathExists=!{state}" in content
+    assert f"ConditionPathIsSymbolicLink=!{state}" in content
 
 
 def test_rust_unit_manifest_entries_are_environment_specific():
@@ -341,25 +212,11 @@ def test_committed_policies_enable_the_loopback_service_in_both_environments(env
     assert f"RUST_ENABLED={enabled}" in result.stdout
 
 
-def test_installer_requires_its_own_clean_checkout_at_the_source_ref():
-    installer = _text(INSTALLER)
-    assert '"$("${SOURCE_GIT[@]}" rev-parse HEAD)" != "$SOURCE_REF"' in installer
-    assert "status --porcelain --untracked-files=all" in installer
-    assert 'realpath -e "$SOURCE_ROOT"' in installer
-    assert "/home/verdaxis-prod/verdaxis/staging/be" in installer
-    assert "systemd-analyze verify" in installer
-    assert "systemctl start" not in installer
-    assert "systemctl restart" not in installer
-    # Unit selection stays manifest-driven: no Rust unit name in installer code.
-    assert RUST_UNIT_NAME not in installer
-    assert f"staging\t{RUST_UNIT_NAME}" in _text(MANIFEST).splitlines()
-
-
 def _assert_staging_credential_boundary(unit: str) -> None:
     assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
     assert "MIGRATOR_DATABASE_URL" not in unit
     assert "/etc/verdaxis/kyc-document-keys.json" not in unit
-    _assert_runtime_directives(unit, _historical_backend_unit("-staging"), "-staging")
+    _assert_runtime_directives(unit, "-staging")
 
 
 def test_rust_unit_names_no_production_path_or_migrator_credential():

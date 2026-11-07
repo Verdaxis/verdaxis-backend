@@ -949,9 +949,12 @@ check test_production_sudo_denial_refuses_before_source_or_state case_sudo_denia
 check test_missing_enable_authority_refuses_before_source_or_restart case_sudo_denial staging enable
 
 case_missing_provenance() {
-    approved_host no-provenance
-    DEPLOY_EXTRA_ENVIRONMENT='RUST_PROVENANCE_RECORD=' refused_before_any_change \
-        && said 'provenance record and signature'
+    local input
+    for input in RECORD SIGNATURE; do
+        approved_host "no-provenance-$input"
+        DEPLOY_EXTRA_ENVIRONMENT="RUST_PROVENANCE_$input=" refused_before_any_change \
+            && said 'provenance record and signature' || return 1
+    done
 }
 check test_missing_record_and_signature_refuses_before_any_stop case_missing_provenance
 
