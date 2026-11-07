@@ -2,7 +2,9 @@
 //!
 //! Each module is an existing test file. One binary links the crate once
 //! instead of once per file. `scripts/check_test_groups.py` checks that
-//! every test file belongs to exactly one test binary. A module behind
+//! every test file belongs to exactly one test binary. The modules are
+//! `pub`, as the items of a test file root were, so the unused-item lints
+//! treat each file as they did in its own binary. A module behind
 //! `#[cfg(feature = "contract-tests")]` was a target that required that feature.
 
 // Several test files here load the same small helper from support/ as their own
@@ -10,61 +12,61 @@
 #![allow(clippy::duplicate_mod)]
 
 #[path = "cache_authority.rs"]
-mod cache_authority;
+pub mod cache_authority;
 #[path = "cache_events.rs"]
-mod cache_events;
+pub mod cache_events;
 #[path = "cache_events_postgres.rs"]
-mod cache_events_postgres;
+pub mod cache_events_postgres;
 #[path = "cache_failover_postgres.rs"]
-mod cache_failover_postgres;
+pub mod cache_failover_postgres;
 #[path = "curves_canonical.rs"]
-mod curves_canonical;
+pub mod curves_canonical;
 #[path = "curves_legacy.rs"]
-mod curves_legacy;
+pub mod curves_legacy;
 #[path = "live_benchmarks.rs"]
-mod live_benchmarks;
+pub mod live_benchmarks;
 #[path = "market_contract.rs"]
-mod market_contract;
+pub mod market_contract;
 #[cfg(feature = "contract-tests")]
 #[path = "market_contract_postgres.rs"]
-mod market_contract_postgres;
+pub mod market_contract_postgres;
 #[path = "mcp.rs"]
-mod mcp;
+pub mod mcp;
 #[path = "mcp_validation.rs"]
-mod mcp_validation;
+pub mod mcp_validation;
 #[cfg(feature = "contract-tests")]
 #[path = "meaning_curve_queries.rs"]
-mod meaning_curve_queries;
+pub mod meaning_curve_queries;
 #[path = "meaning_decimal.rs"]
-mod meaning_decimal;
+pub mod meaning_decimal;
 #[cfg(feature = "contract-tests")]
 #[path = "meaning_orderbook_queries.rs"]
-mod meaning_orderbook_queries;
+pub mod meaning_orderbook_queries;
 #[path = "orderbook_lists.rs"]
-mod orderbook_lists;
+pub mod orderbook_lists;
 #[path = "orderbook_map.rs"]
-mod orderbook_map;
+pub mod orderbook_map;
 #[path = "orderbook_snapshot.rs"]
-mod orderbook_snapshot;
+pub mod orderbook_snapshot;
 #[path = "price_alert_evaluation.rs"]
-mod price_alert_evaluation;
+pub mod price_alert_evaluation;
 // Runs in the PostgreSQL job: it reads RUST_TEST_MIGRATOR_DATABASE_URL.
 #[cfg(feature = "contract-tests")]
 #[path = "price_alert_evaluation_postgres.rs"]
-mod price_alert_evaluation_postgres;
+pub mod price_alert_evaluation_postgres;
 #[path = "price_decimal.rs"]
-mod price_decimal;
+pub mod price_decimal;
 #[path = "price_headers.rs"]
-mod price_headers;
+pub mod price_headers;
 #[path = "prices.rs"]
-mod prices;
+pub mod prices;
 #[path = "quota_contract.rs"]
-mod quota_contract;
+pub mod quota_contract;
 #[path = "reference_cache.rs"]
-mod reference_cache;
+pub mod reference_cache;
 #[path = "simple_reads.rs"]
-mod simple_reads;
+pub mod simple_reads;
 #[path = "trading_cache_postgres.rs"]
-mod trading_cache_postgres;
+pub mod trading_cache_postgres;
 #[path = "voyage.rs"]
-mod voyage;
+pub mod voyage;

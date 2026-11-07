@@ -2,26 +2,28 @@
 //!
 //! Each module is an existing test file. One binary links the crate once
 //! instead of once per file. `scripts/check_test_groups.py` checks that
-//! every test file belongs to exactly one test binary. A module behind
+//! every test file belongs to exactly one test binary. The modules are
+//! `pub`, as the items of a test file root were, so the unused-item lints
+//! treat each file as they did in its own binary. A module behind
 //! `#[cfg(feature = "contract-tests")]` was a target that required that feature.
 
 #[path = "ad01_limiter.rs"]
-mod ad01_limiter;
+pub mod ad01_limiter;
 #[cfg(feature = "contract-tests")]
 #[path = "admission_postgres.rs"]
-mod admission_postgres;
+pub mod admission_postgres;
 #[path = "host_validation.rs"]
-mod host_validation;
+pub mod host_validation;
 #[path = "http_contract.rs"]
-mod http_contract;
+pub mod http_contract;
 #[path = "identity.rs"]
-mod identity;
+pub mod identity;
 #[path = "policy.rs"]
-mod policy;
+pub mod policy;
 #[path = "request_log.rs"]
-mod request_log;
+pub mod request_log;
 #[path = "runtime.rs"]
-mod runtime;
+pub mod runtime;
 #[cfg(feature = "contract-tests")]
 #[path = "runtime_postgres.rs"]
-mod runtime_postgres;
+pub mod runtime_postgres;

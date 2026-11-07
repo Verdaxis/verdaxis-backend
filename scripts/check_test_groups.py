@@ -7,7 +7,7 @@ Each file in rs/read/tests/*.rs must be exactly one of:
 
 - a group file (group_*.rs) that is itself a [[test]] target;
 - a module of exactly one group file, declared as
-  `#[path = "<name>.rs"] mod <name>;` so runners can select it with `<name>::`;
+  `#[path = "<name>.rs"] pub mod <name>;` so runners can select it with `<name>::`;
 - its own [[test]] target.
 
 Helper modules in subdirectories (support/, phase4_races/) are not test files.
@@ -30,7 +30,7 @@ _TABLE_KEY = re.compile(r'^([a-z-]+) = "([^"]*)"$', re.MULTILINE)
 _AUTOTESTS_OFF = re.compile(r"^autotests = false$", re.MULTILINE)
 # A group module: the path attribute, optional attributes, then the module.
 _GROUP_MODULE = re.compile(
-    r'^#\[path = "([^"]+)"\]\n(?:#\[[^\n]*\]\n)*mod ([a-z0-9_]+);$', re.MULTILINE
+    r'^#\[path = "([^"]+)"\]\n(?:#\[[^\n]*\]\n)*pub mod ([a-z0-9_]+);$', re.MULTILINE
 )
 _ANY_MODULE = re.compile(r"^\s*(?:pub )?mod [a-z0-9_]+;", re.MULTILINE)
 
@@ -57,7 +57,7 @@ def group_modules(group: Path, problems: list[str]) -> list[str]:
             problems.append(f"{group.name}: module {module} must load {module}.rs, not {path}")
         included.append(path)
     if len(_ANY_MODULE.findall(text)) != len(included):
-        problems.append(f"{group.name}: every module needs #[path = \"<name>.rs\"]")
+        problems.append(f"{group.name}: every module needs #[path = \"<name>.rs\"] pub mod")
     return included
 
 
