@@ -286,11 +286,6 @@ impl Fixture {
             reply
         })
     }
-    /// A contender released below its lock bound must succeed at once. A
-    /// bounded refusal is accepted only as a long hold: the sampled wait graph
-    /// has no cycle and the released Python writer never waited on `rust_app`.
-    /// It is recorded and the command is repeated once after the writer committed.
-
     fn cancel(&self, order: Uuid, actor: u128) -> Command {
         Command::new(
             "DELETE",
@@ -412,8 +407,6 @@ impl Fixture {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
-    /// Poll until `waiter` waits on a heavyweight lock held by any of `blockers`.
-
     async fn demo_seed_organizations(&mut self) {
         sqlx::query("SELECT residual_demo_seed_organizations()")
             .execute(&mut self.admin)
@@ -426,11 +419,6 @@ impl Fixture {
             .await
             .unwrap();
     }
-    /// A session advisory barrier that Rust commands named `RUST_HELD_APP` meet
-    /// at their first effect row, after they took their economic locks.
-
-    /// Observe `waiter` blocked by the held Rust command, then release it at once.
-
     async fn demo_ticks(&self, count: usize) -> Vec<(String, String)> {
         use verdaxis_read::cli::jobs::demo::model::{activity_tick, tick_choice};
         rust_b30_ticks(count)

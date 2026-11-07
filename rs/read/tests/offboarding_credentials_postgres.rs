@@ -50,8 +50,6 @@ const HOLD: Duration = Duration::from_millis(20);
 /// bcrypt's minimum cost keeps fixture password checks short while a row
 /// lock is held; verification accepts any cost.
 const FIXTURE_HASH_COST: u32 = 4;
-/// Python private streams recheck authorization every 15 seconds.
-/// Allowance for the streams' own loop timeouts and a loaded test host.
 
 // ---------------------------------------------------------------------------
 // Database fixture.
