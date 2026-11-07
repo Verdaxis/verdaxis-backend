@@ -6,7 +6,7 @@
   "location": "founder's macOS workstation",
   "disposition": "off-host, not installed, not ported",
   "w0": {
-    "path": "tests/rust_contract/phase10/host-dependencies.json",
+    "path": "tests/tooling/phase10/host-dependencies.json",
     "sha256": "1f91f4c3124c23fb2b10ae75d3915d53002a9e1186e9c8fa3ec9a9c5f9596483",
     "scope": "collected-manual",
     "installed_acceptance": false,

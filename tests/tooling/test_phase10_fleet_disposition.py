@@ -52,7 +52,7 @@ def check_evidence(record):
 def check_record(record):
     inventory.validate(inventory.parse(inventory.read_bytes(REGISTER)))
     assert record['schema_version'] == 1 and record['task'] == 25
-    assert record['w0']['path'] == 'tests/rust_contract/phase10/host-dependencies.json'
+    assert record['w0']['path'] == 'tests/tooling/phase10/host-dependencies.json'
     assert record['w0']['sha256'] == digest(REGISTER)
     assert record['w0']['scope'] == 'collected-manual'
     assert record['w0']['installed_acceptance'] is False
