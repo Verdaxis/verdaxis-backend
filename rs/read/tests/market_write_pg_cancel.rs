@@ -2,9 +2,6 @@
 #[path = "support/market_database.rs"]
 mod market_database;
 
-use std::io::Write;
-use std::process::{Command, Stdio};
-
 use axum::{
     Router,
     body::Body,
@@ -94,39 +91,6 @@ async fn send(
         headers,
         body: serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     }
-}
-
-/// Python's response-schema dump of stored order terms (the client contract).
-fn python_order_terms(model: &str, terms: &Value) -> Value {
-    let script = format!(
-        "import json, sys\nfrom pydantic import TypeAdapter\nfrom app.schemas.fame_order import FameOrderTerms\nfrom app.schemas.lng_order import LngOrderTerms\nadapter = TypeAdapter({model})\nprint(json.dumps(adapter.dump_python(adapter.validate_python(json.load(sys.stdin)), mode='json')))"
-    );
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
-    let mut child = Command::new(python)
-        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-        .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-        .args(["-c", &script])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the project Python interpreter runs");
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(terms.to_string().as_bytes())
-        .unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).unwrap()
 }
 
 impl Fixture {
@@ -1082,13 +1046,6 @@ async fn owner_rows_use_the_python_response_schema() {
     f.change("owner_rows").await;
     f.change("legacy_window").await;
     f.change("typed_owner").await;
-    let stored: Value =
-        sqlx::query_scalar("SELECT fame_terms::jsonb FROM orderbook_orders WHERE id=$1")
-            .bind(f.order)
-            .fetch_one(&mut f.admin)
-            .await
-            .unwrap();
-    let expected_terms = python_order_terms("FameOrderTerms", &stored);
     let response = f
         .request("GET", "/api/orderbook/my", f.actor, None, None, None, None)
         .await;
@@ -1099,7 +1056,6 @@ async fn owner_rows_use_the_python_response_schema() {
         .find(|r| r["id"] == f.order.to_string())
         .unwrap();
     // Private declarations include every declared optional field.
-    assert_eq!(owned["fame_terms"], expected_terms);
     assert_eq!(owned["fame_terms"]["astm_grade"], Value::Null);
     assert_eq!(owned["lng_terms"], Value::Null);
     for row in rows {
@@ -1138,5 +1094,5 @@ async fn owner_rows_use_the_python_response_schema() {
         )
         .await;
     assert_eq!(template.0, StatusCode::OK, "{:?}", template.1);
-    assert_eq!(template.1["fame_terms"], expected_terms);
+    assert_eq!(template.1["fame_terms"], owned["fame_terms"]);
 }

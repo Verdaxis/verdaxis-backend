@@ -1,3 +1,6 @@
+#[path = "support/mcp_expected.rs"]
+mod expected;
+
 use verdaxis_read::mcp::validation::tool_arguments;
 
 #[test]
@@ -11,47 +14,14 @@ fn input_domain_matches_python_oracle() {
         let mut arguments = vector["arguments"].clone();
         let result = tool_arguments(vector["tool"].as_str().unwrap(), &mut arguments);
         let matches = if let Some(error) = vector.get("error") {
-            use std::io::Write;
-            use std::process::{Command, Stdio};
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let mut child = Command::new(
-                std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
-            )
-            .current_dir(&root)
-            .args(["-m", "scripts.rust_contract.compare_values"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-            let pair = serde_json::json!({"expected": error, "actual": result.as_ref().err(),
-                "route_id": format!("P1-tool-{}", vector["tool"].as_str().unwrap()),
-                "diagnostic_context": {"tool": vector["tool"], "arguments": vector["arguments"]}});
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(pair.to_string().as_bytes())
-                .unwrap();
-            child.wait().unwrap().success()
+            result
+                .as_ref()
+                .err()
+                .and_then(|text| text.strip_prefix("Validation failed: "))
+                .map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap())
+                == Some(expected::diagnostics(error.as_str().unwrap()))
         } else {
-            use std::io::Write;
-            use std::process::{Command, Stdio};
-            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let mut child = Command::new(
-                std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
-            )
-            .current_dir(&root)
-            .args(["-m", "scripts.rust_contract.compare_values"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-            let pair = serde_json::json!({"expected": vector["normalized"], "actual": arguments, "validation_tool": vector["tool"]});
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(pair.to_string().as_bytes())
-                .unwrap();
-            result.is_ok() && child.wait().unwrap().success()
+            result.is_ok() && arguments == vector["normalized"]
         };
         if !matches {
             failures.push(format!(

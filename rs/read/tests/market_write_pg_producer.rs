@@ -109,11 +109,13 @@ impl Fixture {
         );
         assert_ne!(runtime_url.username(), admin_url.username());
         let mut admin = PgConnection::connect(&database.admin_url).await.unwrap();
-        let revision: String = sqlx::query_scalar("SELECT version_num FROM alembic_version")
-            .fetch_one(&mut admin)
-            .await
-            .unwrap();
-        assert_eq!(revision, "ob_20261031_offboarding");
+        let revision: String = sqlx::query_scalar(
+            "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success",
+        )
+        .fetch_one(&mut admin)
+        .await
+        .unwrap();
+        assert_eq!(revision, "sqlx_1");
         for fixture in [
             include_str!("fixtures/phase8_effects.sql"),
             include_str!("fixtures/phase8_producer.sql"),

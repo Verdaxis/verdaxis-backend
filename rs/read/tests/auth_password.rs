@@ -5,9 +5,6 @@
 //! directions (a Python-made hash verifies in Rust and a Rust-made hash
 //! verifies in Python).
 
-use std::io::Write;
-use std::process::{Command, Stdio};
-
 use sha2::{Digest, Sha256};
 use verdaxis_read::auth::password::{self, PasswordError};
 
@@ -113,93 +110,4 @@ async fn dummy_hash_is_cost_twelve_built_once_and_matches_no_known_password() {
     for guess in ["", "password", "verdaxis-dummy-password-never-accepted"] {
         assert!(!password::verify(guess, first).await, "{guess:?}");
     }
-}
-
-#[tokio::test]
-async fn python_issued_hash_verifies_in_rust() {
-    let script = r#"
-import json
-from app.core.security import get_password_hash
-
-print(json.dumps({
-    "short_password": "correct horse battery staple",
-    "short_hash": get_password_hash("correct horse battery staple"),
-    "long_password": "a" * 73,
-    "long_hash": get_password_hash("a" * 73),
-}))
-"#;
-    let output = run_python(script, None);
-    let document: serde_json::Value = serde_json::from_str(&output).unwrap();
-    let short = document["short_password"].as_str().unwrap();
-    let long = document["long_password"].as_str().unwrap();
-
-    assert!(password::verify(short, document["short_hash"].as_str().unwrap()).await);
-    assert!(password::verify(long, document["long_hash"].as_str().unwrap()).await);
-    assert!(!password::verify("wrong password", document["short_hash"].as_str().unwrap()).await);
-    assert!(!password::verify("wrong password", document["long_hash"].as_str().unwrap()).await);
-}
-
-#[tokio::test]
-async fn rust_issued_hash_verifies_in_python() {
-    let short = "correct horse battery staple";
-    let long = "a".repeat(73);
-    let document = serde_json::json!({
-        "short_password": short,
-        "short_hash": password::hash(short).await.unwrap(),
-        "long_password": long,
-        "long_hash": password::hash(&long).await.unwrap(),
-    });
-    let script = r#"
-import json, sys
-from app.core.security import verify_password
-
-document = json.load(sys.stdin)
-print(json.dumps({
-    "short": verify_password(document["short_password"], document["short_hash"]),
-    "long": verify_password(document["long_password"], document["long_hash"]),
-    "wrong": verify_password(document["long_password"] + "!", document["long_hash"]),
-    "cost_12": document["short_hash"].startswith("$2b$12$")
-                     and document["long_hash"].startswith("$2b$12$"),
-}))
-"#;
-    let output = run_python(script, Some(&document.to_string()));
-    let verified: serde_json::Value = serde_json::from_str(&output).unwrap();
-    assert!(verified["short"].as_bool().unwrap());
-    assert!(verified["long"].as_bool().unwrap());
-    assert!(!verified["wrong"].as_bool().unwrap());
-    assert!(verified["cost_12"].as_bool().unwrap());
-}
-
-fn run_python(script: &str, input: Option<&str>) -> String {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let mut child = Command::new(python)
-        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env(
-            "JWT_SECRET",
-            "phase3-task3-test-secret-at-least-32-characters",
-        )
-        .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-        .args(["-c", script])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("the configured Python interpreter runs");
-    if let Some(input) = input {
-        child
-            .stdin
-            .as_mut()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
-    }
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
 }

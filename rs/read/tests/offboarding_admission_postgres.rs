@@ -57,7 +57,7 @@ use verdaxis_read::{
 
 /// The Alembic head the runner's database sits at: the adoption source. The
 /// runner adopts the database to the runtime revision before serving it.
-const REVISION: &str = "ob_20261031_offboarding";
+const REVISION: &str = "sqlx_1";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 const SECRET: &str = "offboarding-admission-postgres-secret-32-chars";
@@ -114,10 +114,12 @@ impl World {
             ))
             .await
             .unwrap();
-        let revision: String = sqlx::query_scalar("SELECT version_num FROM alembic_version")
-            .fetch_one(&owner)
-            .await
-            .unwrap();
+        let revision: String = sqlx::query_scalar(
+            "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success",
+        )
+        .fetch_one(&owner)
+        .await
+        .unwrap();
         assert_eq!(revision, REVISION);
         let health = PgPoolOptions::new()
             .max_connections(1)

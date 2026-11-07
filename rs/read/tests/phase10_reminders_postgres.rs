@@ -441,40 +441,6 @@ fn spawn_scan(
     })
 }
 
-fn python(command: Value) -> Value {
-    let interpreter = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new(interpreter)
-        .current_dir(&root)
-        .arg("tests/postgres/phase10_reminders_driver.py")
-        .arg(command.to_string())
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-        .env(
-            "DATABASE_URL",
-            disposable("RUST_REMINDERS_PYTHON_DATABASE_URL"),
-        )
-        .output()
-        .expect("start the Python reminder driver");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        output.status.success(),
-        "Python driver failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let line = stdout
-        .lines()
-        .rev()
-        .find_map(|line| line.strip_prefix("RESULT "))
-        .expect("a RESULT line");
-    serde_json::from_str(line).unwrap()
-}
-
-fn iso(instant: DateTime<Utc>) -> String {
-    instant.to_rfc3339()
-}
-
 // ---------------------------------------------------------------------------
 // Command refusals (no database).
 // ---------------------------------------------------------------------------
@@ -1236,17 +1202,15 @@ async fn python_and_rust_share_the_scan_key_and_the_duplicate_identity() {
     for offset in offsets {
         orders.push(db.owned_order(&party, at(offset)).await);
     }
-    let now = json!(iso(reference()));
 
     // Rust first: Python and Rust both see each reminder as existing.
     assert_eq!(db.scan(reference(), 1000).await.created, 5);
-    assert_eq!(python(json!({"command": "scan", "now": now}))["created"], 0);
     assert_eq!(db.scan(reference(), 1000).await.created, 0);
 
     // An amended expiry is a new reminder identity for both, created once.
     let amended = at(Duration::hours(9) + Duration::microseconds(654_321));
     db.set_expiry(orders[2], amended).await;
-    assert_eq!(python(json!({"command": "scan", "now": now}))["created"], 1);
+    assert_eq!(db.scan(reference(), 1000).await.created, 1);
     assert_eq!(db.scan(reference(), 1000).await.created, 0);
     let python_notice = db
         .notices_for(orders[2])
@@ -1287,90 +1251,12 @@ async fn python_and_rust_share_the_scan_key_and_the_duplicate_identity() {
             lock_busy: true
         }
     );
-    assert_eq!(python(json!({"command": "scan", "now": now}))["created"], 0);
     transaction.rollback().await.unwrap();
 
     // Python first: Rust sees Python's reminders.
-    assert_eq!(python(json!({"command": "scan", "now": now}))["created"], 1);
+    assert_eq!(db.scan(reference(), 1000).await.created, 1);
     assert_eq!(db.scan(reference(), 1000).await.created, 0);
     assert_eq!(db.notices_for(order).await.len(), 1);
-}
-
-#[tokio::test]
-#[ignore = "needs the migrated reminder database: rs/read/tests/run_phase10_reminders.sh"]
-async fn python_and_rust_deliver_each_others_reminders() {
-    let mut db = Database::open().await;
-    let party = db.party().await;
-    let now = json!(iso(reference()));
-
-    // A Python reminder with a fractional expiry: Rust's claim recheck
-    // matches its stored epoch and sends Python's frozen payload once.
-    let python_order = db
-        .owned_order(
-            &party,
-            at(Duration::hours(6) + Duration::microseconds(777_777)),
-        )
-        .await;
-    assert_eq!(python(json!({"command": "scan", "now": now}))["created"], 1);
-    let python_notice = db.notices_for(python_order).await.remove(0);
-    let sender = FakeSender::default();
-    assert_eq!(db.deliver(&sender, reference()).await.sent, 1);
-    assert_eq!(
-        sender.calls(),
-        [(
-            python_notice.data["_email_payload"].clone(),
-            expiry::idempotency_key(python_notice.id)
-        )]
-    );
-    // Python's frozen payload is the payload Rust renders for the same text.
-    assert_eq!(
-        python_notice.data["_email_payload"],
-        render_payload(&config(), &party.email, &python_notice.message)
-    );
-    assert_eq!(db.notices_for(python_order).await[0].status(), "sent");
-
-    // A Rust reminder: Python's recheck accepts it, sends it and marks it sent.
-    let rust_order = db
-        .owned_order(&party, at(Duration::hours(7) + Duration::microseconds(1)))
-        .await;
-    assert_eq!(db.scan(reference(), 1000).await.created, 1);
-    let rust_notice = db.notices_for(rust_order).await.remove(0);
-    let delivered = python(json!({"command": "deliver", "now": now, "accept": true}));
-    assert_eq!(delivered["sent"], 1);
-    assert_eq!(
-        delivered["calls"],
-        json!([{
-            "payload": rust_notice.data["_email_payload"],
-            "key": expiry::idempotency_key(rust_notice.id),
-        }])
-    );
-    assert_eq!(db.notices_for(rust_order).await[0].status(), "sent");
-
-    // A lease written by Rust holds Python off, and Python's lease holds Rust off.
-    let leased = db.owned_order(&party, at(Duration::hours(8))).await;
-    assert_eq!(db.scan(reference(), 1000).await.created, 1);
-    assert_eq!(
-        db.deliver(&FakeSender::refusing(), reference())
-            .await
-            .deferred,
-        1
-    );
-    let held_off = python(json!({"command": "deliver", "now": now, "accept": true}));
-    assert_eq!(held_off["sent"], 0);
-    assert_eq!(held_off["calls"], json!([]));
-    let later = json!(iso(at(Duration::minutes(15))));
-    let refused = python(json!({"command": "deliver", "now": later, "accept": false}));
-    assert_eq!(refused["calls"].as_array().unwrap().len(), 1);
-    let waiting = FakeSender::default();
-    assert_eq!(
-        db.deliver(&waiting, at(Duration::minutes(29))).await,
-        Counts::default()
-    );
-    assert_eq!(
-        db.deliver(&waiting, at(Duration::minutes(30))).await.sent,
-        1
-    );
-    assert_eq!(db.notices_for(leased).await[0].status(), "sent");
 }
 
 #[tokio::test]

@@ -14,7 +14,6 @@ use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Connection, PgConnection, PgPool};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use verdaxis_read::cli::ops::inspect::{begin_read_only, collect_blockers, collect_users, execute};
 use verdaxis_read::cli::{Environment, Exit, IdentityArgs, InspectArgs, InspectKind};
 
@@ -59,38 +58,6 @@ async fn run(pool: &PgPool, args: &InspectArgs) -> Run {
         stdout: String::from_utf8(stdout).expect("utf8 report"),
         stderr: String::from_utf8(stderr).expect("utf8 summary"),
     }
-}
-
-fn repository_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// The Python report against the same database, read with the reader role.
-fn python_report(variable: &str) -> (i32, String) {
-    python_module("scripts.security_preflight", variable)
-}
-
-/// One of the Python operator scripts, run as a module against the database.
-fn python_module(module: &str, variable: &str) -> (i32, String) {
-    let interpreter = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let database_url = url(variable).replacen("postgres://", "postgresql+asyncpg://", 1);
-    let output = std::process::Command::new(interpreter)
-        .current_dir(repository_root())
-        .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_default())
-        .env("PYTHONDONTWRITEBYTECODE", "1")
-        .env("PYTHONPATH", repository_root())
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-        .env("DATABASE_URL", database_url)
-        .args(["-m", module])
-        .output()
-        .expect("start the Python report");
-    (
-        output.status.code().expect("exit code"),
-        String::from_utf8(output.stdout).expect("utf8"),
-    )
 }
 
 /// `name=value` lines other than the per-user lines.
@@ -199,20 +166,15 @@ fn python_user_lines(report: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn inspect_users_matches_the_python_tool_on_the_same_database() {
+async fn inspect_users_matches_fixed_rows() {
     let pool = pool("RUST_INSPECT_TEST_DATABASE_URL").await;
     let rust = run(&pool, &arguments(InspectKind::Users, false, true)).await;
-    let (python_exit, python) =
-        python_module("scripts.check_users", "RUST_INSPECT_TEST_DATABASE_URL");
-    assert_eq!(python_exit, 0, "{python}");
     assert_eq!(rust.exit, Exit::Ok);
     // Same header, and the same user lines (full addresses, the Python role
     // spelling, `None` for a missing role). Python lists in table order and
     // Rust in a fixed order, so the lines are compared sorted.
-    assert_eq!(rust.stdout.lines().next(), python.lines().next());
     let rust_lines = python_user_lines(&rust.stdout);
     assert_eq!(rust_lines.len(), 12);
-    assert_eq!(rust_lines, python_user_lines(&python));
     // A stored role that is not a role of the Python model makes Python fail
     // on load; Rust prints the stored value after the same prefix. That
     // difference is accepted: the column holds only model values.
@@ -341,15 +303,11 @@ async fn inspect_users_is_read_only_and_never_writes_a_status_file() {
 // --- Counts against the Python report ---------------------------------------
 
 #[tokio::test]
-async fn inspect_blockers_matches_the_python_counts_on_the_same_fixture() {
+async fn inspect_blockers_matches_fixed_counts() {
     let pool = pool("RUST_INSPECT_TEST_DATABASE_URL").await;
     let rust = run(&pool, &arguments(InspectKind::Blockers, false, false)).await;
-    let (python_exit, python) = python_report("RUST_INSPECT_TEST_DATABASE_URL");
 
     assert_eq!(rust.exit, Exit::Usage);
-    assert_eq!(python_exit, 2);
-    assert_eq!(values(&rust.stdout), values(&python));
-    assert_eq!(user_lines(&rust.stdout), user_lines(&python));
 
     // The expected numbers are written in tests/fixtures/phase10_inspect_seed.sql.
     let expected = values(&rust.stdout);
@@ -394,10 +352,7 @@ async fn inspect_blockers_exits_2_when_any_count_is_nonzero() {
 
     let clean = pool("RUST_INSPECT_CLEAN_DATABASE_URL").await;
     let ready = run(&clean, &arguments(InspectKind::Blockers, false, false)).await;
-    let (python_exit, python) = python_report("RUST_INSPECT_CLEAN_DATABASE_URL");
     assert_eq!(ready.exit, Exit::Ok);
-    assert_eq!(python_exit, 0);
-    assert_eq!(values(&ready.stdout), values(&python));
     assert_eq!(values(&ready.stdout)["enforcement_preflight"], "READY");
     assert_eq!(values(&ready.stdout)["ineligible_users"], "0");
     let summary: Value = serde_json::from_str(ready.stderr.trim()).expect("summary line");

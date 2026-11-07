@@ -216,13 +216,6 @@ fn handover_register_is_closed_at_the_baseline_head() {
     assert_eq!(final_head, baseline["alembic_head"]);
     assert_eq!(handover["alembic_revisions"], baseline["alembic_revisions"]);
 
-    let (revision_count, heads) = alembic_graph_heads();
-    assert_eq!(heads, [final_head.to_owned()], "the Alembic graph heads");
-    assert_eq!(
-        handover["alembic_revisions"].as_u64(),
-        Some(revision_count as u64)
-    );
-
     // After M the allowlist admits only the adopted baseline; the Alembic
     // final head is the adoption source the baseline manifest records.
     let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
@@ -273,59 +266,6 @@ fn handover_register_is_closed_at_the_baseline_head() {
         ],
         "the adoption and no-change rows must end at the adopted baseline"
     );
-}
-
-/// Every quoted name in one Python assignment such as `revision = "a"` or
-/// `down_revision = ("a", "b")`, which may continue over several lines.
-fn assigned_names(source: &str, name: &str) -> Vec<String> {
-    let Some(start) = source.lines().position(|line| {
-        line.starts_with(&format!("{name} ")) || line.starts_with(&format!("{name}:"))
-    }) else {
-        return Vec::new();
-    };
-    let mut text = String::new();
-    for line in source.lines().skip(start) {
-        text.push_str(line);
-        text.push('\n');
-        let opened = text.matches('(').count();
-        if opened == text.matches(')').count() {
-            break;
-        }
-    }
-    let value = text.split_once('=').map(|(_, value)| value).unwrap_or("");
-    value
-        .split(['"', '\''])
-        .skip(1)
-        .step_by(2)
-        .map(str::to_owned)
-        .collect()
-}
-
-/// The revision count and the heads of the Alembic graph in `alembic/versions`:
-/// revisions that no other revision names as a parent.
-fn alembic_graph_heads() -> (usize, Vec<String>) {
-    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../alembic/versions");
-    let mut revisions = Vec::new();
-    let mut parents = std::collections::BTreeSet::new();
-    for entry in std::fs::read_dir(folder).expect("alembic/versions") {
-        let path = entry.expect("directory entry").path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("py") {
-            continue;
-        }
-        let source = std::fs::read_to_string(&path).expect("revision file");
-        let names = assigned_names(&source, "revision");
-        let [revision] = names.as_slice() else {
-            panic!("{}: expected one revision name", path.display());
-        };
-        revisions.push(revision.clone());
-        parents.extend(assigned_names(&source, "down_revision"));
-    }
-    let heads = revisions
-        .iter()
-        .filter(|revision| !parents.contains(*revision))
-        .cloned()
-        .collect();
-    (revisions.len(), heads)
 }
 
 #[tokio::test]

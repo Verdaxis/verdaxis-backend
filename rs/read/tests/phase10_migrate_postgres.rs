@@ -1332,7 +1332,10 @@ async fn runner_database_adopts_to_the_baseline() {
         other => panic!("unknown runner environment: {other}"),
     };
     let url = url::Url::parse(&raw).expect("parse the runner URL");
-    assert!(matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "::1")));
+    assert!(matches!(
+        url.host_str(),
+        Some("127.0.0.1" | "[::1]" | "::1")
+    ));
     let database = url.path().trim_start_matches('/');
     assert!(
         database.ends_with("_test") || database.ends_with("_template"),
@@ -1342,15 +1345,17 @@ async fn runner_database_adopts_to_the_baseline() {
     let mut connection = PgConnection::connect_with(&options)
         .await
         .expect("connect as the runner migrator");
-    let legacy: bool = sqlx::query_scalar("SELECT to_regclass('public.alembic_version') IS NOT NULL")
-        .fetch_one(&mut connection)
-        .await
-        .expect("inspect runner schema history");
-    if !legacy {
-        let initialized: bool = sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
+    let legacy: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.alembic_version') IS NOT NULL")
+            .fetch_one(&mut connection)
+            .await
+            .expect("inspect runner schema history");
+    let initialized: bool =
+        sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
             .fetch_one(&mut connection)
             .await
             .expect("inspect runner sqlx history");
+    if !legacy || initialized {
         if !initialized {
             let application_objects: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
@@ -1361,19 +1366,52 @@ async fn runner_database_adopts_to_the_baseline() {
             .fetch_one(&mut connection)
             .await
             .expect("inspect empty runner schema");
-            assert_eq!(application_objects, 0, "refuse to initialize a populated schema");
+            assert_eq!(
+                application_objects, 0,
+                "refuse to initialize a populated schema"
+            );
         }
-        MIGRATOR.run(&mut connection).await.expect("apply the runner sqlx baseline");
-        let current = status(&mut connection).await.expect("read runner sqlx status");
+        MIGRATOR
+            .run(&mut connection)
+            .await
+            .expect("apply the runner sqlx baseline");
+        let current = status(&mut connection)
+            .await
+            .expect("read runner sqlx status");
         assert!(current.foreign.is_empty());
         assert!(current.pending.is_empty());
         assert_eq!(current.revision().as_deref(), Some("sqlx_1"));
         let manifest: serde_json::Value =
             serde_json::from_str(include_str!("../../../deploy/rust/sqlx-baseline.json")).unwrap();
-        assert_eq!(
-            fingerprint(&mut connection).await.unwrap(),
-            manifest["restored_fingerprint"].as_str().unwrap()
+        let catalog = fingerprint(&mut connection).await.unwrap();
+        assert!(
+            catalog == manifest["restored_fingerprint"].as_str().unwrap()
+                || (initialized && catalog == compiled_baseline().fingerprint),
+            "runner catalog does not match either attested baseline form"
         );
+        // Adopted databases retain this audit row. The unchanged role-policy
+        // tooling still validates its owner and exact grants, so fresh test
+        // fixtures keep the same metadata without running the retired schema tool.
+        if !legacy {
+            sqlx::query(
+                "CREATE TABLE public.alembic_version \
+                 (version_num varchar(32) NOT NULL PRIMARY KEY)",
+            )
+            .execute(&mut connection)
+            .await
+            .expect("create historical fixture metadata");
+            sqlx::query("INSERT INTO public.alembic_version VALUES ($1)")
+                .bind(&compiled_baseline().alembic_head)
+                .execute(&mut connection)
+                .await
+                .expect("record historical fixture revision");
+        }
+        let historical: Vec<String> =
+            sqlx::query_scalar("SELECT version_num FROM public.alembic_version")
+                .fetch_all(&mut connection)
+                .await
+                .unwrap();
+        assert_eq!(historical, vec![compiled_baseline().alembic_head]);
         return;
     }
     let outcome = adopt(

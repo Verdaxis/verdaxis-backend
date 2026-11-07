@@ -111,17 +111,6 @@ async fn root_returns_the_exact_python_body() {
             .collect();
     assert_eq!(keys, ["message", "version"]);
 
-    // While the Python application is in the tree, its literal is the source
-    // of the two values.
-    let python = repository_file("app/main.py");
-    if python.exists() {
-        let source = std::fs::read_to_string(python).unwrap();
-        assert!(
-            source.contains(r#"return {"message": "Verdaxis API is running", "version": "1.0.0"}"#),
-            "app/main.py no longer returns the pinned root body"
-        );
-    }
-
     // The handler takes no argument: no state, no identity, no configuration.
     let verdaxis_read::routes::root::RootBody { message, version } =
         verdaxis_read::routes::root::root().await.0;

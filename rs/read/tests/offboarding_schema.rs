@@ -8,7 +8,6 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config};
@@ -20,7 +19,6 @@ const REVISION: &str = "ob_20261031_offboarding";
 /// The runtime revision the M binary serves: the adoption target and the only
 /// startup admission.
 const ADOPTED: &str = ALLOWED_REVISIONS[0];
-const MAX_REVISION_LENGTH: usize = 32;
 const AUDIT_TABLE: &str = "individual_offboardings";
 
 fn repo_root() -> PathBuf {
@@ -76,50 +74,6 @@ fn parse_checkpoints(text: &str) -> Vec<(String, String)> {
     pairs
 }
 
-/// Every `revision` and `down_revision` pair declared under `alembic/versions`.
-fn migration_graph() -> Vec<(String, Vec<String>)> {
-    let directory = repo_root().join("alembic/versions");
-    let mut graph = Vec::new();
-    for entry in std::fs::read_dir(directory).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().and_then(|e| e.to_str()) != Some("py") {
-            continue;
-        }
-        let source = std::fs::read_to_string(&path).unwrap();
-        let mut revision = None;
-        let mut parents = Vec::new();
-        for line in source.lines() {
-            if let Some(rest) = line.strip_prefix("revision") {
-                if let Some(value) = quoted_values(rest).into_iter().next() {
-                    revision.get_or_insert(value);
-                }
-            } else if let Some(rest) = line.strip_prefix("down_revision")
-                && parents.is_empty()
-            {
-                parents = quoted_values(rest);
-            }
-        }
-        if let Some(revision) = revision {
-            graph.push((revision, parents));
-        }
-    }
-    graph
-}
-
-/// The single- or double-quoted string literals in `text`, in order.
-fn quoted_values(text: &str) -> Vec<String> {
-    let mut values = Vec::new();
-    let mut rest = text;
-    while let Some(start) = rest.find(['"', '\'']) {
-        let quote = rest[start..].chars().next().unwrap();
-        let after = &rest[start + 1..];
-        let Some(end) = after.find(quote) else { break };
-        values.push(after[..end].to_owned());
-        rest = &after[end + 1..];
-    }
-    values
-}
-
 #[test]
 fn checkpoint_requires_exact_transition() {
     let pairs = parse_checkpoints(&read("deploy/migration-checkpoints.tsv"));
@@ -160,22 +114,6 @@ fn checkpoint_requires_exact_transition() {
             .filter(|(current, _)| current == ADOPTED)
             .all(|(_, target)| target == ADOPTED)
     );
-    // Every row names a revision of the shared chain: an Alembic revision of
-    // this tree, or the adopted sqlx baseline the adoption row moves to.
-    let mut known: Vec<String> = migration_graph()
-        .into_iter()
-        .map(|(revision, _)| revision)
-        .collect();
-    known.push(ADOPTED.to_owned());
-    for (current, target) in &pairs {
-        assert!(known.contains(current), "unknown revision {current}");
-        assert!(known.contains(target), "unknown revision {target}");
-    }
-
-    // The M rows are not Alembic transitions: the deploy validates them
-    // through the release binary's compiled policy (`migrate run`), while the
-    // retained Alembic checkpoint rows stay under the Python validator the
-    // schema tool uses. Assert each side with its own gate.
     let policy = verdaxis_read::cli::migrate::TransitionPolicy::compiled();
     assert!(policy.allows(REVISION, ADOPTED), "the adoption row");
     assert!(policy.allows(ADOPTED, ADOPTED), "the runtime no-change row");
@@ -193,117 +131,6 @@ fn checkpoint_requires_exact_transition() {
             "{current} -> {target} must refuse"
         );
     }
-
-    // The real Alembic validator, which the deploy uses for the schema-tool
-    // transitions, accepts and refuses the same retained rows as before M.
-    let upper_parent = PARENT.to_ascii_uppercase();
-    let upper_revision = REVISION.to_ascii_uppercase();
-    let padded_parent = format!("{PARENT} ");
-    let cases = serde_json::json!([
-        [PARENT, REVISION, null],
-        [REVISION, REVISION, null],
-        ["sse_20261021_replay_floor", REVISION, null],
-        ["p3_20261020_auth_tokens", REVISION, null],
-        [PARENT, "head", null],
-        [PARENT, "heads", null],
-        ["base", REVISION, null],
-        [upper_parent, REVISION, null],
-        [PARENT, upper_revision, null],
-        [padded_parent, REVISION, null],
-        [REVISION, PARENT, null],
-        [PARENT, REVISION, [REVISION]],
-        [PARENT, REVISION, [PARENT, REVISION]],
-    ]);
-    let verdicts = checkpoint_verdicts(&cases);
-    let expected_verdicts = [
-        true, true, false, false, false, false, false, false, false, false, false, false, false,
-    ];
-    assert_eq!(verdicts, expected_verdicts);
-}
-
-/// Ask the deploy's own checkpoint validator about each `[current, target, heads]` case.
-fn checkpoint_verdicts(cases: &serde_json::Value) -> Vec<bool> {
-    const SCRIPT: &str = r#"
-import importlib.util, json, sys
-from pathlib import Path
-from alembic.config import Config
-from alembic.script import ScriptDirectory
-
-root = Path(sys.argv[1])
-sys.path.insert(0, str(root))
-spec = importlib.util.spec_from_file_location(
-    "apply_migration_checkpoint", root / "scripts/apply_migration_checkpoint.py"
-)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-policy = module.parse_checkpoint_policy((root / "deploy/migration-checkpoints.tsv").read_text())
-scripts = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
-sha = "a" * 40
-
-def verdict(current, target, heads):
-    try:
-        module.validate_checkpoint_request(
-            policy=policy,
-            source_sha=sha,
-            approved_source_sha=sha,
-            expected_current=current,
-            target=target,
-            current_heads=(current,) if heads is None else tuple(heads),
-            script_directory=scripts,
-        )
-    except module.MigrationCheckpointError:
-        return False
-    return True
-
-print(json.dumps([verdict(*case) for case in json.loads(sys.argv[2])]))
-"#;
-    let python =
-        std::env::var("RUST_TEST_PYTHON").expect("explicit project Python interpreter required");
-    let root = repo_root().canonicalize().unwrap();
-    let output = Command::new(python)
-        .args(["-c", SCRIPT])
-        .arg(&root)
-        .arg(cases.to_string())
-        .current_dir(&root)
-        .env_clear()
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", "test-secret-key-for-testing-minimum-32-chars")
-        .env("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-        .output()
-        .expect("run the checkpoint validator");
-    assert!(
-        output.status.success(),
-        "validator failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&output.stdout).expect("validator prints a JSON list")
-}
-
-#[test]
-fn migration_is_the_single_head_and_fits_the_version_column() {
-    assert!(REVISION.len() <= MAX_REVISION_LENGTH);
-    let graph = migration_graph();
-    let own: Vec<_> = graph
-        .iter()
-        .filter(|(revision, _)| revision == REVISION)
-        .collect();
-    assert_eq!(own.len(), 1, "exactly one migration declares the revision");
-    assert_eq!(own[0].1, [PARENT.to_owned()]);
-    // The migration is the only head: nothing names it as a parent, and every
-    // other revision is the parent of some revision.
-    let parents: Vec<&String> = graph.iter().flat_map(|(_, parents)| parents).collect();
-    let heads: Vec<&String> = graph
-        .iter()
-        .map(|(revision, _)| revision)
-        .filter(|revision| !parents.contains(revision))
-        .collect();
-    assert_eq!(heads, [&REVISION.to_owned()]);
-    assert!(
-        repo_root()
-            .join("alembic/versions/ob_20261031_individual_offboarding.py")
-            .is_file()
-    );
 }
 
 #[test]

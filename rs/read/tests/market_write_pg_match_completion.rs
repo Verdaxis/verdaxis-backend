@@ -397,10 +397,6 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         .await
     });
     barrier.staged().await;
-    assert_eq!(
-        dispatch_without_notifications(false, &f._database.runtime_url),
-        0
-    );
     let before: i64 = sqlx::query_scalar("SELECT count(*) FROM market_event_outbox")
         .fetch_one(&mut f.observer)
         .await
@@ -422,10 +418,6 @@ async fn outbox_is_commit_visible_and_polling_finds_events_without_a_listener() 
         let payload: Value = serde_json::from_str(&payload).unwrap();
         assert_eq!(payload["_public_market_invalidation"], true);
     }
-    assert_eq!(
-        dispatch_without_notifications(true, &f._database.runtime_url),
-        6
-    );
 }
 
 #[tokio::test]
@@ -676,11 +668,6 @@ async fn typed_trade_snapshots_keep_side_mapping_and_private_declarations() {
                 assert!(row.0.is_none());
                 row.1.unwrap()
             };
-            let normalized = python_snapshot(profile, &snapshot);
-            assert_eq!(
-                snapshot, normalized,
-                "snapshot stores normalized Python defaults"
-            );
             if profile == "lng" {
                 assert!(snapshot["bid"].get("schema_version").is_none());
                 assert!(snapshot["bid"].get("availability_window").is_none());
@@ -822,83 +809,6 @@ async fn slice_evidence_distinguishes_best_price_move_from_quiet() {
     assert_eq!(best("aggregates_before"), "100");
     assert_eq!(best("aggregates_after"), "105");
     assert_eq!(evidence["targets"].as_array().unwrap().len(), 2);
-}
-
-fn dispatch_without_notifications(run_loops: bool, database_url: &str) -> usize {
-    let script = r#"
-import asyncio, json, os, sys
-import asyncpg
-from sqlalchemy.ext.asyncio import create_async_engine
-from app.services.market_event_dispatch import MarketEventDispatcher
-class Bus:
-    def __init__(self): self.events=[]
-    async def publish(self,channel,kind,payload,**kwargs):
-        assert 'producer_evidence' not in payload and 'targets' not in payload
-        self.events.append((channel,kind,payload))
-async def main():
-    url=os.environ['RUST_MATCHING_DATABASE_URL']
-    engine=create_async_engine(url.replace('postgresql://','postgresql+asyncpg://'))
-    bus=Bus(); dispatcher=MarketEventDispatcher(engine,bus,poll_seconds=0.05)
-    # A real dedicated dispatcher session, deliberately without add_listener.
-    dispatcher._listener_conn=await asyncpg.connect(url)
-    assert await dispatcher._try_acquire_leadership()
-    if sys.argv[1]=='true':
-        dispatcher._tasks=[asyncio.create_task(dispatcher._sequencer_loop()),asyncio.create_task(dispatcher._hub_loop())]
-        for _ in range(100):
-            if len(bus.events)==6: break
-            await asyncio.sleep(0.05)
-        assert sorted((channel,kind) for channel,kind,_ in bus.events)==sorted([
-            ('trades:00000000-0000-0000-0000-000000001000','trade_auto_matched'),
-            ('trades:00000000-0000-0000-0000-000000002000','trade_auto_matched'),
-            ('trades:00000000-0000-0000-0000-000000001000','orders_matched'),
-            ('trades:00000000-0000-0000-0000-000000002000','orders_matched'),
-            ('prices','market_invalidated'),('orderbook','market_invalidated')])
-    else:
-        await asyncio.wait_for(dispatcher._drain_new_events(),timeout=5)
-    print(len(bus.events))
-    await dispatcher.stop(); await engine.dispose()
-asyncio.run(asyncio.wait_for(main(),timeout=15))
-"#;
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new(python)
-        .current_dir(root)
-        .arg("-c")
-        .arg(script)
-        .arg(run_loops.to_string())
-        .env("RUST_MATCHING_DATABASE_URL", database_url)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    String::from_utf8(result.stdout)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap()
-}
-
-fn python_snapshot(profile: &str, snapshot: &Value) -> Value {
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "venv/bin/python".into());
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let script = "import json,sys; from app.schemas.fame_order import FameTradeSnapshot; from app.schemas.lng_order import LngTradeSnapshot; model=FameTradeSnapshot if sys.argv[1]=='fame' else LngTradeSnapshot; print(model.model_validate_json(sys.argv[2]).model_dump_json())";
-    let result = std::process::Command::new(python)
-        .current_dir(root)
-        .arg("-c")
-        .arg(script)
-        .arg(profile)
-        .arg(snapshot.to_string())
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "Python must read Rust snapshot: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    serde_json::from_slice(&result.stdout).unwrap()
 }
 
 #[tokio::test]

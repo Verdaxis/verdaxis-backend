@@ -124,6 +124,11 @@ class DisposablePostgres:
                             "runner_database_adopts_to_the_baseline", "--", "--ignored"],
                            cwd=ROOT, env=environment, check=True)
             self.policy("bootstrap_roles.sql")
+            # The frozen baseline omits privileges. Restore the historical
+            # trigger-function boundary before the unchanged role validator.
+            psql(self.url(MIGRATOR_ROLE),
+                 "REVOKE ALL ON FUNCTION public.market_event_outbox_advance_replay_floor() FROM PUBLIC; "
+                 "REVOKE ALL ON FUNCTION public.market_event_outbox_refuse_truncate() FROM PUBLIC;")
             self.policy("validate_roles.sql")
             return self
         except BaseException:

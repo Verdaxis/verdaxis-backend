@@ -51,6 +51,6 @@ pub fn repository_root() -> PathBuf {
 /// Static inputs shared by the monitor tests.
 pub fn contract_fixture(relative: &str) -> PathBuf {
     repository_root()
-        .join("tests/rust_contract/phase10")
+        .join("tests/tooling/phase10")
         .join(relative)
 }

@@ -275,45 +275,11 @@ async fn phase5_visibility_cases() {
         eprintln!("cross-group matrix not run: disposable URLs required");
         return;
     };
-    let python = std::env::var("RUST_TEST_PYTHON").expect("harness python");
-    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-
     let router = app(&application);
     let overlay_bearer = overlay_token(READER);
-
-    let run_clean = || {
-        let out = std::process::Command::new(&python)
-            .arg(repo.join("rs/read/tests/phase5_writer.py"))
-            .arg("clean")
-            .env("PYTHONPATH", &repo)
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .output()
-            .expect("python writer path must run");
-        assert!(
-            out.status.success(),
-            "python writer cleanup failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    };
-    run_clean();
-
-    let run_writer = |label: &str| {
-        let out = std::process::Command::new(&python)
-            .arg(repo.join("rs/read/tests/phase5_writer.py"))
-            .arg("commit")
-            .arg(label)
-            .env("PYTHONPATH", &repo)
-            .env("PYTHONDONTWRITEBYTECODE", "1")
-            .output()
-            .expect("python writer path must run");
-        assert!(
-            out.status.success(),
-            "python writer failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    };
-
+    let mut writer = PgConnection::connect(&_writer_url).await.unwrap();
+    reset(&mut writer).await;
+    seed(&mut writer).await;
     // The committed BID reaches the demand read: one open group at Rotterdam.
     let state = {
         let config = Config {
@@ -348,9 +314,14 @@ async fn phase5_visibility_cases() {
         AppState::new(config, runtime::db::Pools { read, health }, policy).unwrap()
     };
 
-    let stdout = run_writer("committed");
-    assert!(stdout.contains("WRITER_COMMIT="), "writer output: {stdout}");
-
+    let mut transaction = writer.begin().await.unwrap();
+    sqlx::raw_sql("INSERT INTO organizations(id,name,type,verification_status,provenance) VALUES ('9c000000-0000-0000-0000-000000000003','Committed Supplier','SUPPLIER','APPROVED','REAL');
+        INSERT INTO users(id,email,password_hash,status,email_verified,kyc_status,kyc_organization_id,organization_id,role) VALUES ('9c000000-0000-0000-0000-000000000013','committed@example.test','synthetic','APPROVED',true,'APPROVED','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000003','BUYER');
+        INSERT INTO orderbook_orders(id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,expires_at) SELECT '9c000000-0000-0000-0000-000000000031','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000013','9c000000-0000-0000-0000-000000000013','SELF_SERVICE','REAL','BID',p.id,d.id,100,100,600,'SPOT','OPEN','2030-01-01T00:00:00Z' FROM products p CROSS JOIN delivery_points d WHERE p.name='Bio Methanol' AND d.name='Dalian';
+        INSERT INTO ports(id,name,country,location,timezone,is_active) VALUES ('XDAL','Dalian','CN',ST_SetSRID(ST_MakePoint(121.6,38.9),4326),'Asia/Shanghai',true) ON CONFLICT DO NOTHING;
+        INSERT INTO inventory_items(id,supplier_id,owner_user_id,port_id,fuel_type,product_name,current_stock_mt,incoming_stock_mt,price_per_mt_usd) VALUES ('9c000000-0000-0000-0000-000000000041','9c000000-0000-0000-0000-000000000003','9c000000-0000-0000-0000-000000000013','XDAL','BIO_METHANOL','Bio Methanol',1200,0,125.50);")
+        .execute(&mut *transaction).await.unwrap();
+    transaction.commit().await.unwrap();
     // Demand: the committed BID is the one visible demand group.
     {
         use routes::demand;

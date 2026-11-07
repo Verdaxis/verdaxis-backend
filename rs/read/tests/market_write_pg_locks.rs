@@ -485,27 +485,6 @@ fn lock_failures_keep_their_operation_class() {
     }
 }
 
-#[test]
-fn continuing_python_writers_keep_their_contracts() {
-    let reminder = include_str!("../../../app/services/order_expiry_reminders.py");
-    assert!(reminder.contains("8246192048"));
-    assert!(reminder.contains("timedelta(minutes=15)"));
-    for key in [
-        "order_expiring",
-        "order_id",
-        "order_key",
-        "_email_payload",
-        "_email_retry_at",
-        "_email_deadline",
-    ] {
-        assert!(reminder.contains(key));
-    }
-    let phase7 = include_str!("../../../app/routers/negotiations.py");
-    assert!(phase7.contains("acquire_market_slice_locks"));
-    assert!(phase7.contains("OrderBookOrder"));
-    assert!(include_str!("../../../app/seeds/market_seed.py").contains("Trade("));
-}
-
 #[tokio::test]
 #[ignore = "requires explicit disposable PostgreSQL"]
 async fn continuing_writer_user_prefix_has_a_bounded_outcome() {
@@ -530,35 +509,6 @@ async fn continuing_writer_user_prefix_has_a_bounded_outcome() {
     drop(rust);
     drop(python);
     f.finish().await;
-}
-
-#[test]
-fn maintenance_and_phase7_sources_keep_canonical_locks_and_columns() {
-    let quarantine = include_str!("../../../app/services/market_quarantine.py");
-    assert!(
-        quarantine.contains("Acquire maintenance idempotency then canonical sorted slice locks")
-    );
-    assert!(quarantine.contains("SET LOCAL lock_timeout = '500ms'"));
-    assert!(quarantine.contains("SET LOCAL statement_timeout = '5s'"));
-    assert!(quarantine.contains("market_slice_lock_key("));
-    let demo = include_str!("../../../app/services/demo_activity.py");
-    assert!(demo.contains("acquire_market_slice_locks("));
-    assert!(demo.contains("remaining_quantity_mt"));
-    assert!(demo.contains("trades = await match_order("));
-    let matcher = include_str!("../../../app/services/matching_engine.py");
-    for column in ["buyer_user_id", "seller_user_id"] {
-        assert!(matcher.contains(column));
-    }
-    let seed = include_str!("../../../app/seeds/market_seed.py");
-    for column in ["bid_order_id", "ask_order_id"] {
-        assert!(seed.contains(column));
-    }
-    for source in [
-        include_str!("../../../app/routers/rfq.py"),
-        include_str!("../../../app/routers/supplier_offers.py"),
-    ] {
-        assert!(source.contains("acquire_market_slice_lock"));
-    }
 }
 
 #[cfg(feature = "contract-tests")]
@@ -800,29 +750,6 @@ async fn assisted_context_uses_locked_customer_authority() {
         tx.rollback().await.unwrap();
     }
     f.finish().await;
-}
-
-#[cfg(feature = "contract-tests")]
-#[tokio::test]
-#[ignore = "requires explicit disposable PostgreSQL"]
-async fn continuing_python_protocols_run_against_ordered_rust() {
-    assert!(
-        include_str!("fixtures/phase8_protocol_plugin.py")
-            .contains("assert python_outcome == rust_outcome")
-    );
-    let binary = std::env::current_exe().unwrap();
-    let status = std::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
-    )
-    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-    .args(["rs/read/tests/fixtures/phase8_writer_protocols.py"])
-    .env("RUST_LOCK_PROTOCOL_BINARY", binary)
-    .status()
-    .unwrap();
-    assert!(
-        status.success(),
-        "each continuing writer must execute its database protocol"
-    );
 }
 
 #[cfg(feature = "contract-tests")]

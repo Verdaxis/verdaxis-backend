@@ -311,7 +311,7 @@ fn the_point_name_prefers_payload_then_live_then_snapshot() {
 
 // ------------------------------------------------------------ client contract
 
-const CONTRACT: &str = include_str!("../../../tests/rust_contract/phase2/watchlist-events.json");
+const CONTRACT: &str = r####"{"schema_version":1,"group":"watchlists","route_ids":["W07","W08"],"source":"verdaxis-frontend/src/services/api.ts (listEvents, markEventRead) and src/types.ts (WatchlistEvent, WatchlistEventsPage)","page":{"default_limit":20,"minimum_limit":1,"maximum_limit":100,"order":["created_at DESC","id DESC"],"cursor":"RFC 3339 UTC instant with microsecond precision, then '|', then the event UUID"},"event_fields":{"id":"uuid","watchlist_id":"uuid","watchlist_target_id":"uuid","target_type":"SLICE|PIN","event_type":"string","event_payload":"object","source_kind":"string","scope":"string","demo_status":"string","observed_at":"instant|null","market_product_code":"string|null","delivery_point_id":"uuid|null","delivery_point_name":"string|null","availability_window_code":"string|null","order_id":"uuid|null","is_read":"boolean","created_at":"instant"},"page_fields":{"items":"array","next_cursor":"string|null"},"payload_defaults":{"source_kind":"UNKNOWN","scope":"DELIVERY_POINT when the target has a point, else UNKNOWN","demo_status":"UNKNOWN"},"approved_differences":[],"guard":{"rule":"best-price events and events whose own payload names an order outside the full public order scope are hidden before LIMIT; a PIN target must name a public order","producer":"Python until the trusted Rust producer replaces it"}}"####;
 
 /// The exact field set `src/types.ts` declares. A field renamed or dropped here
 /// breaks the frontend feed silently, so the fixture pins every key and its

@@ -7,10 +7,8 @@ use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use std::time::Duration;
 use uuid::Uuid;
-use verdaxis_read::analytics::usage::DEMO_MARKET_ORGANIZATION_IDS;
 use verdaxis_read::cli::ops::inspect::{
-    BlockerCounts, BlockersReport, IneligibleUser, KNOWN_TEST_ORGANIZATION_IDS, UsersReport,
-    execute, mask_email,
+    BlockerCounts, BlockersReport, IneligibleUser, UsersReport, execute, mask_email,
 };
 use verdaxis_read::cli::{Environment, Exit, IdentityArgs, InspectArgs, InspectKind};
 
@@ -448,48 +446,6 @@ fn a_cut_ineligible_listing_is_flagged_and_the_count_stays_exact() {
 }
 
 // --- Registries -------------------------------------------------------------
-
-/// The registries as the Python module defines them, read from its source so a
-/// copy here cannot drift. Only `uuid` is imported by that module.
-fn python_registry(name: &str) -> Vec<Uuid> {
-    let interpreter = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let source =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/demo_identities.py");
-    let script = "import importlib.util, sys\n\
-        spec = importlib.util.spec_from_file_location('demo_identities', sys.argv[1])\n\
-        module = importlib.util.module_from_spec(spec)\n\
-        spec.loader.exec_module(module)\n\
-        print('\\n'.join(sorted(str(item) for item in getattr(module, sys.argv[2]))))\n";
-    let output = std::process::Command::new(interpreter)
-        .args(["-I", "-c", script])
-        .arg(&source)
-        .arg(name)
-        .output()
-        .expect("start the Python interpreter");
-    assert!(output.status.success(), "reading {name} failed");
-    String::from_utf8(output.stdout)
-        .expect("utf8")
-        .lines()
-        .map(|line| Uuid::parse_str(line).expect("registry uuid"))
-        .collect()
-}
-
-fn sorted(mut values: Vec<Uuid>) -> Vec<Uuid> {
-    values.sort();
-    values
-}
-
-#[test]
-fn registries_equal_the_python_registries() {
-    assert_eq!(
-        sorted(DEMO_MARKET_ORGANIZATION_IDS.to_vec()),
-        python_registry("DEMO_MARKET_ORG_IDS")
-    );
-    assert_eq!(
-        sorted(KNOWN_TEST_ORGANIZATION_IDS.to_vec()),
-        python_registry("KNOWN_TEST_ORG_IDS")
-    );
-}
 
 // --- The module stays read-only --------------------------------------------
 

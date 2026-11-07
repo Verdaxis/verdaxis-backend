@@ -414,33 +414,6 @@ async fn e2_invited_account_retains_resolver_state() {
     assert_eq!(body["detail"]["code"], "RESET_TOKEN_INVALID");
     let after:(String,String,String)=sqlx::query_as("SELECT password_reset_token_hash,password_reset_expires::text,password_hash FROM users WHERE id=$1").bind(id).fetch_one(&owner).await.unwrap();
     assert_eq!(before, after);
-    let script = r#"
-import asyncio, os
-from datetime import datetime, UTC
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from app.models.user import User
-from app.models.user import Organization
-from app.routers.auth_simple import _is_unclaimed_admin_invitation, hash_token_identifier
-async def main():
-    engine=create_async_engine(os.environ['DATABASE_URL'])
-    async with AsyncSession(engine) as db:
-        user=(await db.execute(select(User).where(User.password_reset_token_hash == hash_token_identifier(os.environ['E2_TOKEN']), User.password_reset_expires > datetime.now(UTC)))).scalar_one_or_none()
-        assert user is not None
-        organization=await db.get(Organization,user.organization_id)
-        assert _is_unclaimed_admin_invitation(user,organization)
-    await engine.dispose()
-asyncio.run(main())
-"#;
-    let status = std::process::Command::new(
-        std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()),
-    )
-    .args(["-c", script])
-    .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-    .env("E2_TOKEN", &token)
-    .status()
-    .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-    assert!(status.success());
     sqlx::query("DELETE FROM users WHERE id=$1")
         .bind(id)
         .execute(&owner)

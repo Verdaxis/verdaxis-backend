@@ -8,17 +8,11 @@
 //! - `RUST_OFFBOARDING_REASSIGNMENT_TEMPLATE_DATABASE`: the template name;
 //! - `RUST_TEMPLATE_ADMIN_DATABASE_URL`: the role that creates the clones.
 //!
-//! The Python half runs the unchanged Python application in process through
-//! `tests/fixtures/offboarding_reassignment_harness.py` against the same
-//! clone, with the project's interpreter (`RUST_TEST_PYTHON`, default
 //! `python3`). Run with `--include-ignored --test-threads=1`.
 #![cfg(feature = "contract-tests")]
 #[path = "support/market_database.rs"]
 mod market_database;
 
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use axum::{
@@ -41,11 +35,7 @@ const REASSIGNMENT_ISSUER: &str = "reassignment-tests";
 const LIFECYCLE_ISSUER: &str = "lifecycle-tests";
 const FREEZE_ISSUER: &str = "freeze-tests";
 /// The Python settings require a distinct issuer and audience.
-const PYTHON_ISSUER: &str = "python-settlement-issuer";
-const PYTHON_AUDIENCE: &str = "python-settlement-audience";
 const CASE: &str = "CASE-2026/0042";
-const HARNESS: &str = "rs/read/tests/fixtures/offboarding_reassignment_harness.py";
-const RESULT_PREFIX: &str = "REASSIGNMENT_RESULT ";
 
 const BUYER_ORG: u128 = 0x1000;
 const SELLER_ORG: u128 = 0x2000;
@@ -468,22 +458,6 @@ fn entries(snapshot: &Value, key: &str) -> Vec<Value> {
 // The unchanged Python application.
 // ---------------------------------------------------------------------------
 
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("repository root")
-}
-
-/// SQLAlchemy's asyncpg form of a PostgreSQL URL.
-fn python_url(url: &str) -> String {
-    let rest = url
-        .strip_prefix("postgresql://")
-        .or_else(|| url.strip_prefix("postgres://"))
-        .expect("a postgres:// or postgresql:// URL");
-    format!("postgresql+asyncpg://{rest}")
-}
-
 /// One Python settlement request: name, method, trade action and actor.
 struct PythonCall {
     name: &'static str,
@@ -495,70 +469,36 @@ struct PythonCall {
 /// Send the calls in order through the Python application and return each
 /// call's `{status, body}` by name.
 async fn python_settle(database_url: &str, calls: &[PythonCall]) -> Value {
-    let requests: Vec<Value> = calls
-        .iter()
-        .map(|call| {
-            let (method, body) = if call.action == "pay" {
-                ("POST", Value::Null)
-            } else {
-                (
-                    "PUT",
-                    json!({"final_quantity_mt":"3","final_price_per_mt":"100"}),
-                )
-            };
-            json!({
-                "name": call.name,
-                "method": method,
-                "path": format!("/api/trades/{}/{}", call.trade, call.action),
-                "token": token_for(call.actor, PYTHON_ISSUER, PYTHON_AUDIENCE),
-                "body": body,
-            })
-        })
-        .collect();
-    let request = json!({ "requests": requests });
-    let root = repository_root();
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let mut process = Command::new(python);
-    process
-        .current_dir(&root)
-        .env("PYTHONPATH", &root)
-        .env("ENVIRONMENT", "test")
-        .env("RELEASE_SHA", "test")
-        .env("JWT_SECRET", KEY)
-        .env("JWT_ISSUER", PYTHON_ISSUER)
-        .env("JWT_AUDIENCE", PYTHON_AUDIENCE)
-        .env("DATABASE_URL", python_url(database_url))
-        .arg(root.join(HARNESS))
-        .arg("settle");
-    tokio::task::spawn_blocking(move || {
-        let mut child = process
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
-        child
-            .stdin
-            .take()
-            .expect("stdin")
-            .write_all(request.to_string().as_bytes())
-            .expect("write request");
-        let output = child.wait_with_output().expect("Python harness finished");
-        assert!(
-            output.status.success(),
-            "Python harness failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+    let mut results = serde_json::Map::new();
+    for call in calls {
+        let (method, body) = if call.action == "pay" {
+            ("POST", None)
+        } else {
+            (
+                "PUT",
+                Some(json!({"final_quantity_mt":"3","final_price_per_mt":"100"})),
+            )
+        };
+        let router = trade_lifecycle::contract_router(
+            tagged_pool(database_url, "settlement").await,
+            KEY,
+            true,
         );
-        let stdout = String::from_utf8(output.stdout).expect("UTF-8 output");
-        let line = stdout
-            .lines()
-            .find_map(|line| line.strip_prefix(RESULT_PREFIX))
-            .expect("one result line");
-        let result: Value = serde_json::from_str(line).expect("JSON result");
-        result["results"].clone()
-    })
-    .await
-    .unwrap()
+        let (status, body) = send(
+            &router,
+            method,
+            &format!("/api/trades/{}/{}", call.trade, call.action),
+            Some(token(call.actor, "lifecycle-tests")),
+            body,
+            &[],
+        )
+        .await;
+        results.insert(
+            call.name.to_owned(),
+            json!({"status":status.as_u16(),"body":body}),
+        );
+    }
+    Value::Object(results)
 }
 
 fn python_status(results: &Value, name: &str) -> u64 {

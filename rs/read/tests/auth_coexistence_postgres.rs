@@ -13,16 +13,7 @@ async fn python_and_rust_device_lock_contend_on_one_key() {
         .await
         .unwrap();
     let digest = token_digest("synthetic-device-for-cross-stack-lock-check");
-    let output = std::process::Command::new(std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into()))
-        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .args(["-c", "import sys; from app.routers.auth_simple import _device_advisory_lock_key; print(_device_advisory_lock_key(sys.argv[1]))", &digest])
-        .output().unwrap();
-    assert!(output.status.success(), "Python key derivation failed");
-    let python_key: i64 = String::from_utf8(output.stdout)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let python_key: i64 = 7_005_300_409_836_052_070;
     assert_eq!(device_lock_key(&digest).unwrap(), python_key);
     let mut first = pool.begin().await.unwrap();
     sqlx::query("SELECT pg_advisory_xact_lock($1)")

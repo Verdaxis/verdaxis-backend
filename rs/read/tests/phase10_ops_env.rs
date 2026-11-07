@@ -8,7 +8,6 @@
 //! `scripts/prepare_rust_runtime.py` and `scripts/prepare_rust_budget.py`, so
 //! the parity cases run both on the same fixtures and compare the bytes.
 //!
-//! Python runs from `RUST_TEST_PYTHON` (default `python3`) with the
 //! requirements installed, as in the other Rust-launched Python checks.
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
