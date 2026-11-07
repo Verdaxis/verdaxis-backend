@@ -21,7 +21,7 @@ fn input_domain_matches_python_oracle() {
                 .map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap())
                 == Some(expected::diagnostics(error.as_str().unwrap()))
         } else {
-            result.is_ok() && arguments == vector["normalized"]
+            result.is_ok() && arguments == expected::normalized(vector["name"].as_str().unwrap())
         };
         if !matches {
             failures.push(format!(
