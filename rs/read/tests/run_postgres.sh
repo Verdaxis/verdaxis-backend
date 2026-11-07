@@ -251,8 +251,31 @@ CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
 CREATE EXTENSION IF NOT EXISTS postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator;
 SQL
-docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
-  -X -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
+# pg_dump renders varchar IN-lists as text-cast arrays. Reparse only those
+# CHECK/index expressions as IN-lists to reproduce the source catalog form
+# required by the compiled adoption fingerprint. Native templates keep the
+# frozen restore form; no migration or fingerprint policy is changed here.
+python3 - <<'PY' | docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
+  -X -v ON_ERROR_STOP=1 -q > /dev/null
+from pathlib import Path
+import re
+import sys
+
+varchar_list = re.compile(
+    r"\(\(([a-z_][a-z_0-9]*)\)::text (= ANY|<> ALL) "
+    r"\(\(ARRAY\[((?:'(?:[^']|'')*'::character varying(?:, )?)+)\]\)::text\[\]\)\)"
+)
+
+def source_list(match):
+    column, operation, values = match.groups()
+    operator = "IN" if operation == "= ANY" else "NOT IN"
+    return f"({column} {operator} ({values.replace('::character varying', '')}))"
+
+for line in Path("rs/read/migrations/1_baseline.sql").read_text().splitlines(keepends=True):
+    if " CHECK " in line or line.startswith(("CREATE INDEX ", "CREATE UNIQUE INDEX ")):
+        line = varchar_list.sub(source_list, line)
+    sys.stdout.write(line)
+PY
 # Adoption validates this source revision and writes sqlx history itself.
 docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
   -X -v ON_ERROR_STOP=1 -v adoption_head="$adoption_head" <<'SQL'
