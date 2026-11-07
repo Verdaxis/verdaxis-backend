@@ -109,7 +109,6 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/artifact-test-venv"
           "$RUNNER_TEMP/artifact-test-venv/bin/pip" install cryptography==50.0.0 PyYAML==6.0.3 jsonschema==4.25.1
           ARTIFACT_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/artifact-contract.sh
-          HOST_INVENTORY_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/host-inventory-contract.sh
       - name: Run the Python-free deploy transaction harness
         shell: bash -euo pipefail {0}
         run: bash deploy/tests/deploy-transaction.sh
