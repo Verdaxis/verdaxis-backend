@@ -38,8 +38,12 @@ TimeoutStopSec=30
 TimeoutStartSec=120
 LimitNOFILE=65536
 TasksMax=256
-MemoryHigh=192M
-MemoryMax=256M
+# Measured on production: the heap grows to about 360 MiB and the 37-hour
+# peak was about 560 MB. Throttling at 192M pushed memory to swap and slowed
+# requests and stops. 640M leaves margin over that peak; 768M is the hard cap
+# on a host with 7.9 GB.
+MemoryHigh=640M
+MemoryMax=768M
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

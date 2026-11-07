@@ -2,8 +2,9 @@
 //!
 //! Every case builds the serving router on a lazy pool aimed at a closed
 //! port, so a handler that reached for the database would fail or hang. The
-//! one case that needs a real database (the 200 readiness body) is compiled
-//! only with `contract-tests` and reads the disposable test URL.
+//! cases that need a real database (the 200 readiness body and the shared
+//! readiness probe) are compiled only with `contract-tests` and read the
+//! disposable test URL.
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -263,6 +264,96 @@ async fn health_503_body_has_no_provenance() {
         body,
         serde_json::json!({"status": "error", "db": "unavailable"})
     );
+}
+
+/// Twenty requests at once, the way several monitors and a load balancer can
+/// arrive together.
+const CONCURRENT_READINESS_REQUESTS: usize = 20;
+
+/// One shared probe answers a burst; a second is allowed only when a slow
+/// machine stretches the burst past the one-second reuse window.
+const MAX_PROBES_PER_BURST: u64 = 2;
+
+/// Sends the readiness burst from separate tasks and returns each status and
+/// body.
+async fn readiness_burst(app: &Router) -> Vec<(u16, String)> {
+    let mut requests = tokio::task::JoinSet::new();
+    for _ in 0..CONCURRENT_READINESS_REQUESTS {
+        let app = app.clone();
+        requests.spawn(async move {
+            let response = send(&app, "GET", "/health/ready").await;
+            (response.status().as_u16(), body_text(response).await)
+        });
+    }
+    requests.join_all().await
+}
+
+/// Concurrent readiness requests against an unreachable database share the
+/// database probe, and every one of them still reports the failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_readiness_failures_share_one_database_probe() {
+    let (state, _read, _health) = state_for(CLOSED_PORT_URL);
+    let readiness = state.database_readiness.clone();
+    let app = verdaxis_read::router(state);
+    for (status, body) in readiness_burst(&app).await {
+        assert_eq!(status, 503);
+        assert_eq!(body, r#"{"status":"error","db":"unavailable"}"#);
+    }
+    let probes = readiness.probes_started();
+    assert!(
+        (1..=MAX_PROBES_PER_BURST).contains(&probes),
+        "{probes} probes"
+    );
+}
+
+/// Concurrent readiness requests against a healthy database all answer 200
+/// with the exact body, and share the database probe instead of queueing on
+/// the one health connection.
+#[cfg(feature = "contract-tests")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_readiness_requests_share_one_database_probe() {
+    let url =
+        std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable test URL required");
+    let (state, _read, _health) = state_for(&url);
+    let readiness = state.database_readiness.clone();
+    let app = verdaxis_read::router(state);
+    let expected = format!(
+        r#"{{"status":"ok","db":"ok","environment":"test","release_sha":"{}"}}"#,
+        compiled_sha()
+    );
+    for (status, body) in readiness_burst(&app).await {
+        assert_eq!(status, 200);
+        assert_eq!(body, expected);
+    }
+    let probes = readiness.probes_started();
+    assert!(
+        (1..=MAX_PROBES_PER_BURST).contains(&probes),
+        "{probes} probes"
+    );
+}
+
+/// A database that stops answering shows as 503 once the last good answer
+/// is older than the reuse window, and that failure is reused, not re-probed,
+/// inside the window.
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn database_failure_answers_503_within_the_reuse_window() {
+    let url =
+        std::env::var("RUST_TEST_DATABASE_URL").expect("explicit disposable test URL required");
+    let (state, _read, health) = state_for(&url);
+    let readiness = state.database_readiness.clone();
+    let app = verdaxis_read::router(state);
+    assert_eq!(send(&app, "GET", "/health/ready").await.status(), 200);
+    health.close().await;
+    // Wait past the one-second reuse window so the good answer has expired.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let probes_before_failure = readiness.probes_started();
+    for path in ["/health/ready", "/health"] {
+        let (status, _, body) = readiness_failure(&app, path).await;
+        assert_eq!(status, 503, "{path}");
+        assert_eq!(body, r#"{"status":"error","db":"unavailable"}"#, "{path}");
+    }
+    assert_eq!(readiness.probes_started(), probes_before_failure + 1);
 }
 
 /// The snippet text without comment lines.

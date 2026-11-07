@@ -73,7 +73,13 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
         read.close().await;
         return Err(error);
     }
+    // Health pool only: skip SQLx's ping before each acquire. The readiness
+    // probe is itself a round trip on this one connection, so the ping only
+    // doubles the work. A connection that broke while idle fails that one
+    // probe (a 503 for one reuse window); SQLx's ping on release then closes
+    // it and the next probe connects again. The read pool keeps the ping.
     let health = match pool_options(1, config.db_session_time_zone.clone())
+        .test_before_acquire(false)
         .connect_with(options)
         .await
     {

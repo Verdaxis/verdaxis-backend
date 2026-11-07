@@ -124,6 +124,9 @@ pub struct AppState {
     pub policy_identity: String,
     /// Allowed request `Host` authorities, parsed from `ALLOWED_HOSTS`.
     pub host_policy: std::sync::Arc<runtime::host::HostPolicy>,
+    /// The database part of `/health` and `/health/ready`, shared by every
+    /// request so concurrent checks do not queue on the one health connection.
+    pub database_readiness: std::sync::Arc<runtime::health::DatabaseReadiness>,
 }
 
 impl AppState {
@@ -181,6 +184,7 @@ impl AppState {
             trading_read_observer: std::sync::Arc::new(runtime::admission::RealtimeTradingRead),
             policy_identity,
             host_policy: std::sync::Arc::new(host_policy),
+            database_readiness: std::sync::Arc::default(),
         })
     }
 
