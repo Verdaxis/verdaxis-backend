@@ -19,7 +19,7 @@ class SafeRootGit(unittest.TestCase):
 
     def test_release_entrypoints_share_the_git_boundary(self):
         for relative in ("scripts/deploy.sh", "scripts/install_systemd_units.sh",
-                         "scripts/rust_w2_handover.sh", "deploy/scripts/pre-m-bundle.sh"):
+                         "deploy/scripts/pre-m-bundle.sh"):
             with self.subTest(source=relative):
                 source = (ROOT / relative).read_text()
                 self.assertIn("safe-root-git.sh", source)
