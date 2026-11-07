@@ -5,7 +5,7 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 python=${HOST_INVENTORY_TEST_PYTHON:-python3}
 check_register() {
-    "$python" tests/rust_contract/phase10/host_inventory/automation_contract.py --check "$1"
+    "$python" tests/tooling/phase10/host_inventory/automation_contract.py --check "$1"
 }
 required_verdaxis_python_has_no_exception() { check_register "${FUNCNAME[0]}"; }
 only_superseded_exact_cron_entries_are_removed() { check_register "${FUNCNAME[0]}"; }

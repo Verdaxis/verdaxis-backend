@@ -27,12 +27,12 @@ def assert_collection(case, reader, result, *, scripts, blocking, markers,
     for observation in observations:
         case.assertEqual(observation['acquired'], acquired[observation['surface']])
     transport = load(TRANSPORT)
-    base = json.loads((ROOT/'tests/rust_contract/phase10/host_inventory/observations.json').read_text())
+    base = json.loads((ROOT/'tests/tooling/phase10/host_inventory/observations.json').read_text())
     # Exactly the bytes the host would transmit; validation is downstream.
     wire = json.dumps(result, sort_keys=True).encode()
     document = transport.collect_hosts(base, lambda argv, data: (wire, True))
     from jsonschema import Draft202012Validator
-    schema = json.loads((ROOT/'tests/rust_contract/phase10/host-inventory.schema.json').read_text())
+    schema = json.loads((ROOT/'tests/tooling/phase10/host-inventory.schema.json').read_text())
     Draft202012Validator(schema).validate(document)
     return document
 

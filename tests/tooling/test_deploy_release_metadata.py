@@ -12,7 +12,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from tests.unit.test_deploy_health import (
+from tests.tooling.test_deploy_health import (
     MIGRATION_TARGET,
     _approved_deploy_environment,
     _deployment_checkout,

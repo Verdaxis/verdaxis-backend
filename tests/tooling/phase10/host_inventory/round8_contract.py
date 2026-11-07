@@ -256,7 +256,7 @@ class Round8Contract(unittest.TestCase):
                 self.assertTrue(killed)
                 self.assertEqual(raw,(b'',False))
                 self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
-                base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
+                base=json.loads((ROOT/'tests/tooling/phase10/host-dependencies.json').read_text())
                 self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
 
     def test_transport_and_publisher_downstream(self):
@@ -266,7 +266,7 @@ class Round8Contract(unittest.TestCase):
             raw=self.transport.ssh_once(['fixture'],b'x')
         self.assertEqual(raw,(b'',False))
         self.assertEqual(self.transport.read_host('staging',lambda a,d:raw),{'refusal':'transport-error'})
-        base=json.loads((ROOT/'tests/rust_contract/phase10/host-dependencies.json').read_text())
+        base=json.loads((ROOT/'tests/tooling/phase10/host-dependencies.json').read_text())
         self.assertEqual(self.transport.collect_hosts(base,lambda a,d:raw),{'host_refusals':{'staging':{'refusal':'transport-error'},'production':{'refusal':'transport-error'}}})
         result=self.reader.collect(lambda argv:('',True),cron_files=[])
         doc=self.installed(result,expected_false=set(),scripts=[],blocking=[],observations=self.observations([]),truncations=[])

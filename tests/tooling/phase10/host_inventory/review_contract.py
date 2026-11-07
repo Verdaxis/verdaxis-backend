@@ -54,7 +54,7 @@ class ReviewContract(unittest.TestCase):
         for secret in secrets:
             self.assertNotIn(secret, json.dumps(document))
         from jsonschema import Draft202012Validator
-        schema = json.loads((ROOT / 'tests/rust_contract/phase10/host-inventory.schema.json').read_text())
+        schema = json.loads((ROOT / 'tests/tooling/phase10/host-inventory.schema.json').read_text())
         Draft202012Validator(schema).validate(document)
 
     def test_publication_end_to_end_and_refusals(self):

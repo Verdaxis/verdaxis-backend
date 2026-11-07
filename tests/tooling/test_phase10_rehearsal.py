@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.tooling.compatibility import historical_text
+
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "tests/rust_contract/phase10/rehearsal_evidence.py"
+MODULE_PATH = ROOT / "tests/tooling/phase10/rehearsal_evidence.py"
 SPEC = importlib.util.spec_from_file_location("rehearsal_evidence", MODULE_PATH)
 evidence = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evidence)
@@ -120,7 +122,7 @@ def test_rehearsal_evidence_cannot_change_identity(sample, field, value):
 
 def test_rehearsal_manifest_covers_each_named_check():
     manifest = json.loads(
-        (ROOT / "tests/rust_contract/phase10/evidence-manifest.json").read_text()
+        historical_text("tests/rust_contract/phase10/evidence-manifest.json")
     )
     rows = manifest["rehearsal"]["scenarios"]
     assert len(rows) == len(evidence.REQUIRED_CHECKS)

@@ -12,6 +12,19 @@ budget = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(budget)
 
 
+import pytest
+from tests.tooling.compatibility import stage_budget_source
+
+
+@pytest.fixture(autouse=True)
+def staged_budget(tmp_path, monkeypatch):
+    path = stage_budget_source(tmp_path / "compatibility")
+    spec = importlib.util.spec_from_file_location("staged_budget", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(__import__(__name__, fromlist=["budget"]), "budget", module)
+
+
 class RustBudgetTests(unittest.TestCase):
     def settings(self, **changes):
         values = dict(DB_SERVICE_COUNT=2, UVICORN_WORKERS=4, DB_POOL_SIZE=2,

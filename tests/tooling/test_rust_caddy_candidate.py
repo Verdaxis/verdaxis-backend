@@ -61,7 +61,7 @@ def test_all_snippet_groups_preserve_staging_forwarding_options():
             assert body.count("reverse_proxy ") == 1
             assert "{args[5]}" not in body
             assert "lb_try_duration" not in body
-    contract = (ROOT / "tests/rust_contract/Caddyfile").read_text()
+    contract = (ROOT / "tests/tooling/Caddyfile").read_text()
     assert "flush_interval -1" in contract and "keepalive off" in contract
     # The public import's last argument, the CRUD import's last argument and the
     # site fallback are the same Python upstream.

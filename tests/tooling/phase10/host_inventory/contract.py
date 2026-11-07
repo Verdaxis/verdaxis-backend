@@ -146,7 +146,7 @@ class InventoryContract(unittest.TestCase):
         link.symlink_to(output)
         self.assertNotEqual(run(COLLECT, '--fixture', FIXTURE, '--evidence-dir', self.folder,
                                 '--output-name', link.name).returncode, 0)
-        empty = ROOT / 'tests/rust_contract/phase10/host-dependencies.json'
+        empty = ROOT / 'tests/tooling/phase10/host-dependencies.json'
         from jsonschema import Draft202012Validator
         schema = json.loads((empty.parent / 'host-inventory.schema.json').read_text())
         Draft202012Validator(schema).validate(json.loads(empty.read_text()))

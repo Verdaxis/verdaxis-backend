@@ -8,8 +8,8 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[4]
 R='deploy/tests/host-inventory-reader.py'
-T='tests/rust_contract/phase10/host_inventory/transport.py'
-B='tests/rust_contract/phase10/host_inventory/'
+T='tests/tooling/phase10/host_inventory/transport.py'
+B='tests/tooling/phase10/host_inventory/'
 # exact source, exact replacement, targeted test; each comparison is independent.
 SITES=[
  ('priority',R,'if sum(len(items) for items in self.rows.values()) > self.capacity:','if False:', 'round8_contract.py','Round8Contract.test_real_parser_dual_class_overflow_installed'),

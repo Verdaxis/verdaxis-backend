@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 python=${ARTIFACT_TEST_PYTHON:-venv/bin/python}
-"$python" tests/rust_contract/phase10/artifact/contract.py
+"$python" tests/tooling/phase10/artifact/contract.py
 
 # Check the reviewed list and the job itself, including fail-closed lint behavior.
 "$python" - <<'PY'

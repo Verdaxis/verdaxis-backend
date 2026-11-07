@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tests.rust_contract.test_phase5_routing import free_port, owner, upstream
+from tests.tooling.test_phase5_routing import free_port, owner, upstream
 
 ROOT = Path(__file__).resolve().parents[2]
 PATH = "/api/auth/me/abilities"
@@ -80,7 +80,7 @@ def site(request, tmp_path_factory):
 
 
 def test_route_inventory():
-    inventory = json.loads((ROOT / "tests/rust_contract/abilities/routes.json").read_text())
+    inventory = json.loads((ROOT / "tests/tooling/abilities/routes.json").read_text())
     assert inventory == {"owner": "rust", "schema_version": 1, "routes": [
         {"method": method, "path": PATH, "auth": "current_user"}
         for method in ("GET", "HEAD", "OPTIONS")

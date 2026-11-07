@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.tooling.compatibility import historical_text
+
 ROOT = Path(__file__).resolve().parents[2]
 UNIT_MANIFEST = "deploy/systemd/runtime-units.manifest"
 STAGING_POLICY = "deploy/rust/staging-policy.json"
@@ -177,13 +179,13 @@ class RustReleaseFixture:
             shutil.copy2(ROOT / "scripts" / name, scripts / name)
         (scripts / "preflight_runtime.py").write_text("# release test preflight\n")
         for name in ("verify_migration_revision.py", "apply_migration_checkpoint.py"):
-            shutil.copy2(ROOT / "scripts" / name, scripts / name)
+            (scripts / name).write_text(historical_text(f"scripts/{name}"))
         # The real budget helper imports the deployed application settings in a
         # fresh subprocess, so the fixture tree carries the config module.
         app_dir = source / "app"
         app_dir.mkdir()
         (app_dir / "__init__.py").write_text("")
-        shutil.copy2(ROOT / "app/config.py", app_dir / "config.py")
+        (app_dir / "config.py").write_text(historical_text("app/config.py"))
 
         systemd = source / "deploy/systemd"
         systemd.mkdir(parents=True)

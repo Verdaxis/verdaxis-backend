@@ -163,7 +163,7 @@ def route_owner(request, tmp_path_factory):
             **{f"{group}_UPSTREAM": python if group == request.param else rust
                for group in (*GROUPS, *CRUD_GROUPS)},
         }
-        config = ROOT / "tests/rust_contract/Caddyfile"
+        config = ROOT / "tests/tooling/Caddyfile"
         subprocess.run([caddy, "adapt", "--config", str(config), "--validate"],
                        env=env, check=True, capture_output=True)
         log_path = tmp_path_factory.mktemp("routing") / "caddy.log"

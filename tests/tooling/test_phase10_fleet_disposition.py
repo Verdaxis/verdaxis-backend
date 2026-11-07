@@ -9,8 +9,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.tooling.compatibility import historical_text
+
 ROOT = Path(__file__).resolve().parents[2]
-DIRECTORY = ROOT / 'tests/rust_contract/phase10'
+DIRECTORY = ROOT / 'tests/tooling/phase10'
 sys.path.insert(0, str(DIRECTORY / 'host_inventory'))
 import inventory
 
@@ -50,7 +52,7 @@ def check_evidence(record):
 def check_record(record):
     inventory.validate(inventory.parse(inventory.read_bytes(REGISTER)))
     assert record['schema_version'] == 1 and record['task'] == 25
-    assert record['w0']['path'] == str(REGISTER.relative_to(ROOT))
+    assert record['w0']['path'] == 'tests/rust_contract/phase10/host-dependencies.json'
     assert record['w0']['sha256'] == digest(REGISTER)
     assert record['w0']['scope'] == 'collected-manual'
     assert record['w0']['installed_acceptance'] is False
@@ -141,7 +143,7 @@ def test_fleet_disposition_record_is_complete_and_bound_to_green_w0(green_w0):
         with pytest.raises(AssertionError):
             check_record(bad)
     for filename, key in [('removal-ledger.json', 'artifacts'), ('scripts.json', 'artifacts')]:
-        document = json.loads((DIRECTORY / filename).read_text())
+        document = json.loads(historical_text(f"tests/rust_contract/phase10/{filename}"))
         row = next(row for row in document[key] if row['id'] == 'script.scrape_fleet_demand.py')
         assert row['status'] == 'accepted' and row['end_state'] == 'retired-offhost'
         assert row['owner'] == record['owner']

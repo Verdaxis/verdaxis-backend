@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_rust_release import RustReleaseFixture, _git, _load_preparer
+from tests.tooling.test_rust_release import RustReleaseFixture, _git, _load_preparer
 
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40

@@ -26,7 +26,7 @@ import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-INVENTORY = json.loads((ROOT / "tests/rust_contract/phase5/routes.json").read_text())
+INVENTORY = json.loads((ROOT / "tests/tooling/phase5/routes.json").read_text())
 VESSEL = "11111111-1111-4111-8111-111111111111"
 PORT_ID = "SGSIN"
 METHODS = ("GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE")

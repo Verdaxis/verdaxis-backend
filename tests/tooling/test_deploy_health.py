@@ -27,14 +27,14 @@ UNIT_MANIFEST = "deploy/systemd/runtime-units.manifest"
 DEPLOY_START_GUARD = "scripts/verify_deploy_start_guard.py"
 SYSTEMD_UNITS = {
     "production": (
-        "deploy/systemd/verdaxis-backend.service",
+        "deploy/systemd/verdaxis-rust.service",
         "deploy/systemd/verdaxis-news-refresh.service",
         "deploy/systemd/verdaxis-news-refresh.timer",
         "deploy/systemd/verdaxis-product-analytics-prune.service",
         "deploy/systemd/verdaxis-product-analytics-prune.timer",
     ),
     "staging": (
-        "deploy/systemd/verdaxis-backend-staging.service",
+        "deploy/systemd/verdaxis-rust-staging.service",
         "deploy/systemd/verdaxis-news-refresh-staging.service",
         "deploy/systemd/verdaxis-news-refresh-staging.timer",
         "deploy/systemd/verdaxis-product-analytics-prune-staging.service",
@@ -383,17 +383,17 @@ def test_restart_authorization_is_written_after_second_lock_before_restart():
 @pytest.mark.parametrize(
     ("unit_name", "backend_dir", "environment"),
     [
-        ("verdaxis-backend.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
-        ("verdaxis-backend-staging.service", "/home/verdaxis-prod/verdaxis/staging/be", "staging"),
+        ("verdaxis-rust.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
+        ("verdaxis-rust-staging.service", "/home/verdaxis-prod/verdaxis/staging/be", "staging"),
     ],
 )
-def test_backend_units_use_the_lock_aware_restart_guard(
+def test_rust_units_use_the_lock_aware_restart_guard(
     unit_name, backend_dir, environment
 ):
     content = (ROOT / "deploy/systemd" / unit_name).read_text()
     command = (
-        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
-        f"{backend_dir}/{DEPLOY_START_GUARD} --environment {environment} "
+        "ExecStartPre=/usr/bin/env -i PATH=/usr/bin:/bin /bin/bash "
+        f"{backend_dir}/deploy/scripts/verify-deploy-start-guard.sh --environment {environment} "
         "--expected-release-sha ${RELEASE_SHA}"
     )
 

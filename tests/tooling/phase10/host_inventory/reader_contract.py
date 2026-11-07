@@ -138,7 +138,7 @@ class ReaderContract(unittest.TestCase):
         document = transport.collect_hosts(base, runner)
         self.assertEqual(len(calls), 2)
         from jsonschema import Draft202012Validator
-        schema = json.loads((ROOT / 'tests/rust_contract/phase10/host-inventory.schema.json').read_text())
+        schema = json.loads((ROOT / 'tests/tooling/phase10/host-inventory.schema.json').read_text())
         Draft202012Validator(schema).validate(document)
         self.assertEqual(document['scope'], 'installed')
         self.assertEqual(document['binding'], 'unsigned, digest-bound')

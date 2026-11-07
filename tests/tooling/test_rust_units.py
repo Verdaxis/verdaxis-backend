@@ -40,6 +40,12 @@ RELEASE_SHA = "a" * 40
 MIGRATION_REVISION = "kycg_20261014_staging"
 
 
+def _historical_backend_unit(suffix: str) -> str:
+    from tests.tooling.compatibility import historical_text
+
+    return historical_text(f"deploy/systemd/verdaxis-backend{suffix}.service")
+
+
 def _text(relative: str) -> str:
     return (ROOT / relative).read_text()
 
@@ -143,7 +149,7 @@ def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
 @pytest.mark.parametrize("suffix", ["", "-staging"])
 def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(suffix):
     unit = _text(f"deploy/systemd/verdaxis-rust{suffix}.service")
-    backend = _text(f"deploy/systemd/verdaxis-backend{suffix}.service")
+    backend = _historical_backend_unit(suffix)
     _assert_runtime_directives(unit, backend, suffix)
     for section in ("[Unit]", "[Service]", "[Install]"):
         assert section in unit
@@ -201,7 +207,11 @@ def _staged_runtime_environment(tmp_path: Path) -> dict[str, Path]:
             ROOT,
             MIGRATION_REVISION,
         )
-        budget = _module(PREPARE_BUDGET)
+        from tests.tooling.compatibility import stage_budget_source
+        budget_source = stage_budget_source(tmp_path / "compatibility")
+        spec = importlib.util.spec_from_file_location("staged_budget", budget_source)
+        budget = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(budget)
         budget_path = runtime_dir / "budget.json"
         budget.prepare(environment_file, RELEASE_SHA, budget_path)
         # The active binary is installed by deploy.sh's copy-chmod-rename
@@ -348,7 +358,7 @@ def _assert_staging_credential_boundary(unit: str) -> None:
     assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
     assert "MIGRATOR_DATABASE_URL" not in unit
     assert "/etc/verdaxis/kyc-document-keys.json" not in unit
-    _assert_runtime_directives(unit, _text(BACKEND_STAGING_UNIT), "-staging")
+    _assert_runtime_directives(unit, _historical_backend_unit("-staging"), "-staging")
 
 
 def test_rust_unit_names_no_production_path_or_migrator_credential():

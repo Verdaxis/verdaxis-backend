@@ -15,7 +15,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[4]
-SCHEMA = ROOT / 'tests/rust_contract/phase10/host-inventory.schema.json'
+SCHEMA = ROOT / 'tests/tooling/phase10/host-inventory.schema.json'
 MAX_BYTES = 8 * 1024 * 1024
 REQUIRED = {'backup', 'restore', 'staging-pull', 'dump', 'fleet'}
 
