@@ -17,7 +17,7 @@ def load(path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     if path == READER and hasattr(module, 'FILE_ROOTS'):
-        module.FILE_ROOTS = (*module.FILE_ROOTS, '/tmp')  # disposable fixture files only
+        module.FILE_ROOTS = (*module.FILE_ROOTS, tempfile.gettempdir())  # disposable fixture files only
     return module
 
 
