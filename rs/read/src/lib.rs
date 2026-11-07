@@ -125,7 +125,7 @@ pub struct AppState {
     /// Allowed request `Host` authorities, parsed from `ALLOWED_HOSTS`.
     pub host_policy: std::sync::Arc<runtime::host::HostPolicy>,
     /// The database part of `/health` and `/health/ready`, shared by every
-    /// request of this process.
+    /// request so concurrent checks do not queue on the one health connection.
     pub database_readiness: std::sync::Arc<runtime::health::DatabaseReadiness>,
 }
 
