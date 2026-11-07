@@ -259,18 +259,6 @@ fn rust_prepare_budget(environment: &str, environment_file: &Path, extra: &[&str
         .unwrap()
 }
 
-fn python_prepare_budget(environment_file: &Path, extra: &[&str]) -> Output {
-    Command::new(python())
-        .arg("-I")
-        .arg(repository_root().join("scripts/prepare_rust_budget.py"))
-        .arg("--environment-file")
-        .arg(environment_file)
-        .args(["--release-sha", SHA])
-        .args(extra)
-        .output()
-        .unwrap()
-}
-
 /// Parse a written file as systemd's `EnvironmentFile=` reads the renderer's
 /// two forms: `KEY=plain` and `KEY="escaped"` with `\\` and `\"`.
 fn read_environment_file(path: &Path) -> BTreeMap<String, String> {
@@ -940,25 +928,43 @@ fn budget_matches_configured_authority_not_measured_load() {
         // The database is unreachable: the budget is configured authority, so
         // it never connects and never reads the server's measured load.
         let environment_file = fixture.on_closed_port().write(&scratch.path("be"));
-        let (rust_out, python_out) = (scratch.path("rust.json"), scratch.path("python.json"));
-        let mut python_arguments = vec!["--output", python_out.to_str().unwrap()];
-        python_arguments.extend_from_slice(extra);
-        assert_ok(
-            &python_prepare_budget(&environment_file, &python_arguments),
-            name,
-        );
+        let rust_out = scratch.path("rust.json");
         let mut rust_arguments = vec!["--output", rust_out.to_str().unwrap()];
         rust_arguments.extend_from_slice(extra);
         assert_ok(
             &rust_prepare_budget("staging", &environment_file, &rust_arguments),
             name,
         );
-        assert_eq!(
-            std::fs::read_to_string(&rust_out).unwrap(),
-            std::fs::read_to_string(&python_out).unwrap(),
-            "{name}: artifact bytes"
-        );
-        // Each side verifies the other's artifact; an edited .env is refused.
+        let mut expected = match name {
+            "Python integer spellings" => serde_json::json!({
+                "version": 1, "release_sha": SHA, "services": 2, "workers": 2,
+                "pool": 3, "overflow": 0, "reserve": 20,
+                "configured_max_connections": 200, "rust_pool": 9,
+                "python_budget": 36, "total": 45
+            }),
+            _ => serde_json::json!({
+                "version": 1, "release_sha": SHA, "services": 2, "workers": 4,
+                "pool": 2, "overflow": 1, "reserve": 20,
+                "configured_max_connections": 100, "rust_pool": 17,
+                "python_budget": 52, "total": 69
+            }),
+        };
+        if name == "both listeners" {
+            expected["cache_listener"] = serde_json::json!(1);
+            expected["stream_listener"] = serde_json::json!(1);
+            expected["total"] = serde_json::json!(71);
+        }
+        use sha2::Digest;
+        let digest: String = sha2::Sha256::digest(std::fs::read(&environment_file).unwrap())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        expected["environment_digest"] = serde_json::json!(digest);
+        let artifact = std::fs::read_to_string(&rust_out).unwrap();
+        let actual: Value = serde_json::from_str(&artifact).unwrap();
+        assert_eq!(actual, expected, "{name}: fixed artifact fields");
+        assert!(artifact.ends_with('\n'), "{name}: artifact newline");
+        // Native verification accepts its artifact and refuses an edited .env.
         let verify = |path: &Path| {
             vec![
                 "--output".to_owned(),
@@ -966,14 +972,10 @@ fn budget_matches_configured_authority_not_measured_load() {
                 "--verify".to_owned(),
             ]
         };
-        let rust_verify = verify(&python_out);
-        let python_verify = verify(&rust_out);
+        let mut rust_verify = verify(&rust_out);
+        rust_verify.extend(extra.iter().map(|argument| (*argument).to_owned()));
         assert_ok(
             &rust_prepare_budget("staging", &environment_file, &strs(&rust_verify)),
-            name,
-        );
-        assert_ok(
-            &python_prepare_budget(&environment_file, &strs(&python_verify)),
             name,
         );
         std::fs::write(
@@ -1032,13 +1034,6 @@ fn budget_matches_configured_authority_not_measured_load() {
         let output = scratch.path("budget.json");
         let mut arguments = vec!["--output", output.to_str().unwrap()];
         arguments.extend_from_slice(extra);
-        assert_ne!(
-            python_prepare_budget(&environment_file, &arguments)
-                .status
-                .code(),
-            Some(0),
-            "{name}: Python refuses"
-        );
         let rust = rust_prepare_budget("staging", &environment_file, &arguments);
         assert_eq!(
             rust.status.code(),
