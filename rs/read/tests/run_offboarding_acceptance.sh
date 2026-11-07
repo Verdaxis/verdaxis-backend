@@ -59,8 +59,8 @@ docker exec "$container" psql -U postgres -d "$template" -v ON_ERROR_STOP=1 \
 # shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" \
   PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
   psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
@@ -80,7 +80,7 @@ log=$(mktemp "${TMPDIR:-/tmp}/offboarding-acceptance.XXXXXX")
 set +e
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test offboarding_acceptance_postgres \
+  --features contract-tests --test group_offboarding offboarding_acceptance_postgres:: \
   -- --include-ignored --test-threads=1 --show-output 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
@@ -90,5 +90,5 @@ if (( cargo_status != 0 )); then exit "$cargo_status"; fi
 grep -Eq "^test result: ok\. ${#cases[@]} passed; 0 failed; 0 ignored" "$log" \
   || { echo "expected ${#cases[@]} executed cases" >&2; exit 1; }
 for case in "${cases[@]}"; do
-  grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
+  grep -q "test offboarding_acceptance_postgres::$case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

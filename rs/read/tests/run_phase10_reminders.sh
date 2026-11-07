@@ -43,8 +43,8 @@ SQL
 database=verdaxis_reminders_test
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw \
   psql -X --single-transaction -v ON_ERROR_STOP=1 -v database_name="$database" \
   -v app_role=rust_app -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
@@ -57,7 +57,7 @@ export RUST_REMINDERS_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_p
 log=$(mktemp "${TMPDIR:-/tmp}/rust-reminder-tests.XXXXXX")
 set +e
 cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-  --test phase10_reminders_postgres -- --include-ignored --test-threads=1 2>&1 | tee "$log"
+  --test group_phase10 phase10_reminders_postgres:: -- --include-ignored --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then exit "$cargo_status"; fi

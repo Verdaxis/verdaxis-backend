@@ -10,7 +10,7 @@ def main():
     with DisposablePostgres("verdaxis_preferences_test") as database:
         result = subprocess.run(
             ["cargo", "test", "--manifest-path", str(ROOT / "rs/Cargo.toml"), "--locked",
-             "-p", "verdaxis-read", "--test", "crud_preferences_postgres", "--", "--nocapture"],
+             "-p", "verdaxis-read", "--test", "group_crud", "crud_preferences_postgres::", "--", "--nocapture"],
             cwd=ROOT,
             env={**os.environ, "SQLX_OFFLINE": "true", "RELEASE_SHA": database.release_sha,
                  "REQUIRE_PREFERENCES_TEST": "true",

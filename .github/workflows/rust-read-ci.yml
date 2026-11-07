@@ -395,8 +395,8 @@ jobs:
         run: |
           set -o pipefail
           CADDY_BINARY="$RUNNER_TEMP/bin/caddy" cargo test --manifest-path rs/Cargo.toml --locked \
-            -p verdaxis-read --test offboarding_composition \
-            -- --ignored --exact caddy_routes_the_group_only_when_enabled 2>&1 | tee offboarding-caddy.log
+            -p verdaxis-read --test group_offboarding \
+            -- --ignored --exact offboarding_composition::caddy_routes_the_group_only_when_enabled 2>&1 | tee offboarding-caddy.log
           grep -Eq '^test result: ok\. 1 passed; 0 failed' offboarding-caddy.log
 
 

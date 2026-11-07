@@ -1316,8 +1316,8 @@ async fn migrate_command_refuses_before_any_connection() {
 /// Existing legacy schemas use the native adoption checks. Empty databases
 /// use the same embedded migration and checksum as the runtime. This helper
 /// accepts only numeric loopback endpoints and test database names.
-/// Run with `cargo test ... --test phase10_migrate_postgres
-/// runner_database_adopts_to_the_baseline -- --ignored`.
+/// Run with `cargo test ... --test group_phase10
+/// phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored`.
 #[tokio::test]
 #[ignore = "run by the component runners through their migrator URL"]
 async fn runner_database_adopts_to_the_baseline() {

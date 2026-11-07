@@ -60,8 +60,8 @@ export RELEASE_SHA="$release_sha"
 stamp migrate
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/$db" \
   cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 echo "MIGRATE_EXIT=$?"
 
 # The runtime role holds read access to the compliance relations and the

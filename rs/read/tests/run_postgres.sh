@@ -158,8 +158,8 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
   # Initialize the baseline and sqlx history before runtime ACL convergence.
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
     cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
+    --features contract-tests --test group_phase10 \
+    phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
@@ -236,17 +236,18 @@ if selected workspace; then
   fi
 fi
 
-# Run the named market-write targets with their ignored database cases. Each
-# target executes on its own migrated disposable database. A green run that
-# executed no test is a false pass, so refuse it.
-run_market_targets() {
+# Run the named market-write test modules with their ignored database cases.
+# Each module executes on its own migrated disposable database. A green run
+# that executed no test is a false pass, so refuse it.
+run_market_modules() {
   local group=$1
   shift
   local market_log market_status
   market_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-$group.XXXXXX")
   set +e
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-    "$@" -- --include-ignored --test-threads=1 2>&1 | tee "$market_log"
+    --test group_market_write -- --include-ignored --test-threads=1 \
+    "$@" 2>&1 | tee "$market_log"
   market_status=${PIPESTATUS[0]}
   set -e
   if (( market_status != 0 )); then
@@ -260,28 +261,32 @@ run_market_targets() {
 }
 
 if selected market_settlement; then
-  run_market_targets market_settlement \
-    --test market_write_pg_trades --test market_write_pg_settlement \
-    --test market_write_pg_trade_membership --test market_write_pg_races \
-    --test market_write_pg_residual --test market_write_pg_support \
-    --test market_write_serving
+  run_market_modules market_settlement \
+    market_write_pg_trades:: market_write_pg_settlement:: \
+    market_write_pg_trade_membership:: market_write_pg_races:: \
+    market_write_pg_residual:: market_write_pg_support:: \
+    market_write_serving::
 fi
 if selected market_orders; then
-  run_market_targets market_orders \
-    --test market_write_pg_create --test market_write_pg_amend \
-    --test market_write_pg_confirm --test market_write_pg_inventory \
-    --test market_write_pg_publish \
-    --test market_write_pg_freeze --test market_write_pg_freeze_enforcement \
-    --test market_write_pg_producer --test market_write_pg_producer_visibility
+  run_market_modules market_orders \
+    market_write_pg_create:: market_write_pg_amend:: \
+    market_write_pg_confirm:: market_write_pg_inventory:: \
+    market_write_pg_publish:: \
+    market_write_pg_freeze:: market_write_pg_freeze_enforcement:: \
+    market_write_pg_producer:: market_write_pg_producer_visibility::
 fi
 
 if selected schema; then
   # Phase 4 authority/review suites mark database cases explicitly; execute them
   # here as well as the default workspace cases, on the same disposable endpoint.
+  # Module filters apply to every selected binary, so the targets in their own
+  # binary run without filters and the grouped modules run separately.
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-    --test phase4_analytics_views --test phase4_analytics_legacy \
-    --test phase4_admission --test phase4_organizations --test phase4_races \
+    --test phase4_analytics_views --test phase4_analytics_legacy --test phase4_organizations \
     -- --include-ignored --test-threads=1
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+    --test group_phase4_phase5 -- --include-ignored --test-threads=1 \
+    phase4_admission:: phase4_races::
   # Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
   # The production migrator owns every object in the template.
   adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
@@ -341,11 +346,12 @@ SQL
   baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
   set +e
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-    --test phase10_baseline_postgres --test phase10_migrate_postgres \
-    --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
-    --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
-    -- --include-ignored --skip runner_database_adopts_to_the_baseline \
-    --test-threads=1 2>&1 | tee "$baseline_log"
+    --test group_phase10 -- --include-ignored --skip runner_database_adopts_to_the_baseline \
+    --test-threads=1 \
+    phase10_baseline_postgres:: phase10_migrate_postgres:: \
+    phase10_ops_preflight_postgres:: phase10_ingest_postgres:: \
+    phase10_gena_postgres:: phase10_canary_postgres:: phase10_cache_postgres:: \
+    2>&1 | tee "$baseline_log"
   baseline_status=${PIPESTATUS[0]}
   set -e
   if (( baseline_status != 0 )); then
