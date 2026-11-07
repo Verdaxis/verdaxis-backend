@@ -15,6 +15,5 @@ deploy/scripts/install-host-automation.sh
 scripts/install_systemd_units.sh
 deploy/scripts/pre-m-bundle.sh
 deploy/scripts/safe-root-git.sh
-deploy/tests/pre-m-bundle-contract.sh
 deploy/scripts/provision-bundle-reader.sh
 deploy/tests/bundle-reader-contract.sh

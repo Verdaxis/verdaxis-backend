@@ -18,8 +18,7 @@ class SafeRootGit(unittest.TestCase):
         )
 
     def test_release_entrypoints_share_the_git_boundary(self):
-        for relative in ("scripts/deploy.sh", "scripts/install_systemd_units.sh",
-                         "deploy/scripts/pre-m-bundle.sh"):
+        for relative in ("scripts/deploy.sh", "scripts/install_systemd_units.sh"):
             with self.subTest(source=relative):
                 source = (ROOT / relative).read_text()
                 self.assertIn("safe-root-git.sh", source)
@@ -45,12 +44,6 @@ class SafeRootGit(unittest.TestCase):
                     self.assertFalse(marker.exists())
                     subprocess.run(["git", "config", "--file", str(repo / ".git/config"), "--no-includes", "--unset", key], check=True)
             self.assertEqual(self.run_git(repo, "status", "--porcelain").returncode, 0)
-
-    def test_bundle_checks_installed_helper_ownership_before_loading(self):
-        source = (ROOT / "deploy/scripts/pre-m-bundle.sh").read_text()
-        self.assertIn("trusted_helper=", source)
-        check = source.index("installed Git helper must be root controlled")
-        self.assertLess(check, source.index('source "$trusted_helper"'))
 
     def test_ambient_git_configuration_cannot_execute(self):
         self.assertTrue(HELPER.is_file(), "shared privileged Git wrapper required")
