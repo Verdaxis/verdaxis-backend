@@ -24,4 +24,19 @@ Remove the Python API and comparison stack from baseline `61bf722dc` on `ci/fast
 6. Review changes, scan live imports and prohibited public terms, verify compatibility bytes, record counts and host actions. Commit small coherent changes. Change shared Phase 10 JSON only in the final commit alone; register new paths there.
 
 ## Resume point
-Step 1–4 in progress. Three isolated workers own Rust harnesses, kept tooling/tests, and workflows respectively. Main lane owns removal and final integration/gates. Shared Cargo commands use only the existing target and lock from the common rules. No tests or host changes have yet been performed by this lane.
+Application, backend test, comparison harness and CI removals are committed.
+Retained tooling is under `tests/tooling/`; native Rust fixtures are integrated.
+All 16 shell PostgreSQL runners are assigned exactly once to four CI cells.
+Additional stdlib notification/preferences runners remain local gates.
+
+Current gates run from ignored `work/ci-faster/` drivers. Logs and exact exit
+files are under `work/ci-faster/gates/`. Whole Rust tests, both lints and database
+runners use the one shared target/lock. Linux artifact, host inventory, deploy
+transaction and static installer contracts passed. The static installer reports
+two full-mode cases not run; no installed acceptance is implied.
+
+Next: resolve any integrated gate failures, repeat affected full gates, complete
+results/counts and compatibility exceptions in `outputs/ci-faster-results.md`.
+Then relocate the three shared inventories to `tests/tooling/phase10/`, register
+all new paths, and remove their old copies in the final ledger-only commit.
+No pushes or host access are authorized.
