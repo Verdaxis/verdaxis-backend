@@ -18,12 +18,18 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
 # Migrator-backed revision and budget checks remain short-lived prestarts.
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/runtime.env
-ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_deploy_start_guard.py --environment production --expected-release-sha ${RELEASE_SHA}
-ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B /home/verdaxis-prod/verdaxis/prod/be/scripts/verify_rust_start.py --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/revision.json
-# The OS launcher permits pre-artifact unit verification; env execs in the same PID.
-ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
+# Both prestarts run without the runtime environment. The shell guard
+# needs no Rust artifact; env launches the binary in the same PID, so
+# unit verification passes before the first artifact exists.
+ExecStartPre=/usr/bin/env -i PATH=/usr/bin:/bin /bin/bash /home/verdaxis-prod/verdaxis/prod/be/deploy/scripts/verify-deploy-start-guard.sh --environment production --expected-release-sha ${RELEASE_SHA}
+ExecStartPre=/usr/bin/env -i /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read guard rust-start --expected-release-sha ${RELEASE_SHA} --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json --expected-revision ${MIGRATION_REVISION} --revision-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/revision.json
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read serve --bind 127.0.0.1:8010 --budget-file /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/budget.json
 Restart=on-failure
 RestartSec=5
+# The service signals systemd only while /health/live answers; a hung
+# process misses the keepalives and is restarted (Restart=on-failure).
+WatchdogSec=60s
+NotifyAccess=main
 KillSignal=SIGTERM
 TimeoutStopSec=30
 TimeoutStartSec=120
@@ -31,7 +37,7 @@ LimitNOFILE=65536
 TasksMax=256
 MemoryHigh=192M
 MemoryMax=256M
-# At most one of the EU host's four CPUs; Python and PostgreSQL keep priority.
+# At most one of the EU host's four CPUs; PostgreSQL keeps priority.
 CPUQuota=100%
 CPUWeight=50
 NoNewPrivileges=true

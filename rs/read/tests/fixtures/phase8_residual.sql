@@ -314,3 +314,21 @@ CREATE OR REPLACE FUNCTION residual_waiting_advisory(waiter text) RETURNS bigint
       AND l.locktype='advisory' AND l.objsubid=1 AND NOT l.granted
     LIMIT 1
 $$;
+
+-- Drift on a demo coverage book (triggers off): the first key (by name) is
+-- repriced, the second filled, the third renamed to a key no run wants.
+CREATE OR REPLACE FUNCTION residual_demo_coverage_drift() RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM set_config('session_replication_role','replica',true);
+    WITH keys AS (
+        SELECT idempotency_key AS key, row_number() OVER (ORDER BY idempotency_key) AS n
+        FROM orderbook_orders WHERE idempotency_operation = 'DEMO_COVERAGE'
+    )
+    UPDATE orderbook_orders o SET
+        price_per_mt_usd = CASE WHEN k.n = 1 THEN o.price_per_mt_usd + 1 ELSE o.price_per_mt_usd END,
+        status = CASE WHEN k.n = 2 THEN 'FILLED' ELSE o.status END,
+        remaining_quantity_mt = CASE WHEN k.n = 2 THEN 0 ELSE o.remaining_quantity_mt END,
+        idempotency_key = CASE WHEN k.n = 3 THEN 'B30|Rotterdam|2001-Q1|BID|0' ELSE o.idempotency_key END
+    FROM keys k WHERE o.idempotency_key = k.key AND k.n <= 3;
+    PERFORM set_config('session_replication_role','origin',true);
+END $$;

@@ -163,6 +163,72 @@ channel repeat. Both Healthchecks and Telegram use a fixed one-hour
 transition/reminder gate; there is no force bypass or configurable interval.
 Malformed state is quarantined and cannot suppress paging.
 
+## Native alert handoff (Phase 10, `verdaxis-read monitor alert`)
+
+This section describes the Rust replacement that the Phase 10 unit installer
+activates. Until then the Python units above stay authoritative. The reviewed
+unit and policy bytes are `tests/rust_contract/phase10/alert-handoff/`.
+
+**Journal.** Each monitor admits its observation into its own ordered journal
+before it publishes its status: `/var/lib/verdaxis-health/alert-handoff/` and
+`/var/lib/verdaxis-backup-verify/alert-handoff/`, one immutable
+`<sequence>.json` per transition, with the cursor `<check>.sequence.json`, the
+stable journal lock `.<check>.journal.lock` and the producer lock
+`.<check>.producer.lock` beside it. One producer runs at a time: a manual run
+beside the timer exits 4 without publishing. A full journal (256 entries or
+1 MiB) or a 20 s journal-lock wait also exits 4 with the status unchanged.
+
+**Delivery.** `--event <check>` is a wakeup; the dispatcher delivers only the
+oldest unacknowledged entry. A head gets three attempts, at least 60 s and then
+300 s apart; a wakeup before the next attempt is due exits 4 and the unit
+restarts a minute later. With no destination configured nothing is
+acknowledged (exit 2) and the journal keeps the transition.
+
+**Exit codes and logs.** One JSON line on stderr per run, never a token, chat id
+or URL: 0 done, 2 no destination configured, 3 blocked (exhausted, invalid or
+reused head), 4 retry later or lock wait, 5 uncertain send. Exits 2, 3 and 5 are
+logged at error priority, exit 4 at warning priority. Python printed
+`Verdaxis monitor alert: ok|failed` on stdout and used only 0 and 2.
+
+**Failed handoff status.** `/var/lib/verdaxis-monitor-alert-status/<check>.json`
+(directory 0755, file 0644) has the monitor status schema with one check,
+`alert_handoff`: `healthy`/`ok`, or `failure` with `handoff_exhausted`,
+`handoff_uncertain`, `handoff_invalid_entry`, `handoff_sequence_reused` or
+`handoff_unconfigured`. It names no sequence, path or destination. The Phase 10
+external monitor (Task 29) is to read it together with the failed state of the
+alert units (`verdaxis-monitor-alert@health`, `@backup` and the reminder).
+
+**Operator procedures** (run as `verdaxis-monitor-alert`, with
+`/usr/local/libexec/verdaxis/verdaxis-read monitor alert`):
+
+1. Find the blocked head: the status code above, then the `head` of
+   `/var/lib/verdaxis-monitor-alert/<check>.delivery.json` (sequence, attempts,
+   per-destination status).
+2. `handoff_uncertain`: check the provider (Telegram chat, Healthchecks log),
+   then for each uncertain destination run
+   `--reconcile <check>:<sequence>:<healthchecks|telegram>:<delivered|not-delivered>`.
+3. `handoff_exhausted`: fix the destination, then `--rearm <check>:<sequence>`
+   (fresh attempts, due at once).
+4. `handoff_invalid_entry` or `handoff_sequence_reused`: move the bad journal
+   name aside as root (the next producer run quarantines links and temp files
+   itself), then `--repair <check>:<sequence> --reason "<what was done>"`. The
+   repair and its reason are logged; the acknowledged sequence is kept.
+5. Revert to Python: stop the native timers and units, drain the journals, then
+   `--release <check>`; it refuses while a head or entry remains. The native
+   dispatcher keeps the stable `.<check>.lock` at mode 0400, which stops a
+   direct Python run until `--release`.
+
+**tmpfiles.** Apply `verdaxis-monitor.conf` and
+`verdaxis-monitor-handoff-acl.conf` in one `systemd-tmpfiles --create` call and
+check `getfacl` afterwards. The base file creates the producer state
+directories with mode 0710, the ACL mask mode, so applying it alone keeps the
+dispatcher's traversal entry; the handoff paths are created beside their ACLs.
+
+**Outbox probe.** `verdaxis-read monitor outbox --dsn <dsn>` keeps the Python
+probe's stdout JSON and exits (0 ok, 1 breach, 2 error), adds one JSON line on
+stderr, and accepts `--query-timeout` from 1 to 20 seconds only. A DSN without
+`host` uses `PGHOST` or the local socket, as libpq does.
+
 ## Demo activity isolation
 
 Production and staging have independent service/timer pairs. Neither unit
@@ -226,6 +292,11 @@ database locations and the canonical installer promotes the exact
 manifest-attested artifacts. This contract installs no prerequisite.
 
 ## Dual-run and retirement gate
+
+legacy_retirement.py is retired off-host. It is not in artifact-manifest.json, no unit
+or timer runs it, and no host installs it. Its source and the retirement evidence
+example stay in this directory for audit only; the reviewed copy is in the off-host
+tools record (`tests/rust_contract/phase10/offhost-tools.json`).
 
 legacy_retirement.py defaults to validation only. It derives the required
 delivery matrix from the presence of these key names without retaining or

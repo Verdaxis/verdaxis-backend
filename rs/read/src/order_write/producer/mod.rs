@@ -144,13 +144,12 @@ impl ProducerActivation {
     }
 }
 
-/// True when the database revision is the producer checkpoint or a later one.
+/// Schema capability is independent of this release's startup admissions.
+/// Historical checkpoints describe the same tables adopted by sqlx version 1.
 pub fn schema_has_producer(revision: &str) -> bool {
-    let order = crate::runtime::artifact::ALLOWED_REVISIONS;
-    let position = |wanted: &str| order.iter().position(|known| *known == wanted);
     matches!(
-        (position(PRODUCER_REVISION), position(revision)),
-        (Some(producer), Some(current)) if current >= producer
+        revision,
+        PRODUCER_REVISION | "p89_20261022_trade_freeze" | "ob_20261031_offboarding" | "sqlx_1"
     )
 }
 

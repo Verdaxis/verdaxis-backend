@@ -1,5 +1,16 @@
 \set ON_ERROR_STOP on
 
+-- Optional: bundle_reader_role, the pre-M bundle's read-only reader (plan
+-- section 8.7). Absent or empty, no reader grant is expected.
+\if :{?bundle_reader_role}
+\else
+\set bundle_reader_role ''
+\endif
+SELECT 1 / (
+    :'bundle_reader_role' = ''
+    OR :'bundle_reader_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
+)::integer;
+
 SELECT 1 / (current_database() = :'database_name')::integer;
 SELECT 1 / (
     :'app_role' <> :'migrator_role'
@@ -56,13 +67,15 @@ SELECT pg_temp.assert_role_policy(
             WHERE object.oid = 'public.alembic_version'::regclass
               AND acl.grantee <> object.relowner
         ), expected(grantee_name, privilege_type, is_grantable, grantor_name) AS (
-            VALUES (:'backup_role', 'SELECT', false, :'migrator_role')
+            VALUES (:'backup_role', 'SELECT', false, :'migrator_role'),
+                   (:'bundle_reader_role', 'SELECT', false, :'migrator_role')
         ), differences AS (
             (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
             UNION ALL
             (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
         )
         SELECT 1 FROM differences
+        WHERE :'bundle_reader_role' <> ''
     ),
     'alembic_version must grant exact read-only backup authority'
 );

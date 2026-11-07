@@ -39,13 +39,13 @@ def test_auth_checkpoint_is_projected_for_the_exact_release(tmp_path, environmen
     source = tmp_path / "runtime-input.env"
     source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
     policy = runtime.load_policy(ROOT, environment)
-    projected = runtime.project_runtime_environment(source, sha, "p3_20261020_auth_tokens", policy)
-    assert projected["MIGRATION_REVISION"] == "p3_20261020_auth_tokens"
+    projected = runtime.project_runtime_environment(source, sha, "sqlx_1", policy)
+    assert projected["MIGRATION_REVISION"] == "sqlx_1"
     assert "AUTH_DOMAIN_DATASETS" in projected
     allowed = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert "p3_20261020_auth_tokens" in allowed
+    assert "sqlx_1" in allowed
     result = runtime.prepare(source, sha, tmp_path / "prepared", ROOT,
-                             "p3_20261020_auth_tokens", environment)
+                             "sqlx_1", environment)
     body = result["runtime_env"].read_text()
     assert "AUTH_DOMAIN_DATASETS_FILE=" in body
     domain_file = tmp_path / "prepared/auth-domains.json"
@@ -61,13 +61,13 @@ def test_umami_settings_come_from_the_optional_analytics_file(tmp_path):
     source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
     policy = runtime.load_policy(ROOT, "staging")
     # Without the second file the aggregate provider stays off.
-    projected = runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+    projected = runtime.project_runtime_environment(source, sha, "sqlx_1", policy)
     assert projected["UMAMI_ENABLED"] == "false"
     # The deployed Python unit reads Umami settings from .env.analytics next to .env.
     analytics = {"UMAMI_BASE_URL": "http://127.0.0.1:8700", "UMAMI_WEBSITE_ID": "website-id",
                  "UMAMI_API_USERNAME": "reader", "UMAMI_API_PASSWORD": "disposable-reader"}
     (tmp_path / ".env.analytics").write_text("".join(f"{key}={value}\n" for key, value in analytics.items()))
-    projected = runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+    projected = runtime.project_runtime_environment(source, sha, "sqlx_1", policy)
     assert projected["UMAMI_ENABLED"] == "true"
     assert {key: projected[key] for key in analytics} == analytics
     # A link in place of the file is refused, as for .env itself.
@@ -75,7 +75,7 @@ def test_umami_settings_come_from_the_optional_analytics_file(tmp_path):
     (tmp_path / "elsewhere.env").write_text("UMAMI_BASE_URL=http://127.0.0.1:8700\n")
     (tmp_path / ".env.analytics").symlink_to(tmp_path / "elsewhere.env")
     with pytest.raises(runtime.RustRuntimeError):
-        runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+        runtime.project_runtime_environment(source, sha, "sqlx_1", policy)
 
 
 def test_status_heartbeat_settings_are_optional_and_normalized():
@@ -118,7 +118,7 @@ def _prepare_with(tmp_path, extra):
     source = tmp_path / "runtime-input.env"
     source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
     return runtime.prepare(source, sha, tmp_path / "prepared", ROOT,
-                           "p3_20261020_auth_tokens", "staging")["runtime_env"]
+                           "sqlx_1", "staging")["runtime_env"]
 
 
 def test_status_heartbeat_settings_reach_the_runtime_file(tmp_path):
@@ -154,7 +154,7 @@ def _project(tmp_path, environment, extra=None):
     source = tmp_path / ".env"
     source.write_text("".join(f"{key}={value}\n" for key, value in settings.items()))
     policy = runtime.load_policy(ROOT, environment)
-    return runtime.project_runtime_environment(source, sha, "sse_20261021_replay_floor", policy)
+    return runtime.project_runtime_environment(source, sha, "sqlx_1", policy)
 
 
 @pytest.mark.parametrize(

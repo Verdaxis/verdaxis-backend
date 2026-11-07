@@ -33,6 +33,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+import psutil
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.security import create_access_token, create_stream_token
@@ -59,6 +60,12 @@ def _free_loopback_port() -> int:
 
 def _worker_pids(master_pid: int) -> set[int]:
     """PIDs of actual uvicorn worker children (excludes resource_tracker)."""
+    if not Path("/proc").is_dir():
+        # macOS has no procfs. Keep the same direct-child/worker evidence.
+        return {
+            child.pid for child in psutil.Process(master_pid).children()
+            if "resource_tracker" not in " ".join(child.cmdline())
+        }
     children = set()
     for entry in os.listdir("/proc"):
         if not entry.isdigit():

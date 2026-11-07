@@ -416,25 +416,23 @@ def test_runtime_units_disable_uvicorn_access_log_and_guard_auth_maintenance():
     for name in ("verdaxis-backend.service", "verdaxis-backend-staging.service"):
         unit = (ROOT / "deploy" / "systemd" / name).read_text()
         assert "--no-access-log" in unit
-    for name, deploy_state, release_env, environment in (
-        (
-            "verdaxis-auth-maintenance.service",
-            "/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state",
-            "/home/verdaxis-prod/verdaxis/prod/be/.runtime-release.env",
-            "production",
-        ),
+    for name, backend, environment in (
+        ("verdaxis-auth-maintenance.service", "/home/verdaxis-prod/verdaxis/prod/be", "production"),
         (
             "verdaxis-auth-maintenance-staging.service",
-            "/home/verdaxis-prod/verdaxis/staging/be/.runtime-deploy/staging.state",
-            "/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env",
+            "/home/verdaxis-prod/verdaxis/staging/be",
             "staging",
         ),
     ):
         unit = (ROOT / "deploy" / "systemd" / name).read_text()
-        assert f"ConditionPathExists=!{deploy_state}" in unit
-        assert f"EnvironmentFile={release_env}" in unit
-        assert f"Environment=ENVIRONMENT={environment}" in unit
-        assert f"ExecStartPre=/usr/bin/test ${{ENVIRONMENT}} = {environment}" in unit
+        assert f"ConditionPathExists=!{backend}/.runtime-deploy/{environment}.state" in unit
+        # The binary checks the job file's ENVIRONMENT and RELEASE_SHA against
+        # these flags before any work (plan 6.3).
+        assert f"EnvironmentFile={backend}/.runtime-rust/jobs/auth-maintenance.env\n" in unit
+        assert (
+            f"job auth-maintenance --environment {environment} --release-sha ${{RELEASE_SHA}} --apply\n"
+            in unit
+        )
     for name in (
         "verdaxis-auth-maintenance.timer",
         "verdaxis-auth-maintenance-staging.timer",

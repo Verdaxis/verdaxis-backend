@@ -190,7 +190,9 @@ async def test_migration_snapshot_rows_exist_and_are_not_backdated(pg_session):
     user = await _new_user(session, status=UserStatus.APPROVED, org_id=org.id)
     await session.commit()
 
-    before = datetime.now(UTC)
+    # The disposable database can run in a VM with a different wall clock.
+    # Compare the migration's now() with that same transaction's database time.
+    before = await session.scalar(select(func.now()))
     await session.execute(
         text(
             "INSERT INTO user_status_transitions "
@@ -219,7 +221,7 @@ async def test_migration_snapshot_rows_exist_and_are_not_backdated(pg_session):
     assert snapshot.user_id == user.id
     assert snapshot.from_status is None
     assert snapshot.to_status == UserStatus.APPROVED
-    assert snapshot.effective_at >= before  # never backdated
+    assert snapshot.effective_at == before  # migration uses transaction time
 
 
 async def test_unique_and_index_constraints_exist_after_migration(pg_session):

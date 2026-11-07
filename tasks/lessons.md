@@ -165,6 +165,7 @@
 - **Trigger:** Follow-up review found global default ACLs, delegated grants, decoded blank passwords, unbound prune units, and a verify-then-reopen systemd unit race.
 - **Rule:** Validate every scope that composes into effective authority, require destructive jobs to attest deployed identity, and materialize install candidates once from immutable commit objects before verification or copy.
 - **Why:** Exact checks at only the obvious scope and hashes followed by mutable path reuse leave inheritance and TOCTOU paths outside the claimed security boundary.
+- **Host-installer lesson (2026-11-04):** Bind a mutable release binary with an explicit digest from the verified release record, not a source-manifest placeholder or assumed installed metadata. Test source and temporary copy against the same digest. Run container-free assertions in static mode and mandatory identity/restart cells in CI with the built Linux binary; missing full-mode prerequisites fail. When no prior installer exists, prove A/A/B/A binary promotion and state preservation rather than requiring an invented previous release.
 - **Bootstrap correction (2026-10-19):** Verify units with later-created artifacts absent, using the target systemd version. A fake executable at a future `ExecStart` path conceals first-install failure. Rust units can launch through existing `/usr/bin/env` without `-i` to preserve environment/PID while allowing verification before artifact install. Keep startup checks and sandbox intact; systemd 249 does not support `verify --root`.
 - **Production rollout correction (2026-10-19):** Do not infer Caddy layout or passive monitoring from staging. Freeze the operator-confirmed complete target config; validate/adapt a fixture of its route structure, preserve proxy/client-IP options and analytics, add redacted access logging in a separate window when absent, then compare equal ordinary-traffic windows using explicit rollback criteria. Missing or sparse logs are inconclusive, not approval for load tests.
 
@@ -280,6 +281,7 @@
 - **Trigger:** Review found that a mocked backup writer concealed `pg_dump` bypassing `gzip.GzipFile`, while deploy and installer tests did not prove checkout/identity alignment or byte-safe rollback.
 - **Rule:** For subprocess streams and artifact promotion, add regression tests using real child processes and real staged filesystem transactions; never infer correctness from callback writes, self-reported contracts, or metadata-only rollback.
 - **Why:** File-descriptor inheritance and partial promotion behave below the mocked API boundary, so unit-shaped tests can report green while publishing corrupt or provenance-ambiguous artifacts.
+- **2026-11-06:** Recovery must restore the previous release's complete private inputs, not the forward release's reduced authority set. Validate previous-release Settings with restored files, and test interruptions in both directions after a completed rollback. Ownership fixtures must reach each checkpoint as root and non-root.
 
 ### Keep Operational Branches Inside Their Owner Boundary
 - **Date:** 2026-07-20
@@ -351,7 +353,7 @@
 - **Trigger:** Isolated app-role RFQ tests passed after manual database setup, but CI failed because its market database never received ACL convergence after migration.
 - **Rule:** Run the repository's complete disposable PostgreSQL runner when adding app-role route tests. Migrate each test database before applying and validating its exact ACL policy; keep migration-head assertions current.
 - **Why:** Manual setup can supply permissions absent from CI and conceal a test-harness ordering defect.
-- **Abilities review correction (2026-11-05):** A hint route needs migrated account/KYC/provenance cases and comparisons with real enforcing routes, not only pure policy tests. Register ignored inventory/support suites with migrated templates in the CI runner. Shared-helper extraction must also update direct-source test module declarations; compile all targets, not only the library, before reporting clippy or regression acceptance.
+- **Abilities review lesson (2026-11-05):** A hint route needs migrated account/KYC/provenance cases and comparisons with real enforcing routes, not only pure policy tests. Register ignored inventory/support suites with migrated templates in the CI runner. Shared-helper extraction must also update direct-source test module declarations; compile all targets, not only the library, before reporting clippy or regression acceptance.
 
 ### Verify The Verdaxis Host And Login Account
 - **Date:** 2026-09-22

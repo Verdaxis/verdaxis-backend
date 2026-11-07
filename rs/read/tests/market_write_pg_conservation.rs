@@ -22,7 +22,10 @@ use tokio::sync::Barrier;
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::routes::market_write::orders::served_contract_router;
-use verdaxis_read::{AppState, Config, MarketPolicy, auth::VerificationSettings};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, auth::VerificationSettings,
+    runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const KEY: &str = "conservation-test-signing-key-at-least-32-characters";
 const SEEDS: [u64; 8] = [1, 17, 43, 256, 1024, 65537, 20261027, 0x5eed];
@@ -189,7 +192,7 @@ impl Fixture {
 
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "p89_20261022_watchlist_producer".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: runtime_url.clone(),
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,

@@ -28,6 +28,7 @@ use sqlx::{Connection, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use tokio::sync::Semaphore;
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     AppState, Config,
     auth::{
@@ -126,7 +127,7 @@ impl Harness {
             db_session_time_zone: "UTC".into(),
             environment: "test".into(),
             release_sha: compiled_sha().into(),
-            migration_revision: "ob_20261031_offboarding".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: runtime_url,
             bind: "127.0.0.1:0".parse().unwrap(),
             read_admission_slots: 4,

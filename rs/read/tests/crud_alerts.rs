@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use sqlx::Connection;
 use uuid::Uuid;
 use verdaxis_read::crud::alerts::{AlertCreate, authorize_delete, organization_id};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 #[test]
 fn foreign_alert_delete_is_403() {
@@ -208,7 +209,7 @@ async fn postgres_http_admission(url: &str, organization: Uuid, product: Uuid, p
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url.into(),
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

@@ -290,6 +290,7 @@ async fn cors(State(environment): State<String>, request: Request, next: Next) -
 
 /// Exact public GET inventory. Private paths and MCP never use slash redirects.
 pub const MOUNTED_GET_PATHS: &[&str] = &[
+    "/",
     "/api/benchmarks",
     "/api/demand",
     "/api/fleet-intelligence",
@@ -686,11 +687,17 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
     // group that provides its own state and a group that still needs it can
     // meet in one router. The one fallback below replaces any group fallback.
     let routes = Router::new()
+        .route("/", axum::routing::get(crate::routes::root::root))
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))
         .with_state(state.clone())
-        .merge(extra.with_state(state.clone()));
+        .merge(extra.with_state(state.clone()))
+        // Always mounted, as in Python: without MONITOR_TOKEN it answers 404.
+        .merge(crate::routes::monitor_canary::routes(
+            state.config.phase2.monitor_token.clone(),
+            state.pools.read.clone(),
+        ));
     let routes = match phase2_routes(&state, limits.clone()) {
         Some(phase2) => routes.merge(phase2),
         None => routes,
@@ -753,6 +760,7 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
 pub fn router_with_stated(stated: Router, state: crate::AppState) -> Router {
     // The dispatch boundary overrides axum's implicit HEAD handler.
     let routes = Router::new()
+        .route("/", axum::routing::get(crate::routes::root::root))
         .route("/health/live", axum::routing::get(crate::live))
         .route("/health/ready", axum::routing::get(crate::ready))
         .route("/health", axum::routing::get(crate::ready))

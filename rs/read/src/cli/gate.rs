@@ -1,0 +1,96 @@
+//! Identity, database-target, deploy-state and `--apply` gates shared by jobs.
+//!
+//! Every mutating command refuses before its first write when one of these
+//! checks fails. They return [`Exit`] rather than messages so a caller cannot
+//! echo a credential or a serving-path value by accident.
+use super::{Environment, Exit};
+use sqlx::PgConnection;
+use std::path::Path;
+
+/// Refuse a write unless the caller passed `--apply`. Dry run is the default.
+pub fn require_apply(apply: bool) -> Result<(), Exit> {
+    if apply { Ok(()) } else { Err(Exit::Usage) }
+}
+
+/// The application login role each deployed environment uses.
+pub fn expected_role(environment: Environment) -> &'static str {
+    match environment {
+        Environment::Production => "verdaxis_app",
+        Environment::Staging => "verdaxis_app_staging",
+    }
+}
+
+/// Compare the deployed environment and release identity with the command's
+/// exact expected pair. A short, uppercase or abbreviated SHA never matches.
+pub fn require_identity(
+    actual_env: &str,
+    actual_sha: &str,
+    expected_env: Environment,
+    expected_sha: &str,
+) -> Result<(), Exit> {
+    if actual_env == expected_env.as_str() && actual_sha == expected_sha {
+        Ok(())
+    } else {
+        Err(Exit::Precondition)
+    }
+}
+
+/// Refuse ordinary job and operator work while any deploy state path exists.
+///
+/// `symlink_metadata` does not follow the final component, so a dangling state
+/// link is still present state. `Path::exists` follows it and would wrongly
+/// report the path absent. An empty or relative path is refused: an empty path
+/// is always "not found" and a relative one depends on the working directory,
+/// so either could hide a live deploy behind an unset or misbuilt value.
+pub fn require_deploy_state_absent(state: &Path) -> Result<(), Exit> {
+    if !state.is_absolute() {
+        return Err(Exit::Precondition);
+    }
+    match std::fs::symlink_metadata(state) {
+        Ok(_) => Err(Exit::Precondition),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(Exit::Dependency),
+    }
+}
+
+/// The deploy state of a job's environment must be absent. Its directory comes
+/// from `DEPLOY_STATE_DIR`, which every job unit sets; an unset, empty or
+/// relative directory gives a relative path and is refused.
+pub fn require_unit_deploy_state_absent(environment: Environment) -> Result<(), Exit> {
+    let directory = std::env::var_os("DEPLOY_STATE_DIR").unwrap_or_default();
+    require_deploy_state_absent(
+        &std::path::Path::new(&directory).join(format!("{}.state", environment.as_str())),
+    )
+}
+
+/// The preflight a job runs before it opens a pool or touches state.
+pub fn require_job_preflight(
+    actual_env: &str,
+    actual_sha: &str,
+    expected_env: Environment,
+    expected_sha: &str,
+    deploy_state: &Path,
+) -> Result<(), Exit> {
+    require_identity(actual_env, actual_sha, expected_env, expected_sha)?;
+    require_deploy_state_absent(deploy_state)
+}
+
+/// Attest that this exact connection writes to the expected database under the
+/// expected application role. Run it on the connection that will write, not on
+/// a separate probe connection.
+pub async fn require_target(
+    conn: &mut PgConnection,
+    environment: Environment,
+    database: &str,
+) -> Result<(), Exit> {
+    let (current_database, current_role): (String, String) =
+        sqlx::query_as("SELECT current_database(), current_user")
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(|_| Exit::Dependency)?;
+    if current_database == database && current_role == expected_role(environment) {
+        Ok(())
+    } else {
+        Err(Exit::Precondition)
+    }
+}

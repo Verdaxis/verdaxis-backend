@@ -37,41 +37,54 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # stream listener connection (--stream-listener 1) in that same budget preparation.
 # The deploy script also records the watchlist producer activation (a real UTC
 # instant, refused otherwise) and keeps it across deploys.
+# M selects sqlx_1, retains both locks/cache fences and signed acceptance, and
+# leaves the retained backend stopped/disabled while restarting only Rust.
+# The shared inert Git boundary, private bundle reader, and disposable hosted
+# rehearsal source checks are included in the reviewed deploy identity.
 RUNTIME_OWNED_BLOBS = {
     "app/config.py": "5eac216236919ebc8c48415a619d0e70169d1154",
     "app/database.py": "43456b2c2079c07368359d4d54f5ce9629c9b57b",
     "app/main.py": "a3a73bf74d817499cccac1f6ecc9ba062cbba3ea",
-    "scripts/deploy.sh": "8a417d80302efebc499b332dd986072ad1f3794b",
+    "scripts/deploy.sh": "1f104f3353dc75b8e127a079df639f5dc313e3c2",
     "scripts/run_demo_activity.py": "b92cee8429669c3f908a52047025acd6db804697",
 }
 
+# Task 10b: only native active units and their reviewed policy/docs are installed.
 EXPECTED_ARTIFACTS = {
-    "alert.env.example": (
-        "/usr/share/doc/verdaxis-monitor/alert.env.example",
+    "../external_monitor/systemd/verdaxis-monitor-verify.service": (
+        "/etc/systemd/system/verdaxis-monitor-verify.service",
         "0644",
     ),
-    "alert_dispatch.py": (
-        "/usr/local/libexec/verdaxis-monitor/alert_dispatch.py",
-        "0755",
+    "../external_monitor/systemd/verdaxis-monitor.service": (
+        "/etc/systemd/system/verdaxis-monitor.service",
+        "0644",
     ),
-    "backup_verify.py": (
-        "/usr/local/libexec/verdaxis-monitor/backup_verify.py",
-        "0755",
+    "../external_monitor/systemd/verdaxis-monitor.timer": (
+        "/etc/systemd/system/verdaxis-monitor.timer",
+        "0644",
     ),
-    "legacy_retirement.py": (
-        "/usr/local/libexec/verdaxis-monitor/legacy_retirement.py",
-        "0755",
+    "../external_monitor/systemd/verdaxis-onboarding-attention.service": (
+        "/etc/systemd/system/verdaxis-onboarding-attention.service",
+        "0644",
     ),
-    "local_health_check.py": (
-        "/usr/local/libexec/verdaxis-monitor/local_health_check.py",
-        "0755",
+    "../external_monitor/systemd/verdaxis-onboarding-attention.timer": (
+        "/etc/systemd/system/verdaxis-onboarding-attention.timer",
+        "0644",
     ),
-    "outbox_backlog_probe.py": (
-        "/usr/local/libexec/verdaxis-monitor/outbox_backlog_probe.py",
-        "0755",
+    "../external_monitor/verdaxis-monitor.env.example": (
+        "/usr/share/doc/verdaxis-monitor/verdaxis-monitor.env.example",
+        "0644",
     ),
-    "retirement-evidence.example.json": (
-        "/usr/share/doc/verdaxis-monitor/retirement-evidence.example.json",
+    "../external_monitor/verdaxis-render.sysusers": (
+        "/usr/lib/sysusers.d/verdaxis-render.conf",
+        "0644",
+    ),
+    "../external_monitor/verdaxis-render.tmpfiles": (
+        "/usr/lib/tmpfiles.d/verdaxis-render.conf",
+        "0644",
+    ),
+    "alert.env.example": (
+        "/usr/share/doc/verdaxis-monitor/alert.env.example",
         "0644",
     ),
     "runtime-identity.example": (
@@ -80,10 +93,6 @@ EXPECTED_ARTIFACTS = {
     ),
     "runtime-v2-readiness-corpus.json": (
         "/usr/share/doc/verdaxis-monitor/runtime-v2-readiness-corpus.json",
-        "0644",
-    ),
-    "status_state.py": (
-        "/usr/local/libexec/verdaxis-monitor/status_state.py",
         "0644",
     ),
     "verdaxis-backup-verify.service": (
@@ -130,6 +139,10 @@ EXPECTED_ARTIFACTS = {
         "/etc/systemd/system/verdaxis-monitor-alert@.service",
         "0644",
     ),
+    "verdaxis-monitor-handoff.acl.tmpfiles": (
+        "/usr/lib/tmpfiles.d/verdaxis-monitor-handoff-acl.conf",
+        "0644",
+    ),
     "verdaxis-monitor.sysusers": (
         "/usr/lib/sysusers.d/verdaxis-monitor.conf",
         "0644",
@@ -138,19 +151,22 @@ EXPECTED_ARTIFACTS = {
         "/usr/lib/tmpfiles.d/verdaxis-monitor.conf",
         "0644",
     ),
-    "verify_runtime_identity.py": (
-        "/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py",
-        "0755",
-    ),
 }
 
 
 def load_manifest() -> dict:
     payload = json.loads(MANIFEST.read_text())
-    assert set(payload) == {"schema_version", "artifacts"}
+    assert set(payload) == {"schema_version", "artifacts", "binary"}
     assert type(payload["schema_version"]) is int
     assert payload["schema_version"] == 1
     assert isinstance(payload["artifacts"], list)
+    # Binary identity is supplied from the verified release record at install
+    # time, never guessed from source or an installed-host metadata file.
+    assert payload["binary"] == {
+        "source": ".runtime-rust/verdaxis-read",
+        "destination": "/usr/local/libexec/verdaxis/verdaxis-read",
+        "mode": "0755",
+    }
     return payload
 
 
@@ -193,7 +209,7 @@ def test_static_manifest_is_exact_byte_attested_and_non_promoting():
         destination = artifact["destination"]
         mode = artifact["mode"]
         digest = artifact["sha256"]
-        assert isinstance(source, str) and Path(source).name == source
+        assert isinstance(source, str) and source in EXPECTED_ARTIFACTS
         assert isinstance(destination, str) and destination.startswith("/")
         assert ".." not in Path(destination).parts
         assert destination not in destinations
@@ -215,7 +231,7 @@ def test_every_remaining_unit_is_in_the_static_inventory():
         if path.suffix in {".service", ".timer"}
     }
 
-    assert units == {source for source in sources if Path(source).suffix in {".service", ".timer"}}
+    assert units == {source for source in sources if "/" not in source and Path(source).suffix in {".service", ".timer"}}
 
 
 def test_monitor_tree_contains_no_activation_or_root_promotion_implementation():

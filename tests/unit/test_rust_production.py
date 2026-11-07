@@ -39,13 +39,14 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
         assert expected in unit
     assert f"EnvironmentFile={base}/.env\n" not in unit
     assert "/staging/" not in unit
-    assert "verify_rust_start.py --expected-release-sha ${RELEASE_SHA}" in unit
+    assert "verdaxis-read guard rust-start --expected-release-sha ${RELEASE_SHA}" in unit
     assert "--revision-file" in unit
+    assert "python" not in unit
     assert "--environment-file" not in unit
     assert "venv/bin/python" not in unit
 
 
-@pytest.mark.parametrize("revision", ["p0_20261016_union", "prc_20261026_changes", "p3_20261020_auth_tokens", "sse_20261021_replay_floor", "p5_20261020_read_indexes", "p89_20261022_watchlist_producer", "p89_20261022_trade_freeze"])
+@pytest.mark.parametrize("revision", ["sqlx_1"])
 def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
@@ -98,7 +99,7 @@ def test_production_runtime_projects_its_app_identity_and_phase2(tmp_path, revis
         )
 
 
-@pytest.mark.parametrize("revision", ["kycg_20261014_staging", "prc_20261018_cache", "*", "head", "unlisted_revision"])
+@pytest.mark.parametrize("revision", ["kycg_20261014_staging", "prc_20261018_cache", "p0_20261016_union", "p3_20261020_auth_tokens", "p89_20261022_trade_freeze", "ob_20261031_offboarding", "*", "head", "unlisted_revision"])
 def test_production_runtime_refuses_a_previous_or_unlisted_checkpoint(tmp_path, revision):
     preparer = _load_preparer()
     env = tmp_path / ".env"
@@ -182,43 +183,6 @@ class ProductionReleaseFixture(RustReleaseFixture):
         self.attest_from("refs/heads/staging")
 
 
-@pytest.mark.parametrize("failure", ["", "unit", "provenance", "readiness"])
-def test_production_activation_requires_its_unit_provenance_and_readiness(tmp_path, failure):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(sha)
-    if failure == "provenance":
-        fixture.attest_from("refs/heads/prod")
-    else:
-        fixture.sign_for_prod()
-    overrides = {}
-    if failure == "unit":
-        overrides["DEPLOY_RUST_LOAD_STATE"] = "not-found"
-    if failure == "readiness":
-        overrides["DEPLOY_RUST_UNREADY"] = "1"
-    result = fixture.deploy(sha, **overrides)
-    if not failure:
-        assert result.returncode == 0, result.stdout + result.stderr
-        ledger = fixture.ledger
-        expected_checks = {f"sudo:-n -l systemctl {action} {unit}" for unit, actions in (("verdaxis-backend.service", ("restart", "stop")), ("verdaxis-rust.service", ("restart", "stop", "disable", "enable"))) for action in actions}
-        assert expected_checks <= set(ledger)
-        first_mutation = next(i for i, line in enumerate(ledger) if "verify_migration_revision.py" in line)
-        assert all(ledger.index(check) < first_mutation for check in expected_checks)
-        python_restart = ledger.index("sudo:systemctl restart verdaxis-backend.service")
-        rust_restart = ledger.index("sudo:systemctl restart verdaxis-rust.service")
-        assert python_restart < next(i for i, line in enumerate(ledger) if "validate_health_response.py" in line) < rust_restart
-        assert any("127.0.0.1:8010/health/ready" in x for x in fixture.ledger)
-        assert not (tmp_path / "runtime-deploy-state/production.state").exists()
-    else:
-        assert result.returncode != 0, result.stdout + result.stderr
-        if failure in {"unit", "provenance"}:
-            assert _git(fixture.checkout, "rev-parse", "HEAD").stdout.strip() == fixture.old_sha
-            assert not any(x.startswith("sudo:systemctl restart") for x in fixture.ledger)
-        else:
-            assert "DEPLOYMENT_STATE=rust-failed" in (tmp_path / "runtime-deploy-state/production.state").read_text()
-            assert "verdaxis-rust.service" in fixture.stopped_services()
-
-
 def refused_before_any_change(fixture, result):
     """The artifact refusal happens before source, state or service changes."""
     output = result.stdout + result.stderr
@@ -230,51 +194,10 @@ def refused_before_any_change(fixture, result):
     return output
 
 
-@pytest.mark.parametrize("ref", [
-    "refs/heads/prod",
-    "refs/pull/95/merge",
-    "refs/heads/feat/rust-phase1-production",
-    "refs/tags/v1.0.0",
-    "refs/heads/staging-next",
-])
-def test_production_refuses_an_artifact_attested_from_any_other_ref(tmp_path, ref):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(sha)
-    fixture.attest_from(ref)
-    output = refused_before_any_change(fixture, fixture.deploy(sha))
-    assert "workflow_ref does not match" in output
-
-
-def test_production_refuses_the_staging_ref_for_a_different_commit(tmp_path):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(sha)
-    fixture.attest_from("refs/heads/staging", source_sha="e" * 40)
-    output = refused_before_any_change(fixture, fixture.deploy(sha))
-    assert "source_sha does not match" in output
-
-
-def test_production_refuses_a_staging_artifact_built_for_another_commit(tmp_path):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact("e" * 40)
-    fixture.sign_for_prod()
-    refused_before_any_change(fixture, fixture.deploy(sha))
-
-
 def test_production_artifact_ref_is_the_staging_push_and_staging_is_unchanged():
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     assert deploy.count('RUST_WORKFLOW_REF="refs/heads/staging"') == 1
     assert "refs/heads/prod" not in deploy
-
-
-def test_production_policy_off_preserves_python_only_deploy(tmp_path):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=False)
-    result = fixture.deploy(sha)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert not any("verify_rust_artifact.py" in x or "prepare_rust_runtime.py" in x for x in fixture.ledger)
 
 
 def test_production_sudoers_and_canonical_branch_are_exact():
@@ -287,63 +210,6 @@ def test_production_sudoers_and_canonical_branch_are_exact():
     deploy = (ROOT / "scripts/deploy.sh").read_text()
     production = deploy.split("*/prod/be)", 1)[1].split(";;", 1)[0]
     assert 'DEFAULT_BRANCH="staging"' in production
-
-
-@pytest.mark.parametrize("failure", ["start", "readiness"])
-def test_production_rust_failure_retry_and_next_release_keep_python(tmp_path, failure):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(sha)
-    fixture.sign_for_prod()
-    failed = fixture.deploy(sha, **({"DEPLOY_RUST_START_FAIL": "1"} if failure == "start" else {"DEPLOY_RUST_UNREADY": "1"}))
-    assert failed.returncode != 0
-    state = tmp_path / "runtime-deploy-state/production.state"
-    assert "DEPLOYMENT_STATE=rust-failed" in state.read_text()
-    assert "verdaxis-backend.service" not in fixture.stopped_services()
-    assert fixture.deploy(sha).returncode == 0
-    assert not state.exists()
-    _git(fixture.source, "commit", "--allow-empty", "-qm", "next production release")
-    _git(fixture.source, "push", "-q", "origin", "staging")
-    second = _git(fixture.source, "rev-parse", "HEAD").stdout.strip()
-    fixture.build_artifact(second)
-    fixture.sign_for_prod()
-    result = fixture.deploy(second)
-    assert result.returncode == 0, result.stderr
-    assert not state.exists()
-
-
-def test_production_sudo_denial_refuses_before_source_or_state(tmp_path):
-    fixture = ProductionReleaseFixture(tmp_path)
-    sha = fixture.push_rust_release(enabled=True)
-    result = fixture.deploy(sha, DEPLOY_SUDO_DENY="1")
-    assert result.returncode != 0
-    assert _git(fixture.checkout, "rev-parse", "HEAD").stdout.strip() == fixture.old_sha
-    assert not (tmp_path / "runtime-deploy-state/production.state").exists()
-    checks = {line for line in fixture.ledger if line.startswith("sudo:-n -l")}
-    assert checks
-
-
-def test_production_exact_prestarts_run_with_no_environment_or_app(tmp_path):
-    import shlex
-    import shutil
-    import subprocess
-    backend = tmp_path / "be"
-    (backend / "scripts").mkdir(parents=True)
-    for name in ("verify_deploy_start_guard.py", "verify_rust_start.py"):
-        shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
-    runtime = backend / ".runtime-rust"
-    runtime.mkdir()
-    for name, data in (("budget.json", {"version": 1, "release_sha": SHA}), ("revision.json", {"release_sha": SHA, "revision": "p89_20261022_trade_freeze"})):
-        path = runtime / name
-        path.write_text(json.dumps(data))
-        path.chmod(0o600)
-    for line in (ROOT / "deploy/systemd/verdaxis-rust.service").read_text().splitlines():
-        if not line.startswith("ExecStartPre="):
-            continue
-        command = line.removeprefix("ExecStartPre=").replace("/home/verdaxis-prod/verdaxis/prod/be", str(backend)).replace("${RELEASE_SHA}", SHA).replace("${MIGRATION_REVISION}", "p89_20261022_trade_freeze")
-        result = subprocess.run(shlex.split(command), cwd=backend, env={}, capture_output=True, text=True, timeout=10)
-        assert result.returncode == 0, result.stderr
-    assert not (backend / ".env").exists()
 
 
 def test_prod_publication_is_a_push_gate_not_a_pr_artifact():

@@ -203,6 +203,56 @@ fn literal_ranges(text: &str) -> Vec<(usize, usize)> {
     ranges
 }
 
+/// The text a scan rule reads: every string literal on its own, plus the
+/// joined literals of each `concat!(...)`, so a statement split across pieces
+/// is read whole. Each unit carries the byte offset where it starts.
+fn statement_units(text: &str) -> Vec<(usize, String)> {
+    let literals = literal_ranges(text);
+    let mut units: Vec<(usize, String)> = literals
+        .iter()
+        .map(|(start, end)| (*start, text[*start..*end].to_owned()))
+        .collect();
+    let opener = ["concat", "!("].concat();
+    let inside_literal = |offset: usize| {
+        literals
+            .iter()
+            .any(|(start, end)| offset >= *start && offset < *end)
+    };
+    let mut cursor = 0usize;
+    while let Some(relative) = text[cursor..].find(&opener) {
+        let open = cursor + relative + opener.len() - 1;
+        cursor = open + 1;
+        if inside_literal(open) {
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut close = text.len();
+        for (offset, byte) in text.bytes().enumerate().skip(open) {
+            if inside_literal(offset) {
+                continue;
+            }
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = offset;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let joined: String = literals
+            .iter()
+            .filter(|(start, end)| *start > open && *end <= close)
+            .map(|(start, end)| &text[*start..*end])
+            .collect();
+        units.push((open, joined));
+    }
+    units
+}
+
 /// Uppercase, whitespace-collapsed text. The rules read tokens, not layout.
 fn normalized(text: &str) -> String {
     text.split_whitespace()
@@ -218,17 +268,6 @@ fn contains_within(text: &str, start: usize, window: usize, needle: &str) -> boo
         return false;
     }
     bytes[start..end]
-        .windows(needle.len())
-        .any(|candidate| candidate == needle.as_bytes())
-}
-
-fn precedes_within(text: &str, offset: usize, window: usize, needle: &str) -> bool {
-    let start = offset.saturating_sub(window);
-    let bytes = text.as_bytes();
-    if start >= offset || needle.len() > offset - start {
-        return false;
-    }
-    bytes[start..offset]
         .windows(needle.len())
         .any(|candidate| candidate == needle.as_bytes())
 }
@@ -254,17 +293,110 @@ fn orderbook_dml(text: &str) -> Option<&'static str> {
     None
 }
 
-/// Any `FOR UPDATE` that a `WHERE` clause could be aiming at an order-book
-/// relation inside the same literal.
-fn orderbook_row_lock(text: &str) -> bool {
-    let needle = ["FOR", " UPDATE"].concat();
+/// Words that can follow a relation name and are not an alias.
+const NOT_ALIASES: &[&str] = &[
+    "AS",
+    "ON",
+    "USING",
+    "WHERE",
+    "JOIN",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "FULL",
+    "CROSS",
+    "NATURAL",
+    "GROUP",
+    "ORDER",
+    "LIMIT",
+    "OFFSET",
+    "FOR",
+    "SET",
+    "VALUES",
+    "RETURNING",
+    "UNION",
+    "WINDOW",
+    "HAVING",
+    "FETCH",
+    "TABLESAMPLE",
+    "DEFAULT",
+    "SELECT",
+    "AND",
+    "OR",
+    "WHEN",
+    "THEN",
+];
+
+fn identifier_at(text: &str, start: usize) -> &str {
+    let end = text[start..]
+        .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
+        .map_or(text.len(), |length| start + length);
+    &text[start..end]
+}
+
+/// Every name an order-book relation goes by in one normalised statement: the
+/// relation itself and each alias given to it.
+fn orderbook_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
     let mut cursor = 0usize;
-    while let Some(relative) = text[cursor..].find(&needle) {
-        let offset = cursor + relative;
-        if precedes_within(text, offset, 200, "ORDERBOOK") {
-            return true;
+    while let Some(relative) = text[cursor..].find("ORDERBOOK") {
+        let start = cursor + relative;
+        let preceded_by_identifier = text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_');
+        let relation = identifier_at(text, start).to_owned();
+        cursor = start + relation.len().max(1);
+        if preceded_by_identifier {
+            continue;
         }
-        cursor = offset + needle.len();
+        let mut after = text[cursor..].trim_start();
+        if let Some(rest) = after.strip_prefix("AS ") {
+            after = rest.trim_start();
+        }
+        let offset = text.len() - after.len();
+        let alias = identifier_at(text, offset);
+        if !alias.is_empty()
+            && !NOT_ALIASES.contains(&alias)
+            && !alias.chars().all(|character| character.is_ascii_digit())
+        {
+            names.push(alias.to_owned());
+        }
+        names.push(relation);
+    }
+    names
+}
+
+/// Any row-locking clause that can lock an order-book row in one normalised
+/// statement, wherever the relation appears in it. A clause without `OF`
+/// locks every relation of its query, so any order-book mention counts; a
+/// clause with `OF` counts when it names an order-book relation or alias.
+fn orderbook_row_lock(text: &str) -> bool {
+    let names = orderbook_names(text);
+    if names.is_empty() {
+        return false;
+    }
+    for clause in [
+        ["FOR", " UPDATE"].concat(),
+        ["FOR", " NO KEY UPDATE"].concat(),
+    ] {
+        let mut cursor = 0usize;
+        while let Some(relative) = text[cursor..].find(&clause) {
+            let after = cursor + relative + clause.len();
+            cursor = after;
+            let Some(list) = text[after..].strip_prefix(" OF ") else {
+                return true;
+            };
+            let targets = list
+                .split(',')
+                .map(|item| identifier_at(item.trim_start(), 0))
+                .take_while(|name| !name.is_empty());
+            for target in targets {
+                if names.iter().any(|name| name == target) {
+                    return true;
+                }
+            }
+        }
     }
     false
 }
@@ -347,6 +479,9 @@ fn boundary_insert_allowed(root: &Path, path: &Path, table: &str) -> bool {
         ("support.rs", &["STAFF_CAPABILITY_ASSIGNMENTS"]),
         ("support/contexts.rs", &["MARKET_SUPPORT_CONTEXTS"]),
         ("freeze.rs", &["TRADE_FREEZES"]),
+        // The demo activity coverage writer (SYSTEM orders of DEMO seed
+        // organizations, behind the sealed system admission).
+        ("transaction/system/demo.rs", &["ORDERBOOK_ORDERS"]),
     ];
     per_file
         .iter()
@@ -388,29 +523,7 @@ fn reviewed_order_book_test_writes() -> Vec<(String, usize)> {
 /// Every source-boundary violation in the repository.
 fn scan_repository() -> Vec<String> {
     let root = repository_root();
-    let boundary = root.join("rs/read/src/order_write");
-    // The boundary's own integration test drives the module through its port,
-    // so it names the module. Other callers may name only the declared business exports.
-    let owned_test = root.join("rs/read/tests/order_write_boundary.rs");
     let ordinal = ["ORDERBOOK_ACCEPTANCE", "_ORDINAL_SEQ"].concat();
-    let advisory_locks = [
-        ["PG_ADVISORY", "_XACT_LOCK"].concat(),
-        ["PG_ADVISORY", "_LOCK"].concat(),
-    ];
-    // PM decision 94 (PD8) approves one advisory lock outside this boundary:
-    // the price-alert cap serializes organization creators in its own namespace.
-    // It does not touch order-book rows, so the boundary rule names it exactly.
-    let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
-    let stream_sequencer_lock = [root.join("rs/read/tests/streams_election.rs")];
-    // The browser-device session lock is shared with Python's login, refresh and
-    // logout, so both stacks wait on one key. The key comes from the device
-    // cookie digest and never names an order-book row. The session store and its
-    // test probe that proves the shared key are named exactly.
-    let device_session_lock = [
-        root.join("rs/read/src/auth/store.rs"),
-        root.join("rs/read/tests/auth_store_postgres.rs"),
-    ];
-    let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
     let mut violations = Vec::new();
 
     let mut rust_files = Vec::new();
@@ -418,58 +531,7 @@ fn scan_repository() -> Vec<String> {
     rust_files.sort();
     for path in &rust_files {
         let text = std::fs::read_to_string(path).expect("readable Rust source");
-        let inside_boundary = path.starts_with(&boundary);
-        let gated = gated_ranges(&text);
-        for (start, end) in literal_ranges(&text) {
-            let literal = normalized(&text[start..end]);
-            if inside_boundary {
-                for target in insert_targets(&literal) {
-                    if !boundary_insert_allowed(&root, path, &target) {
-                        violations.push(format!("{}: INSERT INTO {target}", path.display()));
-                    }
-                }
-                continue;
-            }
-            if let Some(rule) = orderbook_dml(&literal) {
-                let reviewed_test_write = path == &order_book_test_writer
-                    && reviewed_order_book_test_writes()
-                        .iter()
-                        .any(|(statement, _)| statement == &literal);
-                if !reviewed_test_write {
-                    violations.push(format!("{}: {rule}", path.display()));
-                }
-            }
-            if orderbook_row_lock(&literal) {
-                violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
-            }
-            if literal.contains(&ordinal) {
-                violations.push(format!("{}: acceptance ordinal sequence", path.display()));
-            }
-            let takes_advisory_lock = advisory_locks.iter().any(|needle| literal.contains(needle));
-            let test_only = gated
-                .iter()
-                .any(|(open, close)| start >= *open && start <= *close);
-            if takes_advisory_lock
-                && !test_only
-                && !price_alert_cap.contains(path)
-                && !stream_sequencer_lock.contains(path)
-                && !device_session_lock.contains(path)
-            {
-                violations.push(format!(
-                    "{}: advisory lock outside order_write",
-                    path.display()
-                ));
-            }
-        }
-        let is_manifest = path.file_name().and_then(|name| name.to_str()) == Some("lib.rs");
-        if !inside_boundary
-            && !is_manifest
-            && path != &owned_test
-            && path != &root.join("rs/read/examples/order_write.rs")
-            && !boundary_reference_allowed(&text, path.starts_with(root.join("rs/read/tests")))
-        {
-            violations.push(format!("{}: names the write boundary", path.display()));
-        }
+        violations.extend(scan_rust_source(&root, path, &text));
     }
 
     let mut sql_files = Vec::new();
@@ -490,6 +552,105 @@ fn scan_repository() -> Vec<String> {
     violations
 }
 
+/// Every source-boundary violation in one Rust source at `path`.
+fn scan_rust_source(root: &Path, path: &Path, text: &str) -> Vec<String> {
+    let boundary = root.join("rs/read/src/order_write");
+    // The boundary's own integration test drives the module through its port,
+    // so it names the module. Other callers may name only the declared business exports.
+    let owned_test = root.join("rs/read/tests/order_write_boundary.rs");
+    let ordinal = ["ORDERBOOK_ACCEPTANCE", "_ORDINAL_SEQ"].concat();
+    let advisory_locks = [
+        ["PG_ADVISORY", "_XACT_LOCK"].concat(),
+        ["PG_ADVISORY", "_LOCK"].concat(),
+        ["PG_TRY_ADVISORY", "_XACT_LOCK"].concat(),
+        ["PG_TRY_ADVISORY", "_LOCK"].concat(),
+    ];
+    // PM decision 94 (PD8) approves one advisory lock outside this boundary:
+    // the price-alert cap serializes organization creators in its own namespace.
+    // It does not touch order-book rows, so the boundary rule names it exactly.
+    let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
+    // The stream sequencer election holds one session key in its own namespace
+    // (a try lock), and its tests probe that key. No order-book row is named.
+    let stream_sequencer_lock = [
+        root.join("rs/read/src/streams/election.rs"),
+        root.join("rs/read/tests/streams_election.rs"),
+        root.join("rs/read/tests/streams_watchlist_guard.rs"),
+    ];
+    // The browser-device session lock is shared with Python's login, refresh and
+    // logout, so both stacks wait on one key. The key comes from the device
+    // cookie digest and never names an order-book row. The session store and its
+    // test probe that proves the shared key are named exactly.
+    let device_session_lock = [
+        root.join("rs/read/src/auth/store.rs"),
+        root.join("rs/read/tests/auth_store_postgres.rs"),
+    ];
+    // The news refresh job holds the transaction-scoped advisory key the Python
+    // job used, so both stacks never refresh at once. The key never names an
+    // order-book row. The job and its PostgreSQL test (which proves the shared
+    // key) are named exactly.
+    let news_refresh_lock = [
+        root.join("rs/read/src/cli/jobs/news.rs"),
+        root.join("rs/read/tests/phase10_news_postgres.rs"),
+    ];
+    let order_book_test_writer = root.join(ORDER_BOOK_TEST_WRITER);
+    let path = &path.to_path_buf();
+    let mut violations = Vec::new();
+    let inside_boundary = path.starts_with(&boundary);
+    let gated = gated_ranges(text);
+    for (start, raw) in statement_units(text) {
+        let literal = normalized(&raw);
+        if inside_boundary {
+            for target in insert_targets(&literal) {
+                if !boundary_insert_allowed(root, path, &target) {
+                    violations.push(format!("{}: INSERT INTO {target}", path.display()));
+                }
+            }
+            continue;
+        }
+        if let Some(rule) = orderbook_dml(&literal) {
+            let reviewed_test_write = path == &order_book_test_writer
+                && reviewed_order_book_test_writes()
+                    .iter()
+                    .any(|(statement, _)| statement == &literal);
+            if !reviewed_test_write {
+                violations.push(format!("{}: {rule}", path.display()));
+            }
+        }
+        if orderbook_row_lock(&literal) {
+            violations.push(format!("{}: order-book row FOR UPDATE", path.display()));
+        }
+        if literal.contains(&ordinal) {
+            violations.push(format!("{}: acceptance ordinal sequence", path.display()));
+        }
+        let takes_advisory_lock = advisory_locks.iter().any(|needle| literal.contains(needle));
+        let test_only = gated
+            .iter()
+            .any(|(open, close)| start >= *open && start <= *close);
+        if takes_advisory_lock
+            && !test_only
+            && !price_alert_cap.contains(path)
+            && !stream_sequencer_lock.contains(path)
+            && !device_session_lock.contains(path)
+            && !news_refresh_lock.contains(path)
+        {
+            violations.push(format!(
+                "{}: advisory lock outside order_write",
+                path.display()
+            ));
+        }
+    }
+    let is_manifest = path.file_name().and_then(|name| name.to_str()) == Some("lib.rs");
+    if !inside_boundary
+        && !is_manifest
+        && path != &owned_test
+        && path != &root.join("rs/read/examples/order_write.rs")
+        && !boundary_reference_allowed(text, path.starts_with(root.join("rs/read/tests")))
+    {
+        violations.push(format!("{}: names the write boundary", path.display()));
+    }
+    violations
+}
+
 // CF4_04.integration_patch.order_write_mod_rs.add_exports is the sole
 // authority for these external business entry points. No file-level exemption.
 const BUSINESS_EXPORTS: &[&str] = &[
@@ -502,6 +663,28 @@ const BUSINESS_EXPORTS: &[&str] = &[
     "rebuild_live_slice_benchmarks_for_keys",
 ];
 
+/// The order-expiry reminder job's borrowed entry points: its scan key and its
+/// user-then-order row locks. The job writes only notification rows itself.
+const REMINDER_EXPORTS: &[&str] = &[
+    "REMINDER_SCAN_KEY",
+    "RecipientsLocked",
+    "ReminderCandidate",
+    "ReminderRow",
+    "ReminderWindow",
+    "lock_reminder_delivery",
+    "lock_reminder_recipients",
+    "reminder_candidates",
+];
+
+/// The demo activity job's one entry point into the market phases and its
+/// report types. Provisioning and the job gates stay outside the boundary.
+const DEMO_EXPORTS: &[&str] = &[
+    "DemoMarketFailure",
+    "DemoMarketReport",
+    "TickOutcome",
+    "run_demo_market_phases",
+];
+
 // The individual market scope for account offboarding: the same borrowed,
 // completion-free contract as `invalidate_organization`, scoped to one person,
 // and its lock-free count, which the offboarding preview reads.
@@ -512,8 +695,12 @@ const USER_SCOPE_EXPORTS: &[&str] = &[
     "count_user_scope",
 ];
 
+/// A name an external caller may import from the boundary.
 fn business_export(name: &str) -> bool {
-    BUSINESS_EXPORTS.contains(&name) || USER_SCOPE_EXPORTS.contains(&name)
+    BUSINESS_EXPORTS.contains(&name)
+        || REMINDER_EXPORTS.contains(&name)
+        || DEMO_EXPORTS.contains(&name)
+        || USER_SCOPE_EXPORTS.contains(&name)
 }
 
 fn rust_tokens(text: &str) -> Vec<String> {
@@ -885,6 +1072,51 @@ fn the_scan_refuses_each_rule_it_claims() {
         insert_targets(&reasonable),
         vec!["ORDERBOOK_ORDERS".to_owned()]
     );
+}
+
+#[test]
+fn the_scan_reads_split_statements_aliases_and_try_locks() {
+    // The reminder job's first placement, outside the boundary: a lock clause
+    // in a separate concat! piece, a lock clause far from its relation behind
+    // an alias, and a try advisory lock. Each must be reported.
+    let root = repository_root();
+    let sample = std::fs::read_to_string(
+        root.join("rs/read/tests/data/boundary_reminder_first_placement.rs.txt"),
+    )
+    .expect("the first-placement sample");
+    let outside = root.join("rs/read/src/cli/jobs/reminders.rs");
+    let violations = scan_rust_source(&root, &outside, &sample);
+    let row_locks = violations
+        .iter()
+        .filter(|violation| violation.ends_with("order-book row FOR UPDATE"))
+        .count();
+    assert!(
+        row_locks >= 2,
+        "the split scan lock and the aliased delivery lock: {violations:?}"
+    );
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.ends_with("advisory lock outside order_write")),
+        "the try advisory lock: {violations:?}"
+    );
+    // The same text inside the boundary is allowed (it inserts nothing).
+    let inside = root.join("rs/read/src/order_write/reminders.rs");
+    assert!(scan_rust_source(&root, &inside, &sample).is_empty());
+
+    // Alias resolution: a lock on another relation of a join is not an
+    // order-book lock; a lock on the order-book alias is.
+    let relation = ["order", "book_orders"].concat();
+    let lock = ["FOR", " UPDATE"].concat();
+    let other =
+        format!("SELECT 1 FROM {relation} o JOIN users u ON u.id = o.owner_user_id {lock} OF u");
+    assert!(!orderbook_row_lock(&normalized(&other)));
+    let aliased = format!(
+        "SELECT 1 FROM users u JOIN {relation} AS o ON o.owner_user_id = u.id {lock} OF u, o"
+    );
+    assert!(orderbook_row_lock(&normalized(&aliased)));
+    let no_key = format!("SELECT 1 FROM {relation} WHERE id = $1 FOR NO KEY UPDATE");
+    assert!(orderbook_row_lock(&normalized(&no_key)));
 }
 
 #[test]

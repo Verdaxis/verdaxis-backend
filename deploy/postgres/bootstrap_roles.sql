@@ -1,12 +1,22 @@
 \set ON_ERROR_STOP on
 
 -- Required psql variables: database_name, app_role, migrator_role, backup_role.
+-- Optional: operator_role, the trusted-ingestion operator (Phase 10 Task 21);
+-- its password comes from /etc/verdaxis-operator.env, never from this file.
 -- Passwords are deliberately absent; provision them through the secret manager.
+\if :{?operator_role}
+\else
+\set operator_role ''
+\endif
 SELECT 1 / (current_database() = :'database_name')::integer;
 SELECT 1 / (
     :'app_role' <> :'migrator_role'
     AND :'app_role' <> :'backup_role'
     AND :'migrator_role' <> :'backup_role'
+)::integer;
+SELECT 1 / (
+    :'operator_role' = ''
+    OR :'operator_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
 )::integer;
 
 BEGIN;
@@ -15,15 +25,17 @@ SELECT format(
     'CREATE ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT',
     role_name
 )
-FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS roles(role_name)
-WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = role_name)
+FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role'), (:'operator_role')) AS roles(role_name)
+WHERE role_name <> ''
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = role_name)
 \gexec
 
 SELECT format(
     'ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT NOBYPASSRLS',
     role_name
 )
-FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role')) AS roles(role_name)
+FROM (VALUES (:'app_role'), (:'migrator_role'), (:'backup_role'), (:'operator_role')) AS roles(role_name)
+WHERE role_name <> ''
 \gexec
 
 -- NOINHERIT does not block SET ROLE. Remove every membership edge involving
@@ -32,8 +44,8 @@ SELECT format('REVOKE %I FROM %I CASCADE', granted.rolname, member.rolname)
 FROM pg_catalog.pg_auth_members AS membership
 JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
 JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
-WHERE granted.rolname IN (:'app_role', :'migrator_role', :'backup_role')
-   OR member.rolname IN (:'app_role', :'migrator_role', :'backup_role')
+WHERE granted.rolname IN (:'app_role', :'migrator_role', :'backup_role', :'operator_role')
+   OR member.rolname IN (:'app_role', :'migrator_role', :'backup_role', :'operator_role')
 ORDER BY granted.rolname, member.rolname
 \gexec
 
@@ -56,6 +68,9 @@ ORDER BY 1
 \gexec
 REVOKE ALL ON DATABASE :"database_name" FROM PUBLIC CASCADE;
 GRANT CONNECT ON DATABASE :"database_name" TO :"app_role", :"backup_role";
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'database_name', :'operator_role')
+WHERE :'operator_role' <> ''
+\gexec
 
 ALTER SCHEMA public OWNER TO :"migrator_role";
 -- Apply the same complete-ACL reset to public. pg_database_owner is not an
@@ -76,6 +91,9 @@ ORDER BY 1
 \gexec
 REVOKE ALL ON SCHEMA public FROM PUBLIC CASCADE;
 GRANT USAGE ON SCHEMA public TO :"app_role", :"backup_role";
+SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'operator_role')
+WHERE :'operator_role' <> ''
+\gexec
 
 -- App-owned objects are public ordinary/partitioned tables and sequences that
 -- are not extension members or migration-control objects.

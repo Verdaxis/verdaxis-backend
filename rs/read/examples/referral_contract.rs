@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = verdaxis_read::Config {
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "p0_20261016_union".into(),
+        migration_revision: verdaxis_read::runtime::artifact::ALLOWED_REVISIONS[0].into(),
         database_url: std::env::var("PHASE2_DATABASE_URL")?,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,

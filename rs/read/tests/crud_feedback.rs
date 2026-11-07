@@ -25,7 +25,7 @@ use verdaxis_read::crud::feedback::{
     Clock, authenticated_error_response, routes_with_clock, validate_query, validate_submission,
 };
 use verdaxis_read::routes::ports::pydantic_datetime;
-use verdaxis_read::{AppState, Config, MarketPolicy};
+use verdaxis_read::{AppState, Config, MarketPolicy, runtime::artifact::ALLOWED_REVISIONS};
 
 const FIXTURE: &str = include_str!("../../../tests/rust_contract/phase2/feedback.json");
 const AUTH_VECTORS: &str = include_str!("../../../tests/rust_contract/phase2/auth-vectors.json");
@@ -258,7 +258,7 @@ async fn harness() -> Option<Harness> {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

@@ -18,15 +18,18 @@ use crate::AppState;
 /// The stream tables exist from this checkpoint on; every later checkpoint keeps them.
 pub const STREAM_REVISION: &str = "sse_20261021_replay_floor";
 
-/// True when the database revision is the stream checkpoint or a later one.
-/// The reviewed allowlist lists the checkpoints in migration order.
+/// Schema capability is independent of this release's startup admissions.
+/// Historical checkpoints describe the same tables adopted by sqlx version 1.
 pub fn schema_has_streams(revision: &str) -> bool {
-    let order = crate::runtime::artifact::ALLOWED_REVISIONS;
-    let position = |wanted: &str| order.iter().position(|known| *known == wanted);
-    match (position(STREAM_REVISION), position(revision)) {
-        (Some(stream), Some(current)) => current >= stream,
-        _ => false,
-    }
+    matches!(
+        revision,
+        STREAM_REVISION
+            | "p5_20261020_read_indexes"
+            | "p89_20261022_watchlist_producer"
+            | "p89_20261022_trade_freeze"
+            | "ob_20261031_offboarding"
+            | "sqlx_1"
+    )
 }
 const RESTART_COOLDOWN: Duration = Duration::from_secs(30);
 

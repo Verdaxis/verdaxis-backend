@@ -337,7 +337,7 @@ impl Fixture {
             .connect(&self.runtime_url)
             .await
             .unwrap();
-        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
+        let config = serde_json::from_value(json!({"environment":"test","release_sha":verdaxis_read::compiled_sha(),"migration_revision":ALLOWED_REVISIONS[0],"database_url":self.runtime_url,"db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100,"kyc_execution_gate_enabled":true})).unwrap();
         let mut pools = verdaxis_read::connect(&config).await.unwrap();
         pools.read = pool.clone();
         let policy =
@@ -2499,7 +2499,7 @@ impl Fixture {
         let pool_max = 9;
         let mut config: verdaxis_read::Config = serde_json::from_value(json!({
             "environment":"test","release_sha":verdaxis_read::compiled_sha(),
-            "migration_revision":"p89_20261022_trade_freeze","database_url":self.runtime_url,
+            "migration_revision":ALLOWED_REVISIONS[0],"database_url":self.runtime_url,
             "db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,
             "pool_max":pool_max,"python_budget":52,"configured_max_connections":100,
             "kyc_execution_gate_enabled":true,
@@ -3163,4 +3163,559 @@ fn internal_identity_check_refuses_evidence_and_watcher_identities() {
         delivered(&json!({"id":1,"_public_market_invalidation":true})),
         json!({"id":1,"schema_version":1})
     );
+}
+
+// ---- the Rust demo job against the Python demo writer ---------------------------
+
+use verdaxis_read::cli::jobs::demo::model::{
+    CoverageOrder, DEMO_SEED_BUYERS, DEMO_SEED_SUPPLIERS, build_coverage,
+};
+use verdaxis_read::cli::jobs::demo::{DemoFailure, DemoReport, PolicyCatalog, run_with_coverage};
+use verdaxis_read::order_write::DemoMarketFailure;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
+
+/// The B30 Rotterdam book at `now`: the slice the Python driver limits its
+/// coverage to. Organization and creation time are not managed fields, so
+/// the ordinal offset of the full book changes nothing a refresh compares.
+fn fixture_coverage(now: chrono::DateTime<chrono::Utc>) -> Vec<CoverageOrder> {
+    let policy = verdaxis_read::runtime::policy::committed_policy().unwrap();
+    let catalog = PolicyCatalog::covering(&policy).expect("the policy covers the demo book");
+    let rows: Vec<CoverageOrder> =
+        build_coverage(now, &catalog, &DEMO_SEED_BUYERS, &DEMO_SEED_SUPPLIERS)
+            .into_iter()
+            .filter(|order| order.product == "B30" && order.port == "Rotterdam")
+            .collect();
+    assert!(!rows.is_empty());
+    assert_eq!(rows[0].product_id.to_string(), PRODUCT);
+    rows
+}
+
+/// A whole-second instant, so Python's `fromisoformat` and Rust agree.
+fn demo_instant() -> chrono::DateTime<chrono::Utc> {
+    use chrono::SubsecRound;
+    chrono::Utc::now().trunc_subsecs(0)
+}
+
+impl Fixture {
+    async fn runtime_pool(&self) -> PgPool {
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&self.runtime_url)
+            .await
+            .unwrap()
+    }
+    async fn python_coverage(&self, now: chrono::DateTime<chrono::Utc>) -> Value {
+        let mut command = self.command("demo_coverage");
+        command["now"] = json!(now.to_rfc3339());
+        self.python(command).await
+    }
+    async fn rust_demo(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        wanted: Vec<CoverageOrder>,
+    ) -> (DemoReport, Result<(), DemoFailure>) {
+        let pool = self.runtime_pool().await;
+        let mut report = DemoReport::default();
+        let result = run_with_coverage(&pool, now, wanted, &mut report).await;
+        pool.close().await;
+        (report, result)
+    }
+    /// Every coverage row by key, with the fields a refresh owns.
+    async fn coverage_book(&mut self) -> Value {
+        sqlx::query_scalar(
+            "SELECT coalesce(jsonb_object_agg(idempotency_key, jsonb_build_object( \
+               'id', id, 'organization_id', organization_id, 'ordinal', acceptance_ordinal, \
+               'updated_at', updated_at, 'status', status, 'price', trim_scale(price_per_mt_usd), \
+               'quantity', trim_scale(quantity_mt), 'remaining', trim_scale(remaining_quantity_mt), \
+               'certifications', certifications::jsonb, 'scheme', certification_scheme, \
+               'expires_at', expires_at, 'hash', idempotency_request_hash, \
+               'creation_method', creation_method, 'verified', is_verdaxis_verified)), '{}') \
+             FROM orderbook_orders WHERE idempotency_operation = 'DEMO_COVERAGE'",
+        )
+        .fetch_one(&mut self.admin)
+        .await
+        .unwrap()
+    }
+    /// The demo_market_changed outbox rows, oldest first, without identity
+    /// or time.
+    async fn demo_events(&mut self) -> Vec<Value> {
+        sqlx::query_scalar(
+            "SELECT jsonb_build_object('event_type', event_type, \
+               'aggregate_type', aggregate_type, 'aggregate_id', aggregate_id, \
+               'participants', to_jsonb(participant_org_ids), 'payload', to_jsonb(payload), \
+               'evidence', to_jsonb(producer_evidence)) \
+             FROM market_event_outbox WHERE event_type = 'demo_market_changed' \
+             ORDER BY created_at, id",
+        )
+        .fetch_all(&mut self.admin)
+        .await
+        .unwrap()
+    }
+    /// The demo_market_changed rows of one phase (`coverage`, `prune` or
+    /// `tick`); a Rust run also ticks, so phase tests read their own rows.
+    async fn phase_events(&mut self, phase: &str) -> Vec<Value> {
+        self.demo_events()
+            .await
+            .into_iter()
+            .filter(|event| event["aggregate_id"] == phase)
+            .collect()
+    }
+    async fn admin_sql(&mut self, sql: &str) {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_owned()))
+            .execute(&mut self.admin)
+            .await
+            .unwrap();
+    }
+}
+
+fn coverage_event() -> Value {
+    json!({
+        "event_type": "demo_market_changed",
+        "aggregate_type": "demo_market",
+        "aggregate_id": "coverage",
+        "participants": [DEMO_BUYER_ORG, DEMO_SELLER_ORG],
+        "payload": {"operation": "coverage", "schema_version": 1, "_public_market_invalidation": true},
+        "evidence": null,
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_coverage_after_python_writes_nothing_and_events_match() {
+    // Python's coverage, then Rust's at the same instant: no row changes,
+    // no ordinal moves, no event. Python's one event is the shape Rust writes.
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    let now = demo_instant();
+    let python = f.python_coverage(now).await;
+    let created = ok(&python)["coverage_created"].as_u64().unwrap();
+    assert!(created > 0, "{python}");
+    assert_eq!(
+        f.phase_events("coverage").await,
+        vec![coverage_event()],
+        "Python's event"
+    );
+    let book = f.coverage_book().await;
+
+    let (report, result) = f.rust_demo(now, fixture_coverage(now)).await;
+    result.unwrap();
+    assert_eq!(report.market.coverage_products, 1);
+    assert!(!report.market.coverage.changed(), "{report:?}");
+    assert_eq!(f.coverage_book().await, book, "Rust changed Python's book");
+    assert_eq!(
+        f.phase_events("coverage").await,
+        vec![coverage_event()],
+        "no Rust event"
+    );
+
+    // The reverse: Rust builds the book, Python then finds nothing to do,
+    // and Rust's event equals Python's.
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    let (report, result) = f.rust_demo(now, fixture_coverage(now)).await;
+    result.unwrap();
+    assert_eq!(report.market.coverage.created as u64, created);
+    assert_eq!(
+        f.phase_events("coverage").await,
+        vec![coverage_event()],
+        "Rust's event"
+    );
+    let book = f.coverage_book().await;
+    let python = f.python_coverage(now).await;
+    for key in ["coverage_created", "coverage_refreshed", "coverage_expired"] {
+        assert_eq!(ok(&python)[key], 0, "{key}: {python}");
+    }
+    assert_eq!(f.coverage_book().await, book, "Python changed Rust's book");
+    assert_eq!(f.phase_events("coverage").await, vec![coverage_event()]);
+}
+
+/// The same drift on a fresh Python-built book: one row repriced, one
+/// filled, one renamed to a key no run wants.
+async fn drifted_book(now: chrono::DateTime<chrono::Utc>) -> (Fixture, Value) {
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    assert!(
+        ok(&f.python_coverage(now).await)["coverage_created"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    sqlx::query("SELECT residual_demo_coverage_drift()")
+        .execute(&mut f.admin)
+        .await
+        .unwrap();
+    let book = f.coverage_book().await;
+    (f, book)
+}
+
+/// Per key: what a refresh did, comparable across two databases.
+fn refresh_outcome(before: &Value, after: &Value, now: chrono::DateTime<chrono::Utc>) -> Value {
+    let mut outcome = serde_json::Map::new();
+    for (key, row) in after.as_object().unwrap() {
+        let previous = &before[key];
+        let mut fields = row.clone();
+        let object = fields.as_object_mut().unwrap();
+        for volatile in ["id", "ordinal", "updated_at", "organization_id"] {
+            object.remove(volatile);
+        }
+        object.insert("same_row".into(), json!(previous["id"] == row["id"]));
+        object.insert(
+            "requeued".into(),
+            json!(previous["ordinal"] != row["ordinal"]),
+        );
+        let updated_at = chrono::DateTime::parse_from_rfc3339(row["updated_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        object.insert(
+            "touched".into(),
+            json!(updated_at == now || previous.is_null()),
+        );
+        outcome.insert(key.clone(), fields);
+    }
+    Value::Object(outcome)
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_coverage_preserves_order_identity_and_updates_only_managed_fields() {
+    // Twin databases with the same drift: Python's refresh on one, Rust's on
+    // the other. Counts, row identity, re-queueing and every managed field
+    // agree; the repriced and the reopened rows re-queue, the renamed row
+    // expires and its key is created again.
+    let now = demo_instant();
+    let later = now + chrono::Duration::minutes(5);
+
+    let (mut python_db, python_before) = drifted_book(now).await;
+    let python = python_db.python_coverage(later).await;
+    let python_after = python_db.coverage_book().await;
+
+    let (mut rust_db, rust_before) = drifted_book(now).await;
+    let (report, result) = rust_db.rust_demo(later, fixture_coverage(later)).await;
+    result.unwrap();
+    let rust_after = rust_db.coverage_book().await;
+
+    let counts = ok(&python);
+    assert_eq!(counts["coverage_created"], report.market.coverage.created);
+    assert_eq!(
+        counts["coverage_refreshed"],
+        report.market.coverage.refreshed
+    );
+    assert_eq!(counts["coverage_expired"], report.market.coverage.expired);
+    assert_eq!(report.market.coverage.expired, 1, "{report:?}");
+    assert!(report.market.coverage.refreshed >= 2, "{report:?}");
+    assert_eq!(
+        refresh_outcome(&rust_before, &rust_after, later),
+        refresh_outcome(&python_before, &python_after, later),
+        "Rust and Python refresh the same rows the same way"
+    );
+    let retired = &rust_after["B30|Rotterdam|2001-Q1|BID|0"];
+    assert_eq!(retired["status"], "EXPIRED");
+    assert_eq!(
+        retired["id"],
+        rust_before["B30|Rotterdam|2001-Q1|BID|0"]["id"]
+    );
+    rust_db.ledger().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_system_admission_refuses_a_seed_organization_that_is_not_approved() {
+    // One seed organization loses its approval: the product's coverage
+    // transaction refuses before any write, and no event is staged.
+    let mut f = Fixture::new().await;
+    f.demo_seed_organizations().await;
+    f.admin_sql(
+        "UPDATE organizations SET verification_status = 'PENDING' \
+         WHERE id = '79609f48-0a3e-560e-a1e1-63d90601d84a'",
+    )
+    .await;
+    let before = f.snapshot().await;
+    let (report, result) = f
+        .rust_demo(demo_instant(), fixture_coverage(demo_instant()))
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(DemoFailure::Market(DemoMarketFailure::Coverage(_)))
+        ),
+        "{result:?}"
+    );
+    assert_eq!(report.market.coverage_products, 0);
+    assert_eq!(f.snapshot().await, before, "a refused phase writes nothing");
+    assert!(f.demo_events().await.is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_provisioning_refuses_a_real_row_with_an_activity_id() {
+    let mut f = Fixture::new().await;
+    // A REAL row can only arrive by an operator migration; the fixture
+    // writes it with triggers off.
+    f.admin_sql(&format!(
+        "BEGIN; SET LOCAL session_replication_role = replica; \
+         INSERT INTO organizations(id,name,type,verification_status,provenance) \
+         VALUES('{DEMO_BUYER_ORG}','Real Company','FUEL_BUYER','APPROVED','REAL'); COMMIT;"
+    ))
+    .await;
+    let before = f.snapshot().await;
+    let (_, result) = f.rust_demo(demo_instant(), Vec::new()).await;
+    assert!(
+        matches!(
+            result,
+            Err(DemoFailure::Provision(
+                verdaxis_read::cli::jobs::demo::ProvisionError::NotDemo
+            ))
+        ),
+        "{result:?}"
+    );
+    let provenance: String =
+        sqlx::query_scalar("SELECT provenance::text FROM organizations WHERE id = $1::uuid")
+            .bind(DEMO_BUYER_ORG)
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+    assert_eq!(provenance, "REAL", "a REAL row is never converted");
+    assert_eq!(f.snapshot().await, before);
+
+    // On an empty database provisioning creates both, then writes nothing.
+    let f = Fixture::new().await;
+    let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
+    result.unwrap();
+    assert!(report.organizations_written);
+    let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
+    result.unwrap();
+    assert!(
+        !report.organizations_written,
+        "an exact row is not rewritten"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_prune_respects_customer_pins_and_history() {
+    // Two aged activity trades: Python's and Rust's prune agree on what goes.
+    // A pinned, suggested and commissioned trade keeps itself and its orders;
+    // the other trade and its orders go, with one prune event.
+    let mut counts = Vec::new();
+    for rust in [false, true] {
+        let mut f = Fixture::new().await;
+        f.demo_organizations().await;
+        let ticks = f.demo_ticks(2).await;
+        for (now, _) in &ticks {
+            assert_eq!(ok(&f.demo_tick(now).await)["created_trades"], 1);
+        }
+        let shape: Value = sqlx::query_scalar("SELECT residual_demo_shape()")
+            .fetch_one(&mut f.admin)
+            .await
+            .unwrap();
+        let trades = shape["trades"].as_array().unwrap().clone();
+        sqlx::query("SELECT residual_age_demo_trades(8)")
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        sqlx::query("SELECT residual_trade_references($1::uuid)")
+            .bind(trades[0]["id"].as_str().unwrap())
+            .execute(&mut f.admin)
+            .await
+            .unwrap();
+        let events_before = f.phase_events("prune").await.len();
+        let pruned = if rust {
+            let (report, result) = f.rust_demo(demo_instant(), Vec::new()).await;
+            result.unwrap();
+            json!({"trades_pruned": report.market.prune.trades,
+                   "orders_pruned": report.market.prune.orders})
+        } else {
+            ok(&f.python(f.command("demo_prune")).await).clone()
+        };
+        // The aged trades only: a Rust run ticks after the prune.
+        let left: Vec<String> = sqlx::query_scalar(
+            "SELECT id::text FROM trades WHERE buyer_id = $1::uuid \
+             AND created_at < now() - interval '1 day' ORDER BY id",
+        )
+        .bind(DEMO_BUYER_ORG)
+        .fetch_all(&mut f.admin)
+        .await
+        .unwrap();
+        assert_eq!(left, vec![trades[0]["id"].as_str().unwrap().to_owned()]);
+        assert_eq!(f.phase_events("prune").await.len(), events_before + 1);
+        counts.push((
+            pruned["trades_pruned"].clone(),
+            pruned["orders_pruned"].clone(),
+        ));
+        f.ledger().await;
+    }
+    assert_eq!(counts[0], counts[1], "Python and Rust prune the same rows");
+    assert_eq!(counts[1].0, 1);
+}
+
+// ---- the Rust demo tick ----------------------------------------------------------
+
+/// Recent ticks whose Rust draw is B30 at Rotterdam (the slice the fixture
+/// catalog holds) with a window open for at least six more hours.
+fn rust_b30_ticks(count: usize) -> Vec<chrono::DateTime<chrono::Utc>> {
+    use verdaxis_read::cli::jobs::demo::model::{activity_tick, tick_choice};
+    let now = chrono::Utc::now();
+    let mut found = Vec::new();
+    let mut tick = activity_tick(now);
+    while found.len() < count && now - tick < chrono::Duration::days(6) {
+        tick -= chrono::Duration::minutes(5);
+        let choice = tick_choice(tick);
+        if choice.product == "B30"
+            && choice.port == "Rotterdam"
+            && choice.expires_at > now + chrono::Duration::hours(6)
+        {
+            found.push(tick);
+        }
+    }
+    assert_eq!(
+        found.len(),
+        count,
+        "no recent Rust tick draws the B30 Rotterdam slice"
+    );
+    found
+}
+
+async fn tick_times(f: &mut Fixture) -> Value {
+    sqlx::query_scalar(
+        "SELECT jsonb_build_object( \
+           'orders', (SELECT jsonb_agg(jsonb_build_object('side', side, 'created_at', created_at, \
+                        'updated_at', updated_at) ORDER BY side) \
+                      FROM orderbook_orders WHERE organization_id IN ($1::uuid, $2::uuid)), \
+           'trades', (SELECT jsonb_agg(jsonb_build_object('created_at', created_at, \
+                        'confirmed_at', confirmed_at)) \
+                      FROM trades WHERE buyer_id = $1::uuid AND seller_id = $2::uuid))",
+    )
+    .bind(DEMO_BUYER_ORG)
+    .bind(DEMO_SELLER_ORG)
+    .fetch_one(&mut f.admin)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn demo_tick_writes_the_documented_pair_once_and_python_sees_it() {
+    use verdaxis_read::order_write::TickOutcome;
+    let mut f = Fixture::new().await;
+    f.demo_organizations().await;
+    let tick = rust_b30_ticks(1)[0];
+    let (report, result) = f
+        .rust_demo(tick + chrono::Duration::seconds(30), Vec::new())
+        .await;
+    result.unwrap();
+    assert!(
+        matches!(
+            report.market.tick,
+            Some(TickOutcome::Created { product: "B30", .. })
+        ),
+        "{report:?}"
+    );
+
+    // The documented rows, as the Python tick writes them.
+    let shape: Value = sqlx::query_scalar("SELECT residual_demo_shape()")
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    let orders = shape["orders"].as_array().unwrap();
+    assert_eq!(orders.len(), 2, "{shape}");
+    assert_eq!(orders[0]["side"], "ASK");
+    assert_eq!(orders[0]["organization_id"], DEMO_SELLER_ORG);
+    assert_eq!(orders[1]["side"], "BID");
+    assert_eq!(orders[1]["organization_id"], DEMO_BUYER_ORG);
+    assert!(orders[0]["acceptance_ordinal"].as_i64() < orders[1]["acceptance_ordinal"].as_i64());
+    for order in orders {
+        assert_eq!(order["creation_method"], "SYSTEM");
+        assert_eq!(order["provenance"], "DEMO");
+        assert_eq!(order["owner_user_id"], Value::Null);
+        assert_eq!(order["created_by_actor_user_id"], Value::Null);
+        assert_eq!(order["status"], "FILLED");
+    }
+    let trades = shape["trades"].as_array().unwrap();
+    assert_eq!(trades.len(), 1, "{shape}");
+    let trade = &trades[0];
+    assert_eq!(trade["buyer_user_id"], Value::Null);
+    assert_eq!(trade["seller_user_id"], Value::Null);
+    assert_eq!(trade["buyer_provenance"], "DEMO");
+    assert_eq!(trade["seller_provenance"], "DEMO");
+    assert_eq!(trade["confirmed"], true);
+    assert_eq!(trade["ask_order_id"], orders[0]["id"]);
+    assert_eq!(trade["bid_order_id"], orders[1]["id"]);
+
+    // Python's times: ask tick-8 min, bid tick-7 min, both updated at the
+    // tick; the trade created tick-3 min and confirmed tick-2 min.
+    let at = |minutes: i64| json!(tick - chrono::Duration::minutes(minutes));
+    let times = tick_times(&mut f).await;
+    let parse = |value: &Value| {
+        chrono::DateTime::parse_from_rfc3339(value.as_str().unwrap())
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    };
+    let stored = |path: [&str; 2], index: usize| parse(&times[path[0]][index][path[1]]);
+    assert_eq!(json!(stored(["orders", "created_at"], 0)), at(8), "{times}");
+    assert_eq!(json!(stored(["orders", "created_at"], 1)), at(7), "{times}");
+    assert_eq!(json!(stored(["orders", "updated_at"], 0)), at(0), "{times}");
+    assert_eq!(json!(stored(["orders", "updated_at"], 1)), at(0), "{times}");
+    assert_eq!(json!(stored(["trades", "created_at"], 0)), at(3), "{times}");
+    assert_eq!(
+        json!(stored(["trades", "confirmed_at"], 0)),
+        at(2),
+        "{times}"
+    );
+
+    // One tick event, Python's shape.
+    let mut expected = coverage_event();
+    expected["aggregate_id"] = json!("tick");
+    expected["payload"]["operation"] = json!("tick");
+    assert_eq!(f.demo_events().await, vec![expected]);
+
+    // A rerun of the same tick, by Rust and then by Python, writes nothing.
+    let before = f.snapshot().await;
+    let (report, result) = f
+        .rust_demo(tick + chrono::Duration::seconds(90), Vec::new())
+        .await;
+    result.unwrap();
+    assert_eq!(report.market.tick, Some(TickOutcome::AlreadyGenerated));
+    let python = f.demo_tick(&tick.to_rfc3339()).await;
+    assert_eq!(ok(&python)["created_trades"], 0, "{python}");
+    assert_eq!(
+        ok(&python)["reason"],
+        "already generated for tick",
+        "{python}"
+    );
+    let after = f.snapshot().await;
+    assert_eq!(after["trades"], before["trades"]);
+    assert_eq!(after["orders"], before["orders"]);
+    f.ledger().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL"]
+async fn concurrent_demo_ticks_give_one_trade() {
+    use verdaxis_read::order_write::TickOutcome;
+    let mut f = Fixture::new().await;
+    f.demo_organizations().await;
+    let tick = rust_b30_ticks(1)[0] + chrono::Duration::seconds(30);
+    let (first, second) =
+        tokio::join!(f.rust_demo(tick, Vec::new()), f.rust_demo(tick, Vec::new()));
+    let outcomes = [first, second];
+    let created = outcomes
+        .iter()
+        .filter(|(report, _)| matches!(report.market.tick, Some(TickOutcome::Created { .. })))
+        .count();
+    assert_eq!(created, 1, "{outcomes:?}");
+    for (report, result) in &outcomes {
+        // The other tick either found the trade under the locks or was bounded
+        // by them with no effect.
+        let found = report.market.tick == Some(TickOutcome::AlreadyGenerated);
+        let bounded = matches!(result, Err(DemoFailure::Market(DemoMarketFailure::Tick(_))));
+        let won = matches!(report.market.tick, Some(TickOutcome::Created { .. }));
+        assert!(won || found || bounded, "{report:?} {result:?}");
+    }
+    let trades: i64 = sqlx::query_scalar("SELECT count(*) FROM trades WHERE buyer_id = $1::uuid")
+        .bind(DEMO_BUYER_ORG)
+        .fetch_one(&mut f.admin)
+        .await
+        .unwrap();
+    assert_eq!(trades, 1);
+    f.ledger().await;
 }

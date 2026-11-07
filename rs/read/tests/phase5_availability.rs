@@ -12,6 +12,7 @@ mod public_fixture;
 use availability::{AvailabilityRow, project_rows, select_availability};
 use serde_json::{Value, json};
 use sqlx::{Connection, Executor};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn row() -> AvailabilityRow {
     AvailabilityRow {
@@ -95,7 +96,7 @@ fn policy() -> MarketPolicy {
 fn config(url: &str) -> verdaxis_read::Config {
     serde_json::from_value(json!({
         "environment": "test", "release_sha": verdaxis_read::compiled_sha(),
-        "migration_revision": "p5_20261020_read_indexes", "database_url": url,
+        "migration_revision": ALLOWED_REVISIONS[0], "database_url": url,
         "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
         "read_admission_slots": 16, "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100

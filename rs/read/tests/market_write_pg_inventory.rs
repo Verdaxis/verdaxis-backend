@@ -11,7 +11,10 @@ use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, Row};
 use tower::ServiceExt;
 use uuid::Uuid;
-use verdaxis_read::{AppState, Config, MarketPolicy, auth::VerificationSettings};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, auth::VerificationSettings,
+    runtime::artifact::ALLOWED_REVISIONS,
+};
 
 const KEY: &str = "inventory-fixture-signing-key-at-least-32-characters";
 const SUPPORT_CONTEXT: &str = "x-verdaxis-market-support-context";
@@ -128,7 +131,7 @@ impl Fixture {
 
             environment: "test".into(),
             release_sha: verdaxis_read::compiled_sha().into(),
-            migration_revision: "p89_20261022_watchlist_producer".into(),
+            migration_revision: ALLOWED_REVISIONS[0].into(),
             database_url: runtime_url,
             db_session_time_zone: "UTC".into(),
             prepared_budget: None,

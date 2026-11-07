@@ -87,13 +87,13 @@ done
 port=$(docker port "$producer_container" 5432/tcp)
 port=${port##*:}
 docker exec -i "$producer_container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE phase5_bounds_writer LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_writer_pw';
 CREATE ROLE phase5_bounds_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
-CREATE DATABASE producer_bounds_test OWNER phase5_bounds_writer;
+CREATE DATABASE producer_bounds_test OWNER verdaxis_migrator_staging;
 \connect producer_bounds_test
 CREATE EXTENSION IF NOT EXISTS postgis;
 SQL
-writer="postgresql+asyncpg://phase5_bounds_writer:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test"
+writer="postgresql+asyncpg://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test"
 export DATABASE_URL="$writer"
 export MIGRATOR_DATABASE_URL="$writer"
 export ENVIRONMENT=test
@@ -102,10 +102,16 @@ stamp producer-migrate
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$repo" "$alembic" upgrade head
 docker exec -i "$producer_container" psql -q -U postgres -d producer_bounds_test -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO phase5_bounds_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO phase5_bounds_app;"
+# The M runtime only serves an adopted database: record the exact
+# adoption row (the schema stays at the Alembic head).
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test" \
+  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 
 producer_log=$(mktemp "${test_home}/runs/phase5-producers.XXXXXX")
 export PRODUCER_TEST_APP_URL="postgres://phase5_bounds_app:disposable_app_pw@127.0.0.1:$port/producer_bounds_test"
-export PRODUCER_TEST_WRITER_URL="postgres://phase5_bounds_writer:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test"
+export PRODUCER_TEST_WRITER_URL="postgres://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test"
 stamp producer-test
 set +e
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \

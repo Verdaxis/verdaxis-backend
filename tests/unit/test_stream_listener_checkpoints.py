@@ -9,9 +9,13 @@ STREAM_CHECKPOINT = "sse_20261021_replay_floor"
 
 
 def test_stream_listener_covers_every_checkpoint_from_the_stream_release_on():
-    # The reviewed allowlist lists the checkpoints in migration order.
+    # M admits only the adopted baseline; retained stream checkpoints still
+    # need the listener when replaying the reviewed deployment history.
     order = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    expected = order[order.index(STREAM_CHECKPOINT):]
+    assert order == ["sqlx_1"]
+    expected = [STREAM_CHECKPOINT, "p5_20261020_read_indexes",
+                "p89_20261022_watchlist_producer", "p89_20261022_trade_freeze",
+                "ob_20261031_offboarding", *order]
     source = (ROOT / "scripts/deploy.sh").read_text()
     match = re.search(
         r'case "\$MIGRATION_TARGET_REVISION" in\n\s*([^)\n]+)\) RUST_STREAM_LISTENER="1" ;;',

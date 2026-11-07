@@ -6,11 +6,12 @@ Type=oneshot
 User=verdaxis-monitor-alert
 Group=verdaxis-monitor-alert
 EnvironmentFile=/etc/verdaxis-monitor/alert.env
-ExecStart=/usr/bin/python3 /usr/local/libexec/verdaxis-monitor/alert_dispatch.py --remind all --state-directory /var/lib/verdaxis-monitor-alert
+ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --remind all
 StateDirectory=verdaxis-monitor-alert
 StateDirectoryMode=0700
+ReadWritePaths=-/var/lib/verdaxis-health/alert-handoff -/var/lib/verdaxis-backup-verify/alert-handoff -/var/lib/verdaxis-monitor-alert-status
 UMask=0077
-TimeoutStartSec=45s
+TimeoutStartSec=180s
 MemoryMax=64M
 TasksMax=16
 

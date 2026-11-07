@@ -1,0 +1,33 @@
+[Unit]
+Description=Verdaxis news refresh (production)
+Wants=network-online.target
+Requires=postgresql.service
+After=network-online.target postgresql.service
+RequiresMountsFor=/home/verdaxis-prod/verdaxis/prod/be
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
+ConditionPathIsSymbolicLink=!/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+# Only this job's projected keys (ops prepare-runtime) reach the process;
+# the secret-rich .env is never loaded. The binary runs the identity,
+# deploy-state and target gates itself before any work.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/jobs/news.env
+Environment=DEPLOY_STATE_DIR=/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read job news --environment production --release-sha ${RELEASE_SHA} --apply
+TimeoutStartSec=900
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

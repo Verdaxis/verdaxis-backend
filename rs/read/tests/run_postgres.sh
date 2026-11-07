@@ -43,7 +43,19 @@ CREATE ROLE rust_group NOLOGIN;
 GRANT rust_group TO rust_member;
 CREATE ROLE rust_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE ROLE rust_backup NOLOGIN;
+-- Phase 10 Task 3 target-attestation accept cases need the deployed role names.
+CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
+CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_pw';
+-- Phase 10 Tasks 5 and 6: the production migrator name owns the baseline and
+-- adoption databases, so the catalog fingerprint's owner projection matches.
+CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_verdaxis_migrator_pw';
+-- The M adoption binds schema ownership to the adopting environment's
+-- migrator name; the market fixtures below are staging-shaped.
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
+-- A second database proves the attestation refuses a correct role on the
+-- wrong database name.
+CREATE DATABASE verdaxis_other_test OWNER rust_migrator;
 \connect verdaxis_rust_test
 CREATE EXTENSION postgis;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
@@ -57,6 +69,9 @@ export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$
 export RUST_DEMAND_TEST_DATABASE_URL="$RUST_TEST_DATABASE_URL"
 export RUST_TEST_MEMBER_DATABASE_URL="postgres://rust_member:disposable_member_pw@127.0.0.1:$port/verdaxis_rust_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_PRODUCTION_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_STAGING_DATABASE_URL="postgres://verdaxis_app_staging:disposable_staging_pw@127.0.0.1:$port/verdaxis_rust_test"
+export RUST_TEST_WRONG_DATABASE_URL="postgres://verdaxis_app:disposable_app_pw@127.0.0.1:$port/verdaxis_other_test"
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
 # Settings import requirements for the alembic migration below.
@@ -70,10 +85,10 @@ export JWT_SECRET="${JWT_SECRET:-test-secret-key-for-testing-minimum-32-chars}"
 market_image_role_setup() {
   local database=$1
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<SQL
-CREATE DATABASE $database OWNER rust_migrator;
+CREATE DATABASE $database OWNER verdaxis_migrator_staging;
 \connect $database
 CREATE EXTENSION IF NOT EXISTS postgis;
-ALTER SCHEMA public OWNER TO rust_migrator;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
 }
@@ -109,7 +124,7 @@ export RUST_PRODUCER_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0
 # quarantine and seed run there as the database owner role.
 export RUST_RESIDUAL_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_residual_test"
 export RUST_RESIDUAL_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_residual_test"
-export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_residual_test"
+export RUST_RESIDUAL_OWNER_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_residual_test"
 # The market serving target clones this template per case.
 export RUST_SERVING_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_serving_test"
 export RUST_SERVING_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_serving_test"
@@ -118,15 +133,21 @@ export RUST_INVENTORY_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.
 export RUST_SUPPORT_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/verdaxis_support_test"
 export RUST_SUPPORT_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_support_test"
 for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test verdaxis_confirm_test verdaxis_publish_test verdaxis_settlement_test verdaxis_freeze_test verdaxis_freeze_enforcement_test verdaxis_races_test verdaxis_producer_test verdaxis_residual_test verdaxis_serving_test verdaxis_inventory_test verdaxis_support_test; do
-  export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=rust_migrator \
+  export PGHOST=127.0.0.1 PGPORT="$port" PGUSER=verdaxis_migrator_staging \
     PGPASSWORD=disposable_migrator_pw PGDATABASE="$database"
-  export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database" \
-    MIGRATOR_DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/$database"
+  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database"
   "$RUST_TEST_PYTHON" -m alembic upgrade ob_20261031_offboarding
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
-    -v migrator_role=rust_migrator -v backup_role=rust_backup \
+    -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
     -f deploy/postgres/converge_runtime_object_acls.sql
+  # The M runtime only serves an adopted database: record the exact adoption
+  # row (the schema stays at the Alembic head; the fingerprint is unchanged).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored
 done
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="postgres://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_TRADES_TEMPLATE_DATABASE=verdaxis_trades_test
@@ -179,7 +200,15 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip corpus_carries_the_rows_these_cases_compare \
   --skip opposing_exact_slices_keep_prices_and_ordered_hash \
   --skip opposing_null_point_prefilter_keeps_the_tail_match \
-  --skip aggregate_groups_null_region_and_counts_duplicates 2>&1 | tee "$log"
+  --skip aggregate_groups_null_region_and_counts_duplicates \
+  --skip inspect_users_masks_email_by_default \
+  --skip inspect_users_show_emails_requires_the_explicit_flag \
+  --skip inspect_users_matches_the_python_tool_on_the_same_database \
+  --skip inspect_users_is_read_only_and_never_writes_a_status_file \
+  --skip inspect_blockers_matches_the_python_counts_on_the_same_fixture \
+  --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
+  --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
+  --skip the_reader_role_is_enough_for_both_commands 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then
@@ -223,3 +252,69 @@ cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features co
   --test phase4_analytics_views --test phase4_analytics_legacy \
   --test phase4_admission --test phase4_organizations --test phase4_races \
   -- --include-ignored --test-threads=1
+# Phase 10 Task 6: an Alembic-built database at the baseline head, owned by the
+# production migrator name, is the template every adoption case clones.
+adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
+\connect verdaxis_adoption_template
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator;
+SQL
+(
+  export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template" \
+    MIGRATOR_DATABASE_URL="postgresql+asyncpg://verdaxis_migrator:disposable_verdaxis_migrator_pw@127.0.0.1:$port/verdaxis_adoption_template"
+  "$RUST_TEST_PYTHON" -m alembic upgrade "$adoption_head"
+)
+export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
+export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
+
+# Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
+# the baseline applied by the staging migrator, then the real ACL convergence
+# with the operator role. Each ingestion case clones it as verdaxis_staging.
+# The staging migrator role is created once, above, for every template.
+docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+CREATE ROLE verdaxis_backup_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_backup_pw';
+CREATE ROLE verdaxis_operator_staging LOGIN NOINHERIT PASSWORD 'disposable_operator_pw';
+CREATE DATABASE verdaxis_ingest_template OWNER verdaxis_migrator_staging;
+\connect verdaxis_ingest_template
+CREATE EXTENSION IF NOT EXISTS postgis;
+ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
+SQL
+docker exec -i "$container" psql -U verdaxis_migrator_staging -d verdaxis_ingest_template \
+  -v ON_ERROR_STOP=1 -q < rs/read/migrations/1_baseline.sql > /dev/null
+docker exec "$container" mkdir -p /tmp/acl-bundle
+docker cp deploy/postgres/. "$container":/tmp/acl-bundle/
+docker exec "$container" psql -U postgres -d verdaxis_ingest_template -X -q --single-transaction \
+  -v ON_ERROR_STOP=1 -v database_name=verdaxis_ingest_template -v app_role=verdaxis_app_staging \
+  -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
+  -v operator_role=verdaxis_operator_staging -f /tmp/acl-bundle/converge_runtime_object_acls.sql > /dev/null
+export RUST_INGEST_TEMPLATE_DATABASE=verdaxis_ingest_template
+# The ingestion cases rerun the convergence through this container's psql.
+export RUST_POSTGRES_CONTAINER="$container"
+
+# Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
+# databases, and adoption runs on clones of the template above; each case
+# creates and drops its own database. Task 9: `ops preflight` attests a
+# verdaxis_staging database that its case creates and drops.
+# The runner-only adoption helper already ran above with each explicit migrator
+# URL. This group has no runner URL; keep the helper out of its broad selection.
+baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
+set +e
+cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+  --test phase10_baseline_postgres --test phase10_migrate_postgres \
+  --test phase10_ops_preflight_postgres --test phase10_ingest_postgres \
+  --test phase10_gena_postgres --test phase10_canary_postgres --test phase10_cache_postgres \
+  -- --include-ignored --skip runner_database_adopts_to_the_baseline \
+  --test-threads=1 2>&1 | tee "$baseline_log"
+baseline_status=${PIPESTATUS[0]}
+set -e
+if (( baseline_status != 0 )); then
+  exit "$baseline_status"
+fi
+if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$baseline_log"; then
+  echo "no baseline or migrate test ran: refusing a green result" >&2
+  exit 1
+fi
+# Phase 10 Task 6: the sqlx history ACL on its own disposable server.
+bash deploy/tests/sqlx-control-acl.sh

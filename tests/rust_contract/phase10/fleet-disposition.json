@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "task": 25,
+  "date": "2026-11-05",
+  "owner": "PM/founder workstation",
+  "location": "founder's macOS workstation",
+  "disposition": "off-host, not installed, not ported",
+  "w0": {
+    "path": "tests/rust_contract/phase10/host-dependencies.json",
+    "sha256": "1f91f4c3124c23fb2b10ae75d3915d53002a9e1186e9c8fa3ec9a9c5f9596483",
+    "scope": "collected-manual",
+    "installed_acceptance": false,
+    "fixture_source_sha256": "ec2c671177a2a2e7cea73b0d97919e7d7c867a190fd7c6a3b7b7f9616771a536",
+    "limitation": "Unchanged Task 36 register validates GREEN; Task 35 synthetic collector/validator also passes. Neither is signed installed W0 acceptance or permission for W5. Fleet evidence below supplements the manual register without rewriting it."
+  },
+  "probe": {
+    "path": "outputs/research/rust-phase10/t36/fleet-probe.txt",
+    "sha256": "f5affd0d5a720207b15874ea9fd967043abf74bc34bd4f64d682eb7f4cfccf14",
+    "collected_at": "2026-11-05T09:49Z",
+    "source": "PM read-only evidence outside this worktree; digest verified locally"
+  },
+  "host_evidence": {
+    "production": {
+      "cron_references": false,
+      "unit_references": false,
+      "timer_references": false,
+      "agent_browser_installed": false
+    },
+    "staging": {
+      "cron_references": false,
+      "unit_references": false,
+      "timer_references": false,
+      "agent_browser_installed": false
+    }
+  },
+  "excluded_shared_host_product": "OpenClaw",
+  "workstation_evidence": {
+    "owner": "PM/founder",
+    "platform": "macOS",
+    "manual": true,
+    "crontab_references": false,
+    "launch_agent_references": false,
+    "launch_daemon_references": false,
+    "browser_path": "/opt/homebrew/bin/agent-browser"
+  },
+  "tool": {
+    "path": "scripts/scrape_fleet_demand.py",
+    "sha256": "21f3352361f2ac1d77a769d71c6c046c6579eab7d51a1cf612b9853543942317",
+    "imports": ["datetime", "json", "pathlib", "re", "subprocess"],
+    "dependency_proof": "AST import inspection: only these five stdlib modules; no app, scripts or alembic imports and no removed-package dependency. External agent-browser remains a workstation prerequisite, not a deployed service dependency.",
+    "removed_package_dependencies": [],
+    "retained_in_repository_after_w5": true,
+    "release_artifact": false,
+    "installed_on_hosts": false,
+    "source_path_note": "This pinned repository copy still names /home/jons-openclaw/.npm-global/bin/agent-browser and suggests weekly cron. Those are legacy source text, not installed evidence. PM reports /opt/homebrew/bin/agent-browser on the manual macOS workstation. Leave the audited copy unchanged; do not infer or install cron from it.",
+    "retention_reason": "Retain the repository copy outside deploy/ for audit and optional manual workstation use after W5, following Task 26. Do not include it in the Rust release artifact or any host installer."
+  },
+  "publication": {
+    "interface": "reviewed commit of data/fleet_demand.json",
+    "pull_request": 159,
+    "staging_merge": "5d609212d",
+    "reader": "rs/read/src/market/fleet_snapshot.rs",
+    "local_artifact_available": false
+  },
+  "publication_evidence": "PM supplies PR #159 and staging merge identity. Neither that Git object nor data/fleet_demand.json is present in this checkout; artifact contents were not locally verified. Preserve the existing Rust reader and reviewed-file publication interface, not a direct scraper-to-live-file write.",
+  "implementation": "No Rust parser, capture adapter, browser installation, cron, timer or new schedule. No host access or activation. Tasks 31/33 must still obtain their separately authorized signed installed evidence."
+}

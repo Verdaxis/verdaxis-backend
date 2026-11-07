@@ -16,6 +16,42 @@ required-features = ["contract-tests"]
 name = "market_contract_postgres"
 required-features = ["contract-tests"]
 
+[[test]]
+name = "phase10_state_postgres"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase10_news_postgres"
+required-features = ["contract-tests"]
+
+# Phase 10 Task 9: purpose-bound runtime environments; the parity cases run
+# the Python projection from RUST_TEST_PYTHON.
+[[test]]
+name = "phase10_ops_env"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase10_ops_preflight_postgres"
+required-features = ["contract-tests"]
+
+# Phase 10 Task 21: trusted signal ingestion (offline and PostgreSQL cases).
+[[test]]
+name = "phase10_ingest"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase10_ingest_postgres"
+required-features = ["contract-tests"]
+
+# Phase 10 Task 22: the GENA producer-project import.
+[[test]]
+name = "phase10_gena"
+required-features = ["contract-tests"]
+
+[[test]]
+name = "phase10_gena_postgres"
+required-features = ["contract-tests"]
+
 # Phase 4 Task 13: three offline cases run in every workspace test; the
 # PostgreSQL cases inside the file are feature-gated by contract-tests.
 [[test]]
@@ -142,10 +178,17 @@ base64 = "=0.23.1"
 bcrypt = "=0.19.3"
 chrono = { version = "0.4.45", features = ["serde"] }
 chrono-tz = "0.10.4"
+clap = { version = "=4.6.7", features = ["derive"] }
 cookie = "0.18"
+# Phase 10 Task 11: RSS, Atom and RDF parsing for the news refresh job.
+feed-rs = "=3.0.0"
+# Phase 10 Task 27: streaming gzip reads for the backup monitor (pure Rust backend).
+flate2 = "=1.1.10"
 futures-util = "0.3"
 getrandom = "=0.4.3"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+# Phase 10 Task 3: O_NOFOLLOW/O_CLOEXEC for private state and lock paths.
+libc = "0.2.190"
 num-bigint = "0.4"
 num-traits = "0.2"
 percent-encoding = "2.3.2"
@@ -154,8 +197,12 @@ rust_decimal = "1.43.0"
 rustix = { version = "=1.1.5", features = ["fs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "arbitrary_precision"] }
+sha1 = "=0.11.0"
 sha2 = "0.11.1"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json"] }
+# Phase 10 Task 9: the python-dotenv grammar of the deployed .env reader
+# (already in Cargo.lock through sqlx).
+regex = "1.13.1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "rust_decimal", "chrono", "uuid", "macros", "json", "migrate"] }
 tokio = { version = "1.53.3", features = ["full"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["cors"] }

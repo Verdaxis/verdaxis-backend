@@ -1,0 +1,20 @@
+[Unit]
+Description=Verdaxis bounded authentication maintenance (production)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy/production.state
+
+[Service]
+Type=oneshot
+User=verdaxis-prod
+Group=verdaxis-prod
+WorkingDirectory=/home/verdaxis-prod/verdaxis/prod/be
+# Only this job's projected keys (ops prepare-runtime) reach the process;
+# the secret-rich .env is never loaded. The binary runs the identity,
+# deploy-state and target gates itself before any work.
+EnvironmentFile=/home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/jobs/auth-maintenance.env
+Environment=DEPLOY_STATE_DIR=/home/verdaxis-prod/verdaxis/prod/be/.runtime-deploy
+ExecStart=/usr/bin/env /home/verdaxis-prod/verdaxis/prod/be/.runtime-rust/verdaxis-read job auth-maintenance --environment production --release-sha ${RELEASE_SHA} --apply
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=300

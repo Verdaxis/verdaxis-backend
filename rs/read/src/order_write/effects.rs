@@ -1049,16 +1049,7 @@ impl<'a> EffectPort<'a> {
             }
         }
         for (trade, buyer, seller) in &set.confirmed_notifications {
-            let recipients: Vec<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM users WHERE organization_id=ANY($1::uuid[]) ORDER BY id",
-            )
-            .bind([*buyer, *seller].as_slice())
-            .fetch_all(&mut *self.conn)
-            .await?;
-            for recipient in recipients {
-                sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'TRADE_CONFIRMED','Auto-Matched Trade','Your order was automatically matched',$3,false,$4)")
-                    .bind(Uuid::new_v4()).bind(recipient).bind(json!({"trade_id":trade,"auto_matched":true})).bind(before.at).execute(&mut *self.conn).await?;
-            }
+            notify_trade_confirmed(self.conn, *trade, *buyer, *seller, before.at).await?;
         }
         for effect in &set.effects {
             if matches!(effect.kind, MutationKind::OrderCreated)
@@ -1369,7 +1360,7 @@ pub mod contract {
     }
     fn config() -> Result<Config, MarketWriteError> {
         serde_json::from_value(json!({"environment":"test","release_sha":"test",
-            "migration_revision":"p89_20261022_watchlist_producer","database_url":"",
+            "migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],"database_url":"",
             "db_session_time_zone":"UTC","bind":"127.0.0.1:0","pool_max":4,
             "python_budget":0,"configured_max_connections":100}))
         .map_err(|_| internal())
@@ -2082,6 +2073,29 @@ pub(super) async fn notify_trade_initiator(
             .await?;
     for recipient in recipients {
         sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'ORDER_UPDATE',$3,$4,$5,false,$6)").bind(Uuid::new_v4()).bind(recipient).bind(if confirm{"Trade Confirmed"}else{"Trade Declined"}).bind(format!("Your trade for {} MT has been {} by the counterparty.",trade["quantity_mt"].as_str().unwrap_or_default(),if confirm{"confirmed"}else{"declined"})).bind(json!({"trade_id":trade_id})).bind(at).execute(&mut *conn).await?;
+    }
+    Ok(())
+}
+
+/// Python's auto-match notice: one TRADE_CONFIRMED notification to every
+/// user of the buyer and seller organizations. User commands write it from
+/// `finish`; the demo tick writes it for its one trade.
+pub(super) async fn notify_trade_confirmed(
+    conn: &mut PgConnection,
+    trade: Uuid,
+    buyer: Uuid,
+    seller: Uuid,
+    at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let recipients: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM users WHERE organization_id=ANY($1::uuid[]) ORDER BY id",
+    )
+    .bind([buyer, seller].as_slice())
+    .fetch_all(&mut *conn)
+    .await?;
+    for recipient in recipients {
+        sqlx::query("INSERT INTO notifications(id,recipient_id,type,title,message,data,is_read,created_at) VALUES($1,$2,'TRADE_CONFIRMED','Auto-Matched Trade','Your order was automatically matched',$3,false,$4)")
+            .bind(Uuid::new_v4()).bind(recipient).bind(json!({"trade_id":trade,"auto_matched":true})).bind(at).execute(&mut *conn).await?;
     }
     Ok(())
 }

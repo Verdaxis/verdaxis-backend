@@ -36,6 +36,8 @@ def _runner(monkeypatch, *, seed: bool, seed_mode: str = "corpus"):
     )
     # Drop the constructor's own `git rev-parse HEAD` probe.
     calls.clear()
+    monkeypatch.setattr(runner, "adopt_database", lambda env: None)
+    monkeypatch.setattr(run_disposable, "docker", lambda *args, **kwargs: "")
     return runner, calls
 
 
@@ -241,3 +243,115 @@ def test_shared_target_path_is_passed_to_every_contract_subprocess(monkeypatch, 
         source = (ROOT / "rs/read/tests" / name).read_text()
         assert 'os.environ["RUST_CONTRACT_SERVER_BINARY"]' in source
         assert "rs/target/debug/examples/contract_server" not in source
+
+
+def test_runtime_revision_comes_from_the_reviewed_allowlist():
+    import json
+
+    allowed = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
+    assert run_disposable.MIGRATION_REVISION == allowed[0]
+
+
+def test_disposable_adoption_uses_the_existing_rust_adopter(monkeypatch):
+    runner, calls = _runner(monkeypatch, seed=False)
+    environment = {"MIGRATOR_DATABASE_URL":
+                   "postgresql+asyncpg://verdaxis_migrator_staging:pw@127.0.0.1:49160/verdaxis_rust_test"}
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        captured.update(kwargs)
+        return _Result()
+
+    monkeypatch.setattr(run_disposable.subprocess, "run", fake_run)
+    run_disposable.Runner.adopt_database(runner, environment)
+    assert calls == [["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
+                      "-p", "verdaxis-read", "--features", "contract-tests",
+                      "--test", "phase10_migrate_postgres",
+                      "runner_database_adopts_to_the_baseline", "--", "--ignored"]]
+    assert captured["check"] is True
+    assert captured["env"]["RUST_RUNNER_ENVIRONMENT"] == "staging"
+    assert captured["env"]["RUST_RUNNER_MIGRATOR_DATABASE_URL"] == environment["MIGRATOR_DATABASE_URL"].replace("postgresql+asyncpg:", "postgresql:")
+
+
+def test_adoption_precedes_corpus_seed(monkeypatch):
+    runner, calls = _runner(monkeypatch, seed=True)
+    monkeypatch.setattr(runner, "adopt_database", lambda env: calls.append(["adopt"]))
+    runner.migrate_and_seed(_env())
+    assert calls.index([VERIFIER]) < calls.index(["adopt"]) < len(calls) - 1
+
+
+def test_migration_failure_never_adopts_or_seeds(monkeypatch):
+    import subprocess
+
+    import pytest
+
+    runner, calls = _runner(monkeypatch, seed=False)
+    monkeypatch.setattr(runner, "adopt_database", lambda env: calls.append(["adopt"]))
+
+    def fail_verification(args, **kwargs):
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(run_disposable.subprocess, "run", fail_verification)
+    with pytest.raises(subprocess.CalledProcessError):
+        runner.migrate_and_seed(_env())
+    assert calls == []
+
+
+def test_migration_uses_the_disposable_migrator_not_the_runtime_role(monkeypatch):
+    runner, _ = _runner(monkeypatch, seed=False)
+    environment = runner.urls(49160)
+    captured = {}
+
+    def fake_run(args, **kwargs):
+        captured.update(kwargs["env"])
+        return _Result()
+
+    monkeypatch.setattr(run_disposable.subprocess, "run", fake_run)
+    runner.migrate_and_seed(environment)
+    assert captured["DATABASE_URL"] == environment["MIGRATOR_DATABASE_URL"]
+    assert captured["DATABASE_URL"] != environment["DATABASE_URL"]
+
+
+def test_statistics_extension_follows_adoption_for_every_runner_consumer(monkeypatch):
+    runner, _ = _runner(monkeypatch, seed=False)
+    events = []
+    monkeypatch.setattr(runner, "adopt_database", lambda env: events.append("adopt"))
+    monkeypatch.setattr(run_disposable, "docker", lambda *args, **kwargs: events.append(args[-1]))
+    runner.migrate_and_seed(_env())
+    assert events == ["adopt", "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"]
+
+
+def test_postgres_baseline_group_leaves_adoption_to_explicit_runner_calls():
+    import shlex
+
+    source = (ROOT / "rs/read/tests/run_postgres.sh").read_text()
+    commands = [
+        shlex.split(line.split("cargo test ", 1)[1])
+        for line in source.replace("\\\n", " ").splitlines()
+        if "cargo test " in line and not line.lstrip().startswith("#")
+    ]
+    baseline = next(command for command in commands if "phase10_baseline_postgres" in command)
+    arguments = baseline[baseline.index("--") + 1:]
+    assert "--include-ignored" in arguments
+    skip = arguments.index("--skip")
+    assert arguments[skip + 1] == "runner_database_adopts_to_the_baseline"
+    explicit = [command for command in commands
+                if "runner_database_adopts_to_the_baseline" in command[:command.index("--")]]
+    assert explicit
+    assert all(command[command.index("--") + 1] == "--ignored" for command in explicit)
+    assert 'RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://' in source
+
+
+def test_stream_actor_uses_the_configured_cargo_target(monkeypatch, tmp_path):
+    from tests.rust_contract.phase6 import coexistence
+
+    captured = []
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://fixture@127.0.0.1/test")
+    monkeypatch.setattr(coexistence.subprocess, "Popen", lambda command, **kwargs: captured.append(command))
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "shared-target"))
+    coexistence.RustActor()
+    assert captured.pop() == [str(tmp_path / "shared-target/debug/examples/streams_fixture")]
+    monkeypatch.delenv("CARGO_TARGET_DIR")
+    coexistence.RustActor()
+    assert captured.pop() == [str(ROOT / "rs/target/debug/examples/streams_fixture")]

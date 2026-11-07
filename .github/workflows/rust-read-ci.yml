@@ -20,6 +20,12 @@ on:
   push:
     branches: [staging, prod]
   workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: Run the isolated disposable release rehearsal
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -38,8 +44,49 @@ env:
   SQLX_CLI_VERSION: "0.9.0"
 
 jobs:
-  # Pure tests plus the release build, the glibc floor check, and the archivable
-  # release artifact. No database, no container, no secrets.
+  phase10-shellcheck:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install ShellCheck 0.10.0
+        shell: bash -euo pipefail {0}
+        run: |
+          # Official v0.10.0 Linux x86_64 release, independently downloaded and hashed.
+          curl --fail --location --retry 3 \
+            https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+            --output "$RUNNER_TEMP/shellcheck.tar.xz"
+          printf '%s  %s\n' \
+            6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87 \
+            "$RUNNER_TEMP/shellcheck.tar.xz" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/shellcheck-v0.10.0" >> "$GITHUB_PATH"
+      - name: Check every reviewed shell script
+        shell: bash -euo pipefail {0}
+        run: |
+          [[ "$(shellcheck --version | grep '^version:')" == "version: 0.10.0" ]]
+          mapfile -t reviewed_scripts < deploy/tests/shellcheck-files.txt
+          (( ${#reviewed_scripts[@]} > 0 ))
+          for script in "${reviewed_scripts[@]}"; do bash -n "$script"; done
+          shellcheck --severity=style --external-sources "${reviewed_scripts[@]}"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Run the disposable artifact contract
+        shell: bash -euo pipefail {0}
+        run: |
+          python -m venv "$RUNNER_TEMP/artifact-test-venv"
+          "$RUNNER_TEMP/artifact-test-venv/bin/pip" install cryptography==50.0.0 PyYAML==6.0.3 jsonschema==4.25.1
+          ARTIFACT_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/artifact-contract.sh
+          HOST_INVENTORY_TEST_PYTHON="$RUNNER_TEMP/artifact-test-venv/bin/python" bash deploy/tests/host-inventory-contract.sh
+      - name: Run the Python-free deploy transaction harness
+        shell: bash -euo pipefail {0}
+        run: bash deploy/tests/deploy-transaction.sh
+      - name: Run the Python-free unit installer contract
+        shell: bash -euo pipefail {0}
+        run: bash deploy/tests/units-contract.sh --static
+
+  # Pure tests plus the release build, disposable host-automation identity cells,
+  # the glibc floor check and the archivable artifact. No live database or secrets.
   offline:
     runs-on: ubuntu-22.04
     steps:
@@ -145,6 +192,12 @@ jobs:
             --target "$RUST_TARGET" -p verdaxis-read
           sha256sum "rs/target/$RUST_TARGET/release/verdaxis-read"
 
+      - name: Run the full host-automation installer and identity contracts
+        shell: bash -euo pipefail {0}
+        run: |
+          VERDAXIS_READ_BIN="$PWD/rs/target/$RUST_TARGET/release/verdaxis-read" \
+            bash deploy/tests/units-contract.sh
+
       - name: Check the glibc floor of the built binary
         shell: bash
         run: |
@@ -184,6 +237,183 @@ jobs:
             release/verdaxis-read-*.tar
             release/artifact-metadata.json
             release/glibc-report.txt
+
+  # This optional identity step never changes the normal release publisher.
+  rehearsal-provenance:
+    if: github.event_name == 'workflow_dispatch' && inputs.rehearsal
+    needs: offline
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-read-artifact
+          path: release
+      - name: Attest this run's disposable rehearsal inputs
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            release/verdaxis-read
+            release/verdaxis-read-*.tar
+
+  # Manual-only VM lanes. They do not join the normal publication dependency graph.
+  rehearsal:
+    if: github.event_name == 'workflow_dispatch' && inputs.rehearsal
+    needs: [offline, rehearsal-provenance]
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            environment: staging
+          - os: ubuntu-24.04
+            environment: production
+    env:
+      REHEARSAL_ENVIRONMENT: ${{ matrix.environment }}
+      REHEARSAL_SOURCE_DIR: ${{ github.workspace }}
+      REHEARSAL_PREVIOUS_SHA: 0920be378ebbc42e88afba455d9521d60d49845a
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Set private disposable workspace paths
+        shell: bash -euo pipefail {0}
+        run: |
+          for name in current previous; do
+            mkdir -m 0700 "$RUNNER_TEMP/rehearsal-$name"
+          done
+          {
+            printf 'REHEARSAL_CURRENT_ARTIFACT_DIR=%s/rehearsal-current\n' "$RUNNER_TEMP"
+            printf 'REHEARSAL_PREVIOUS_ARTIFACT_DIR=%s/rehearsal-previous\n' "$RUNNER_TEMP"
+            printf 'REHEARSAL_EVIDENCE_DIR=%s/rehearsal-evidence\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+      - name: Download this run's offline artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: rust-read-artifact
+          path: ${{ env.REHEARSAL_CURRENT_ARTIFACT_DIR }}
+      - name: Download and verify the previous signed staging release
+        shell: bash -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repository=Verdaxis/verdaxis-backend
+          [[ "$GITHUB_REPOSITORY" == "$repository" ]]
+          cd "$REHEARSAL_PREVIOUS_ARTIFACT_DIR"
+          # Resolve the complete identity from run metadata, not a short SHA.
+          gh api "repos/$repository/actions/runs/42034562253" > run-metadata.json
+          jq -e --arg sha "$REHEARSAL_PREVIOUS_SHA" '
+            .head_sha == $sha and .head_branch == "staging" and .event == "push" and
+            .status == "completed" and .conclusion == "success" and
+            .path == ".github/workflows/rust-read-ci.yml" and
+            .repository.full_name == "Verdaxis/verdaxis-backend"
+          ' run-metadata.json >/dev/null
+          gh run download 42034562253 --repo "$repository" --name rust-read-release --dir downloaded
+          # The published bundle has a release/ subtree. Never extract its outer tar.
+          cp downloaded/release/verdaxis-read downloaded/release/artifact-metadata.json .
+          archive="verdaxis-read-$REHEARSAL_PREVIOUS_SHA.tar"
+          cp "downloaded/release/$archive" .
+          mkdir -m 0700 attestations verification
+          for subject in verdaxis-read "$archive"; do
+            digest=$(sha256sum "$subject")
+            digest=${digest%% *}
+            (cd attestations && gh attestation download "../$subject" --repo "$repository")
+            label=binary
+            [[ "$subject" == verdaxis-read ]] || label=archive
+            gh attestation verify "$subject" --repo "$repository" \
+              --bundle "attestations/sha256:$digest.jsonl" \
+              --cert-identity "https://github.com/$repository/.github/workflows/rust-read-ci.yml@refs/heads/staging" \
+              --source-ref refs/heads/staging --source-digest "$REHEARSAL_PREVIOUS_SHA" \
+              --signer-digest "$REHEARSAL_PREVIOUS_SHA" --deny-self-hosted-runners \
+              --format json > "verification/$label.json"
+          done
+          jq -e --arg sha "$REHEARSAL_PREVIOUS_SHA" '.release_sha == $sha' artifact-metadata.json >/dev/null
+          printf '%s  verdaxis-read\n' "$(jq -er '.binary.sha256' artifact-metadata.json)" | sha256sum --check --strict
+          jq -e --arg sha "$GITHUB_SHA" '.release_sha == $sha' "$REHEARSAL_CURRENT_ARTIFACT_DIR/artifact-metadata.json" >/dev/null
+          (cd "$REHEARSAL_CURRENT_ARTIFACT_DIR" && \
+            printf '%s  verdaxis-read\n' "$(jq -er '.binary.sha256' artifact-metadata.json)" | sha256sum --check --strict)
+      - name: Verify this run's attested rehearsal inputs
+        shell: bash -euo pipefail {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          repository=Verdaxis/verdaxis-backend
+          [[ "$GITHUB_REPOSITORY" == "$repository" ]]
+          cd "$REHEARSAL_CURRENT_ARTIFACT_DIR"
+          mkdir -m 0700 attestations verification
+          archive="verdaxis-read-$GITHUB_SHA.tar"
+          for subject in verdaxis-read "$archive"; do
+            digest=$(sha256sum "$subject")
+            digest=${digest%% *}
+            (cd attestations && gh attestation download "../$subject" --repo "$repository")
+            label=binary
+            [[ "$subject" == verdaxis-read ]] || label=archive
+            gh attestation verify "$subject" --repo "$repository" \
+              --bundle "attestations/sha256:$digest.jsonl" \
+              --cert-identity "https://github.com/$repository/.github/workflows/rust-read-ci.yml@$GITHUB_REF" \
+              --source-ref "$GITHUB_REF" --source-digest "$GITHUB_SHA" \
+              --signer-digest "$GITHUB_SHA" --deny-self-hosted-runners \
+              --format json > "verification/$label.json"
+          done
+      - name: Prepare the disposable VM dependencies
+        shell: bash -euo pipefail {0}
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_SHA="$GITHUB_SHA" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+            REHEARSAL_WORKFLOW_REF="$GITHUB_REF" \
+            REHEARSAL_ENVIRONMENT="$REHEARSAL_ENVIRONMENT" \
+            REHEARSAL_SOURCE_DIR="$REHEARSAL_SOURCE_DIR" \
+            REHEARSAL_CURRENT_ARTIFACT_DIR="$REHEARSAL_CURRENT_ARTIFACT_DIR" \
+            REHEARSAL_PREVIOUS_ARTIFACT_DIR="$REHEARSAL_PREVIOUS_ARTIFACT_DIR" \
+            REHEARSAL_EVIDENCE_DIR="$REHEARSAL_EVIDENCE_DIR" \
+            REHEARSAL_PYTHON="$(command -v python)" \
+            CADDY_VERSION="$CADDY_VERSION" CADDY_SHA256="$CADDY_SHA256" \
+            bash deploy/tests/rehearsal-ci-setup.sh --disposable
+      - name: Run the complete disposable rehearsal
+        shell: bash -euo pipefail {0}
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
+            GITHUB_RUN_ID="$GITHUB_RUN_ID" GITHUB_SHA="$GITHUB_SHA" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
+            REHEARSAL_WORKFLOW_REF="$GITHUB_REF" \
+            REHEARSAL_ENVIRONMENT="$REHEARSAL_ENVIRONMENT" \
+            REHEARSAL_SOURCE_DIR="$REHEARSAL_SOURCE_DIR" \
+            REHEARSAL_CURRENT_ARTIFACT_DIR="$REHEARSAL_CURRENT_ARTIFACT_DIR" \
+            REHEARSAL_PREVIOUS_ARTIFACT_DIR="$REHEARSAL_PREVIOUS_ARTIFACT_DIR" \
+            REHEARSAL_EVIDENCE_DIR="$REHEARSAL_EVIDENCE_DIR" \
+            bash deploy/tests/full-rehearsal.sh --disposable
+      - name: Expose only the sanitized public evidence
+        id: public-evidence
+        if: always()
+        shell: bash -euo pipefail {0}
+        run: |
+          # Private runtime files remain root-only. Refuse links in the public tree.
+          if sudo test -d "$REHEARSAL_EVIDENCE_DIR/public"; then
+            [[ -z $(sudo find "$REHEARSAL_EVIDENCE_DIR/public" ! -type f ! -type d -print -quit) ]]
+            sudo chmod 0711 "$REHEARSAL_EVIDENCE_DIR"
+            sudo find "$REHEARSAL_EVIDENCE_DIR/public" -type d -exec chmod 0755 {} +
+            sudo find "$REHEARSAL_EVIDENCE_DIR/public" -type f -exec chmod 0644 {} +
+          fi
+      - name: Upload only sanitized rehearsal evidence
+        if: always() && steps.public-evidence.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-rehearsal-${{ matrix.os }}-${{ matrix.environment }}
+          path: ${{ env.REHEARSAL_EVIDENCE_DIR }}/public/
+          if-no-files-found: warn
+          retention-days: 7
 
   # Independent checks run on separate runners. The existing scripts create
   # and remove their own pinned disposable PostgreSQL containers as needed.
@@ -353,6 +583,12 @@ jobs:
         env:
           RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
         run: bash rs/read/tests/run_phase4_authority.sh
+      - name: Phase 10 order-expiry reminder job
+        if: matrix.check == 'postgres'
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RUST_TEST_PYTHON: ${{ github.workspace }}/venv/bin/python
+        run: bash rs/read/tests/run_phase10_reminders.sh
       - name: Individual account state marker schema
         if: matrix.check == 'postgres'
         env:

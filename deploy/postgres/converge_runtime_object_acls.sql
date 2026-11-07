@@ -1,8 +1,19 @@
 \set ON_ERROR_STOP on
 
 -- Required psql variables: database_name, app_role, migrator_role, backup_role.
+-- Optional: operator_role (Phase 10 Task 21) and bundle_reader_role (the
+-- pre-M bundle's read-only reader). Absent, empty, or naming a role that does
+-- not exist yet, either receives nothing.
 -- This include is transaction-neutral: bootstrap owns its transaction and the
 -- steady-state runner invokes psql with --single-transaction.
+\if :{?operator_role}
+\else
+\set operator_role ''
+\endif
+\if :{?bundle_reader_role}
+\else
+\set bundle_reader_role ''
+\endif
 SELECT 1 / (current_database() = :'database_name')::integer;
 SELECT 1 / (
     :'app_role' <> :'migrator_role'
@@ -29,6 +40,44 @@ SELECT 1 / (
          JOIN pg_catalog.pg_roles AS owner ON owner.oid = namespace.nspowner
          WHERE namespace.nspname = 'public'),
         false
+    )
+)::integer;
+
+-- A present operator role is distinct from the protected roles, is a plain
+-- least-privilege login, and has no membership edge in either direction.
+SELECT 1 / (
+    :'operator_role' = ''
+    OR :'operator_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
+)::integer;
+SELECT 1 / (
+    :'bundle_reader_role' = ''
+    OR :'bundle_reader_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
+)::integer;
+SELECT 1 / (
+    :'bundle_reader_role' = ''
+    OR :'operator_role' = ''
+    OR :'bundle_reader_role' <> :'operator_role'
+)::integer;
+SELECT 1 / (
+    :'bundle_reader_role' = ''
+    OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+        WHERE rolname = :'bundle_reader_role'
+    )
+)::integer;
+SELECT 1 / (
+    NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_roles AS operator
+        WHERE operator.rolname = :'operator_role'
+          AND (NOT operator.rolcanlogin OR operator.rolsuper OR operator.rolinherit
+               OR operator.rolcreatedb OR operator.rolcreaterole
+               OR operator.rolreplication OR operator.rolbypassrls
+               OR EXISTS (
+                   SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                   WHERE membership.member = operator.oid
+                      OR membership.roleid = operator.oid
+               ))
     )
 )::integer;
 
@@ -86,6 +135,28 @@ JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relname = 'alembic_version'
   AND object.relkind IN ('r', 'p')
+\gexec
+
+-- The pre-M bundle reads the retained Alembic head through its dedicated
+-- reader role before and after the forward deploy, so convergence keeps that
+-- one SELECT grant alive. SELECT only: the reader never writes migration
+-- control (plan section 8.7). Nothing is granted when the role is absent.
+SELECT format(
+    'GRANT SELECT ON TABLE %I.%I TO %I',
+    namespace.nspname,
+    object.relname,
+    :'bundle_reader_role'
+)
+FROM pg_catalog.pg_class AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+WHERE namespace.nspname = 'public'
+  AND object.relname = 'alembic_version'
+  AND object.relkind IN ('r', 'p')
+  AND :'bundle_reader_role' <> ''
+  AND EXISTS (
+      SELECT 1 FROM pg_catalog.pg_roles
+      WHERE rolname = :'bundle_reader_role'
+  )
 \gexec
 
 -- Migrations run as the named owner. A wrong-owner object is not silently
@@ -210,6 +281,21 @@ SELECT format(
 FROM governed_objects AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE object.relkind IN ('r', 'p')
+\gexec
+
+-- The operator's exact ingestion grants, rebuilt with every other grant.
+SELECT format(
+    'GRANT %s ON TABLE %I.%I TO %I',
+    array_to_string(policy.privileges, ', '),
+    namespace.nspname,
+    object.relname,
+    :'operator_role'
+)
+FROM governed_objects AS object
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+JOIN operator_table_policy AS policy ON policy.table_name = object.relname
+WHERE object.relkind IN ('r', 'p')
+  AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'operator_role')
 \gexec
 
 SELECT format(

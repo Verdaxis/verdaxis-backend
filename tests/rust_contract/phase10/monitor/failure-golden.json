@@ -1,0 +1,1 @@
+{"category":"failure","checks":[{"category":"failure","code":"previous_status_invalid","duration_ms":0,"last_success_at":null,"name":"backup_monitor"}],"generated_at":"2026-07-20T00:00:00Z","schema_version":1}

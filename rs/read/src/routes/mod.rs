@@ -15,6 +15,7 @@ pub mod curves_canonical;
 pub mod curves_legacy;
 pub mod listings;
 pub mod market_data_error;
+pub mod monitor_canary;
 pub mod news;
 pub mod orderbook_lists;
 pub mod orderbook_map;
@@ -22,6 +23,7 @@ pub mod orderbook_snapshot;
 pub mod ports;
 pub mod prices;
 pub mod producers;
+pub mod root;
 // The administrator obligation list and reassignment: admin routes outside the
 // market-write switch, unmounted until the offboarding release switch.
 pub mod reassignment;

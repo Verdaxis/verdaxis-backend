@@ -1,16 +1,16 @@
 [Unit]
 Description=Verdaxis credential-free local readiness monitor
 After=verdaxis-backend.service verdaxis-backend-staging.service
-OnFailure=verdaxis-monitor-alert@health-failure.service
-OnSuccess=verdaxis-monitor-alert@health-healthy.service
+OnFailure=verdaxis-monitor-alert@health.service
+OnSuccess=verdaxis-monitor-alert@health.service
 
 [Service]
 Type=oneshot
 User=verdaxis-health
 Group=verdaxis-health
-ExecStart=/usr/bin/python3 /usr/local/libexec/verdaxis-monitor/local_health_check.py --status-file /var/lib/verdaxis-health/status.json --production-identity-file /etc/verdaxis-monitor/runtime-identities/production.identity --staging-identity-file /etc/verdaxis-monitor/runtime-identities/staging.identity
+ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor health
 StateDirectory=verdaxis-health
-StateDirectoryMode=0700
+StateDirectoryMode=0710
 UMask=0077
 TimeoutStartSec=30s
 MemoryMax=64M

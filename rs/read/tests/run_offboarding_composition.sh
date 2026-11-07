@@ -51,25 +51,32 @@ port=$(docker port "$container" 5432/tcp | head -1)
 port=${port##*:}
 
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE rust_migrator LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
+CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_backup NOLOGIN;
 SQL
 docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
-  -c "CREATE DATABASE $template OWNER rust_migrator" >/dev/null
+  -c "CREATE DATABASE $template OWNER verdaxis_migrator_staging" >/dev/null
 docker exec "$container" psql -U postgres -d "$template" -v ON_ERROR_STOP=1 \
-  -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO rust_migrator; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
+  -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO verdaxis_migrator_staging; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
 
 export ENVIRONMENT=test JWT_SECRET=test-secret-key-for-testing-minimum-32-chars
-export DATABASE_URL="postgresql+asyncpg://rust_migrator:disposable_role_pw@127.0.0.1:$port/$template"
+export DATABASE_URL="postgresql+asyncpg://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template"
 export MIGRATOR_DATABASE_URL="$DATABASE_URL"
 "$python" -m alembic upgrade head
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" \
-  PGUSER=rust_migrator PGPASSWORD=disposable_role_pw \
+  PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
   psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
   -v database_name="$template" -v app_role=rust_app \
-  -v migrator_role=rust_migrator -v backup_role=rust_backup \
+  -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
+
+  # The M runtime only serves an adopted database: record the exact
+  # adoption row (the schema stays at the Alembic head).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
 printf 'GATE=migrate-%s EXIT=0\n' "$template"
 unset DATABASE_URL MIGRATOR_DATABASE_URL
 

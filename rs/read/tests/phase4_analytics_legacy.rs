@@ -37,6 +37,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use verdaxis_read::auth::VerificationSettings;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const SECRET: &str = "analytics-legacy-test-secret-at-least-32-chars";
 const ISSUER: &str = "analytics-legacy-test";
@@ -84,7 +85,7 @@ fn config(url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "status": "closed",
+  "closed_on": "2026-11-05",
+  "final_head": "ob_20261031_offboarding",
+  "alembic_revisions": 82,
+  "single_head": true,
+  "source": {
+    "branch": "staging",
+    "sha": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+  },
+  "baseline": "deploy/rust/sqlx-baseline.json",
+  "approved_transitions_to_final_head": [
+    [
+      "p89_20261022_trade_freeze",
+      "ob_20261031_offboarding"
+    ],
+    [
+      "ob_20261031_offboarding",
+      "ob_20261031_offboarding"
+    ]
+  ],
+  "deployed_observations": [
+    {
+      "environment": "staging",
+      "observed_on": "2026-11-04",
+      "revision": "ob_20261031_offboarding",
+      "release_sha": "442d6b75fe25ffa04877af111be12a08719f8c09"
+    },
+    {
+      "environment": "production",
+      "observed_on": "2026-11-04",
+      "revision": "p89_20261022_trade_freeze",
+      "release_sha": "ba2279b488157630c2b601ba6628ebed108b3b79",
+      "pending_transition": [
+        "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding"
+      ]
+    }
+  ],
+  "producers": [
+    {
+      "producer": "Phase 0 convergence",
+      "revisions": [
+        "p0_20261016_union"
+      ],
+      "migration_files": [
+        "alembic/versions/p0_20261016_union.py"
+      ],
+      "head": "p0_20261016_union",
+      "source_commits": {
+        "p0_20261016_union": "a588e19cd0862952cc532d1ca9ae19f66962fc55"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Phase 1 read cache",
+      "revisions": [
+        "prc_20261018_cache"
+      ],
+      "migration_files": [
+        "alembic/versions/prc_20261018_cache.py"
+      ],
+      "head": "prc_20261018_cache",
+      "source_commits": {
+        "prc_20261018_cache": "852d8760d47c531e8b72a4d4f606c9c203b7c38c"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Phase 2 change feed",
+      "revisions": [
+        "prc_20261026_changes"
+      ],
+      "migration_files": [
+        "alembic/versions/prc_20261026_changes.py"
+      ],
+      "head": "prc_20261026_changes",
+      "source_commits": {
+        "prc_20261026_changes": "c207899e22eec0f4b1b286864d2f40e96e5108b9"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Phase 3 login and sessions",
+      "revisions": [
+        "p3_20261020_auth_tokens",
+        "sse_20261021_replay_floor"
+      ],
+      "migration_files": [
+        "alembic/versions/p3_20261020_auth_tokens.py",
+        "alembic/versions/sse_20261021_replay_floor.py"
+      ],
+      "head": "sse_20261021_replay_floor",
+      "source_commits": {
+        "p3_20261020_auth_tokens": "081de5de0f07dd06480c3b9a2395e1053db9c81c",
+        "sse_20261021_replay_floor": "81dfd243cf75ec948c9d30cd631a636a1e9fc335"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Phase 4",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision; graph checked at the source SHA: no revision of this lane exists or is pending",
+      "attested_at": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+    },
+    {
+      "producer": "Phase 5 read indexes",
+      "revisions": [
+        "p5_20261020_read_indexes"
+      ],
+      "migration_files": [
+        "alembic/versions/p5_20261020_read_indexes.py"
+      ],
+      "head": "p5_20261020_read_indexes",
+      "source_commits": {
+        "p5_20261020_read_indexes": "9cdd5564e062372b46146c92ca55e3b6301db979"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Phase 6",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision; graph checked at the source SHA: no revision of this lane exists or is pending",
+      "attested_at": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+    },
+    {
+      "producer": "Phase 7 (Path B, retire)",
+      "revisions": [],
+      "acknowledgement": "no Alembic revision (Task 20 report); graph checked at the source SHA: no revision of this lane exists or is pending",
+      "attested_at": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+    },
+    {
+      "producer": "Phases 8-9 market writes",
+      "revisions": [
+        "p89_20261022_watchlist_producer",
+        "p89_20261022_trade_freeze"
+      ],
+      "migration_files": [
+        "alembic/versions/p89_20261022_watchlist_producer.py",
+        "alembic/versions/p89_20261022_trade_freeze.py"
+      ],
+      "head": "p89_20261022_trade_freeze",
+      "source_commits": {
+        "p89_20261022_watchlist_producer": "5eed05aada489e675d7be27f6660107c68c36cea",
+        "p89_20261022_trade_freeze": "d5ec20cc723c443f5aa7c61ad268a1d3bfbb06ae"
+      },
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Individual offboarding",
+      "revisions": [
+        "ob_20261031_offboarding"
+      ],
+      "migration_files": [
+        "alembic/versions/ob_20261031_individual_offboarding.py"
+      ],
+      "head": "ob_20261031_offboarding",
+      "source_commits": {
+        "ob_20261031_offboarding": "37bf59d378ddc5c095896ace598eaec79d60d6b5"
+      },
+      "merged_by": "442d6b75fe25ffa04877af111be12a08719f8c09",
+      "acknowledgement": "merged into staging; no revision of this lane is pending"
+    },
+    {
+      "producer": "Security and operations lanes",
+      "revisions": [],
+      "acknowledgement": "every remote branch was scanned on 2026-11-05: no revision outside this graph is pending; the 12 outside revisions are listed under revisions_outside_the_graph",
+      "attested_at": "06e9f428107e80b1f6f1b594597a51102acf9a74"
+    }
+  ],
+  "revisions_outside_the_graph": {
+    "retired_by_phase0_rebuild": [
+      "catalog_20260926_biofuels",
+      "ua_20260925_user_activity",
+      "ua_20260926_activity_policy",
+      "uadl_20261003_delivery_reports",
+      "blng_20261014_prod",
+      "kycg_20261014_prod"
+    ],
+    "note": "Phase 0 built the new production database on the staging graph and kept the old database read-only, so the production-line revisions are not in any serving database. The undeployed lanes were never applied to a deployed database: the March 2026 exchange-hardening branch was abandoned, and the July 2026 market-support draft was replaced by ms_20260723_assisted_listings, ms_20260723_assisted_order_v2 and ms_20260723_organization_context.",
+    "undeployed_lanes": [
+      "s5_001_advanced_order_types",
+      "s5_002_add_order_audit_logs",
+      "s6_001_surveillance_events",
+      "s7_001_add_oauth_clients",
+      "s8_001_add_dashboard_widgets",
+      "ms_20260722_delegated_listings"
+    ]
+  },
+  "acknowledged_by": "PM (decision 199)",
+  "task5_completion": {
+    "state": "complete",
+    "gate": "Task 20 Path B live acceptance recorded in tests/rust_contract/phase10/phase7-decision.json"
+  }
+}

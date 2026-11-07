@@ -387,17 +387,8 @@ def project_runtime_environment(
     if any(values.get(key) is None for key in RUNTIME_KEYS):
         raise RustRuntimeError("the deployed .env must define ENVIRONMENT and RELEASE_SHA")
     environment = policy["environment"]
-    if environment == "production" and migration_revision not in {
-        "p0_20261016_union",
-        "prc_20261026_changes",
-        "p3_20261020_auth_tokens",
-        "sse_20261021_replay_floor",
-        "p5_20261020_read_indexes",
-        "p89_20261022_watchlist_producer",
-        "p89_20261022_trade_freeze",
-        "ob_20261031_offboarding",
-    }:
-        raise RustRuntimeError("production requires its reviewed union checkpoint")
+    if environment == "production" and migration_revision != "sqlx_1":
+        raise RustRuntimeError("production requires the adopted sqlx baseline")
     if values["ENVIRONMENT"] != environment or values["RELEASE_SHA"] != release_sha:
         raise RustRuntimeError(
             "the deployed environment identity does not match this release"

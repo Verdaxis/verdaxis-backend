@@ -3,6 +3,7 @@ pub mod analytics;
 pub mod auth;
 pub mod business;
 pub mod case_reference;
+pub mod cli;
 pub mod compliance;
 pub mod crud;
 pub mod kyc;

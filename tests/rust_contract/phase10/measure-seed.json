@@ -1,0 +1,278 @@
+{
+ "version": 1,
+ "purpose": "final-measurement seed identity; replayed offline, no run",
+ "size": "small",
+ "workload_manifest_sha256": "85d6617ffc7361c05446e4e485c5b00112fc88b6f76671e6c8ca552880aca215",
+ "distribution_seed": 20261017,
+ "corpus_clock": "2026-10-15T12:00:00+00:00",
+ "weight_key": "weight_baseline",
+ "counts": {
+  "orders": 1000,
+  "trades": 1000,
+  "news": 100
+ },
+ "route_ids": [
+  "R01",
+  "R02",
+  "R03",
+  "R04",
+  "R05",
+  "R06",
+  "R07",
+  "R08",
+  "R09",
+  "R10",
+  "R11",
+  "R12",
+  "R13",
+  "R14",
+  "R15",
+  "R16",
+  "R17",
+  "R18",
+  "R19",
+  "R20",
+  "R21",
+  "R22",
+  "R23",
+  "R24",
+  "R25",
+  "R26",
+  "R27",
+  "get_market_slice",
+  "list_markets",
+  "plan_voyage_fuel"
+ ],
+ "workload_rows": [
+  {
+   "id": "R01",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R02",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R03",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R04",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R05",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R06",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R07",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R08",
+   "weight_baseline": 1,
+   "weight_representative": 1
+  },
+  {
+   "id": "R09",
+   "weight_baseline": 1,
+   "weight_representative": 1
+  },
+  {
+   "id": "R10",
+   "weight_baseline": 1,
+   "weight_representative": 1
+  },
+  {
+   "id": "R11",
+   "weight_baseline": 1,
+   "weight_representative": 1
+  },
+  {
+   "id": "R12",
+   "weight_baseline": 1,
+   "weight_representative": 6
+  },
+  {
+   "id": "R13",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R14",
+   "weight_baseline": 1,
+   "weight_representative": 1
+  },
+  {
+   "id": "R15",
+   "weight_baseline": 1,
+   "weight_representative": 6
+  },
+  {
+   "id": "R16",
+   "weight_baseline": 1,
+   "weight_representative": 8
+  },
+  {
+   "id": "R17",
+   "weight_baseline": 1,
+   "weight_representative": 8
+  },
+  {
+   "id": "R18",
+   "weight_baseline": 1,
+   "weight_representative": 3
+  },
+  {
+   "id": "R19",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R20",
+   "weight_baseline": 1,
+   "weight_representative": 3
+  },
+  {
+   "id": "R21",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R22",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "R23",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R24",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R25",
+   "weight_baseline": 1,
+   "weight_representative": 2
+  },
+  {
+   "id": "R26",
+   "weight_baseline": 1,
+   "weight_representative": 10
+  },
+  {
+   "id": "R27",
+   "weight_baseline": 1,
+   "weight_representative": 3
+  },
+  {
+   "id": "list_markets",
+   "weight_baseline": 1,
+   "weight_representative": 3
+  },
+  {
+   "id": "get_market_slice",
+   "weight_baseline": 1,
+   "weight_representative": 4
+  },
+  {
+   "id": "plan_voyage_fuel",
+   "weight_baseline": 1,
+   "weight_representative": 3
+  }
+ ],
+ "request_order": [
+  "R13",
+  "get_market_slice",
+  "R05",
+  "R25",
+  "R21",
+  "R08",
+  "R19",
+  "R12",
+  "R03",
+  "R02",
+  "R10",
+  "R14",
+  "R07",
+  "plan_voyage_fuel",
+  "list_markets",
+  "R24",
+  "R27",
+  "R11",
+  "R20",
+  "R18",
+  "R26",
+  "R23",
+  "R17",
+  "R16",
+  "R04",
+  "R22",
+  "R06",
+  "R15",
+  "R01",
+  "R09"
+ ],
+ "comparison_windows": [
+  {
+   "seconds": 15,
+   "rps": 1
+  },
+  {
+   "seconds": 900,
+   "rps": 5
+  }
+ ],
+ "warmup": {
+  "seconds": 15,
+  "rps": 5
+ },
+ "offered_per_route": {
+  "R01": 150,
+  "R02": 151,
+  "R03": 151,
+  "R04": 150,
+  "R05": 151,
+  "R06": 150,
+  "R07": 151,
+  "R08": 151,
+  "R09": 150,
+  "R10": 151,
+  "R11": 150,
+  "R12": 151,
+  "R13": 151,
+  "R14": 151,
+  "R15": 150,
+  "R16": 150,
+  "R17": 150,
+  "R18": 150,
+  "R19": 151,
+  "R20": 150,
+  "R21": 151,
+  "R22": 150,
+  "R23": 150,
+  "R24": 150,
+  "R25": 151,
+  "R26": 150,
+  "R27": 150,
+  "get_market_slice": 151,
+  "list_markets": 151,
+  "plan_voyage_fuel": 151
+ },
+ "offered_total": 4515,
+ "seed_sha256": "340a9a04739853f41783d28bcd03eb1100bd0ab24541ce81dc5656f2b183dfa7"
+}

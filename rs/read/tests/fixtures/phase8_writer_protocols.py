@@ -11,7 +11,7 @@ def main():
     assert url.host == "127.0.0.1" and url.database.endswith("_test")
     admin = make_url(os.environ["POSTGRES_ADMIN_TEST_DATABASE_URL"]).set(drivername="postgresql+asyncpg", database="postgres")
     assert admin.host == "127.0.0.1"
-    target = url.set(drivername="postgresql+asyncpg", database="p89_protocol_market_integrity_test",username="rust_migrator")
+    target = url.set(drivername="postgresql+asyncpg", database="p89_protocol_market_integrity_test",username="verdaxis_migrator_staging")
     import asyncio
 
     from sqlalchemy import text
@@ -20,11 +20,11 @@ def main():
     async def prepare():
         engine = create_async_engine(admin, isolation_level="AUTOCOMMIT")
         async with engine.connect() as connection:
-            await connection.execute(text("ALTER ROLE rust_migrator NOINHERIT"))
-            await connection.execute(text("GRANT SET ON PARAMETER session_replication_role TO rust_migrator"))
+            await connection.execute(text("ALTER ROLE verdaxis_migrator_staging NOINHERIT"))
+            await connection.execute(text("GRANT SET ON PARAMETER session_replication_role TO verdaxis_migrator_staging"))
             exists = await connection.scalar(text("SELECT 1 FROM pg_database WHERE datname='p89_protocol_market_integrity_test'"))
             if not exists:
-                await connection.execute(text("CREATE DATABASE p89_protocol_market_integrity_test OWNER rust_migrator"))
+                await connection.execute(text("CREATE DATABASE p89_protocol_market_integrity_test OWNER verdaxis_migrator_staging"))
         await engine.dispose()
     asyncio.run(prepare())
     env = dict(os.environ, ENVIRONMENT="test", RELEASE_SHA=os.environ["RELEASE_SHA"],
@@ -78,7 +78,7 @@ async def _analytics(admin):
     engine=create_async_engine(admin,isolation_level="AUTOCOMMIT")
     async with engine.connect() as connection:
         if not await connection.scalar(text("SELECT 1 FROM pg_database WHERE datname='p89_protocol_analytics_test'")):
-            await connection.execute(text("CREATE DATABASE p89_protocol_analytics_test OWNER rust_migrator"))
+            await connection.execute(text("CREATE DATABASE p89_protocol_analytics_test OWNER verdaxis_migrator_staging"))
     await engine.dispose()
 
 

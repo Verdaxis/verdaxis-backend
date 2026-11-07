@@ -2,10 +2,16 @@
 Description=Verdaxis route and uptime monitor
 Wants=network-online.target
 After=network-online.target caddy.service
-OnFailure=verdaxis-recover.service
-OnFailureJobMode=replace
 
 [Service]
 Type=oneshot
+User=root
 EnvironmentFile=-/etc/verdaxis-monitor.env
-ExecStart=/usr/local/sbin/verdaxis-monitor
+ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor external
+# Default uncached set: Caddy 20 + endpoints 9*(3*15+2*2)=441
+# + unit probes 5*20=100 + bundles 2*2*15=60
+# + render 3*(75+20+4)+2*2=301 + signup 2*2*20=80
+# + gzip validation 3*20=60 + demo 2*20=40
+# + notifications 2*10=20 = 1122 seconds.
+# 1800 also leaves startup/cleanup margin; review increases to env timeouts.
+TimeoutStartSec=1800

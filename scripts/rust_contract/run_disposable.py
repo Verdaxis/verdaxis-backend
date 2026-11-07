@@ -36,7 +36,10 @@ IMAGE = (
 DB_NAME = "verdaxis_rust_test"
 APP_ROLE = "rust_owner"
 APP_PASSWORD = "disposable_owner_pw"
-MIGRATION_REVISION = "kycg_20261014_staging"
+MIGRATION_REVISION = json.loads(
+    (ROOT / "deploy/rust/allowed-revisions.json").read_text()
+)[0]
+MIGRATOR_ROLE = "verdaxis_migrator_staging"
 # The staging oracle's session time zone. Recorded with each golden run.
 ORACLE_TIMEZONE = "Asia/Singapore"
 # One explicit instant for the fixed-clock corpus. Every server sees it.
@@ -227,10 +230,14 @@ class Runner:
             "ON_ERROR_STOP=1",
             input_text=f"""
 CREATE ROLE {APP_ROLE} LOGIN NOINHERIT NOSUPERUSER PASSWORD '{APP_PASSWORD}';
-CREATE DATABASE {DB_NAME} OWNER {APP_ROLE};
+CREATE ROLE {MIGRATOR_ROLE} LOGIN NOINHERIT NOSUPERUSER PASSWORD '{APP_PASSWORD}';
+CREATE DATABASE {DB_NAME} OWNER {MIGRATOR_ROLE};
 \\connect {DB_NAME}
 CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+ALTER SCHEMA public OWNER TO {MIGRATOR_ROLE};
+GRANT USAGE ON SCHEMA public TO {APP_ROLE};
+ALTER DEFAULT PRIVILEGES FOR ROLE {MIGRATOR_ROLE} IN SCHEMA public GRANT ALL ON TABLES TO {APP_ROLE};
+ALTER DEFAULT PRIVILEGES FOR ROLE {MIGRATOR_ROLE} IN SCHEMA public GRANT ALL ON SEQUENCES TO {APP_ROLE};
 ALTER DATABASE {DB_NAME} SET TimeZone TO '{ORACLE_TIMEZONE}';
 \\connect template1
 CREATE EXTENSION IF NOT EXISTS postgis;
@@ -242,7 +249,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         base = f"{APP_ROLE}:{APP_PASSWORD}@127.0.0.1:{port}/{DB_NAME}"
         return {
             "DATABASE_URL": f"postgresql+asyncpg://{base}",
-            "MIGRATOR_DATABASE_URL": f"postgresql+asyncpg://{base}",
+            "MIGRATOR_DATABASE_URL": f"postgresql+asyncpg://{MIGRATOR_ROLE}:{APP_PASSWORD}@127.0.0.1:{port}/{DB_NAME}",
             "SEED_DATABASE_URL": f"postgresql://{base}",
             "SEED_TARGET_DATABASE": DB_NAME,
             "SEED_RUNTIME_ENV": "disposable",
@@ -251,7 +258,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
         }
 
     def migrate_and_seed(self, env: dict[str, str]) -> None:
-        run = {**os.environ, **env}
+        run = {**os.environ, **env, "DATABASE_URL": env.get("MIGRATOR_DATABASE_URL", env["DATABASE_URL"])}
         alembic = [str(ROOT / "venv/bin/alembic"), "upgrade"]
         if self.seed and self.seed_mode == "corpus":
             subprocess.run(
@@ -275,6 +282,10 @@ CREATE EXTENSION IF NOT EXISTS postgis;
             env={**run, "ALEMBIC_BIN": str(ROOT / "venv" / "bin" / "alembic")},
             check=True,
         )
+        self.adopt_database(run)
+        docker("exec", self.container, "psql", "-X", "-U", "postgres", "-d", DB_NAME,
+               "-v", "ON_ERROR_STOP=1", "-c",
+               "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
         if not self.seed:
             return
         if self.seed_mode == "corpus":
@@ -292,6 +303,21 @@ CREATE EXTENSION IF NOT EXISTS postgis;
                 check=True,
             )
             print("seed mode ordinary: corpus fixture families are not applied")
+
+    def adopt_database(self, env: dict[str, str]) -> None:
+        """Use the component runners' real M adoption before fixtures change DDL."""
+        subprocess.run(
+            ["cargo", "test", "--manifest-path", "rs/Cargo.toml", "--locked",
+             "-p", "verdaxis-read", "--features", "contract-tests",
+             "--test", "phase10_migrate_postgres",
+             "runner_database_adopts_to_the_baseline", "--", "--ignored"],
+            cwd=ROOT,
+            env={**os.environ, **env, "SQLX_OFFLINE": "true",
+                 "RUST_RUNNER_ENVIRONMENT": "staging",
+                 "RUST_RUNNER_MIGRATOR_DATABASE_URL": env["MIGRATOR_DATABASE_URL"].replace(
+                     "postgresql+asyncpg:", "postgresql:", 1)},
+            check=True,
+        )
 
     def spawn(self, args: list[str], env: dict[str, str]) -> None:
         self.children.append(

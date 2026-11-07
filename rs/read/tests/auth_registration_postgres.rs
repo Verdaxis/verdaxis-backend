@@ -730,7 +730,15 @@ async fn e3_e6_pending_expiry_boundaries() {
             StatusCode::ACCEPTED
         );
         let token = f.token(&email).await;
-        sqlx::query("UPDATE pending_registrations SET expires_at=clock_timestamp()+make_interval(secs => $2) WHERE email=$1").bind(&email).bind(offset as f64).execute(&f.owner).await.unwrap();
+        // The route compares expiry with its application clock. The disposable
+        // database may run in a VM whose wall clock is slightly ahead.
+        let expires_at = chrono::Utc::now() + chrono::Duration::seconds(offset);
+        sqlx::query("UPDATE pending_registrations SET expires_at=$2 WHERE email=$1")
+            .bind(&email)
+            .bind(expires_at)
+            .execute(&f.owner)
+            .await
+            .unwrap();
         let before: Value =
             sqlx::query_scalar("SELECT to_jsonb(p) FROM pending_registrations p WHERE email=$1")
                 .bind(&email)

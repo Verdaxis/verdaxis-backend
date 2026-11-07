@@ -3,7 +3,9 @@
 //! reaches a database route fails with 503 on the unreachable pool, never 400.
 use axum::{Router, body::Body, http::Request};
 use tower::ServiceExt;
-use verdaxis_read::{AppState, Config, MarketPolicy, Phase2Options};
+use verdaxis_read::{
+    AppState, Config, MarketPolicy, Phase2Options, runtime::artifact::ALLOWED_REVISIONS,
+};
 
 fn app(allowed_hosts: Option<&str>) -> Router {
     let config = Config {
@@ -11,7 +13,7 @@ fn app(allowed_hosts: Option<&str>) -> Router {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 4,

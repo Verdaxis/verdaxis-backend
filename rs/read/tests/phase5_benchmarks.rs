@@ -12,6 +12,7 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 fn now() -> DateTime<Utc> {
     "2026-10-23T00:00:00Z".parse().unwrap()
@@ -84,7 +85,7 @@ fn state(policy: MarketPolicy, pool: sqlx::PgPool) -> AppState {
         db_session_time_zone: "UTC".into(),
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: "postgres://fixture:fixture_pw@127.0.0.1:1/fixture_test".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
         read_admission_slots: 1,

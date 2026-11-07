@@ -13,6 +13,7 @@ use axum::{
 use producers::{ProducerQuery, ProjectStatus};
 use serde_json::{Value, json};
 use tower::ServiceExt;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 #[test]
 fn producer_filter_cases() {
@@ -95,7 +96,7 @@ fn state(url: &str) -> AppState {
     let config: verdaxis_read::Config = serde_json::from_value(json!({
         "kyc_execution_gate_enabled": true, "db_session_time_zone": "UTC",
         "environment": "test", "release_sha": verdaxis_read::compiled_sha(),
-        "migration_revision": "p5_20261020_read_indexes", "database_url": url,
+        "migration_revision": ALLOWED_REVISIONS[0], "database_url": url,
         "bind": "127.0.0.1:0", "read_admission_slots": 2, "pool_max": 3,
         "python_budget": 52, "configured_max_connections": 100
     }))

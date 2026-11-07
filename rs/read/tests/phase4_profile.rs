@@ -38,6 +38,7 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::auth::AuthError;
 use verdaxis_read::business::transaction::{AttemptError, CommandFuture};
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 use profile::{
     KycEligibilityView, KycProfilePolicy, KycReason, ProfileAuthority, ProfileKycParty,
@@ -90,7 +91,7 @@ fn config(url: String, gate: bool) -> Config {
         kyc_execution_gate_enabled: gate,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

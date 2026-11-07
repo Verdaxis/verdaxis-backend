@@ -8,10 +8,8 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import tarfile
-import time
 from pathlib import Path
 
 import pytest
@@ -88,25 +86,6 @@ def test_health_response_rejects_malformed_or_non_object_json(payload):
             expected_environment="production",
             expected_release_sha=SHA,
         )
-
-
-def test_deploy_rejects_dirty_release_and_uses_json_health_gate():
-    source = (ROOT / "scripts/deploy.sh").read_text()
-
-    assert "ALLOW_DIRTY" not in source
-    assert "status --porcelain" in source
-    assert "validate_health_response.py" in source
-    assert "grep -q" not in source
-    assert source.rindex("status --porcelain") < source.index(
-        'write_release_artifact "$CURRENT_SHA"'
-    )
-    assert "APPROVED_RELEASE_SHA" in source
-    assert "archive --format=tar" in source
-    assert "clone" not in source
-    assert "ln -s" not in source
-    assert source.index('assert_release_tree_regular "$CURRENT_SHA"') < source.index(
-        'write_release_artifact "$CURRENT_SHA"'
-    )
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -386,507 +365,19 @@ def test_backend_start_guard_requires_exact_state_and_two_busy_real_locks(tmp_pa
     assert _run_deploy_start_guard(runtime_root).returncode != 0
 
 
-def test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution(tmp_path):
-    source, checkout, current_sha = _deployment_checkout(tmp_path)
-    marker = tmp_path / "candidate-helper-executed"
-    (source / DEPLOY_START_GUARD).write_text(
-        "from pathlib import Path\n"
-        f"Path({str(marker)!r}).write_text('executed')\n"
-    )
-    _git(source, "add", DEPLOY_START_GUARD)
-    _git(source, "commit", "-qm", "instrument candidate guard")
-    _git(source, "push", "-q", "origin", "staging")
-    candidate_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh", "--dry-run"],
-        cwd=checkout,
-        env=_deploy_environment(log_path),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    commands = log_path.read_text().splitlines() if log_path.exists() else []
-    assert not any("python:" in command for command in commands)
-    assert not any("alembic:" in command for command in commands)
-    assert not marker.exists()
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
-    assert current_sha != candidate_sha
-    assert not (checkout / ".runtime-release.env").exists()
-    assert not (checkout / ".runtime-deploy").exists()
-    assert f"APPROVED_RELEASE_SHA={candidate_sha}" in result.stdout
-    assert "Candidate Python code was not executed" in result.stdout
-    for skipped in ("source update", "candidate application preflight", "dependency installation", "migration upgrade", "service restart", "health gate"):
-        assert skipped in result.stdout
-
-
-@pytest.mark.parametrize(
-    "relative",
-    [
-        UNIT_MANIFEST,
-        "deploy/migration-checkpoints.tsv",
-        SYSTEMD_UNITS["staging"][0],
-        "scripts/preflight_runtime.py",
-        DEPLOY_START_GUARD,
-    ],
-)
-def test_deploy_dry_run_rejects_candidate_symlink_artifacts(tmp_path, relative):
-    source, checkout, current_sha = _deployment_checkout(tmp_path)
-    secret = tmp_path / "operator-secret"
-    secret.write_text("OPERATOR_SECRET=must-not-be-read\n")
-    candidate = source / relative
-    candidate.unlink()
-    candidate.symlink_to(secret)
-    _git(source, "add", "-A")
-    _git(source, "commit", "-qm", "malicious candidate symlink")
-    _git(source, "push", "-q", "origin", "staging")
-    log_path = tmp_path / "commands.log"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh", "--dry-run"],
-        cwd=checkout,
-        env=_deploy_environment(log_path),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "regular committed file" in result.stderr
-    assert "OPERATOR_SECRET" not in result.stdout + result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
-    commands = log_path.read_text().splitlines() if log_path.exists() else []
-    assert not any("python:" in command for command in commands)
-
-
-def test_real_deploy_refuses_missing_migration_checkpoint_before_source_mutation(
-    tmp_path,
-):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _deploy_environment(log_path)
-    environment["APPROVED_RELEASE_SHA"] = new_sha
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "MIGRATION_APPROVED_SOURCE_SHA" in result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == old_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-def test_real_deploy_refuses_symbolic_checkpoint_before_source_mutation(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(log_path, new_sha)
-    environment["MIGRATION_TARGET_REVISION"] = "HEAD"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "literal migration" in result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == old_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-def test_real_deploy_refuses_moved_remote_before_source_mutation(tmp_path):
-    source, checkout, approved_sha = _deployment_checkout(tmp_path)
-    _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(log_path, approved_sha)
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "moved after approval" in result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == approved_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-def test_real_deploy_refuses_unallowlisted_checkpoint_before_source_mutation(
-    tmp_path,
-):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(log_path, new_sha)
-    environment["MIGRATION_TARGET_REVISION"] = "pref_20260709_user_preferences"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "not allowlisted" in result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == old_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-def test_real_deploy_refuses_unexpected_live_revision_before_source_mutation(
-    tmp_path,
-):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(
-        log_path, new_sha, fail_phase="current-revision"
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == old_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-    commands = log_path.read_text().splitlines()
-    revision_check = next(
-        command
-        for command in commands
-        if "scripts/verify_migration_revision.py" in command
-    )
-    assert f"--expected {MIGRATION_EXPECTED}" in revision_check
-
-    source_text = (checkout / "scripts/deploy.sh").read_text()
-    main = source_text.index('CURRENT_BRANCH="$("${GIT[@]}" branch --show-current)"')
-    assert source_text.index("acquire_deploy_lock", main) < source_text.index(
-        "scripts/verify_migration_revision.py", main
-    ) < source_text.index('write_deploy_state "blocked"', main)
-
-
-def test_real_deploy_rejects_non_numeric_health_controls_without_execution(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    marker = tmp_path / "arithmetic-injection"
-    environment = _approved_deploy_environment(log_path, new_sha)
-    environment["HEALTH_ATTEMPTS"] = f"1+$(touch {marker})"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "HEALTH_ATTEMPTS" in result.stderr
-    assert not marker.exists()
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == old_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-def test_deploy_dry_run_rejects_malformed_checkpoint_policy(tmp_path):
-    source, checkout, current_sha = _deployment_checkout(tmp_path)
-    (source / "deploy/migration-checkpoints.tsv").write_text("head\trh\textra\n")
-    _git(source, "add", "deploy/migration-checkpoints.tsv")
-    _git(source, "commit", "-qm", "malformed checkpoint policy")
-    _git(source, "push", "-q", "origin", "staging")
-    log_path = tmp_path / "commands.log"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh", "--dry-run"],
-        cwd=checkout,
-        env=_deploy_environment(log_path),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "Invalid migration checkpoint policy" in result.stderr
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == current_sha
-    assert not (log_path.parent / "runtime-deploy-state/staging.state").exists()
-
-
-@pytest.mark.parametrize(
-    "fail_phase", ["preflight", "dependency", "alembic", "acl"]
-)
-def test_deploy_failure_keeps_selected_code_and_identity_aligned_and_guarded(
-    tmp_path, fail_phase
-):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    (checkout / ".runtime-release.env").write_text(
-        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
-    )
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(
-        log_path, new_sha, fail_phase=fail_phase
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert _git(checkout, "rev-parse", "HEAD").stdout.strip() == new_sha
-    assert (checkout / ".runtime-release.env").read_text() == (
-        f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
-        f"MIGRATION_REVISION={MIGRATION_TARGET}\n"
-    )
-    assert (log_path.parent / "runtime-deploy-state/staging.state").is_file()
-    assert "durable state stays fail-closed" in result.stderr
-
-
-def test_failed_post_restart_health_stops_service_and_restores_guard(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    (checkout / ".runtime-release.env").write_text(
-        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
-    )
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(
-        log_path, new_sha, fail_phase="health"
-    )
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert (checkout / ".runtime-release.env").read_text() == (
-        f"ENVIRONMENT=staging\nRELEASE_SHA={new_sha}\n"
-        f"MIGRATION_REVISION={MIGRATION_TARGET}\n"
-    )
-    assert (log_path.parent / "runtime-deploy-state/staging.state").is_file()
-    commands = log_path.read_text().splitlines()
-    restart = "sudo:systemctl restart verdaxis-backend-staging-test.service"
-    stop = "sudo:systemctl stop verdaxis-backend-staging-test.service"
-    assert restart in commands
-    assert stop in commands
-    assert commands.index(restart) < commands.index(stop)
-    checkpoint = next(
-        command
-        for command in commands
-        if "scripts/apply_migration_checkpoint.py" in command
-    )
-    acl_convergence = next(
-        command
-        for command in commands
-        if "/scripts/converge_runtime_acls.py" in command
-    )
-    assert f"--source-sha {new_sha}" in checkpoint
-    assert f"--approved-source-sha {new_sha}" in checkpoint
-    assert f"--expected-current {MIGRATION_EXPECTED}" in checkpoint
-    assert f"--target {MIGRATION_TARGET}" in checkpoint
-    assert " upgrade head" not in checkpoint
-    assert commands.index(checkpoint) < commands.index(acl_convergence)
-    assert commands.index(acl_convergence) < commands.index(restart)
-
-
-def test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    (checkout / ".runtime-release.env").write_text(
-        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
-    )
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(log_path, new_sha)
-    environment["DEPLOY_BLOCK_PHASE"] = "scripts/preflight_runtime.py"
-
-    running = subprocess.Popen(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    state = log_path.parent / "runtime-deploy-state/staging.state"
-    for _ in range(250):
-        commands = log_path.read_text() if log_path.exists() else ""
-        if state.exists() and "scripts/preflight_runtime.py" in commands:
-            break
-        import time
-
-        time.sleep(0.02)
-    assert state.exists()
-    assert "scripts/preflight_runtime.py" in commands
-
-    try:
-        concurrent = subprocess.run(
-            ["bash", "scripts/deploy.sh"],
-            cwd=checkout,
-            env={**environment, "DEPLOY_BLOCK_PHASE": ""},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert concurrent.returncode != 0
-        assert "already running" in concurrent.stderr
-    finally:
-        os.killpg(running.pid, signal.SIGTERM)
-        running.wait(timeout=5)
-    assert state.exists()
-    assert "DEPLOYMENT_STATE=blocked" in state.read_text()
-
-
-def test_sigkill_in_restart_window_releases_both_locks_and_closes_authorization(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    (checkout / ".runtime-release.env").write_text(
-        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
-    )
-    new_sha = _push_new_release(source)
-    log_path = tmp_path / "commands.log"
-    environment = _approved_deploy_environment(log_path, new_sha)
-    environment["DEPLOY_BLOCK_PHASE"] = "systemctl-restart"
-    environment["DEPLOY_STATE_DIR"] = str(checkout / ".runtime-deploy")
-    fake_sudo_pid_file = tmp_path / "fake-sudo.pid"
-    environment["DEPLOY_FAKE_SUDO_PID_FILE"] = str(fake_sudo_pid_file)
-
-    running = subprocess.Popen(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    state = checkout / ".runtime-deploy/staging.state"
-    try:
-        for _ in range(250):
-            if (
-                state.exists()
-                and "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
-                and fake_sudo_pid_file.exists()
-            ):
-                break
-            time.sleep(0.02)
-        assert state.exists()
-        assert "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
-        assert fake_sudo_pid_file.exists()
-        fake_sudo_pid = int(fake_sudo_pid_file.read_text().strip())
-        assert _run_deploy_start_guard(checkout, release_sha=new_sha).returncode == 0
-
-        os.kill(running.pid, signal.SIGKILL)
-        running.wait(timeout=5)
-        assert running.returncode == -signal.SIGKILL
-        os.kill(fake_sudo_pid, 0)
-
-        assert "DEPLOYMENT_STATE=restart-authorized" in state.read_text()
-        denied = _run_deploy_start_guard(checkout, release_sha=new_sha)
-        assert denied.returncode != 0
-        assert denied.stdout == ""
-        assert denied.stderr == "Backend start denied by deployment guard.\n"
-        os.kill(fake_sudo_pid, 0)
-    finally:
-        if running.poll() is None:
-            os.kill(running.pid, signal.SIGKILL)
-            running.wait(timeout=5)
-        try:
-            os.killpg(running.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        for _ in range(250):
-            try:
-                os.killpg(running.pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.02)
-        else:
-            pytest.fail("disposable deploy process group did not exit")
-
-
 def test_restart_authorization_is_written_after_second_lock_before_restart():
     source = (ROOT / "scripts/deploy.sh").read_text()
     deployment = source.index("DEPLOY_STARTED=1")
     blocked = source.index('write_deploy_state "blocked"', deployment)
     restart_lock = source.index("acquire_restart_window_lock", blocked)
-    authorized = source.index('write_deploy_state "$DEPLOY_PHASE"', restart_lock)
-    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"', authorized)
-    pending = source.index('DEPLOY_PHASE="readiness-pending"', restart)
+    authorized = source.index('write_deploy_state "restart-authorized"', restart_lock)
+    restart = source.index('sudo -n systemctl restart "$RUST_UNIT_NAME"', authorized)
+    pending = source.index('write_deploy_state "readiness-pending"', restart)
 
+    # M retains both locks but restarts only Rust, never the retained backend.
+    assert 'systemctl restart "$SERVICE_NAME"' not in source
     assert blocked < restart_lock < authorized < restart < pending
     assert 'flock -n "$RESTART_WINDOW_LOCK_FD"' in source
-
-
-def test_deploy_publishes_identity_before_selected_tree_execution():
-    source = (ROOT / "scripts/deploy.sh").read_text()
-
-    identity = source.index('write_release_artifact "$CURRENT_SHA"')
-    assert identity < source.index("scripts/preflight_runtime.py", identity)
-    assert identity < source.index("pip install", identity)
-    assert identity < source.index("scripts/apply_migration_checkpoint.py", identity)
-    assert "alembic upgrade head" not in source
-    assert "reset --hard" not in source
-    assert '"${GIT[@]}" checkout --' not in source
-
-
-def test_real_deploy_refuses_unconstrained_dependency_install(tmp_path):
-    source, checkout, old_sha = _deployment_checkout(tmp_path)
-    (checkout / ".runtime-release.env").write_text(
-        f"ENVIRONMENT=staging\nRELEASE_SHA={old_sha}\n"
-    )
-    (source / "constraints.txt").unlink()
-    _git(source, "add", "-A")
-    _git(source, "commit", "-qm", "remove dependency constraints")
-    _git(source, "push", "-q", "origin", "staging")
-    new_sha = _git(source, "rev-parse", "HEAD").stdout.strip()
-    log_path = tmp_path / "commands.log"
-
-    result = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=checkout,
-        env=_approved_deploy_environment(log_path, new_sha),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode != 0
-    assert "constraints.txt is required" in result.stderr
-    assert "pip install" not in log_path.read_text()
 
 
 @pytest.mark.parametrize(
@@ -1291,10 +782,10 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
         for relative in units:
             assert Path(relative).name not in source
     assert "SHA256SUMS" in source
-    assert "sudo mktemp -d" in source
+    assert "sudo -n mktemp -d" in source
     assert "sha256sum --check" in source
     assert "verify_staged_blob" in source
-    assert 'sudo test -L "$staged"' in source
+    assert 'sudo -n test -L "$staged"' in source
     assert 'show "$SOURCE_REF:$relative"' in source
     assert 'UNIT_SOURCES+=("$STAGING_DIR/deploy/systemd/$unit_name")' in source
     assert 'UNIT_SOURCES+=("$SOURCE_ROOT/deploy/systemd/$unit_name")' not in source
@@ -1308,46 +799,16 @@ def test_systemd_installer_requires_independent_environment_and_source_ref():
     )
     assert "DESTINATION_TEMPS" in source
     assert "rollback_replacements" in source
-    assert 'sudo test -f "$destination"' in source
-    assert 'sudo test ! -L "$destination"' in source
-    assert "/usr/bin/git" in source
+    assert 'sudo -n test -f "$destination"' in source
+    assert 'sudo -n test ! -L "$destination"' in source
+    # Git now uses the shared inert boundary, which still pins the executable.
+    assert 'source "$BACKEND_ROOT/deploy/scripts/safe-root-git.sh"' in source
+    assert 'SOURCE_GIT=(safe_root_git "$SOURCE_ROOT")' in source
+    boundary = (ROOT / "deploy/scripts/safe-root-git.sh").read_text()
+    assert "/usr/bin/git" in boundary
     assert "/usr/bin/flock" in source
     lock_gate = '"$EUID" -ne 0 || "${VERDAXIS_SYSTEMD_INSTALL_LOCKED:-}" != "1"'
     assert lock_gate in source
     assert 'PENDING_DIR="/var/lib/verdaxis/systemd-units"' in source
     assert "INSTALL_PENDING_DIR" not in source
 
-
-def test_live_deploy_uses_canonical_guard_state_and_trusted_tool_path():
-    source = (ROOT / "scripts/deploy.sh").read_text()
-
-    assert 'DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"' in source
-    canonical = source.index('if [[ "$CANONICAL_DEPLOY_LAYOUT" == "1" ]]')
-    canonical_state = source.index(
-        'DEPLOY_STATE_DIR="$BACKEND_DIR/.runtime-deploy"', canonical
-    )
-    custom_override = source.index('DEPLOY_STATE_DIR="${DEPLOY_STATE_DIR:-')
-    assert canonical < canonical_state < custom_override
-    assert 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' in source
-    assert "GIT=(/usr/bin/git" in source
-    assert 'TARGET_BRANCH="$DEFAULT_BRANCH"' in source
-    assert "unset DATABASE_URL MIGRATOR_DATABASE_URL" in source
-    assert "unset PYTHONHOME PYTHONPATH" in source
-    assert 'export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1' in source
-    assert "PIP_CONFIG_FILE=/dev/null" in source
-    assert "./venv/bin/python -m pip install -r requirements.txt -c constraints.txt" in source
-    assert "./venv/bin/python -m pip check" in source
-    assert source.index("umask 022", source.index("if [[ -f requirements.txt ]]")) < source.index(
-        "pip install", source.index("if [[ -f requirements.txt ]]")
-    )
-    assert "find venv -type d ! -perm -0005 -exec chmod o+rx {} +" in source
-    assert "find venv -type f ! -perm -0004 -exec chmod o+r {} +" in source
-    assert 'SCRIPT_DIR="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"' in source
-    assert 'dirname "${BASH_SOURCE[0]}"' not in source
-    assert "HEALTH_ATTEMPTS must be an integer from 1 to 120" in source
-
-    installer = (ROOT / "scripts/install_systemd_units.sh").read_text()
-    assert 'export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1' in installer
-    assert installer.index("VERDAXIS_SYSTEMD_INSTALL_LOCKED") < installer.index(
-        'STAGING_DIR="$(sudo mktemp'
-    )

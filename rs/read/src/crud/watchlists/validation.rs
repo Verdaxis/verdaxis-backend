@@ -57,7 +57,7 @@ pub fn parse_body(raw: &[u8]) -> Result<Value, ApiError> {
 
 /// Errors for a body that is not a JSON object. FastAPI reports an absent or
 /// null body as missing and every other non-object as a model type error.
-fn body_shape_error(body: &Value) -> Value {
+pub(crate) fn body_shape_error(body: &Value) -> Value {
     if body.is_null() {
         json!({"type":"missing","loc":["body"],"msg":"Field required","input":body})
     } else {

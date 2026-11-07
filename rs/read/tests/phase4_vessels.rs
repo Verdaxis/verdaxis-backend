@@ -19,6 +19,7 @@ use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
 #[cfg(feature = "contract-tests")]
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const SECRET: &str = "vessel-component-test-secret-at-least-32-characters";
 
@@ -48,7 +49,7 @@ fn config(url: String) -> Config {
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url: url,
         db_session_time_zone: "UTC".into(),
         prepared_budget: None,

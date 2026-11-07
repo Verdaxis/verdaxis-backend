@@ -33,6 +33,7 @@ use pricing::AlcoholFamily;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use uuid::Uuid;
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 
 const TEST_SECRET: &str = "phase5-overlay-http-test-secret-minimum-32-chars";
 const TEST_ISSUER: &str = "verdaxis-test-api";
@@ -61,7 +62,7 @@ fn test_config(
         kyc_execution_gate_enabled: true,
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
-        migration_revision: "kycg_20261014_staging".into(),
+        migration_revision: ALLOWED_REVISIONS[0].into(),
         database_url,
         db_session_time_zone: "Asia/Singapore".into(),
         prepared_budget: None,

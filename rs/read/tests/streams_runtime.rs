@@ -13,7 +13,7 @@ use verdaxis_read::{AppState, Config, compiled_sha};
 fn config() -> Config {
     serde_json::from_value(serde_json::json!({
         "environment":"test", "release_sha":compiled_sha(),
-        "migration_revision":"sse_20261021_replay_floor",
+        "migration_revision":"sqlx_1",
         "database_url":"postgresql://verdaxis_app_test:fixture@127.0.0.1:1/verdaxis_analytics_test",
         "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
         "read_admission_slots":2, "pool_max":3, "python_budget":52,
@@ -72,7 +72,15 @@ fn unlisted_revision_is_refused() {
 fn stream_schema_starts_at_its_checkpoint_and_stays_for_later_ones() {
     use verdaxis_read::streams::runtime::{STREAM_REVISION, schema_has_streams};
     assert!(schema_has_streams(STREAM_REVISION));
-    assert!(schema_has_streams("p5_20261020_read_indexes"));
+    for revision in [
+        "p5_20261020_read_indexes",
+        "p89_20261022_watchlist_producer",
+        "p89_20261022_trade_freeze",
+        "ob_20261031_offboarding",
+        "sqlx_1",
+    ] {
+        assert!(schema_has_streams(revision), "{revision}");
+    }
     for earlier in [
         "p3_20261020_auth_tokens",
         "prc_20261026_changes",
@@ -183,7 +191,7 @@ async fn stream_failure_readiness_is_not_ok() {
     .unwrap();
     assert_eq!(
         body,
-        serde_json::json!({"status":"error","db":"unavailable","environment":"test","release_sha":compiled_sha()})
+        serde_json::json!({"status":"error","db":"unavailable"})
     );
 }
 
@@ -245,10 +253,7 @@ async fn stream_runtime_database_lifecycle() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        body,
-        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
-    );
+    assert_eq!(body, serde_json::json!({"status":"error","db":"ok"}));
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )
@@ -332,10 +337,7 @@ async fn stream_runtime_database_lifecycle() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(
-        body,
-        serde_json::json!({"status":"error","db":"ok","environment":"test","release_sha":compiled_sha()})
-    );
+    assert_eq!(body, serde_json::json!({"status":"error","db":"ok"}));
     sqlx::query(
         "INSERT INTO market_event_replay_state(singleton,discarded_through_seq) VALUES (true,$1)",
     )

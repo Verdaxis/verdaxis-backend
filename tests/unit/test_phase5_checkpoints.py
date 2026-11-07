@@ -59,9 +59,10 @@ def test_phase5_checkpoint_cases():
             _validate(module, policy, current, REVISION)
 
 
-def test_phase5_runtime_accepts_both_read_checkpoints():
+def test_phase5_runtime_requires_the_adopted_baseline():
+    # Phase 5 stays in retained Alembic history, not M startup admission.
     allowlist = json.loads((ROOT / "deploy/rust/allowed-revisions.json").read_text())
-    assert allowlist == [
-        "kycg_20261014_staging", PRODUCTION, CACHE, CHANGES, AUTH, PARENT, REVISION,
-        "p89_20261022_watchlist_producer", "p89_20261022_trade_freeze", "ob_20261031_offboarding",
-    ]
+    assert allowlist == ["sqlx_1"]
+    rows = (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
+    assert "ob_20261031_offboarding\tsqlx_1" in rows
+    assert "sqlx_1\tsqlx_1" in rows

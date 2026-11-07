@@ -720,6 +720,13 @@ manifest, the meta-tests, and the golden corpus; `rs/read/examples/contract_serv
 serves one route group through the serving router. Health and echo are proven;
 the seeded and MCP groups are deferred as recorded in
 `docs/rust-phase1/progress.md`.
+The M runner migrates as the staging migrator, verifies the final Alembic head,
+then invokes the shell runners' `runner_database_adopts_to_the_baseline` entry
+before current corpus seeds or Phase 2 scenario DDL. Phase 2 clones retain that
+adoption history. Python runtime configuration reads `allowed-revisions.json`;
+Rust adapters use the compiled `ALLOWED_REVISIONS` instead of dated revisions.
+The optional statistics extension is installed after baseline adoption.
+
 Task 4b adds attested corpus construction: legal pre-guard history is inserted at
 `miq_20260720_market_quarantine`, then upgraded by the normal migration chain.
 Current fixtures reuse the Task 6 matrix and add ports, news, exact terms and
@@ -1123,6 +1130,165 @@ Authentication issuance, market writers, SSE and dispatch remain Python-owned.
 SHA-256-pinned `normalization.json` ledger. It uses exact tagged JSON values,
 schema-local decimal/timestamp rules and complete-item multisets inside approved
 ties only. The Phase 1 default and existing recording comparator stay unchanged.
+
+## Rust Phase 10 command shell
+
+Phase 10 removes the Python application; `verdaxis-read` becomes the one
+binary. Task 1 pins the removal inventory under
+`tests/rust_contract/phase10/` (`removal-ledger`, `routes`, `units`,
+`scripts`, `evidence-manifest`, `offhost-tools`) and `tests/rust_contract/test_phase10_inventory.py`,
+a standalone harness that parses source as data (never imports the
+application) and keeps the 188-route/41-unit/41-script/14-helper snapshot with
+per-artifact end states. M window tooling extends the script inventory to 43;
+new helper, fixture and document rows remain planned until installed acceptance.
+The integration owner re-pins source digests when an
+accepted staging change edits an inventoried file, and adds a disposition row
+for every new inventoried file. Task 2 adds `rs/read/src/cli/`: `mod.rs` owns the
+clap-derived `Command` tree (`serve`, `migrate`, `acl`, `job`, `monitor`,
+`recover`, `ops`, `guard`, `canary`), the `Exit` codes (0/2/3/4/5), the legacy
+`--bind`/`--budget-file` form that keeps both installed unit files valid, and
+the first-check `--version-json` path; `context.rs` owns `RunContext` and
+reuses the existing deployed-environment `Config` construction for `serve`.
+Commands registered by later Phase 10 tasks parse but fail closed with exit 3
+until their owning task supplies the gates; parsing never grants execution
+authority. `rs/read/tests/phase10_cli.rs` pins dispatch, help, redaction and
+non-UTF-8 argument behaviour.
+
+Task 10b adds `deploy/scripts/install-host-automation.sh`, called once by the
+canonical unit installer after its immutable source checks. It installs only
+the digest-bound host binary, the named sysusers/tmpfiles/ACL policy and the
+16 active local/external monitor artifacts; it never activates units or touches
+retired recovery/external-check units. Both installers require `--binary-sha256`,
+which the operator copies from `binary_sha256` in the verified release record
+produced by `verify-artifact.sh`; the source manifest contains no binary digest.
+The binary and its temporary install copy must match that input, including in
+dry-run. CI runs static installer cells in the shell job and the full disposable
+identity and A/B/A restart/forward/revert cells after building the release binary.
+The render account has a private home and no login shell. Exact effective handoff ACLs are checked
+with `getfacl`; reinstallation does not remove entries, cursors or stable locks.
+Activation and native/Python fencing remain separate operator decisions.
+
+Task 35 adds the off-host W0 fixture adapter and verifier in
+`deploy/tests/{collect-host-inventory,verify-host-inventory,host-inventory-contract}.sh`.
+They share the bounded reader and classification checks in
+`tests/rust_contract/phase10/host_inventory/inventory.py` (CI-only Python, no
+application imports). `host-inventory.schema.json` defines the register;
+`host-dependencies.json` records the PM's 2026-11-05 manual classification as
+`collected-manual`, with evidence digests, explicit missing fields and no installed
+acceptance. Task 36's `deploy/tests/host-automation-contract.sh` runs five register
+fixture checks through `host_inventory/automation_contract.py`; it does not run a
+restore, install replacements or authorize W5. Backup automation stays unchanged,
+including its system-interpreter dependency; legacy host tools have explicit W5
+retirement reasons and owning-task links. The manual validation path is separate
+from the signed installed gate. Task 25's `phase10/fleet-disposition.json` binds
+this unchanged register and the PM fleet probe by digest. Fleet capture belongs
+to the PM/founder's manual macOS workstation, not either Verdaxis host. The
+stdlib-only `scripts/scrape_fleet_demand.py` stays outside `deploy/` after W5 for
+audit/manual use, excluded from release artifacts and host installation. Only a
+reviewed commit of `data/fleet_demand.json` publishes its output to the existing
+Rust fleet reader; this checkout has no copy of that data file. No fleet port,
+browser or schedule is added. The four Task 25 Python contracts verify the
+record and predecessor fixture without claiming signed installed acceptance.
+Stage 1 accepts sanitized fixtures only,
+uses private external evidence directories with SHA-256 sidecars, and disables
+live collection, installed acceptance, signing, and schedule changes.
+Stage 2a adds `deploy/tests/host-inventory-reader.py`, the fixed standard-library
+script sent on SSH stdin, and off-host `host_inventory/transport.py`. The reader
+has one argv allowlist, bounded no-follow script/import reads and pre-transport
+redaction. Transport fixes the two SSH targets and the private evidence folder;
+its fixture tests substitute all commands and SSH. The shell CLI still refuses
+live collection pending separate authorization. Incomplete reads remain explicit
+coverage failures; observations do not approve dependencies or create schedules.
+The reader restricts host output to structural allowlisted fields and host-computed
+digests. Unknown lines become `<unparsed>` with a digest; raw unit, cron and
+script text never crosses SSH. Local Python/shell references use bounded
+transitive no-follow inspection; unresolved, dynamic and removed-package
+references are explicit blocking register rows. Publication is fixture-tested
+through the JSON and SHA-256 pair; installed acceptance remains disabled.
+
+## Disposable release rehearsal
+
+`deploy/tests/full-rehearsal.sh --disposable` composes the release-window tools
+on opt-in GitHub-hosted Ubuntu 22.04/staging and Ubuntu 24.04/production VMs.
+The lane uses actual systemd, PostgreSQL, Caddy and the previous signed release;
+it has no live-host credentials. Portable evidence contracts remain separate
+from installed rehearsal results. The ten named checks emit digest-bound
+observations under a sanitized public artifact directory with seven-day
+retention. Protected bundles, runtime credentials and disposable signing keys
+remain outside uploads. See `docs/phase10/rehearsal.md` for dispatch and scope.
+
+## M release window tools
+
+The M binary admits exactly `sqlx_1`; schema capabilities remain separate from
+startup admission so streams and the watchlist producer remain available. The
+source-bound checkpoint policy permits the final offboarding head to `sqlx_1`
+and the explicit `sqlx_1` self-transition. Adoption and repeat adoption validate
+the retained Alembic audit row, full embedded history/checksum and catalog.
+
+`scripts/deploy.sh` keeps the canonical immutable-source and artifact gates,
+both stable locks and blocked startup state. It stops/disables the retained
+backend, revokes/drains cache authority, runs native adoption and ACL convergence,
+publishes matching runtime identity, rebinds cache authority and restarts only
+Rust. It never installs dependencies or invokes a schema interpreter. Acceptance
+requires exact loopback/public readiness plus an Ed25519-signed record bound to
+the fresh deploy nonce, environment, full SHA, current/target and verified binary
+digest. Auth, session, monitor and passive checks must all pass. Task 31 produces
+that evidence; missing evidence keeps starts blocked. Disposable-only kill points
+surround each named publication, including cache, identity and state release.
+
+`deploy/scripts/provision-bundle-reader.sh` is independently installed as a
+root-owned helper outside the checkout. Before private pre-M capture, it creates
+the environment-specific LOGIN reader and root-only libpq service file without
+grants. Reviewed ACL convergence supplies its read authority. The deploy invokes
+the installed helper with `--check` before any backend stops; absent role or
+service file refuses without runtime mutation.
+
+`scripts/rust_phase10_window_caddy.py` is an off-host saved-site composer. It
+reuses the released candidate helpers/snippets, retains live abilities and
+offboarding, includes all CRUD groups in production, and routes the catch-all to
+Rust with no active Python dial. Its private output includes byte-exact rollback,
+a probe list and digest-bound Caddy validation. It adapts the exact candidate;
+validation redirects file logs into its private workspace and does not establish
+installed log permissions. It never installs or reloads Caddy.
+
+`scripts/rust_w2_handover.sh` separates immutable installation from ordered
+news, auth/prune, reminders, onboarding, demo, local-monitor and external-monitor
+transfer. It records exact unit/drop-in/launcher bytes before installation,
+stops timers and drains active work, fences inventoried direct launchers, and
+requires fresh service InvocationIDs and bound acceptance. Rollback restores
+one group's saved ABI and permissions only after native work is drained; alert
+rollback reconciles both journals only for their local-monitor owner, after its
+producers drain. External-monitor rollback retains that ownership. Acceptance
+checks the selected Rust-policy loopback and public readiness identities.
+Environment scope is the default;
+host-global monitor/binary/ACL changes require separate explicit host scope.
+Retired recovery stays masked/absent, with restart/watchdog controls checked.
+The active source job inventory is production six/staging four; the requested
+seven/five count remains an explicit reconciliation gate, not a fabricated timer.
+
+`deploy/scripts/pre-m-bundle.sh` captures and verifies a private full-SHA old
+release, then restores it under the same stable locks with startup blocked.
+Independent inventory/manifest approvals bind source objects, executable,
+units/drop-ins, guards, private runtime/credential references, monitor/Caddy
+bytes, owners/modes and native dependency closure. It restores all captured
+credential files, including migration URLs required by the old Settings, before
+backend startup; it never invokes a schema interpreter. Restore enables and
+starts both Python and the actual old Rust executable under lock-held restart
+authorization. Both exact loopback readiness responses precede saved Caddy reload;
+public readiness and the Python OpenAPI route follow it. Signed acceptance checks
+process digest, readiness, invocation/session/monitor evidence before clearing state. A durable
+accepted journal resumes only the saved timer-start tail. Unsupported dynamic
+inputs, Caddy imports, package symlinks or cross-filesystem publication refuse;
+Task 31 must prove the intended installed layout and old runtime package.
+
+`deploy/scripts/safe-root-git.sh` is the shared privileged Git boundary for deploy,
+unit installation, W2 and private bundle tooling. It refuses non-inert checkout
+configuration and metadata redirection, clears ambient Git routing, and disables
+hooks and filesystem monitors. Install the bundle helper and this sibling together
+in a root-controlled tooling directory; bundle loading checks ownership and modes.
+
+Python remains installed through soak. W5 deletion, installed-host authorization
+and the complete disposable rehearsal driver remain separate.
 
 ## File Map
 

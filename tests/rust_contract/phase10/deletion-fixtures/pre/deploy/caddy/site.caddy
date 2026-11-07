@@ -1,0 +1,38 @@
+# Fixture site: pre-deletion state. The Python fallback and the activity, AI,
+# MCP and admin handles still route to the Python upstream. The two Phase 7
+# matchers already retire their operations with 404 and no upstream.
+api.fixture.example {
+	route {
+		@phase7_rfq_create {
+			method POST OPTIONS
+			path /api/rfq
+		}
+		handle @phase7_rfq_create {
+			respond 404
+		}
+		@phase7_rfq_read {
+			method GET HEAD OPTIONS
+			path_regexp phase7_rfq_read ^/api/rfq/[^/]+$
+		}
+		handle @phase7_rfq_read {
+			respond 404
+		}
+		handle /api/stream/activity {
+			reverse_proxy 127.0.0.1:8000
+		}
+		handle /api/ai/* {
+			reverse_proxy 127.0.0.1:8000
+		}
+		handle /mcp {
+			reverse_proxy 127.0.0.1:8000
+		}
+		handle /admin* {
+			reverse_proxy 127.0.0.1:8000
+		}
+		handle {
+			reverse_proxy {$PYTHON_UPSTREAM} {
+				flush_interval -1
+			}
+		}
+	}
+}

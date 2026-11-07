@@ -1,4 +1,5 @@
--- Central declarative application-role ACL policy.
+-- Central declarative ACL policy for the runtime roles: the application role
+-- first, then the trusted-ingestion operator role (end of file).
 -- alembic_version and extension objects remain outside governed application
 -- objects. Seed, quarantine, and organization approval control tables are
 -- intentionally read-only to the app when those integration-owned tables
@@ -261,3 +262,28 @@ CREATE TEMP TABLE app_sequence_policy (
 INSERT INTO app_sequence_policy (sequence_name, privileges) VALUES
     ('market_event_stream_seq', ARRAY['USAGE']),
     ('orderbook_acceptance_ordinal_seq', ARRAY['USAGE']);
+
+-- Operator-role policy (Phase 10 Task 21), after every app row.
+-- The operator role runs trusted market-signal ingestion (`ops ingest signals`)
+-- and the GENA producer-project import (`ops import gena`), and nothing else.
+-- It reads the catalog it resolves against, owns the ingestion run records,
+-- appends signal rows, and inserts producer projects (an import never
+-- updates one, so there is no UPDATE grant). Every other table, and every
+-- column grant, stays denied; it never receives an app, migrator or backup
+-- privilege. Signal tables have UUID keys, so there is no sequence grant.
+
+CREATE TEMP TABLE operator_table_policy (
+    table_name text PRIMARY KEY,
+    privileges text[] NOT NULL,
+    CHECK (privileges <@ ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']::text[])
+);
+
+INSERT INTO operator_table_policy (table_name, privileges) VALUES
+    ('delivery_points', ARRAY['SELECT']),
+    ('fair_price_bands', ARRAY['SELECT', 'INSERT']),
+    ('market_indications', ARRAY['SELECT', 'INSERT']),
+    ('market_signal_ingestion_runs', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
+    ('physical_stems', ARRAY['SELECT', 'INSERT']),
+    ('ports', ARRAY['SELECT']),
+    ('producer_projects', ARRAY['SELECT', 'INSERT']),
+    ('products', ARRAY['SELECT']);

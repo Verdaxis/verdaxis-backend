@@ -12,7 +12,6 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-
 ROOT = Path(__file__).parents[2]
 SOURCE_SHA = "a" * 40
 EXPECTED = "pa_20260715_analytics_facts"
@@ -349,35 +348,6 @@ def test_checkpoint_reader_requires_same_app_and_migrator_endpoint(monkeypatch):
 
     with pytest.raises(module.MigrationCheckpointError, match="same database endpoint"):
         asyncio.run(module._read_current_heads(settings))
-
-
-def test_deploy_contains_no_unconditional_head_traversal():
-    source = (ROOT / "scripts/deploy.sh").read_text()
-
-    assert "alembic upgrade head" not in source
-    assert "MIGRATION_APPROVED_SOURCE_SHA" in source
-    assert "MIGRATION_EXPECTED_CURRENT_REVISION" in source
-    assert "MIGRATION_TARGET_REVISION" in source
-    assert "MIGRATION_REVISION=" in source
-    assert "scripts/apply_migration_checkpoint.py" in source
-    verifier = ROOT / "scripts/verify_migration_revision.py"
-    assert verifier.exists()
-    assert "verify_current_revision" in verifier.read_text()
-
-
-def test_deploy_converges_acl_policy_after_migration_before_restart():
-    source = (ROOT / "scripts/deploy.sh").read_text()
-
-    migration = source.index("scripts/apply_migration_checkpoint.py")
-    convergence = source.index(
-        '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"'
-    )
-    restart = source.index('sudo -n systemctl restart "$SERVICE_NAME"')
-
-    assert migration < convergence < restart
-    assert "deploy/postgres/converge_runtime_object_acls.sql" in source
-    assert "deploy/postgres/app_acl_policy.sql" in source
-    assert "bootstrap_roles.sql" not in source
 
 
 def test_b100_release_checkpoints_require_complete_execution_schema():

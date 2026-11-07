@@ -200,6 +200,9 @@ pub enum MarketOperation {
     Commission,
     CommissionRead,
     Freeze,
+    /// The actorless demo writer (`system::demo`): demo organizations, their
+    /// market slices and the demo orders it reads back; never a user.
+    DemoSystem,
     Reassign,
 }
 
@@ -250,6 +253,7 @@ impl MarketOperation {
             Self::Commission => vec![User, Commission],
             Self::CommissionRead => vec![User],
             Self::Freeze => vec![User, Trade, FreezeRow],
+            Self::DemoSystem => vec![Organization, Slice, Order],
             Self::Reassign => vec![Organization, User, Trade],
         }
     }
@@ -278,6 +282,17 @@ impl PartyLockPreview {
         Self {
             organizations: sorted_ids(organizations),
             users: sorted_ids(users.into_iter().chain([actor])),
+            fingerprint,
+        }
+    }
+    /// The parties of an actorless system command: organizations only.
+    pub fn system(
+        organizations: impl IntoIterator<Item = Uuid>,
+        fingerprint: serde_json::Value,
+    ) -> Self {
+        Self {
+            organizations: sorted_ids(organizations),
+            users: Vec::new(),
             fingerprint,
         }
     }
@@ -352,10 +367,15 @@ impl OperationLockPlan {
         } else if !preview.organizations.is_empty() {
             return Err(invalid_plan());
         }
-        self.append(
-            LockClass::User,
-            preview.users.iter().map(ToString::to_string),
-        )?;
+        // A system operation has no user step in its graph and locks none.
+        if self.operation.graph().contains(&LockClass::User) {
+            self.append(
+                LockClass::User,
+                preview.users.iter().map(ToString::to_string),
+            )?;
+        } else if !preview.users.is_empty() {
+            return Err(invalid_plan());
+        }
         self.parties_declared = true;
         Ok(self)
     }

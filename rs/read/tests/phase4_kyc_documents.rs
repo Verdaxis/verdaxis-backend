@@ -1,6 +1,8 @@
 use axum::{body::Body, http::StatusCode};
 use futures_util::stream;
 use uuid::Uuid;
+#[cfg(feature = "contract-tests")]
+use verdaxis_read::runtime::artifact::ALLOWED_REVISIONS;
 use verdaxis_read::{
     auth::limits::{BusinessLimitKeys, SharedLimits},
     kyc::{
@@ -335,7 +337,7 @@ mod postgres {
                 kyc_execution_gate_enabled: true,
                 environment: "test".into(),
                 release_sha: verdaxis_read::compiled_sha().into(),
-                migration_revision: "kycg_20261014_staging".into(),
+                migration_revision: ALLOWED_REVISIONS[0].into(),
                 database_url: std::env::var("RUST_TEST_DATABASE_URL").expect("runtime URL"),
                 db_session_time_zone: "UTC".into(),
                 prepared_budget: None,

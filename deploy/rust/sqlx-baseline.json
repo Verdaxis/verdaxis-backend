@@ -1,0 +1,17 @@
+{
+  "alembic_head": "ob_20261031_offboarding",
+  "alembic_revisions": 82,
+  "baseline_version": 1,
+  "file_sha256": "8280a7ff736a96aebea935e73b740353bd1899c4756788ddb8a68147dd55cbc8",
+  "fingerprint": "a93c16a9dd48458c3cbeadd8e904b3fc147db281236a8c080e3644629affa32d",
+  "postgres": "17.10",
+  "reference_rows": {
+    "delivery_points": 8,
+    "market_event_replay_state": 1,
+    "market_event_retention_control": 1,
+    "products": 8,
+    "public_read_cache_generations": 1,
+    "public_read_cache_incarnation": 1
+  },
+  "restored_fingerprint": "ad5a8a9a703f598c80786e6e52d33c8cfccde27a6c51a6ebc3e637a1763eea1b"
+}

@@ -6,10 +6,11 @@ from pathlib import Path
 
 import asyncpg
 
+from scripts.rust_contract.run_disposable import MIGRATOR_ROLE
+
 ROOT = Path(__file__).resolve().parents[2]
 DATABASES = ("phase2_python_test", "phase2_rust_test")
 APP_ROLE = "verdaxis_phase2_app_test"
-MIGRATOR_ROLE = "verdaxis_phase2_migrator_test"
 BACKUP_ROLE = "verdaxis_phase2_backup_test"
 PASSWORD = "phase2-disposable-not-for-runtime"
 

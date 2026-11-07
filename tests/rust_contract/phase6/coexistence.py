@@ -12,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 class RustActor:
     def __init__(self, barrier=False):
+        target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "rs/target"))
         self.process = subprocess.Popen(
-            [str(ROOT / "rs/target/debug/examples/streams_fixture")],
+            [str(target / "debug/examples/streams_fixture")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
             env={**os.environ, "STREAM_FIXTURE_APP_URL": os.environ["DATABASE_URL"].replace("postgresql+asyncpg", "postgresql"),

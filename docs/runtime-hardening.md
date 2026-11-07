@@ -557,9 +557,10 @@ this branch.
 
 `/health/live` is process-only. `/health/ready` (and the legacy `/health`
 alias) performs a bounded database probe and returns a sanitized 503 on timeout
-or failure. Both success and failure JSON include only the validated
-`environment` and `release_sha`, allowing an external monitor to compare the
-immutable expected artifact. Off-host monitors and deploy checks use
+or failure. The success JSON includes only the validated `environment` and
+`release_sha`, allowing an external monitor to compare the immutable expected
+artifact. A failure JSON carries no deployment provenance: it holds `status`
+and `db` only. Off-host monitors and deploy checks use
 `/health/ready`; liveness is not a deployment/readiness signal.
 
 The deploy checker does not substring-match this response. It parses JSON and

@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 UNIT_DIR = ROOT / "deploy/monitor"
 
@@ -65,13 +64,12 @@ def test_health_service_is_dedicated_loopback_only_and_state_scoped():
     assert "IPAddressDeny=any" in text
     assert "IPAddressAllow=127.0.0.0/8" in text
     assert "RestrictAddressFamilies=AF_UNIX AF_INET" in text
-    assert "local_health_check.py" in text
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor health\n" in text
+    assert "python" not in text
     assert "ProtectHome=yes" in text
     assert "EnvironmentFile=" not in text
-    assert "--production-identity-file /etc/verdaxis-monitor/runtime-identities/production.identity" in text
-    assert "--staging-identity-file /etc/verdaxis-monitor/runtime-identities/staging.identity" in text
-    assert "OnFailure=verdaxis-monitor-alert@health-failure.service" in text
-    assert "OnSuccess=verdaxis-monitor-alert@health-healthy.service" in text
+    assert "OnFailure=verdaxis-monitor-alert@health.service" in text
+    assert "OnSuccess=verdaxis-monitor-alert@health.service" in text
 
 
 def test_backup_service_has_no_network_and_exposes_only_backup_directory():
@@ -84,10 +82,10 @@ def test_backup_service_has_no_network_and_exposes_only_backup_directory():
     assert "ProtectHome=tmpfs" in text
     assert "BindReadOnlyPaths=/home/verdaxis-prod/backups" in text
     assert "InaccessiblePaths=/home/verdaxis-prod/.backup-env" in text
-    assert "backup_verify.py" in text
-    assert "--attempt-directory /home/verdaxis-prod/backups/attempts" in text
-    assert "OnFailure=verdaxis-monitor-alert@backup-failure.service" in text
-    assert "OnSuccess=verdaxis-monitor-alert@backup-healthy.service" in text
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor backup-verify\n" in text
+    assert "python" not in text
+    assert "OnFailure=verdaxis-monitor-alert@backup.service" in text
+    assert "OnSuccess=verdaxis-monitor-alert@backup.service" in text
 
 
 def test_monitor_does_not_supply_a_backup_producer_service_or_timer():
@@ -159,33 +157,29 @@ def test_demo_activity_loads_exact_per_environment_identity_and_credentials(
     text = unit(name)
     timer = unit(timer_name)
 
-    assert f"User={user}" in text
-    assert f"Group={user}" in text
-    assert f"EnvironmentFile=/etc/verdaxis-monitor/demo/{environment}.env" in text
-    assert f"EnvironmentFile={backend_dir}/.runtime-release.env" in text
+    assert "User=verdaxis-prod" in text
+    assert "Group=verdaxis-prod" in text
+    assert f"EnvironmentFile={backend_dir}/.runtime-rust/jobs/demo.env" in text
     assert f"EnvironmentFile={backend_dir}/.env" not in text
-    assert f"Environment=ENVIRONMENT={environment}" in text
+    assert f"Environment=DEPLOY_STATE_DIR={backend_dir}/.runtime-deploy" in text
     assert "ExecStartPre=" not in text
-    assert "RuntimeDirectory=verdaxis-demo-" in text
     assert f"ConditionPathExists=!{backend_dir}/.runtime-deploy/{environment}.state" in text
-    assert f"BindReadOnlyPaths={backend_dir}" in text
     assert (
-        f"ExecStart=/usr/bin/env ENVIRONMENT={environment} /usr/bin/python3 "
-        f"/usr/local/libexec/verdaxis-monitor/verify_runtime_identity.py "
-        f"--source-directory {backend_dir} --expected-environment {environment} "
-        f"--expected-release-sha ${{RELEASE_SHA}} --python-executable "
-        f"{backend_dir}/venv/bin/python --script scripts/run_demo_activity.py "
-        "--runtime-directory %t/verdaxis-demo-"
+        f"ExecStart=/usr/bin/env {backend_dir}/.runtime-rust/verdaxis-read job demo "
+        f"--environment {environment} --release-sha ${{RELEASE_SHA}} --apply"
     ) in text
     assert "development" not in text.lower()
     assert "sudo" not in text.lower()
     assert "CapabilityBoundingSet=" in text
-    assert "NoNewPrivileges=yes" in text
+    assert "NoNewPrivileges=true" in text
     assert "ProtectSystem=strict" in text
     assert "ProtectHome=tmpfs" in text
+    assert f"BindReadOnlyPaths={backend_dir}" in text
+    assert f"InaccessiblePaths={backend_dir}/.env" in text
     assert "IPAddressDeny=any" in text
     assert "IPAddressAllow=127.0.0.0/8" in text
-    assert "TimeoutStartSec=" in text
+    assert "MemoryDenyWriteExecute=true" in text
+    assert "TimeoutStartSec=600s" in text
     assert "ReadWritePaths=" not in text
     assert "/home/verdaxis-prod/.backup-env" not in text
     assert f"/etc/verdaxis-monitor/demo/{other_environment}.env" not in text
@@ -243,8 +237,11 @@ def test_alert_consumer_is_separate_credential_bearing_identity_with_hourly_remi
             "DevicePolicy=closed",
         ):
             assert directive in alert_unit
-    assert "alert_dispatch.py --event %i" in service
-    assert "alert_dispatch.py --remind all" in reminder_service
+    assert "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --event %i\n" in service
+    assert (
+        "ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor alert --remind all\n"
+        in reminder_service
+    )
     assert reminder_service.count("ExecStart=") == 1
     assert "OnCalendar=hourly" in reminder
     assert "Persistent=true" in reminder

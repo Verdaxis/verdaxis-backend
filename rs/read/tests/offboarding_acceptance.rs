@@ -105,9 +105,14 @@ fn switch_follows_the_deployed_environment() {
     std::fs::remove_dir_all(&enabled_folder).unwrap();
 
     // No deploy source imports the routing snippet; only the projection names
-    // the switch.
+    // the switch. The private release-window composer
+    // (`scripts/rust_phase10_window_caddy.py`) also names the snippet group:
+    // it rebuilds a candidate site from saved bytes and validates it with a
+    // digest-bound Caddy, and never reloads Caddy or touches the host, so it
+    // is not an activation path either.
     let snippet = root.join("deploy/caddy/rust-offboarding.caddy");
     let projection = root.join("scripts/prepare_rust_runtime.py");
+    let window_composer = root.join("scripts/rust_phase10_window_caddy.py");
     let mut deploy_sources = files(
         &root.join("deploy"),
         &[
@@ -116,7 +121,7 @@ fn switch_follows_the_deployed_environment() {
     );
     deploy_sources.extend(files(&root.join("scripts"), &["sh", "py"]));
     for path in deploy_sources {
-        if path == snippet {
+        if path == snippet || path == window_composer {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();

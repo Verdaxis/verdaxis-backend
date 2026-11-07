@@ -1,0 +1,295 @@
+#!/usr/bin/env bash
+# Deployment start guard: allow a backend start only outside a deploy or inside
+# the exact restart window.
+#
+# The unit runs this file before any Rust artifact exists, so it must never call
+# the binary or an interpreter. It uses bash, dirname, stat, dd and util-linux
+# flock only; on a system without /proc/self/fd, perl's fstat stands in for the
+# descriptor identity. Every input it cannot read, or does not expect, denies
+# the start. Owner controlled directories and files remove other identities
+# from the path; the guard is not a defence against the deploy identity itself.
+# That exclusion also covers the runtime root, which is checked by its path and
+# never opened: a swap of the root between that check and the state open is
+# deploy-identity territory.
+#
+# Each file is opened once, and only after its path is proven to hold a regular
+# file, so a FIFO or any other non-regular entry denies before the open can
+# block on it. A race that swaps in a FIFO after that check blocks the open
+# until the unit's start timeout ends it, which still fails closed. The open,
+# the descriptor checks and the read happen inside one subshell, so a failed
+# open returns a status instead of ending the guard, and every check runs on
+# the descriptor that was actually opened.
+#
+# A path is absent only when stat says "no such file". Any other stat failure
+# leaves the state unknown and denies. A state that holds a NUL byte denies,
+# because the shell would drop that byte before the comparison.
+set -euo pipefail
+export LC_ALL=C
+umask 077
+
+deny() {
+    printf 'Backend start denied by deployment guard: %s\n' "$1" >&2
+    exit 1
+}
+
+if (( $# != 4 )) || [[ $1 != --environment || $3 != --expected-release-sha ]]; then
+    deny 'invalid arguments'
+fi
+environment=$2
+expected_release_sha=$4
+case $environment in
+    production | staging) ;;
+    *) deny 'unsupported environment' ;;
+esac
+if [[ ! $expected_release_sha =~ ^[0-9a-f]{40}$ ]]; then
+    deny 'invalid release sha'
+fi
+
+# GNU coreutils and BSD stat differ only in their format flag and names.
+if stat -c %d / >/dev/null 2>&1; then
+    stat_style=gnu
+else
+    stat_style=bsd
+fi
+if [[ -d /proc/self/fd ]]; then
+    fd_root=/proc/self/fd
+else
+    fd_root=/dev/fd
+    command -v perl >/dev/null || {
+        printf 'Backend start denied by deployment guard: descriptor identity is unavailable\n' >&2
+        exit 1
+    }
+fi
+
+# Identity of a path or of an open descriptor: device, inode, owner, mode, links.
+# The descriptor form must follow its link.
+stat_identity() {
+    if [[ $stat_style == gnu ]]; then
+        stat -Lc '%d:%i:%u:%a:%h' -- "$1" 2>/dev/null
+    else
+        stat -Lf '%d:%i:%u:%Lp:%l' -- "$1" 2>/dev/null
+    fi
+}
+
+stat_mode() {
+    if [[ $stat_style == gnu ]]; then
+        stat -Lc '%a' -- "$1" 2>/dev/null
+    else
+        stat -Lf '%Lp' -- "$1" 2>/dev/null
+    fi
+}
+
+stat_size() {
+    if [[ $stat_style == gnu ]]; then
+        stat -Lc '%s' -- "$1" 2>/dev/null
+    else
+        stat -Lf '%z' -- "$1" 2>/dev/null
+    fi
+}
+
+# Looks at a path without following a final symlink. Returns 0 when an entry
+# exists, 1 only when the system says nothing is there, and 2 for every other
+# outcome, so a stat failure of any other kind is never read as "absent".
+probe_entry() {
+    local message
+    if [[ $stat_style == gnu ]]; then
+        message=$(stat -c %F -- "$1" 2>&1) && return 0
+    else
+        message=$(stat -f %HT -- "$1" 2>&1) && return 0
+    fi
+    [[ $message == *': No such file or directory' ]] && return 1
+    return 2
+}
+
+# Identity and size of an open descriptor. Linux exposes it through
+# /proc/self/fd; elsewhere perl's fstat reads the descriptor itself, because
+# /dev/fd would report the descriptor device instead of the file.
+fd_identity() {
+    local fd=$1
+    if [[ $fd_root == /proc/self/fd ]]; then
+        stat_identity "$fd_root/$fd"
+    else
+        perl -e 'open(my $handle, "<&=", $ARGV[0]) or exit 1;
+            my @entry = stat($handle) or exit 1;
+            printf "%d:%d:%d:%o:%d\n", @entry[0, 1, 4], $entry[2] & 07777, $entry[3]' \
+            "$fd" 2>/dev/null
+    fi
+}
+
+fd_size() {
+    local fd=$1
+    if [[ $fd_root == /proc/self/fd ]]; then
+        stat_size "$fd_root/$fd"
+    else
+        perl -e 'open(my $handle, "<&=", $ARGV[0]) or exit 1;
+            my @entry = stat($handle) or exit 1;
+            print "$entry[7]\n"' "$fd" 2>/dev/null
+    fi
+}
+
+# A private entry is owned by this identity and writable by no group or other.
+private_entry() {
+    local mode
+    [[ -O $1 ]] || return 1
+    mode=$(stat_mode "$1") || return 1
+    (( (8#$mode & 8#022) == 0 ))
+}
+
+# The helper's own location is its authority: only the shipped layout
+# <runtime-root>/deploy/scripts/<name> is accepted, and the runtime root is the
+# parent of that deploy tree. Any other location denies.
+helper=${BASH_SOURCE[0]}
+[[ $helper == /* ]] || helper=$PWD/$helper
+helper_directory=$(dirname -- "$helper")
+helper_parent=${helper_directory%/*}
+if [[ ${helper_directory##*/} != scripts || ${helper_parent##*/} != deploy ]]; then
+    deny 'misplaced helper'
+fi
+runtime_root=$(dirname -- "$helper_parent")
+if [[ ! -d $runtime_root || -L $runtime_root || ! -O $runtime_root ]]; then
+    deny 'untrusted runtime root'
+fi
+root_mode=$(stat_mode "$runtime_root") || deny 'untrusted runtime root'
+(( (8#$root_mode & 8#500) == 8#500 )) || deny 'untrusted runtime root'
+
+deploy_directory=$runtime_root/.runtime-deploy
+deploy_probe=0
+probe_entry "$deploy_directory" || deploy_probe=$?
+case $deploy_probe in
+    0) ;;
+    1) exit 0 ;;
+    *) deny 'deploy state could not be inspected' ;;
+esac
+if [[ ! -d $deploy_directory || -L $deploy_directory ]]; then
+    deny 'deploy state is not a private directory'
+fi
+private_entry "$deploy_directory" || deny 'deploy state is not a private directory'
+# The state and lock entries can only be resolved with owner read and search
+# permission. Without them the state is unknown, which denies, never "absent".
+deploy_mode=$(stat_mode "$deploy_directory") || deny 'deploy state is unsearchable'
+(( (8#$deploy_mode & 8#500) == 8#500 )) || deny 'deploy state is unsearchable'
+
+# Reads the state through one descriptor and prints its exact bytes. The whole
+# check runs in a subshell that opens the file itself, so a failed open returns
+# a code instead of ending the guard, and every check runs on the opened
+# descriptor. Exit 0 means the bytes were printed; other codes name the refusal.
+read_state() (
+    local path=$1 descriptor=$fd_root/7
+    # A FIFO or any other non-regular entry is refused before the open, so the
+    # open cannot block on it. Only a path with nothing there at all reaches
+    # the open, whose failure the caller may read as a normal start.
+    local probe=0
+    probe_entry "$path" || probe=$?
+    case $probe in
+        0) [[ -f $path && ! -L $path ]] || exit 10 ;;
+        1) ;;
+        *) exit 15 ;;
+    esac
+    exec 7<"$path" || exit 14
+    if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
+        exit 10
+    fi
+    opened=$(fd_identity 7) || exit 11
+    current=$(stat_identity "$path") || exit 11
+    [[ $opened == "$current" ]] || exit 11
+    IFS=: read -r _device _inode owner mode links <<< "$opened"
+    [[ $owner == "$EUID" && $links == 1 ]] || exit 12
+    # Group and other may read the deploy's own state; they must not write it.
+    (( (8#$mode & 8#022) == 0 )) || exit 12
+    size=$(fd_size 7) || exit 11
+    # The deploy writes this file atomically, so a grow past the bound means it
+    # is not deploy state any more.
+    (( size <= 256 )) || exit 13
+    text=$(dd bs=257 count=1 2>/dev/null <&7; printf x)
+    # Command substitution drops NUL bytes, so a text shorter than the file's
+    # size (plus the sentinel) was not read as it is stored.
+    (( ${#text} == size + 1 )) || exit 16
+    current=$(stat_identity "$path") || exit 11
+    [[ $current == "$opened" ]] || exit 11
+    printf '%s' "$text"
+)
+
+# Busy and refused are separate outcomes: only flock's conflict code (75) is a
+# held lock. Every other result, including a missing or unopenable file and a
+# kernel error, denies. Exit 0 means held, 1 means free.
+lock_state() (
+    local path=$1 descriptor=$fd_root/8 status
+    # The same pre-open rule: a non-regular lock entry denies before the open.
+    if [[ -e $path || -L $path ]]; then
+        [[ -f $path && ! -L $path ]] || exit 23
+    fi
+    exec 8<"$path" || exit 20
+    if [[ ! -f $descriptor ]] || [[ -L $path ]]; then
+        exit 23
+    fi
+    opened=$(fd_identity 8) || exit 22
+    current=$(stat_identity "$path") || exit 22
+    [[ $opened == "$current" ]] || exit 22
+    IFS=: read -r _device _inode owner mode links <<< "$opened"
+    [[ $owner == "$EUID" && $links == 1 ]] || exit 21
+    # Deploy creates each lock 0600; anything group- or other-accessible could be
+    # substituted, so the stricter mask applies to locks.
+    (( (8#$mode & 8#077) == 0 )) || exit 21
+    if flock -n -E 75 8; then
+        exit 1
+    else
+        status=$?
+    fi
+    (( status == 75 )) || exit 22
+    exit 0
+)
+
+# require_lock LABEL PATH: a held lock passes; a free lock is the caller's
+# decision; every refusal denies with the reason for that outcome. The check
+# runs in a subshell so its outcome codes never become the guard's exit status.
+require_lock() {
+    local label=$1 path=$2 status=0
+    lock_state "$path" 2>/dev/null || status=$?
+    case $status in
+        0) return 0 ;;
+        1) return 1 ;;
+        20) deny "$label is missing" ;;
+        21) deny "$label is not owner-controlled" ;;
+        23) deny "$label is not a regular file" ;;
+        *) deny "$label check failed" ;;
+    esac
+}
+
+state_file=$deploy_directory/$environment.state
+state_status=0
+state_text=$(read_state "$state_file" 2>/dev/null) || state_status=$?
+case $state_status in
+    0) ;;
+    14)
+        # Only a path that does not exist at all is a normal start. A dangling
+        # symlink or a directory is an unexpected input, and so is any stat
+        # error other than "no such file".
+        entry_probe=0
+        probe_entry "$state_file" || entry_probe=$?
+        case $entry_probe in
+            0) deny 'deployment state is not a regular file' ;;
+            1) exit 0 ;;
+            *) deny 'deployment state could not be inspected' ;;
+        esac
+        ;;
+    15) deny 'deployment state could not be inspected' ;;
+    16) deny 'deployment state was not read in full' ;;
+    10) deny 'deployment state is not a regular file' ;;
+    11) deny 'deployment state changed during validation' ;;
+    12) deny 'deployment state is not owner-controlled' ;;
+    13) deny 'deployment state is too large' ;;
+    *) deny 'deployment state changed during validation' ;;
+esac
+expected_state=$(printf 'DEPLOYMENT_STATE=restart-authorized\nENVIRONMENT=%s\nRELEASE_SHA=%s\nx' \
+    "$environment" "$expected_release_sha")
+[[ $state_text == "$expected_state" ]] || deny 'deployment state does not authorize a restart'
+
+# Restart authorization needs both the durable deploy lock and the restart
+# window lock to be held by the deploy that wrote this state.
+if ! require_lock 'main lock' "$deploy_directory/$environment.lock"; then
+    deny 'restart authorization is not held'
+fi
+if ! require_lock 'restart lock' "$deploy_directory/$environment.restart.lock"; then
+    deny 'restart authorization is not held'
+fi
+exit 0

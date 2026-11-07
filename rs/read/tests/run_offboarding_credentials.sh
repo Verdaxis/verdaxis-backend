@@ -68,6 +68,13 @@ psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
   -v database_name="$database" -v app_role=verdaxis_app_staging \
   -v migrator_role=verdaxis_migrator_staging -v backup_role=verdaxis_backup_staging \
   -f deploy/postgres/converge_runtime_object_acls.sql >/dev/null
+
+  # The M runtime only serves an adopted database: record the exact
+  # adoption row (the schema stays at the Alembic head).
+  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    --features contract-tests --test phase10_migrate_postgres \
+    runner_database_adopts_to_the_baseline -- --ignored >/dev/null
 printf 'GATE=acl EXIT=0\n'
 
 export OFFBOARDING_TEST_DATABASE_URL="postgres://verdaxis_app_staging:disposable_app_pw@127.0.0.1:$port/$database"

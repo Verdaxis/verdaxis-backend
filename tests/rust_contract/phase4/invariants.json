@@ -4741,7 +4741,7 @@
     },
     {
       "path": "tests/postgres/test_user_status_transitions.py",
-      "sha256": "55c22a92a68d23ca37b5e382c90f1b995b2cbe67e1fe5acb7ece496b7b361d54",
+      "sha256": "3ca096f24a3066439e7bf4454ce6b2d1296160b613072c1e715741fe46a936df",
       "definitions": [
         {
           "id": "P4_SRC_008",
@@ -5807,7 +5807,7 @@
     },
     {
       "path": "tests/unit/test_kyc_key_source_preflight.py",
-      "sha256": "97ee09380ff04ed0cb607b0aba9daf3d80d0d27556dd5630ca3d1adc7023f8bc",
+      "sha256": "a7294640385b0ba9f21c4c1609192203c3c11129f5c8b4e8456f0da58531c9db",
       "definitions": [
         {
           "id": "P4_SRC_113",
@@ -6669,7 +6669,7 @@
     },
     {
       "path": "tests/unit/test_product_analytics_prune.py",
-      "sha256": "5cd9cd1b6e86d5f2f99e26b9945bef0a77641c8f063cdc5cef61c272a5561a11",
+      "sha256": "b0895c2bd235d7b1474ff6d4f257814e3896cd80482925888afd439f157b3632",
       "definitions": [
         {
           "id": "P4_SRC_202",

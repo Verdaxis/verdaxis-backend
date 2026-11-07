@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.test_rust_release import RustReleaseFixture
-
 ROOT = Path(__file__).resolve().parents[2]
 UNIT = "deploy/systemd/verdaxis-rust-staging.service"
 BACKEND_STAGING_UNIT = "deploy/systemd/verdaxis-backend-staging.service"
@@ -80,7 +78,7 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
         command = next(
             line.strip() for line in source.splitlines()
             if "systemd-analyze verify" in line
-        ).removeprefix("sudo ")
+        ).removeprefix("sudo -n ").removeprefix("sudo ")
 
     root = tmp_path / "root"
     units = root / "etc/systemd/system"
@@ -114,81 +112,6 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
     assert result.returncode == 0, result.stderr
 
 
-def test_rust_start_preserves_environment_arguments_and_main_pid(tmp_path):
-    import shlex
-    import sys
-
-    backend = tmp_path / "be"
-    binary = backend / ".runtime-rust/verdaxis-read"
-    binary.parent.mkdir(parents=True)
-    binary.symlink_to(sys.executable)
-    command = next(
-        line.removeprefix("ExecStart=") for line in _text(UNIT).splitlines()
-        if line.startswith("ExecStart=")
-    ).replace(STAGING_BACKEND, str(backend))
-    arguments = shlex.split(command)
-    assert arguments[2:] == [
-        "--bind", BIND, "--budget-file", str(binary.parent / "budget.json")
-    ]
-    # Use a real executable to observe exec semantics, without starting a server.
-    process = subprocess.Popen(
-        arguments[:2] + ["-c", "import os; print(os.getpid(), os.environ['RELEASE_SHA'])"],
-        env={**os.environ, "RELEASE_SHA": RELEASE_SHA},
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    stdout, stderr = process.communicate(timeout=10)
-    assert process.returncode == 0, stderr
-    assert stdout.strip() == f"{process.pid} {RELEASE_SHA}"
-
-
-def test_rust_unit_keeps_runtime_credentials_separate():
-    """The plan's unit contract: loopback bind, bounded memory, no `.env`."""
-    unit = _text(UNIT)
-    assert f"--bind {BIND}" in unit
-    assert "MemoryMax=256M" in unit
-    assert f"EnvironmentFile={STAGING_BACKEND}/.env\n" not in unit
-    assert "verify_deploy_start_guard.py" in unit
-    assert "verify_rust_start.py" in unit
-
-
-def test_rust_unit_paths_are_the_files_the_deploy_transaction_writes():
-    """PM requirement 1: unit paths and deploy paths are one selection."""
-    unit = _text(UNIT)
-    deploy = _text(DEPLOY)
-
-    # The runtime directory, the active binary and the budget artifact, exactly
-    # as the transaction names them.
-    assert f"RUST_UNIT_NAME=\"{RUST_UNIT_NAME}\"" in deploy
-    assert 'RUST_RUNTIME_DIR="$BACKEND_DIR/.runtime-rust"' in deploy
-    assert 'ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"' in deploy
-    assert '--output "$RUST_RUNTIME_DIR/budget.json"' in deploy
-    assert 'target = output_dir / "runtime.env"' in _text(PREPARE_RUNTIME)
-
-    assert f"WorkingDirectory={STAGING_BACKEND}\n" in unit
-    assert f"ExecStart=/usr/bin/env {RUNTIME_DIR}/verdaxis-read --bind {BIND} " in unit
-    assert f"--budget-file {RUNTIME_DIR}/budget.json\n" in unit
-    # Every EnvironmentFile is a deploy-written file; the unit never hands the
-    # secret-rich `.env` to systemd.
-    assert re.findall(r"^EnvironmentFile=(.*)$", unit, re.MULTILINE) == [
-        f"{STAGING_BACKEND}/.runtime-release.env",
-        f"{RUNTIME_DIR}/runtime.env",
-    ]
-
-
-def test_rust_unit_budget_check_uses_the_prepared_artifact_and_real_flags():
-    """The prestart budget check is the drift gate the transaction prepared."""
-    unit = _text(UNIT)
-    budget_help = _text(PREPARE_BUDGET)
-
-    assert "verify_rust_start.py --expected-release-sha ${RELEASE_SHA}" in unit
-    assert f"--budget-file {RUNTIME_DIR}/budget.json" in unit
-    assert "--environment-file" not in unit
-    for flag in ("--environment-file", "--release-sha", "--output", "--verify"):
-        assert flag in budget_help
-    assert unit.index("verify_rust_start.py") < unit.index("ExecStart=")
-
-
-
 def test_rust_unit_bind_and_service_name_match_the_committed_policy():
     policy = json.loads(_text(POLICY))
     unit = _text(UNIT)
@@ -200,9 +123,14 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
 
 
 def _assert_runtime_directives(unit: str, backend: str, suffix: str) -> None:
-    # Production Rust has explicit CPU limits in addition to the backend sandbox.
-    rust_budget_directives = {"CPUQuota", "CPUWeight"} if suffix == "" else set()
-    assert _directives(unit) - _directives(backend) <= rust_budget_directives
+    # M adds a main-process watchdog in both environments; production also has
+    # explicit CPU limits. Every other directive still uses the backend sandbox.
+    rust_directives = {"WatchdogSec", "NotifyAccess"}
+    if suffix == "":
+        rust_directives |= {"CPUQuota", "CPUWeight"}
+    assert _directives(unit) - _directives(backend) <= rust_directives
+    assert "WatchdogSec=60s\n" in unit
+    assert "NotifyAccess=main\n" in unit
     credentials = [line for line in unit.splitlines() if line.startswith(
         ("LoadCredential=", "SetCredential=", "ImportCredential=", "LoadCredentialEncrypted=", "SetCredentialEncrypted=")
     )]
@@ -219,27 +147,15 @@ def test_rust_unit_reuses_only_directives_the_running_backend_unit_already_uses(
     _assert_runtime_directives(unit, backend, suffix)
     for section in ("[Unit]", "[Service]", "[Install]"):
         assert section in unit
-    for extra in ("NewRuntimeDirective=true", "SetCredential=another-key:", "ImportCredential=*"):
+    for invalid in (
+        unit + "\nNewRuntimeDirective=true\n",
+        unit + "\nSetCredential=another-key:\n",
+        unit + "\nImportCredential=*\n",
+        unit.replace("WatchdogSec=60s", "WatchdogSec=0"),
+        unit.replace("NotifyAccess=main", "NotifyAccess=all"),
+    ):
         with pytest.raises(AssertionError):
-            _assert_runtime_directives(unit + "\n" + extra + "\n", backend, suffix)
-
-
-def test_rust_unit_runs_the_start_guard_and_the_revision_check():
-    unit = _text(UNIT)
-    assert (
-        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
-        f"{STAGING_BACKEND}/scripts/verify_deploy_start_guard.py "
-        "--environment staging --expected-release-sha ${RELEASE_SHA}\n"
-    ) in unit
-    assert (
-        "ExecStartPre=/usr/bin/env -i /usr/bin/python3 -I -S -B "
-        f"{STAGING_BACKEND}/scripts/verify_rust_start.py "
-        "--expected-release-sha ${RELEASE_SHA} "
-        f"--budget-file {RUNTIME_DIR}/budget.json --expected-revision ${{MIGRATION_REVISION}} "
-        f"--revision-file {RUNTIME_DIR}/revision.json\n"
-    ) in unit
-    assert f"User={STAGING_USER}\n" in unit
-    assert f"Group={STAGING_USER}\n" in unit
+            _assert_runtime_directives(invalid, backend, suffix)
 
 
 def _staged_runtime_environment(tmp_path: Path) -> dict[str, Path]:
@@ -342,9 +258,20 @@ def test_deploy_stages_rust_bytes_under_umask_077_and_installs_by_rename():
         deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"') :
         deploy.index("SERVICE_RESTART_ATTEMPTED=1")
     ]
-    assert region.index("umask 077") < region.index('mkdir -p -- "$RUST_RUNTIME_DIR"')
-    assert 'chmod 0755 "$ACTIVE_BINARY.tmp.$$"' in region
-    assert 'mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"' in region
+    # The policy archive establishes the private umask before artifact extraction.
+    policy = deploy.index('RUST_POLICY_TEMP="$(mktemp -d /tmp/verdaxis-rust-policy.')
+    extraction = deploy.index('RUST_EXTRACT_DIR="$RUST_RUNTIME_DIR/releases/$REMOTE_SHA"')
+    assert deploy.rindex("umask 077", 0, policy) < policy < extraction
+    assert 'verify_rust_artifact_for_release "$REMOTE_SHA" "$RUST_EXTRACT_DIR"' in region
+    steps = [
+        'cp -- "$STAGED_BINARY" "$ACTIVE_BINARY.tmp.$$"',
+        'chmod 0755 "$ACTIVE_BINARY.tmp.$$"',
+        'verify_binary_digest "$ACTIVE_BINARY.tmp.$$"',
+        'sync -f "$ACTIVE_BINARY.tmp.$$"',
+        'mv -- "$ACTIVE_BINARY.tmp.$$" "$ACTIVE_BINARY"',
+    ]
+    positions = [region.index(step) for step in steps]
+    assert positions == sorted(positions)
     assert "ln -s" not in region
 
 
@@ -363,54 +290,6 @@ def test_rust_unit_manifest_entries_are_environment_specific():
     assert len({name for _environment, name in entries}) == len(entries)
     assert RUST_UNIT_NAME.endswith("-staging.service")
     assert (ROOT / UNIT).is_file()
-
-
-def test_bootstrap_release_deploys_without_the_rust_unit_or_an_artifact(tmp_path):
-    """Release one: helper and artifact support land with Rust inactive."""
-    fixture = RustReleaseFixture(tmp_path)
-    result = fixture.deploy(fixture.old_sha)
-
-    assert result.returncode == 0, result.stderr
-    executed = fixture.ledger
-    assert not any("rust" in entry.lower() for entry in executed)
-    assert [e for e in executed if e.startswith("sudo:systemctl restart")] == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service"
-    ]
-    # No artifact was offered and none was required.
-    assert "RUST_ARTIFACT_ARCHIVE" not in fixture.deploy_environment(fixture.old_sha)
-    assert not (fixture.checkout / ".runtime-rust").exists()
-
-
-def test_activation_requires_the_manifest_unit_and_a_verified_artifact(tmp_path):
-    """Release two: both committed records plus a verified artifact."""
-    fixture = RustReleaseFixture(tmp_path)
-    enabled_sha = fixture.push_rust_release(enabled=True)
-    fixture.build_artifact(enabled_sha)
-
-    # Without the artifact the transaction refuses before any service stops.
-    without_artifact = fixture.deploy_environment(enabled_sha)
-    without_artifact["RUST_ARTIFACT_ARCHIVE"] = ""
-    refused = subprocess.run(
-        ["bash", "scripts/deploy.sh"],
-        cwd=fixture.checkout,
-        env=without_artifact,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert refused.returncode != 0
-    assert not fixture.stopped_services()
-
-    activated = fixture.deploy(enabled_sha)
-    assert activated.returncode == 0, activated.stderr
-    assert [
-        e for e in fixture.ledger if e.startswith("sudo:systemctl restart")
-    ] == [
-        "sudo:systemctl restart verdaxis-backend-staging-test.service",
-        f"sudo:systemctl restart {RUST_UNIT_NAME}"
-    ]
-    assert (fixture.checkout / ".runtime-rust/verdaxis-read").is_file()
-    assert fixture.state_text() == ""
 
 
 @pytest.mark.parametrize(
@@ -483,35 +362,6 @@ def test_rust_unit_names_no_production_path_or_migrator_credential():
     ):
         with pytest.raises(AssertionError):
             _assert_staging_credential_boundary(forbidden)
-
-
-def test_exact_rust_prestarts_need_no_app_environment(tmp_path):
-    import shlex
-    backend = tmp_path / "be"
-    (backend / "scripts").mkdir(parents=True)
-    for name in ("verify_deploy_start_guard.py", "verify_rust_start.py"):
-        shutil.copy2(ROOT / "scripts" / name, backend / "scripts" / name)
-    runtime = backend / ".runtime-rust"
-    runtime.mkdir()
-    budget = runtime / "budget.json"
-    budget.write_text(json.dumps({"version": 1, "release_sha": RELEASE_SHA}))
-    budget.chmod(0o600)
-    revision = runtime / "revision.json"
-    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": MIGRATION_REVISION}))
-    revision.chmod(0o600)
-    # Exactly the unit prestarts, relocating only the fixed checkout path and
-    # substituting systemd's release variable. -I -S excludes site packages.
-    for line in _text(UNIT).splitlines():
-        if not line.startswith("ExecStartPre="): continue
-        command = line.removeprefix("ExecStartPre=").replace(STAGING_BACKEND, str(backend)).replace("${RELEASE_SHA}", RELEASE_SHA).replace("${MIGRATION_REVISION}", MIGRATION_REVISION)
-        result = subprocess.run(shlex.split(command), cwd=backend, env={"ENVIRONMENT": "staging", "RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
-        assert result.returncode == 0, result.stderr
-    assert not (backend / ".env").exists()
-    # Tampered checkpoint evidence is a hard refusal with the same unit command.
-    revision.write_text(json.dumps({"release_sha": RELEASE_SHA, "revision": "wrong"}))
-    refused = subprocess.run(shlex.split(command), cwd=backend,
-                             env={"RELEASE_SHA": RELEASE_SHA}, capture_output=True, text=True)
-    assert refused.returncode == 1
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])

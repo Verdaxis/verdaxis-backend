@@ -1190,7 +1190,7 @@ pub async fn contract_invalid_benchmark(conn: &mut PgConnection) -> Result<(), M
         .iter()
         .find(|p| p.qualification_profile == "scalar")
         .unwrap();
-    let config:Config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision":"p89_20261022_trade_freeze","database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap();
+    let config:Config=serde_json::from_value(json!({"environment":"test","release_sha":"test","migration_revision": crate::runtime::artifact::ALLOWED_REVISIONS[0],"database_url":"","db_session_time_zone":"UTC","bind":"127.0.0.1:0","read_admission_slots":8,"pool_max":9,"python_budget":0,"configured_max_connections":100})).unwrap();
     let result = super::rebuild_live_slice_benchmarks_for_keys(
         conn,
         &policy,

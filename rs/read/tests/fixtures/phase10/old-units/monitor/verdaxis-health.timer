@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Verdaxis local readiness monitor every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00
+AccuracySec=15s
+RandomizedDelaySec=15s
+Persistent=true
+Unit=verdaxis-health.service
+
+[Install]
+WantedBy=timers.target

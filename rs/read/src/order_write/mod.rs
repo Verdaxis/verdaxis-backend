@@ -3,8 +3,10 @@
 //! Standalone order commands use [`execute_order_command`]. Ordered business
 //! commands enter only through the borrowed [`invalidate_organization`] and
 //! [`invalidate_user`] subcommands after business-owner organization/user
-//! locks; those subcommands never own completion or retries. No module outside
-//! `order_write` locks or changes order/trade/inventory rows.
+//! locks; those subcommands never own completion or retries. The order-expiry
+//! reminder job takes its scan key and its user-then-order row locks through
+//! the borrowed `reminders` functions and writes only notification rows itself.
+//! No module outside `order_write` locks or changes order/trade/inventory rows.
 
 // Plan §6.1: no float arithmetic anywhere in the write boundary. The copy in
 // `decimal.rs` keeps the rule true for that file under any module owner.
@@ -24,6 +26,10 @@ pub mod freeze;
 mod invalidation;
 pub(crate) mod inventory;
 pub use inventory::{InventoryAction, InventoryInput, execute_inventory};
+/// The demo activity job's market phases (the sealed actorless system path).
+pub use transaction::system::demo::{
+    DemoMarketFailure, DemoMarketReport, TickOutcome, run_demo_market_phases,
+};
 pub(crate) mod amend;
 pub mod locks;
 pub mod matching;
@@ -34,6 +40,7 @@ pub mod party_policy;
 mod post_only;
 pub mod producer;
 pub mod reassignment;
+mod reminders;
 mod reservations;
 pub mod support;
 pub mod trade_lifecycle;
@@ -68,6 +75,10 @@ pub use locks::{
     IDEMPOTENCY_STATEMENT_TIMEOUT, MARKET_LOCK_TIMEOUT, MARKET_STATEMENT_TIMEOUT, SliceKey,
     idempotency_lock_key, market_slice_lock_key, market_slice_lock_sort_key,
     normalize_idempotency_key, normalize_slice_window, ordered_slice_lock_keys,
+};
+pub use reminders::{
+    REMINDER_SCAN_KEY, RecipientsLocked, ReminderCandidate, ReminderRow, ReminderWindow,
+    lock_reminder_delivery, lock_reminder_recipients, reminder_candidates,
 };
 pub use transaction::{
     CommittedCommand, DEFAULT_MARKET_TRANSACTION_ATTEMPTS, IDEMPOTENCY_BUSY_MESSAGE,
