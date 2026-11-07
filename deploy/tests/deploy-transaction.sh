@@ -251,10 +251,13 @@ case "\$*" in
         ;;
     stop*verdaxis-backend*)
         record "systemctl \$*"
+        # systemd refuses to stop or disable a unit that is not installed.
+        if matches unloaded "\$*"; then exit 5; fi
         rm -f "\$H/python-active"
         ;;
     disable*verdaxis-backend*)
         record "systemctl \$*"
+        if matches unloaded "\$*"; then exit 1; fi
         rm -f "\$H/python-enabled"
         ;;
     is-active*verdaxis-backend*)
@@ -1043,6 +1046,23 @@ case_activation_requirements() {
 }
 check test_production_activation_requires_its_unit_provenance_and_readiness case_activation_requirements
 check test_activation_requires_the_manifest_unit_and_a_verified_artifact case_activation_requirements
+
+# The retained backend unit was removed from both hosts after the cutover. A
+# unit that is not installed is already stopped and disabled: the deploy needs
+# neither the commands nor their sudo authority. An installed unit keeps both.
+case_backend_unit_absent() {
+    approved_host "backend-absent-$1" "$1"
+    echo verdaxis-backend > "$H/unloaded"
+    echo verdaxis-backend > "$H/deny-sudo"
+    deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
+        && called '^systemctl show --property=LoadState --value verdaxis-backend' \
+        && ! called '^sudo-check systemctl (stop|disable) verdaxis-backend' \
+        && ! called '^systemctl (stop|disable|is-active|is-enabled|restart|enable) verdaxis-backend'
+}
+check test_absent_backend_unit_needs_no_stop_disable_or_authority case_backend_unit_absent staging
+check test_production_absent_backend_unit_needs_no_stop_disable_or_authority case_backend_unit_absent production
+check test_installed_backend_still_requires_stop_authority case_sudo_denial staging 'stop verdaxis-backend'
+check test_installed_backend_still_requires_disable_authority case_sudo_denial production 'disable verdaxis-backend'
 
 # Failures after the source update keep code and identity aligned.
 case_failure_alignment() {

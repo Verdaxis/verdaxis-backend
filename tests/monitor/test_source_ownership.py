@@ -11,7 +11,7 @@ MANIFEST = MONITOR / "artifact-manifest.json"
 # The runtime deploy transaction remains byte-pinned across monitor changes.
 # The removed Python application and demo launcher no longer own runtime source.
 RUNTIME_OWNED_BLOBS = {
-    "scripts/deploy.sh": "1f104f3353dc75b8e127a079df639f5dc313e3c2",
+    "scripts/deploy.sh": "c28e13a80bd5e43f48efb0110e70427ffb3fe9f6",
 }
 REMOVED_API_SOURCES = (
     "app/config.py",
