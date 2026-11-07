@@ -105,9 +105,7 @@ pub fn validate_value(namespace: &str, value: Value) -> Result<Value, ApiError> 
         return Err(refusal(StatusCode::UNPROCESSABLE_ENTITY, json!([error])));
     };
     // The exported DTO retains Python enum order as well as accepted values.
-    let schemas: Value = serde_json::from_str(include_str!(
-        "../../../../tests/rust_contract/phase2/routes.json"
-    ))
+    let schemas: Value = serde_json::from_str(r###"{"schemas":{"preference:market_watch":{"$defs":{"MarketProduct":{"enum":["B30","B100","UCOME_B100","BIO_LNG","BIO_METHANOL","E_METHANOL","BIO_ETHANOL","SYNTHETIC_ETHANOL"]}}}}}"###)
     .expect("pinned schema export");
     let products = schemas["schemas"]["preference:market_watch"]["$defs"]["MarketProduct"]["enum"]
         .as_array()

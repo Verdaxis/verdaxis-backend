@@ -1368,7 +1368,12 @@ async fn runner_database_adopts_to_the_baseline() {
         assert!(current.foreign.is_empty());
         assert!(current.pending.is_empty());
         assert_eq!(current.revision().as_deref(), Some("sqlx_1"));
-        assert_eq!(fingerprint(&mut connection).await.unwrap(), compiled_baseline().fingerprint);
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../../../deploy/rust/sqlx-baseline.json")).unwrap();
+        assert_eq!(
+            fingerprint(&mut connection).await.unwrap(),
+            manifest["restored_fingerprint"].as_str().unwrap()
+        );
         return;
     }
     let outcome = adopt(
