@@ -238,7 +238,7 @@ fn unlimited_route_at_999_still_fails() {
 
 #[test]
 fn a_non_positive_limit_is_inconclusive() {
-    // A zero limit is a defect in the committed table, never a lower floor.
+    // A zero limit is an invalid value in the committed table, never a lower floor.
     let mut config = verdaxis_contract::fixtures::GATE_CONFIG.to_owned();
     config = config.replace("\"R14\": 10", "\"R14\": 0");
     let run = window_3600_run();

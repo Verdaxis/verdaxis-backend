@@ -1,4 +1,4 @@
-//! Full-HTTP Python oracle vectors; no fixture keys are runtime credentials.
+//! Fixed full-HTTP authentication vectors; no fixture keys are runtime credentials.
 use serde_json::Value;
 use verdaxis_read::auth::{
     AccountState, VerificationSettings, validate_account, verify_access, verify_authorization,

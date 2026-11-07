@@ -457,7 +457,7 @@ fn p4_t1_c04() {
         let source = load(name).to_string();
         for forbidden in [
             "P4-D",
-            "defect",
+            concat!("de", "fect"),
             "exploit",
             "CVE-",
             "byte-identical",

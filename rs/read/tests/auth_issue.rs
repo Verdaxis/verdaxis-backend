@@ -252,7 +252,7 @@ fn stream_token_carries_org_and_environment() {
 }
 
 #[test]
-fn pd7_access_token_iat_out_of_range_is_401() {
+fn access_token_iat_out_of_range_is_401() {
     let issued_at = now();
     let settings = VerificationSettings::new(SECRET.into(), None, ISSUER.into(), AUDIENCE.into());
     let vectors = [
@@ -306,7 +306,7 @@ fn pd7_access_token_iat_out_of_range_is_401() {
 }
 
 #[test]
-fn pd7_refresh_iat_out_of_range_is_401() {
+fn refresh_iat_out_of_range_is_401() {
     let issued_at = now();
     let vectors = [
         ("i64::MAX", json!(i64::MAX)),

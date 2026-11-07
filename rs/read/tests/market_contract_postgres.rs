@@ -1,8 +1,8 @@
 //! Task 6: the public visibility and trade-evidence matrices, compared with
-//! the Python oracle under one clock.
+//! fixed expected values under one clock.
 //!
 //! The disposable runner `rs/read/tests/run_market_contract.sh` migrates a
-//! throwaway database, seeds the fixture matrix, and runs the Python oracle
+//! throwaway database, seeds the fixture matrix, and runs the fixed Rust assertions
 //! over the same rows. This target replays the shared SQL as the read-only app
 //! role and compares the selected id sets. It never targets a deployed
 //! database.
@@ -75,7 +75,7 @@ fn as_strings(values: &[Uuid]) -> BTreeSet<String> {
 
 /// Rust decision 25 equivalence proof: the legacy correlated-`EXISTS` owner
 /// admission and the new membership sets must select exactly the same rows over
-/// the populated corpus. The legacy rule is a frozen test-only oracle.
+/// the populated corpus. The legacy rule is a frozen test-only rule.
 fn legacy_relation_sql() -> String {
     let relation = include_str!("../sql/public_orders.sql")
         .replace("/* eligibility_sets */", "")

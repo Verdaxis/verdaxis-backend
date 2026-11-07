@@ -565,7 +565,7 @@ fn scan_rust_source(root: &Path, path: &Path, text: &str) -> Vec<String> {
         ["PG_TRY_ADVISORY", "_XACT_LOCK"].concat(),
         ["PG_TRY_ADVISORY", "_LOCK"].concat(),
     ];
-    // PM decision 94 (PD8) approves one advisory lock outside this boundary:
+    // The approved boundary permits one advisory lock outside this boundary:
     // the price-alert cap serializes organization creators in its own namespace.
     // It does not touch order-book rows, so the boundary rule names it exactly.
     let price_alert_cap = [root.join("rs/read/src/crud/alerts.rs")];
@@ -751,12 +751,12 @@ fn rust_tokens(text: &str) -> Vec<String> {
     tokens
 }
 
-/// PD4-INT-5 (PM decision, 24 Oct 16:47Z): test code under `rs/read/tests/` may
+/// Test-module scope: test code under `rs/read/tests/` may
 /// name the three existing public lock helpers, to assert lock order and to
 /// create real lock contention. They are pure key functions with no write path,
 /// and copying their formula into a test could drift. The allowance is this
 /// named list and applies only when `test_path` is true: production code
-/// outside the boundary still names only CF4_04's declared exports (PD4-INT-2).
+/// outside the boundary still names only CF4_04's declared exports (declared export policy).
 const TEST_LOCK_HELPERS: &[&str] = &[
     "SliceKey",
     "market_slice_lock_key",
@@ -924,7 +924,7 @@ fn declared_business_exports_do_not_open_the_write_boundary() {
         false
     ));
 
-    // PD4-INT-5: the three lock helpers are allowed only from test paths.
+    // Test-module scope: the three lock helpers are allowed only from test paths.
     for helper in TEST_LOCK_HELPERS {
         let production = format!("use crate::order_write::{{{helper}}};");
         assert!(

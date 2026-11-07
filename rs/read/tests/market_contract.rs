@@ -1,7 +1,7 @@
 //! Task 6: shared visibility, decimal, digest, and public projection rules.
 //!
 //! The pure vectors live here. The PostgreSQL visibility and trade-evidence
-//! comparison against the Python oracle lives in `market_contract_postgres.rs`
+//! fixed PostgreSQL matrix lives in `market_contract_postgres.rs`
 //! and is gated by the `contract-tests` feature, so this target always builds
 //! and runs without a database.
 
