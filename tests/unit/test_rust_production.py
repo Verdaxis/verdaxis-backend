@@ -33,7 +33,7 @@ def test_production_policy_is_the_reviewed_activation_with_the_bootstrap_unit():
         f"EnvironmentFile={base}/.runtime-rust/runtime.env\n",
         "--environment production --expected-release-sha ${RELEASE_SHA}",
         "--bind 127.0.0.1:8010",
-        "MemoryHigh=192M\n", "MemoryMax=256M\n",
+        "MemoryHigh=640M\n", "MemoryMax=768M\n",
         "CPUQuota=100%\n", "CPUWeight=50\n",
     ):
         assert expected in unit
