@@ -4,13 +4,9 @@ use verdaxis_contract::{
 };
 
 fn measurement() -> RustMeasurement {
-    let baseline: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/python-baseline-small.json"
-    ))
+    let baseline: serde_json::Value = serde_json::from_str(verdaxis_contract::fixtures::BASELINE)
     .unwrap();
-    let config: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/gate-config.json"
-    ))
+    let config: serde_json::Value = serde_json::from_str(verdaxis_contract::fixtures::GATE_CONFIG)
     .unwrap();
     RustMeasurement {
         size: WorkloadSize::Small,
@@ -40,8 +36,8 @@ fn measurement() -> RustMeasurement {
 
 fn decide(run: &RustMeasurement) -> GateOutcome {
     frozen_performance_gate(
-        include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
-        include_str!("../../../tests/rust_contract/gate-config.json"),
+        verdaxis_contract::fixtures::BASELINE.as_bytes(),
+        verdaxis_contract::fixtures::GATE_CONFIG,
         run,
     )
     .outcome
@@ -50,8 +46,8 @@ fn decide(run: &RustMeasurement) -> GateOutcome {
 #[test]
 fn optional_large_evidence_preserves_validation() {
     use verdaxis_contract::performance_evidence_gate;
-    let bytes = include_bytes!("../../../tests/rust_contract/python-baseline-small.json");
-    let config = include_str!("../../../tests/rust_contract/gate-config.json");
+    let bytes = verdaxis_contract::fixtures::BASELINE.as_bytes();
+    let config = verdaxis_contract::fixtures::GATE_CONFIG;
     let absent = performance_evidence_gate(bytes, config, WorkloadSize::Large, None);
     assert_eq!(absent.outcome, GateOutcome::Pass);
     assert_eq!(
@@ -87,7 +83,7 @@ fn changed_or_missing_baseline_pin_is_inconclusive() {
         assert_eq!(
             frozen_performance_gate(
                 bytes,
-                include_str!("../../../tests/rust_contract/gate-config.json"),
+                verdaxis_contract::fixtures::GATE_CONFIG,
                 &run
             )
             .outcome,
@@ -96,7 +92,7 @@ fn changed_or_missing_baseline_pin_is_inconclusive() {
     }
     assert_eq!(
         frozen_performance_gate(
-            include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
+            verdaxis_contract::fixtures::BASELINE.as_bytes(),
             "{}",
             &run
         )
@@ -107,9 +103,9 @@ fn changed_or_missing_baseline_pin_is_inconclusive() {
 
 #[test]
 fn missing_routes_floor_or_identity_are_inconclusive() {
-    for defect in 0..4 {
+    for invalid_case in 0..4 {
         let mut run = measurement();
-        match defect {
+        match invalid_case {
             0 => {
                 run.routes.pop();
             }
@@ -128,8 +124,8 @@ fn frozen_thresholds_and_error_rate_block_small_only() {
     assert_eq!(decide(&run), GateOutcome::NoGo);
     run.size = WorkloadSize::Large;
     let result = frozen_performance_gate(
-        include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
-        include_str!("../../../tests/rust_contract/gate-config.json"),
+        verdaxis_contract::fixtures::BASELINE.as_bytes(),
+        verdaxis_contract::fixtures::GATE_CONFIG,
         &run,
     );
     assert_eq!(result.outcome, GateOutcome::Pass);
@@ -143,15 +139,11 @@ fn frozen_thresholds_and_error_rate_block_small_only() {
 #[test]
 fn baseline_missing_route_and_lowered_floor_are_inconclusive() {
     use sha2::{Digest, Sha256};
-    let mut base: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../tests/rust_contract/python-baseline-small.json"
-    ))
+    let mut base: serde_json::Value = serde_json::from_slice(verdaxis_contract::fixtures::BASELINE.as_bytes())
     .unwrap();
     base["routes"].as_object_mut().unwrap().remove("R27");
     let bytes = serde_json::to_vec(&base).unwrap();
-    let mut config: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/gate-config.json"
-    ))
+    let mut config: serde_json::Value = serde_json::from_str(verdaxis_contract::fixtures::GATE_CONFIG)
     .unwrap();
     config["python_baseline_sha256"] = Sha256::digest(&bytes)
         .iter()
@@ -167,14 +159,12 @@ fn baseline_missing_route_and_lowered_floor_are_inconclusive() {
         frozen_performance_gate(&bytes, &config.to_string(), &run).outcome,
         GateOutcome::Inconclusive
     );
-    config = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/gate-config.json"
-    ))
+    config = serde_json::from_str(verdaxis_contract::fixtures::GATE_CONFIG)
     .unwrap();
     config["rust_successful_samples_per_route"] = 0.into();
     assert_eq!(
         frozen_performance_gate(
-            include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
+            verdaxis_contract::fixtures::BASELINE.as_bytes(),
             &config.to_string(),
             &measurement()
         )
@@ -185,9 +175,7 @@ fn baseline_missing_route_and_lowered_floor_are_inconclusive() {
 
 #[test]
 fn frozen_route_just_inside_and_outside_relative_limit() {
-    let base: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../tests/rust_contract/python-baseline-small.json"
-    ))
+    let base: serde_json::Value = serde_json::from_slice(verdaxis_contract::fixtures::BASELINE.as_bytes())
     .unwrap();
     let mut run = measurement();
     let row = run.routes.iter_mut().find(|r| r.route_id == "R27").unwrap();
@@ -261,12 +249,12 @@ fn unlimited_route_at_999_still_fails() {
 #[test]
 fn a_non_positive_limit_is_inconclusive() {
     // A zero limit is a defect in the committed table, never a lower floor.
-    let mut config = include_str!("../../../tests/rust_contract/gate-config.json").to_owned();
+    let mut config = verdaxis_contract::fixtures::GATE_CONFIG.to_owned();
     config = config.replace("\"R14\": 10", "\"R14\": 0");
     let run = window_3600_run();
     assert_eq!(
         frozen_performance_gate(
-            include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
+            verdaxis_contract::fixtures::BASELINE.as_bytes(),
             &config,
             &run
         )

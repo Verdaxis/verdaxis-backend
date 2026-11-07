@@ -4,9 +4,7 @@ use verdaxis_contract::{
 };
 
 fn run() -> RustMeasurement {
-    let base: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/rust_contract/python-baseline-small.json"
-    ))
+    let base: serde_json::Value = serde_json::from_str(verdaxis_contract::fixtures::BASELINE)
     .unwrap();
     RustMeasurement {
         size: WorkloadSize::Large,
@@ -34,8 +32,8 @@ fn run() -> RustMeasurement {
 
 fn decide(run: &RustMeasurement) -> GateOutcome {
     meaning_performance_gate(
-        include_bytes!("../../../tests/rust_contract/python-baseline-small.json"),
-        include_str!("../../../tests/rust_contract/gate-config.json"),
+        verdaxis_contract::fixtures::BASELINE.as_bytes(),
+        verdaxis_contract::fixtures::GATE_CONFIG,
         run,
     )
     .outcome

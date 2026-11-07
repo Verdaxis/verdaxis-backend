@@ -5,19 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [features]
-# The HTTP contract group tests drive external processes, so they stay behind
-# their own feature. The read package's `contract-tests` feature covers the
-# PostgreSQL runtime and admission targets, which the disposable PostgreSQL
-# runner starts without any contract URLs.
+# Retained for callers that still select this feature; the package now has
+# only independent performance gate tests with fixed inputs.
 contract-http = []
-
-[[test]]
-name = "health"
-required-features = ["contract-http"]
-
-[[test]]
-name = "echo"
-required-features = ["contract-http"]
 
 [dependencies]
 sha2 = "0.11.1"
