@@ -16,9 +16,8 @@ fn route(id: &'static str, python: f64, rust: f64) -> RouteP95 {
 
 fn complete_routes() -> Vec<RouteP95> {
     static MANIFEST: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
-    let manifest = MANIFEST.get_or_init(|| {
-        serde_json::from_str(verdaxis_contract::fixtures::WORKLOAD).unwrap()
-    });
+    let manifest = MANIFEST
+        .get_or_init(|| serde_json::from_str(verdaxis_contract::fixtures::WORKLOAD).unwrap());
     ["routes", "tools"]
         .iter()
         .flat_map(|key| manifest[key].as_array().unwrap())
@@ -28,9 +27,8 @@ fn complete_routes() -> Vec<RouteP95> {
 
 fn complete_contract(differences: u64) -> Vec<ContractEvidence> {
     static CASES: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
-    let cases = CASES.get_or_init(|| {
-        serde_json::from_str(verdaxis_contract::fixtures::CASES).unwrap()
-    });
+    let cases =
+        CASES.get_or_init(|| serde_json::from_str(verdaxis_contract::fixtures::CASES).unwrap());
     let mut rows: Vec<_> = ["small", "large"]
         .iter()
         .flat_map(|size| {

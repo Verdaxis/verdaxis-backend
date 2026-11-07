@@ -4,8 +4,8 @@ use verdaxis_contract::{
 };
 
 fn run() -> RustMeasurement {
-    let base: serde_json::Value = serde_json::from_str(verdaxis_contract::fixtures::BASELINE)
-    .unwrap();
+    let base: serde_json::Value =
+        serde_json::from_str(verdaxis_contract::fixtures::BASELINE).unwrap();
     RustMeasurement {
         size: WorkloadSize::Large,
         source_sha: "a".repeat(40),
