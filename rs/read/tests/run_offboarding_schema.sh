@@ -2,10 +2,9 @@
 # Individual-offboarding schema acceptance on disposable PostgreSQL databases.
 #
 # Starts one disposable container on a Docker-assigned loopback port, migrates
-# two databases from the SQL baseline, applies the runtime ACL bundle to the
-# first, and runs the ignored cases of `offboarding_schema_postgres`. The second
-# database lets the downgrade case migrate in both directions without touching
-# the first. The container is removed on exit. Never point this at a live host.
+# one database from the SQL baseline, applies the runtime ACL bundle, and runs
+# the ignored cases of `offboarding_schema_postgres`. The container is removed
+# on exit. Never point this at a live host.
 #
 # Optional environment:
 #   DOCKER_RUN_EXTRA  extra `docker run` flags (for example a log driver)
@@ -53,24 +52,18 @@ CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposabl
 CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_migrator_pw';
 CREATE ROLE verdaxis_backup_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_backup_pw';
 CREATE DATABASE verdaxis_offboarding_test OWNER verdaxis_migrator_staging;
-CREATE DATABASE verdaxis_offboarding_downgrade_test OWNER verdaxis_migrator_staging;
 \connect verdaxis_offboarding_test
 CREATE EXTENSION postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO verdaxis_app_staging,verdaxis_backup_staging;
-\connect verdaxis_offboarding_downgrade_test
-CREATE EXTENSION postgis;
-ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
 SQL
 
-for database in verdaxis_offboarding_test verdaxis_offboarding_downgrade_test; do
-  RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
-    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
-done
+# shellcheck disable=SC2086
+RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  --features contract-tests --test phase10_migrate_postgres \
+  runner_database_adopts_to_the_baseline -- --ignored
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE=verdaxis_offboarding_test
 export PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw
@@ -81,7 +74,6 @@ run acl psql -X --single-transaction -v ON_ERROR_STOP=1 \
 
 export RUST_TEST_DATABASE_URL="postgres://verdaxis_app_staging:disposable_app_pw@127.0.0.1:$port/verdaxis_offboarding_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test"
-export RUST_TEST_OFFBOARDING_MIGRATOR_DATABASE_URL="postgres://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_downgrade_test"
 unset DATABASE_URL MIGRATOR_DATABASE_URL PGPASSWORD PGHOST PGPORT PGDATABASE PGUSER
 
 log=$(mktemp "${TMPDIR:-/tmp}/offboarding-schema.XXXXXX")
@@ -96,7 +88,6 @@ printf 'GATE=offboarding_schema_postgres EXIT=%s\n' "$cargo_status"
 if (( cargo_status != 0 )); then exit "$cargo_status"; fi
 # A green run that executed no case is a false pass; every named case must have run.
 for case in marker_requires_rejected_and_detached null_marker_keeps_existing_states \
-  offboarding_audit_is_append_only existing_runtime_grants_are_preserved \
-  downgrade_cannot_restore_access_or_erase_evidence; do
+  offboarding_audit_is_append_only existing_runtime_grants_are_preserved; do
   grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

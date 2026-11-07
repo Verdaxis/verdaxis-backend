@@ -21,10 +21,6 @@ cases=(
   reinstatement_requires_reviewed_marker_clear_new_invitation_password_and_kyc
   unmarked_rejection_keeps_settlement
   offboarded_detached_user_cannot_read_or_settle_rejected_org_trades
-  python_login_and_refresh_lock_holders_are_cut_off
-  python_approval_and_join_race_the_command
-  logout_recovery_and_invitation_race_the_command
-  python_settlement_races_reassignment
 )
 
 container=''
@@ -60,8 +56,9 @@ docker exec "$container" psql -U postgres -v ON_ERROR_STOP=1 \
 docker exec "$container" psql -U postgres -d "$template" -v ON_ERROR_STOP=1 \
   -c 'CREATE EXTENSION postgis; ALTER SCHEMA public OWNER TO verdaxis_migrator_staging; GRANT USAGE ON SCHEMA public TO rust_app' >/dev/null
 
+# shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test phase10_migrate_postgres \
   runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" \

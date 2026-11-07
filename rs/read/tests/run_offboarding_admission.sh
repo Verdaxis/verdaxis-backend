@@ -59,8 +59,9 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO verdaxis_app_staging,verdaxis_backup_staging;
 SQL
 
+# shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test phase10_migrate_postgres \
   runner_database_adopts_to_the_baseline -- --ignored
 

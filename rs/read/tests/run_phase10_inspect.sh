@@ -92,8 +92,8 @@ if (( cargo_status != 0 )); then
   exit "$cargo_status"
 fi
 # A green run that executed no PostgreSQL case is a false pass; refuse it.
-if ! grep -Eq '^test inspect_blockers_matches_the_python_counts_on_the_same_fixture \.\.\. ok' "$log"; then
-  echo "the Python comparison did not run: refusing a green result" >&2
+if ! grep -Eq '^test inspect_blockers_matches_fixed_counts \.\.\. ok' "$log"; then
+  echo "the fixed-count inspection case did not run: refusing a green result" >&2
   exit 1
 fi
 if grep -Eq '[1-9][0-9]* (ignored|filtered out)' "$log"; then

@@ -32,8 +32,9 @@ CREATE EXTENSION postgis;
 ALTER SCHEMA public OWNER TO verdaxis_migrator_staging;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SQL
+# shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test phase10_migrate_postgres \
   runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \

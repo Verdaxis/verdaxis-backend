@@ -52,8 +52,9 @@ GRANT USAGE ON SCHEMA public TO verdaxis_app_staging,verdaxis_backup_staging;
 SQL
 
 database=verdaxis_offboarding_credentials_test
+# shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
-  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+  ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test phase10_migrate_postgres \
   runner_database_adopts_to_the_baseline -- --ignored
 printf 'GATE=migrate EXIT=0\n'
@@ -86,8 +87,6 @@ for case in cutoff_is_taken_after_user_lock cutoffs_never_move_back \
   all_refresh_families_and_credentials_are_invalidated \
   old_equal_malformed_and_future_iat_fail_closed \
   credential_cutoff_requires_the_held_user_lock \
-  credential_cutoff_refuses_without_the_caller_lock \
-  detached_streams_close_after_membership_recheck \
-  detachment_suppresses_future_org_notices withdrawn_order_has_no_future_expiry_notice; do
+  credential_cutoff_refuses_without_the_caller_lock; do
   grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

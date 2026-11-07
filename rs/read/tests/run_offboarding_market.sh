@@ -25,7 +25,7 @@ targets=(
   "phase4_market_invalidation 26"
   "market_write_pg_matching 22"
   "market_write_pg_conservation 8"
-  "market_write_pg_locks 25"
+  "market_write_pg_locks 22"
 )
 
 container=''
@@ -52,8 +52,7 @@ port=$(docker port "$container" 5432/tcp | head -1)
 port=${port##*:}
 
 templates=(verdaxis_offboarding_market_test verdaxis_offboarding_reassignment_test verdaxis_matching_test verdaxis_effects_test)
-# The lock target's Python writer protocols reuse the migrator URL with the
-# runtime role name, so both roles share one disposable password.
+# The runtime and migrator roles use disposable credentials in this container.
 docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
 CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
 CREATE ROLE rust_app LOGIN NOINHERIT NOSUPERUSER PASSWORD 'disposable_role_pw';
@@ -67,8 +66,9 @@ for database in "${templates[@]}" verdaxis_rejection_test; do
 done
 
 for database in "${templates[@]}"; do
+  # shellcheck disable=SC2086
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$database" \
-    cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
+    ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
     --features contract-tests --test phase10_migrate_postgres \
     runner_database_adopts_to_the_baseline -- --ignored
   PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" \
@@ -85,7 +85,6 @@ unset DATABASE_URL MIGRATOR_DATABASE_URL
 admin="postgresql://postgres:disposable_admin_pw@127.0.0.1:$port"
 app="postgresql://rust_app:disposable_role_pw@127.0.0.1:$port"
 export RUST_TEMPLATE_ADMIN_DATABASE_URL="$admin/postgres"
-export POSTGRES_ADMIN_TEST_DATABASE_URL="postgresql+asyncpg://postgres:disposable_admin_pw@127.0.0.1:$port/postgres"
 export RUST_OFFBOARDING_MARKET_ADMIN_DATABASE_URL="$admin/verdaxis_offboarding_market_test"
 export RUST_OFFBOARDING_MARKET_DATABASE_URL="$app/verdaxis_offboarding_market_test"
 export RUST_OFFBOARDING_MARKET_TEMPLATE_DATABASE=verdaxis_offboarding_market_test

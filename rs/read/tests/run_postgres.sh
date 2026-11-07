@@ -193,6 +193,8 @@ cargo test --manifest-path rs/Cargo.toml --locked --workspace --features contrac
   --skip aggregate_groups_null_region_and_counts_duplicates \
   --skip inspect_users_masks_email_by_default \
   --skip inspect_users_show_emails_requires_the_explicit_flag \
+  --skip inspect_users_matches_fixed_rows \
+  --skip inspect_blockers_matches_fixed_counts \
   --skip inspect_users_is_read_only_and_never_writes_a_status_file \
   --skip inspect_blockers_exits_2_when_any_count_is_nonzero \
   --skip inspect_json_is_one_object_with_stable_keys_on_a_real_database \
