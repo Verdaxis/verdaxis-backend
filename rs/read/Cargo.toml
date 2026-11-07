@@ -161,6 +161,9 @@ name = "auth_registration_postgres"
 [[test]]
 name = "phase10_alert"
 
+[[test]]
+name = "phase10_onboarding"
+
 # Starts a copy of its own binary with `--exact <test name>` and reads the
 # peak memory of that whole process.
 [[test]]

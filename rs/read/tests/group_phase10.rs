@@ -56,8 +56,6 @@ pub mod phase10_news;
 #[cfg(feature = "contract-tests")]
 #[path = "phase10_news_postgres.rs"]
 pub mod phase10_news_postgres;
-#[path = "phase10_onboarding.rs"]
-pub mod phase10_onboarding;
 #[path = "phase10_onboarding_postgres.rs"]
 pub mod phase10_onboarding_postgres;
 // Phase 10 Task 9: purpose-bound runtime environments; the parity cases run
