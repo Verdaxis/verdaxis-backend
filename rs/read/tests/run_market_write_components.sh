@@ -56,8 +56,11 @@ cleanup() {
 trap cleanup EXIT
 
 # shellcheck disable=SC2086
+# The stock expiry case counts statements with pg_stat_statements, which the
+# server must preload.
 container=$(docker run --platform linux/amd64 -d ${DOCKER_RUN_EXTRA:-} \
-  -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image")
+  -e POSTGRES_PASSWORD=disposable_admin_pw -p 127.0.0.1::5432 "$image" \
+  postgres -c shared_preload_libraries=pg_stat_statements)
 ready=0
 for _ in $(seq 1 120); do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then ready=1; break; fi
@@ -101,6 +104,11 @@ for database in "${template_databases[@]}"; do
   printf 'GATE=migrate-%s EXIT=0\n' "$database"
 done
 unset DATABASE_URL MIGRATOR_DATABASE_URL
+# The stock target resets and reads the statement statistics as the migrator.
+docker exec -i "$container" psql -U postgres -d "$scratch_database" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE EXTENSION pg_stat_statements;
+GRANT EXECUTE ON FUNCTION pg_stat_statements_reset TO verdaxis_migrator_staging;
+SQL
 
 admin="postgresql://postgres:disposable_admin_pw@127.0.0.1:$port"
 app="postgresql://rust_app:disposable_role_pw@127.0.0.1:$port"

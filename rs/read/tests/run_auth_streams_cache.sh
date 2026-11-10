@@ -278,8 +278,10 @@ run_cargo_test auth_stream 1 "${auth_store_env[@]}" \
 
 # These cases share one seeded account. Its id is fixed; the auth cases move it
 # onto the subject of their signed fixture token. Reseed before each target so
-# no target depends on the state that another one left.
-interop_env=(AUTH_INTEROP_APP_URL="$app_url" AUTH_INTEROP_ADMIN_URL="$owner_url" REQUIRE_AUTH_INTEROP=1)
+# no target depends on the state that another one left. The administrator URL
+# is the superuser: the lock-order case reads the wait state of the runtime
+# role's sessions in pg_stat_activity, which other roles cannot see.
+interop_env=(AUTH_INTEROP_APP_URL="$app_url" AUTH_INTEROP_ADMIN_URL="$admin_url" REQUIRE_AUTH_INTEROP=1)
 seed_interop_account() {
   truncate_account_tables "$analytics_database"
   owner_sql "$analytics_database" <<'SQL'
