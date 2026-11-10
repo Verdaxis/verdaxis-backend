@@ -555,6 +555,8 @@ fn serve_unit_paths_are_the_files_the_deploy_transaction_writes() {
         );
         assert_eq!(directives(&unit, "User"), ["verdaxis-prod"]);
         assert_eq!(directives(&unit, "MemoryMax"), ["768M"]);
+        // glibc arena tuning bounds Tokio-worker heap fragmentation.
+        assert_eq!(directives(&unit, "Environment"), ["MALLOC_ARENA_MAX=2"]);
         let credential = match environment {
             "production" => "kyc-document-keys:/etc/verdaxis/kyc-document-keys.json",
             _ => "kyc-document-keys:/etc/verdaxis/kyc-document-keys-staging.json",
