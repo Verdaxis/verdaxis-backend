@@ -291,9 +291,11 @@ mod tests {
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect();
-        assert!(arguments
-            .iter()
-            .all(|argument| !argument.contains("mig@pw")));
+        assert!(
+            arguments
+                .iter()
+                .all(|argument| !argument.contains("mig@pw"))
+        );
         assert!(arguments.contains(&"migrator_role=verdaxis_migrator_staging".to_owned()));
         assert_eq!(
             arguments.last().map(String::as_str),

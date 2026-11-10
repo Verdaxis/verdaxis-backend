@@ -5,7 +5,6 @@ deploy/tests/guard-contract.sh
 rs/read/tests/run_phase10_reminders.sh
 rs/read/tests/run_phase10_inspect.sh
 deploy/tests/alert-handoff-contract.sh
-deploy/scripts/generate-sqlx-baseline.sh
 deploy/tests/sqlx-control-acl.sh
 scripts/deploy.sh
 deploy/scripts/converge-acls.sh

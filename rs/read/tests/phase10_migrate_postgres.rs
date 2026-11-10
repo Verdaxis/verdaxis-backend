@@ -10,8 +10,7 @@ use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Row};
 use std::str::FromStr;
 use verdaxis_read::cli::migrate::{
-    MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, run_to_target, run_transition,
-    status_with,
+    MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, run_to_target, run_transition, status_with,
 };
 
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
@@ -195,11 +194,7 @@ async fn run_to_exact_approved_target_is_idempotent() {
     let database = migrated_database("run").await;
     let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
     let second = migrator_with_second_version().await;
-    let rules = policy(&[
-        (&head, &head),
-        (&head, "sqlx_9"),
-        ("sqlx_9", "sqlx_9"),
-    ]);
+    let rules = policy(&[(&head, &head), (&head, "sqlx_9"), ("sqlx_9", "sqlx_9")]);
 
     let at_head = run_to_target(
         &mut as_migrator(&database).await,
@@ -406,12 +401,8 @@ async fn alembic_literals_are_refused_everywhere() {
             Err(RunRefusal::Target),
             "{current} -> {target}"
         );
-        // The exact adoption pair is still listed in the compiled policy for
-        // the databases that have not yet applied the drop migration, but an
-        // Alembic current never runs.
-        if (current, target) == ("ob_20261031_offboarding", "sqlx_1") {
-            assert!(TransitionPolicy::compiled().allows(current, target));
-        }
+        // The compiled policy lists no Alembic pair at all.
+        assert!(!TransitionPolicy::compiled().allows(current, target));
         assert_eq!(
             history_rows(&database).await,
             before,
@@ -435,10 +426,14 @@ async fn alembic_literals_are_refused_everywhere() {
 }
 
 #[test]
-fn compiled_policy_parses_and_keeps_the_sqlx_rows() {
+fn compiled_policy_parses_and_keeps_only_the_sqlx_rows() {
     let compiled = TransitionPolicy::compiled();
-    assert!(compiled.allows("sqlx_1", "sqlx_1"));
+    // The release serves only sqlx_2: a host moves there from sqlx_1 and then
+    // keeps it. No Alembic adoption pair and no sqlx_1 self row remain.
     assert!(compiled.allows("sqlx_1", "sqlx_2"));
+    assert!(compiled.allows("sqlx_2", "sqlx_2"));
+    assert!(!compiled.allows("sqlx_1", "sqlx_1"));
+    assert!(!compiled.allows("ob_20261031_offboarding", "sqlx_1"));
     assert!(!compiled.allows("ob_20261031_offboarding", "sqlx_2"));
     assert!(!compiled.allows("sqlx_2", "head"));
     assert!(
@@ -625,7 +620,7 @@ async fn migrate_and_app_request_do_not_half_apply() {
     let observe = "SELECT EXISTS (SELECT 1 FROM pg_class c \
                                   JOIN pg_namespace n ON n.oid = c.relnamespace \
                                   WHERE n.nspname = 'public' AND c.relname = 'migrate_probe'), \
-                   EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON a.oid = a.attrelid \
+                   EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
                            JOIN pg_namespace n ON n.oid = c.relnamespace \
                            WHERE n.nspname = 'public' AND c.relname = 'products' \
                              AND a.attname = 'migrate_probe_flag' AND NOT a.attisdropped)";
@@ -749,11 +744,6 @@ async fn migrate_command_refuses_before_any_connection() {
             "status with --apply",
             args(MigrationAction::Status, true, None, None),
             Exit::Usage,
-        ),
-        (
-            "baseline is retired",
-            args(MigrationAction::Baseline, true, Some("ob_20261031_offboarding"), None),
-            Exit::Precondition,
         ),
         (
             "run without a target",

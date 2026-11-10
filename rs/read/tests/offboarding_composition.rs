@@ -397,11 +397,7 @@ async fn caddy_routes_the_group_only_when_enabled() {
     let fallback = serve(python_stub()).await;
     let rust_on = serve(verdaxis_read::router(state(Some(true)))).await;
     let rust_off = serve(verdaxis_read::router(state(None))).await;
-    let import = |rust: u16| {
-        Some(format!(
-            "import verdaxis_rust_offboarding 127.0.0.1:{rust}"
-        ))
-    };
+    let import = |rust: u16| Some(format!("import verdaxis_rust_offboarding 127.0.0.1:{rust}"));
     let modes = [
         ("import absent", None, "python"),
         ("Rust switch off", import(rust_off), "rust 404"),

@@ -461,10 +461,6 @@ where
     use super::{Exit, MigrationAction};
     let writes = match args.action {
         MigrationAction::Status => false,
-        MigrationAction::Baseline => {
-            report("baseline", "not_available");
-            return Exit::Precondition;
-        }
         MigrationAction::Run => args.apply,
         MigrationAction::Verify => {
             report("verify", "not_available");
@@ -538,7 +534,6 @@ where
             }
             Err(_) => Exit::Dependency,
         },
-        MigrationAction::Baseline => Exit::Precondition,
         MigrationAction::Run => {
             let outcome = run_transition(
                 &mut connection,

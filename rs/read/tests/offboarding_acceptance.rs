@@ -13,7 +13,9 @@ use std::{
 };
 
 use serde_json::json;
-use verdaxis_read::runtime::config::config_from_deployed_environment;
+use verdaxis_read::runtime::{
+    artifact::ALLOWED_REVISIONS, config::config_from_deployed_environment,
+};
 
 fn repository_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -68,7 +70,7 @@ fn environment_line(line: &str) -> (String, String) {
 /// The deployed `.env` alone decides the switch. A fresh deploy whose `.env`
 /// does not set it projects nothing, and the Rust process reads an absent
 /// switch as off; an `.env` that sets it reaches the Rust process in normal
-/// form, in every environment (unit tests in `tests/unit/test_rust_release.py`).
+/// form, in every environment.
 /// The Caddy snippet that routes the group to Rust is imported only on the
 /// host's site file, never by a deploy source, and no unit or deploy script
 /// other than the projection names the switch.
@@ -160,8 +162,7 @@ fn project_deployed_environment(
         .current_dir(root)
         .args(["ops", "prepare-runtime", "--environment", "staging"])
         .args(["--release-sha", release])
-        .arg("--migration-revision")
-        .arg(revision_literal(root))
+        .args(["--migration-revision", ALLOWED_REVISIONS[0]])
         .arg("--environment-file")
         .arg(&source)
         .arg("--output-dir")
@@ -180,23 +181,6 @@ fn project_deployed_environment(
         .map(environment_line)
         .collect();
     (environment, folder)
-}
-
-/// The head revision the compiled migrations define, read from the checkpoint
-/// policy the binary embeds: the projection refuses any other literal.
-fn revision_literal(root: &Path) -> String {
-    let checkpoints = std::fs::read_to_string(root.join("deploy/migration-checkpoints.tsv"))
-        .expect("the checkpoint policy");
-    // The head sqlx revision: the highest `sqlx_<n>` any row names.
-    checkpoints
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .flat_map(|(from, to)| [from, to])
-        .filter_map(|literal| literal.strip_prefix("sqlx_"))
-        .filter_map(|digits| digits.parse::<i64>().ok())
-        .max()
-        .map(|version| format!("sqlx_{version}"))
-        .expect("a sqlx revision in the policy")
 }
 
 /// A source statement that sets a member's organization to none, in Rust SQL

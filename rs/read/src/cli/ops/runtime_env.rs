@@ -20,6 +20,7 @@ use sha2::Digest;
 use super::dotenv::{self, Bindings, is_python_space};
 use crate::cli::{Environment, Exit, PrepareRuntimeArgs, state};
 use crate::runtime::config::PRODUCTION_REVISIONS;
+use crate::runtime::offboarding::SWITCH as OFFBOARDING_SWITCH;
 
 const RUNTIME_POLICY: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -436,6 +437,21 @@ fn market_write_settings(
     Ok(())
 }
 
+/// The individual offboarding switch, in normal form, only when the `.env`
+/// sets it. An absent key is not projected, so the service reads it as off.
+fn offboarding_settings(
+    values: &Bindings,
+    projected: &mut BTreeMap<String, String>,
+) -> Result<(), Refusal> {
+    if present(values, OFFBOARDING_SWITCH).is_some() {
+        projected.insert(
+            OFFBOARDING_SWITCH.to_owned(),
+            bool_text(deployed_bool(values, OFFBOARDING_SWITCH, false)?),
+        );
+    }
+    Ok(())
+}
+
 /// A seller fee in USD/MT: a plain decimal with at most two places, at most
 /// 100000, written as Python's `str(Decimal(...))` writes it.
 fn seller_fee(raw: Option<&str>, default: &str) -> Result<String, Refusal> {
@@ -524,6 +540,7 @@ pub fn project_serve(
     projected.insert("UMAMI_ENABLED".to_owned(), bool_text(umami_enabled));
     system_status_settings(values, &mut projected)?;
     market_write_settings(values, &mut projected)?;
+    offboarding_settings(values, &mut projected)?;
     refuse_control_characters(&projected)?;
     Ok(projected)
 }

@@ -109,8 +109,7 @@ new_host() {
     while IFS=$'\t' read -r _ unit; do
         [[ -n ${unit:-} ]] && cp -- "deploy/systemd/$unit" "$H/src/deploy/systemd/$unit"
     done < <(grep -v '^#' deploy/systemd/runtime-units.manifest)
-    for relative in "$(printf 'sqlx_1\tsqlx_1')" "$(printf 'sqlx_1\tsqlx_2')" \
-        "$(printf 'sqlx_2\tsqlx_2')" "$extra_row"; do
+    for relative in "$(printf 'sqlx_1\tsqlx_2')" "$(printf 'sqlx_2\tsqlx_2')" "$extra_row"; do
         if [[ -n $relative ]] && ! grep -q -F -x -- "$relative" "$H/src/deploy/migration-checkpoints.tsv"; then
             printf '%s\n' "$relative" >> "$H/src/deploy/migration-checkpoints.tsv"
         fi
@@ -576,7 +575,7 @@ case_binding() {
         && before 'migrate run' 'migrate status .*--expected-current sqlx_2' \
         && grep -q '^MIGRATION_REVISION=sqlx_2$' "$BE/.runtime-release.env" \
         && jq -e '.revision == "sqlx_2"' "$BE/.runtime-rust/revision.json" > /dev/null \
-        && [[ $(cat "$H/db-revision") == sqlx_2 ]] && ! called 'migrate baseline'
+        && [[ $(cat "$H/db-revision") == sqlx_2 ]]
 }
 check dry_run_real_run_and_postcheck_bind_the_same_exact_transition case_binding
 
@@ -590,7 +589,7 @@ check failure_after_migrate_leaves_durable_blocked_state case_failure_after_migr
 
 case_interruptions() {
     # A crash right after each publication (the blocked state and release
-    # identity; the adoption commit; the revision record; the active binary;
+    # identity; the migration commit; the revision record; the active binary;
     # the restart authorization) leaves durable state, the real start guard
     # denies a backend start, and a rerun with the same approval resumes.
     local ok=0 crash=0 point
@@ -894,7 +893,7 @@ check test_moved_sha_refuses_before_source_mutation case_moved_remote
 case_unallowlisted() {
     approved_host unallowlisted
     export MIGRATION_TARGET_REVISION=pref_20260709_user_preferences
-    refused_before_any_change && said 'Deploy requires an allowlisted sqlx target revision.'
+    refused_before_any_change && said 'Deploy requires the sqlx_1 to sqlx_2 transition or the sqlx_2 self-transition.'
 }
 check test_real_deploy_refuses_unallowlisted_checkpoint_before_source_mutation case_unallowlisted
 

@@ -15,9 +15,10 @@
 #
 # Decision 78: every `/api/admin/` request is counted once, before the route
 # match, by the one Rust authority. The authority admits with 204 and refuses
-# with the shared 429. If the authority is unreachable the pool fails closed
-# with 503; only a CORS OPTIONS preflight is uncounted, other methods still
-# consume the shared admin quota.
+# with the shared 429. Any other authority answer is returned as it is (a 2xx
+# without the mark becomes 503), and an unreachable authority fails closed
+# with 502 once the bounded retry ends. Only a CORS OPTIONS preflight is
+# uncounted; other methods still consume the shared admin quota.
 #
 # The gate copies the request with `method GET` and rewrites only that copy.
 # Caddy drops the body from a copy changed to GET, so an admin write body
@@ -53,12 +54,6 @@
 		@unmarked status 2xx
 		handle_response @unmarked {
 			respond "Quota authority did not acknowledge admission" 503
-		}
-		@unavailable 404
-		handle_response @unavailable {
-			# The authority answers 404 only while it starts; a stopped
-			# authority fails closed through the dial error.
-			request_header -X-Verdaxis-Preauth-Counted
 		}
 	}
 	@rust_crud_notifications_get {

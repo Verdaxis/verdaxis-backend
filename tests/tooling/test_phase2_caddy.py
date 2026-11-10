@@ -175,8 +175,13 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
             feedback_crash: bool = False, trusted_proxy: bool = False,
             other_owner: bool = False, shared_authority: bool = False,
-            authority_mark: bool = True, real_authority: str | None = None):
-    """Run the real CRUD snippet with one counting authority and owner stubs."""
+            authority_mark: bool = True, real_authority: str | None = None,
+            site_fallback: bool = False):
+    """Run the real CRUD snippet with one counting authority and owner stubs.
+
+    With ``site_fallback`` the site's own fallback proxies to the second stub,
+    so a path no group owns (another admin route) still reaches an owner.
+    """
     caddy = shutil.which("caddy")
     if not caddy:
         pytest.fail("real Caddy 2.11 is required for the test-host gate")
@@ -199,6 +204,10 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         configuration = configuration.replace(
             "\tauto_https off\n", "\tauto_https off\n\tservers {\n"
             "\t\ttrusted_proxies static 127.0.0.1/32\n\t}\n")
+    if site_fallback:
+        configuration = configuration.replace(
+            "\t\thandle {\n\t\t\trespond 404\n\t\t}\n",
+            "\t\thandle {\n\t\t\treverse_proxy {$FALLBACK_UPSTREAM}\n\t\t}\n")
     config.write_text(configuration)
     env = {
         **os.environ,
@@ -213,6 +222,7 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
             f"127.0.0.1:{crash.port}" if crash is not None
             else f"127.0.0.1:{(rust if feedback_owner == 'rust' else other).port}"),
         "PREAUTH_UPSTREAM": f"127.0.0.1:{authority.port}",
+        "FALLBACK_UPSTREAM": f"127.0.0.1:{other.port}",
     }
     if real_authority:
         env["PREAUTH_UPSTREAM"] = real_authority
@@ -300,16 +310,19 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
                 time.sleep(0.05)
             else:
                 pytest.fail("Rust quota adapter did not start")
-        with harness(tmp_path, real_authority=f"127.0.0.1:{port}") as (
+        # The real authority also owns the feedback group; another admin path
+        # reaches the site's fallback owner. Both draw from the one counter.
+        with harness(tmp_path, real_authority=f"127.0.0.1:{port}", site_fallback=True) as (
                 client, _authority, _rust, other, _crash):
             for index in range(LIMIT):
-                response = client.get("/api/admin/feedback")
+                path = "/api/admin/feedback" if index % 2 else "/api/admin/analytics"
+                response = client.get(path)
                 assert response.status_code == 200, (index, response.text)
             refused = client.get("/api/admin/feedback")
             assert refused.status_code == 429
             assert refused.headers["Retry-After"] == "60"
             assert refused.json()["detail"]["code"] == "RATE_LIMITED"
-            assert len(rust.requested("/api/admin/feedback")) == LIMIT
+            assert len(other.requested("/api/admin/analytics")) == LIMIT // 2
     finally:
         process.terminate()
         try:
@@ -338,43 +351,41 @@ def test_shared_authority_and_route_address_counts_once(tmp_path):
 
 
 def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
-    """Every admin path draws from one counter, once per request."""
-    with harness(tmp_path, other_owner=True) as (client, authority, rust, other, _crash):
+    """A group's admin path and the site's other admin paths draw from one
+    counter, once per request."""
+    with harness(tmp_path, site_fallback=True) as (client, authority, rust, other, _crash):
         # A write also passes the gate. The gate's request copy is changed to
         # GET, so Caddy drops the body from the copy, not from the request the
         # owner receives.
         admin_body = b'{"probe":"the admin body survives the gate"}'
-        posted = client.post("/api/watchlists", content=admin_body)
+        posted = client.post("/api/admin/analytics", content=admin_body)
         assert posted.status_code == 200
         assert posted.headers["X-Route-Owner"] == "other"
         assert posted.content == admin_body
-        assert other.requested("/api/watchlists")[0]["body"] == admin_body
+        assert other.requested("/api/admin/analytics")[0]["body"] == admin_body
         for index in range(LIMIT - 1):
-            path = "/api/notifications" if index % 2 == 0 else "/api/admin/feedback"
+            path = "/api/admin/analytics" if index % 2 == 0 else "/api/admin/feedback"
             response = client.get(path)
             assert response.status_code == 200, (index, path, response.text)
             expected = "other" if index % 2 == 0 else "rust"
             assert response.headers["X-Route-Owner"] == expected, (index, path)
 
-        # One authority call per admin request, no amplification. The plain
-        # notifications read is not an admin path and passes uncounted.
-        assert len(authority.requested()) == (LIMIT + 1) // 2
-        assert len(other.requested("/api/watchlists")) == 1
-        assert len(other.requested("/api/notifications")) == (LIMIT - 1) // 2
+        # One authority call per admin request, no amplification.
+        assert len(authority.requested()) == LIMIT
+        assert len(other.requested("/api/admin/analytics")) == 1 + LIMIT // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
         for owner in (other, rust):
             for item in owner.requested():
                 if item["path"].startswith("/api/admin/"):
                     assert item["headers"].get(COUNTED.lower()) == "1", item
 
-        refused = client.get("/api/admin/feedback")
+        refused = client.get("/api/admin/analytics")
         assert refused.status_code == 429
         assert refused.headers["Retry-After"] == "60"
         assert refused.json() == {"detail": "Rate limit exceeded"}
         # The refused request reached no owner and the authority saw it once.
-        assert len(authority.requested()) == (LIMIT + 1) // 2 + 1
-        assert len(other.requested("/api/watchlists")) == 1
-        assert len(other.requested("/api/notifications")) == (LIMIT - 1) // 2
+        assert len(authority.requested()) == LIMIT + 1
+        assert len(other.requested("/api/admin/analytics")) == 1 + LIMIT // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
 
         # The authority sees the rewritten GET and the original client only.

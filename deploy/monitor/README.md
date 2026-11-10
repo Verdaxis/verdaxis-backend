@@ -6,14 +6,14 @@ Rust is the sole application backend in this source release. Current service
 units run the verified `verdaxis-read` binary and use its projected runtime/job
 files. Production Rust listens on loopback 8010; staging listens on 8011.
 The demo units invoke `verdaxis-read job demo`, not the retired Python launcher.
-Native migration uses the sqlx baseline and `sqlx_1` admission.
+Native migration uses the sqlx migrations and `sqlx_2` admission.
 
 The older sections below are historical monitor integration records. They do
 not authorize installation, revival of old API ports, or execution of removed
 application paths. Retained Python monitor sources and operator compatibility
 helpers remain for system-interpreter use where the approved host procedure
-calls them. Pre-M restore still targets its captured older release. Read the
-current units, policy and approved live-window runbook before host work.
+calls them. Read the current units, policy and approved live-window runbook
+before host work.
 
 
 This directory is a source-only monitor contract. It does not install, promote,

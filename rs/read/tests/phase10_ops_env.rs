@@ -134,6 +134,7 @@ impl EnvFile {
             "MARKET_SUPPORT_CONSENT_VERSION=v2026-11",
             "MARKET_SUPPORT_CONSENT_REFERENCE='market-support/2026-11'",
             "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=",
+            "OFFBOARDING_ENABLED=on",
             "UMAMI_BASE_URL=https://umami.example",
             "UMAMI_WEBSITE_ID=site-from-env",
             &format!("GEMINI_API_KEY={GEMINI_KEY}"),

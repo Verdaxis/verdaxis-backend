@@ -27,9 +27,6 @@
 	}
 	handle @rust_offboarding_get {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			transport http {
 				keepalive off
@@ -42,9 +39,6 @@
 	}
 	handle @rust_offboarding_post {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			transport http {
 				keepalive off

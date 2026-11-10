@@ -130,7 +130,6 @@ pub struct IdentityArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum MigrationAction {
     Status,
-    Baseline,
     Run,
     Verify,
 }

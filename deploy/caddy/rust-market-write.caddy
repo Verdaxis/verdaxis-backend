@@ -25,9 +25,6 @@
 	}
 	handle @rust_market_get {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -41,9 +38,6 @@
 	}
 	handle @rust_market_post {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -57,9 +51,6 @@
 	}
 	handle @rust_market_put {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -73,9 +64,6 @@
 	}
 	handle @rust_market_patch {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -89,9 +77,6 @@
 	}
 	handle @rust_market_delete {
 		reverse_proxy {args[0]} {
-			lb_policy first
-			lb_try_duration 10s
-			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {

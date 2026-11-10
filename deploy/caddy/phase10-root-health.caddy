@@ -11,11 +11,10 @@
 #
 # Rollback is one change: remove the single import line.
 #
-# The transport settings are the read groups' without passive health
-# (fail_duration, max_fails). This one has a single upstream and no fallback,
-# so a remembered
-# failure would leave nothing to select until it expired, and the group would
-# keep answering 503 after its upstream was back. A refused connection is a
+# The transport settings have no passive health (fail_duration, max_fails).
+# The group has a single upstream and no fallback, so a remembered failure
+# would leave nothing to select until it expired, and the group would keep
+# answering 503 after its upstream was back. A refused connection is a
 # dial error before any request bytes are sent, so it is retried every
 # lb_try_interval until lb_try_duration ends, which bridges a restart.
 #

@@ -23,7 +23,7 @@ def test_startup_lists_are_exact_and_do_not_admit_old_bundle_pins():
     assert string_constant("rs/read/src/runtime/config.rs", "PRODUCTION_REVISIONS") == SQLX_REVISIONS
 
 
-def test_policy_rows_chain_the_revisions_without_schema_less_loops():
+def test_policy_rows_move_hosts_to_the_head_sqlx_revision():
     baseline = json.loads((ROOT / "deploy/rust/sqlx-baseline.json").read_text())
     assert baseline["alembic_head"] == FINAL_ALEMBIC
     rows = {
@@ -31,12 +31,12 @@ def test_policy_rows_chain_the_revisions_without_schema_less_loops():
         for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
         if line and not line.startswith("#")
     }
-    # The retained adoption row reaches sqlx_1; each later sqlx revision has a
-    # self row and a row from its predecessor.
-    assert (FINAL_ALEMBIC, "sqlx_1") in rows
-    for revision in ("sqlx_1", "sqlx_2"):
-        assert (revision, revision) in rows
+    # Both hosts are on sqlx_1: they move to sqlx_2 and then keep it. The
+    # adoption row and the sqlx_1 self row are gone with the adoption path.
     assert ("sqlx_1", "sqlx_2") in rows
+    assert ("sqlx_2", "sqlx_2") in rows
+    assert (FINAL_ALEMBIC, "sqlx_1") not in rows
+    assert ("sqlx_1", "sqlx_1") not in rows
     assert all("head" not in pair and "latest" not in pair for pair in rows)
     assert sorted(path.name for path in (ROOT / "rs/read/migrations").glob("*.sql")) == [
         "1_baseline.sql",
