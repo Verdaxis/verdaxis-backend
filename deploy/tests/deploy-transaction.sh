@@ -894,7 +894,7 @@ check test_moved_sha_refuses_before_source_mutation case_moved_remote
 case_unallowlisted() {
     approved_host unallowlisted
     export MIGRATION_TARGET_REVISION=pref_20260709_user_preferences
-    refused_before_any_change && said 'allowlisted sqlx transition or the retained offboarding adoption row'
+    refused_before_any_change && said 'Deploy requires an allowlisted sqlx target revision.'
 }
 check test_real_deploy_refuses_unallowlisted_checkpoint_before_source_mutation case_unallowlisted
 

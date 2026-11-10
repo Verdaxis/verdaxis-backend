@@ -1093,12 +1093,15 @@ if [[ ! "$MIGRATION_EXPECTED_CURRENT_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127
     echo "Exact literal migration current and target revisions are required." >&2
     exit 1
 fi
-if [[ "$MIGRATION_TARGET_REVISION" != "sqlx_1" && "$MIGRATION_TARGET_REVISION" != "sqlx_2" ]] \
-    || ( "$MIGRATION_EXPECTED_CURRENT_REVISION" != "ob_20261031_offboarding" \
-        && "$MIGRATION_EXPECTED_CURRENT_REVISION" != "sqlx_1" \
-        && "$MIGRATION_EXPECTED_CURRENT_REVISION" != "sqlx_2" ); then
-    echo "Deploy requires an allowlisted sqlx transition or the retained offboarding adoption row." >&2; exit 1
+if [[ "$MIGRATION_TARGET_REVISION" != "sqlx_1" && "$MIGRATION_TARGET_REVISION" != "sqlx_2" ]]; then
+    echo "Deploy requires an allowlisted sqlx target revision." >&2; exit 1
 fi
+case "$MIGRATION_EXPECTED_CURRENT_REVISION" in
+    ob_20261031_offboarding|sqlx_1|sqlx_2) ;;
+    *)
+        echo "Deploy requires a sqlx current revision or the retained offboarding adoption row." >&2; exit 1
+        ;;
+esac
 if [[ -z "$DEPLOY_ACCEPTANCE_RECORD" || -z "$DEPLOY_ACCEPTANCE_SIGNATURE" ]]; then
     echo "Signed window acceptance paths are required before mutation." >&2; exit 1
 fi
