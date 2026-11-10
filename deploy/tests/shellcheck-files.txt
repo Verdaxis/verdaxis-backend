@@ -13,3 +13,4 @@ deploy/tests/units-contract.sh
 deploy/scripts/install-host-automation.sh
 scripts/install_systemd_units.sh
 deploy/scripts/safe-root-git.sh
+deploy/external_monitor/install.sh

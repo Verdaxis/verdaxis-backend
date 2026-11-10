@@ -87,6 +87,11 @@ if [[ $HOST_SCOPE == host ]]; then
     SOURCES+=("$BINARY")
     DESTINATIONS+=(/usr/local/libexec/verdaxis/verdaxis-read)
     MODES+=(0755)
+    # External monitoring has a separate executable name so its selective
+    # shared-host release does not replace the local backend job binary.
+    SOURCES+=("$BINARY")
+    DESTINATIONS+=(/usr/local/libexec/verdaxis/verdaxis-read-monitor)
+    MODES+=(0755)
 fi
 while IFS=$'\t' read -r source destination mode digest; do
     expected=$(allowed_destination "$source") || fail "unapproved artifact: $source"
@@ -120,7 +125,7 @@ for index in "${!SOURCES[@]}"; do
     TEMP=$(mktemp "${destination}.pending.XXXXXXXX")
     install -o root -g root -m "${MODES[$index]}" "${SOURCES[$index]}" "$TEMP"
     [[ $(hash "$TEMP") == $(hash "${SOURCES[$index]}") ]] || fail 'copy changed'
-    if [[ ${DESTINATIONS[$index]} == /usr/local/libexec/verdaxis/verdaxis-read ]]; then expected=$BINARY_SHA256; else
+    if [[ ${DESTINATIONS[$index]} == /usr/local/libexec/verdaxis/verdaxis-read || ${DESTINATIONS[$index]} == /usr/local/libexec/verdaxis/verdaxis-read-monitor ]]; then expected=$BINARY_SHA256; else
         expected=$(jq -r --arg destination "${DESTINATIONS[$index]}" '.artifacts[] | select(.destination == $destination) | .sha256' "$MANIFEST")
     fi
     verify "$TEMP" "$expected"

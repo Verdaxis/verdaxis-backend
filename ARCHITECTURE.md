@@ -41,6 +41,14 @@ Maintenance commands under `rs/read/src/cli/jobs/` cover news, auth maintenance,
 analytics pruning, reminders, onboarding and demo activity. Monitor commands and
 alert handoff preserve existing journal and ownership boundaries.
 
+The shared-host external monitor uses a separately pinned CI binary at
+`/usr/local/libexec/verdaxis/verdaxis-read-monitor`. Its selective installer is
+`deploy/external_monitor/install.sh`; the operator procedure is
+`outputs/external-monitor-install.md`. It replaces only two service units and
+never activates the timer or recovery. Python diagnosis and masked recovery
+remain; the Rust `recover` command has no execution implementation. The earlier
+Python external monitor source and its tests are removed.
+
 The source Python API, its schema engine, API container and backend test suites
 are removed. Python remains for retained system-interpreter host tooling and
 its tests. The pre-M rollback bundle and its reader gate are gone with the

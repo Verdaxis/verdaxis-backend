@@ -7,7 +7,7 @@ After=network-online.target caddy.service
 Type=oneshot
 User=root
 EnvironmentFile=-/etc/verdaxis-monitor.env
-ExecStart=/usr/local/libexec/verdaxis/verdaxis-read monitor external
+ExecStart=/usr/local/libexec/verdaxis/verdaxis-read-monitor monitor external
 # Default uncached set: Caddy 20 + endpoints 9*(3*15+2*2)=441
 # + unit probes 5*20=100 + bundles 2*2*15=60
 # + render 3*(75+20+4)+2*2=301 + signup 2*2*20=80
