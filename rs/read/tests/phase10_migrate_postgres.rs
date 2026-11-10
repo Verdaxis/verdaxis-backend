@@ -401,8 +401,11 @@ async fn alembic_literals_are_refused_everywhere() {
             Err(RunRefusal::Target),
             "{current} -> {target}"
         );
-        // The compiled policy lists no Alembic pair at all.
-        assert!(!TransitionPolicy::compiled().allows(current, target));
+        // The compiled policy has no row between an Alembic and a sqlx
+        // revision; only the retired chain's own history rows remain.
+        if current.starts_with("sqlx_") != target.starts_with("sqlx_") {
+            assert!(!TransitionPolicy::compiled().allows(current, target));
+        }
         assert_eq!(
             history_rows(&database).await,
             before,

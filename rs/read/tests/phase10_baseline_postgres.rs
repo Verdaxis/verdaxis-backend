@@ -249,22 +249,18 @@ fn handover_register_is_closed_at_the_baseline_head() {
         approved, policy_to_head,
         "the register's transitions differ from the checkpoint policy rows that end at the head"
     );
-    // The adoption rows move the final head to the runtime revision and keep
-    // the runtime revision reachable without a schema change.
+    // The retired chain ends at the final head with its self row only: the
+    // adoption finished on both hosts and its row is gone.
     let policy_from_head: Vec<(String, String)> = CHECKPOINTS
         .lines()
         .filter_map(|line| line.split_once('\t'))
         .filter(|(from, _)| *from == final_head)
         .map(|(from, to)| (from.to_owned(), to.to_owned()))
         .collect();
-    // Sorted order: the no-change row sorts before the adoption row.
     assert_eq!(
         policy_from_head,
-        [
-            (final_head.to_owned(), final_head.to_owned()),
-            (final_head.to_owned(), "sqlx_1".to_owned()),
-        ],
-        "the adoption and no-change rows must end at the adopted baseline"
+        [(final_head.to_owned(), final_head.to_owned())],
+        "no checkpoint row may leave the final Alembic head"
     );
 }
 

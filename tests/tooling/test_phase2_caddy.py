@@ -490,7 +490,9 @@ def test_non_admin_nonpreflight_methods_pass_uncounted(tmp_path, method):
         response = client.request(method, "/api/notifications")
         assert response.status_code == 404
         assert len(authority.requested()) == 0
-        assert not other.requested("/api/notifications")
+        # The harness readiness probe is a GET; this method reaches no owner.
+        assert not [item for item in other.requested("/api/notifications")
+                    if item["method"] == method]
 
 
 def test_client_mark_does_not_bypass_feedback_quota(tmp_path):
