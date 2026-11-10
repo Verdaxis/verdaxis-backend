@@ -283,10 +283,14 @@ if selected schema; then
   # binary run without filters and the grouped modules run separately.
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
     --test phase4_analytics_views --test phase4_analytics_legacy --test phase4_organizations \
+    --test phase4_invitations --test phase4_kyc_review --test phase4_operator_reads \
     -- --include-ignored --test-threads=1
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
     --test group_phase4_phase5 -- --include-ignored --test-threads=1 \
-    phase4_admission:: phase4_races::
+    phase4_admission:: phase4_races:: phase4_foundation::
+  # The cross-component composition case provisions its own schema here too.
+  cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
+    --test group_market_write -- --include-ignored --test-threads=1 integration_i1::
   # Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
   # The production migrator owns every object in the template.
   adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')

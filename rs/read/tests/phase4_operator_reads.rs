@@ -22,7 +22,7 @@ use axum::{
     extract::ConnectInfo,
     http::{Request, StatusCode},
 };
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, SubsecRound, TimeZone, Utc};
 use serde_json::{Value, json};
 use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
 use std::{collections::BTreeMap, net::SocketAddr};
@@ -746,7 +746,9 @@ impl Fixture {
             pool,
             admin,
             schema,
-            now: Utc::now(),
+            // PostgreSQL stores microseconds. The Linux clock has nanoseconds,
+            // so a fixture instant is cut to the precision that reads return.
+            now: Utc::now().trunc_subsecs(6),
             url: runtime,
         }
     }

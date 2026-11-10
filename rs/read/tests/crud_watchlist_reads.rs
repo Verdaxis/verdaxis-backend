@@ -32,6 +32,10 @@ fn totals_are_computed_before_slice_truncation() {
 async fn database_detail_is_actor_scoped_and_does_not_mutate_rows() {
     use verdaxis_read::crud::watchlists::load_detail;
     let Ok(url) = std::env::var("AUTH_INTEROP_ADMIN_URL") else {
+        assert!(
+            std::env::var("REQUIRE_AUTH_INTEROP").is_err(),
+            "auth interop URL required"
+        );
         return;
     };
     let mut connection = sqlx::PgConnection::connect(&url).await.unwrap();

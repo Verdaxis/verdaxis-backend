@@ -269,6 +269,36 @@ run_cargo_test auth_refresh_postgres 7 \
   -- --features contract-tests --test auth_refresh_postgres -- --include-ignored --test-threads=1
 run_cargo_test auth_registration_postgres 13 "${auth_email_env[@]}" \
   -- --features contract-tests --test auth_registration_postgres -- --include-ignored --test-threads=1
+run_cargo_test auth_password_change 1 "${auth_store_env[@]}" \
+  -- --test auth_password_change -- --ignored
+run_cargo_test auth_stream 1 "${auth_store_env[@]}" \
+  -- --test auth_stream -- --ignored
+
+# --- Authenticated transactions -------------------------------------------------
+
+# These cases share one seeded account. Its id is fixed; the auth cases move it
+# onto the subject of their signed fixture token. Reseed before each target so
+# no target depends on the state that another one left. The administrator URL
+# is the superuser: the lock-order case reads the wait state of the runtime
+# role's sessions in pg_stat_activity, which other roles cannot see.
+interop_env=(AUTH_INTEROP_APP_URL="$app_url" AUTH_INTEROP_ADMIN_URL="$admin_url" REQUIRE_AUTH_INTEROP=1)
+seed_interop_account() {
+  truncate_account_tables "$analytics_database"
+  owner_sql "$analytics_database" <<'SQL'
+INSERT INTO users (id, email, password_hash, role, status, email_verified, must_change_password)
+VALUES ('20000000-0000-4000-8000-000000000001', 'interop@example.test', 'unused', 'BUYER',
+        'APPROVED', false, false);
+SQL
+}
+seed_interop_account
+run_cargo_test crud_watchlist_reads 1 "${interop_env[@]}" \
+  -- --test group_crud crud_watchlist_reads::database_detail_is_actor_scoped_and_does_not_mutate_rows
+seed_interop_account
+run_cargo_test 'auth_transactions and auth_transaction_panic' 5 "${interop_env[@]}" \
+  -- --test group_auth -- auth_transactions:: auth_transaction_panic:: --test-threads=1
+seed_interop_account
+run_cargo_test phase5_authenticated_boundary 1 "${interop_env[@]}" \
+  -- --test phase5_authenticated_boundary phase5_transaction_cases_scoped_actor_read
 
 # --- Stream admission -----------------------------------------------------------
 

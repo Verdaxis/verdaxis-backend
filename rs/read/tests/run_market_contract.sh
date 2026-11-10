@@ -98,3 +98,22 @@ if ! grep -Eq '^test result: ok\. [1-9][0-9]* passed' "$log"; then
   echo "no Rust overlay test ran: refusing a green result" >&2
   exit 1
 fi
+
+# The KYC execution gate on the seeded market with the overlay rows. This case
+# changes KYC state as the schema owner, so it runs last.
+rm -f "$log"
+log=$(mktemp "${TMPDIR:-/tmp}/rust-kyc-market-tests.XXXXXX")
+set +e
+RUST_MARKET_TEST_MIGRATOR_URL="$writer" RUST_CONTRACT_CLOCK='2026-10-15T12:00:00Z' \
+  cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
+  --features contract-tests --test phase4_kyc_policy -- --ignored --exact postgres::p4_t9_c01 \
+  --test-threads=1 2>&1 | tee "$log"
+cargo_status=${PIPESTATUS[0]}
+set -e
+if (( cargo_status != 0 )); then
+  exit "$cargo_status"
+fi
+if ! grep -Eq '^test result: ok\. 1 passed; 0 failed' "$log"; then
+  echo "the KYC market case did not run: refusing a green result" >&2
+  exit 1
+fi

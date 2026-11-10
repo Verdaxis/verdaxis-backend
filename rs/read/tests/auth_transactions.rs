@@ -16,6 +16,8 @@ async fn postgres_authentication_ownership_and_revocation() {
         );
         return;
     };
+    // The lock-wait probe below looks for sessions of the runtime role.
+    let app_role = url::Url::parse(&url).unwrap().username().to_owned();
     let admin = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
         .connect(&std::env::var("AUTH_INTEROP_ADMIN_URL").unwrap())
@@ -263,8 +265,8 @@ async fn postgres_authentication_ownership_and_revocation() {
     // Python; spawning a future alone would not prove the second lock order.
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename='verdaxis_phase2_app_test' AND wait_event_type='Lock' AND query LIKE '%FROM users WHERE id=$1 FOR UPDATE%'")
-                .fetch_one(&admin).await.unwrap();
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock' AND query LIKE '%FROM users WHERE id=$1 FOR UPDATE%'")
+                .bind(&app_role).fetch_one(&admin).await.unwrap();
             if waiting > 0 { break; }
             tokio::task::yield_now().await;
         }
