@@ -135,8 +135,14 @@ fn installed_environment_names_keep_state_alert_and_render_settings() {
     assert_eq!(config.state_file, Path::new("/fixture/state.json"));
     assert_eq!(config.status_file, Path::new("/fixture/status.json"));
     assert_eq!(config.backup_status_file, Path::new("/fixture/backup.json"));
-    assert_eq!(config.render.chromedriver.as_deref(), Some(Path::new("/fixture/chromedriver")));
-    assert_eq!(config.render.profile_parent.as_deref(), Some(Path::new("/fixture/profiles")));
+    assert_eq!(
+        config.render.chromedriver.as_deref(),
+        Some(Path::new("/fixture/chromedriver"))
+    );
+    assert_eq!(
+        config.render.profile_parent.as_deref(),
+        Some(Path::new("/fixture/profiles"))
+    );
     assert_eq!(config.render.render_user.as_deref(), Some("fixture-render"));
     assert!(config.telegram_disabled);
     assert_eq!(config.alert_cooldown_seconds, 7200);

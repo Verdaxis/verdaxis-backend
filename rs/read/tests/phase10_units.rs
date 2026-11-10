@@ -20,7 +20,7 @@
 //! monitor units. The demo, onboarding and external units follow with their
 //! commands (Task 10b).
 use std::collections::BTreeMap;
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -472,15 +472,19 @@ fn serve_prestarts_run_exactly_with_no_environment() {
             ".runtime-rust/revision.json",
             &format!("{{\"release_sha\":\"{SHA}\",\"revision\":\"wrong\"}}"),
         );
-        assert!(!run(&prestarts[1], &unit_environment, &scratch.0)
-            .status
-            .success());
+        assert!(
+            !run(&prestarts[1], &unit_environment, &scratch.0)
+                .status
+                .success()
+        );
         // A live deploy without the restart window denies the start.
         std::fs::create_dir(scratch.0.join(".runtime-deploy")).unwrap();
         scratch.private(&format!(".runtime-deploy/{environment}.state"), "blocked\n");
-        assert!(!run(&prestarts[0], &unit_environment, &scratch.0)
-            .status
-            .success());
+        assert!(
+            !run(&prestarts[0], &unit_environment, &scratch.0)
+                .status
+                .success()
+        );
     }
 }
 
@@ -663,11 +667,15 @@ fn onboarding_unit_runs_the_rust_monitor_with_its_own_env_file() {
             "DEPLOY_STATE_DIR={PRODUCTION_ROOT}/.runtime-deploy"
         )]
     );
-    assert!(directives(&unit, "ConditionPathExists")
-        .iter()
-        .all(|v| !v.contains("/be/.env")));
-    assert!(directives(&unit, "InaccessiblePaths")
-        .contains(&format!("{PRODUCTION_ROOT}/.env").as_str()));
+    assert!(
+        directives(&unit, "ConditionPathExists")
+            .iter()
+            .all(|v| !v.contains("/be/.env"))
+    );
+    assert!(
+        directives(&unit, "InaccessiblePaths")
+            .contains(&format!("{PRODUCTION_ROOT}/.env").as_str())
+    );
     // 3. No python, no venv anywhere in the unit.
     let lower = unit.to_ascii_lowercase();
     for needle in ["python", "venv", ".py ", ".py\n", "uvicorn", "/be/scripts/"] {

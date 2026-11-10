@@ -23,9 +23,25 @@ PostgreSQL, backends or unrelated software is needed.
 
 ## Pinned artifact
 
-The exact download commands and binary digest will be recorded here after the
-selected staging CI run completes. Installation must not start before that record
-is complete and all checks for the selected run pass.
+Successful staging run: `42775104768`, commit
+`da6e0cc11737f514404865726c40637dd3d8b30d` (includes PR #170).
+Artifact: `rust-read-release`, ID `13744082193`; binary SHA256:
+`38136c363617f6b9df6112dba27e09e127fdb7456f7ee3e8cf7247cb12622d1c`.
+Target: x86_64 Linux GNU, glibc >= 2.35. This artifact predates only this
+installation/documentation change; the external monitor behavior is unchanged.
+CI artifacts expire: if unavailable, stop and review a new exact pin; do not
+silently select the latest artifact.
+
+```bash
+ARTIFACT_DIR=$(mktemp -d)
+gh run download 42775104768 --repo Verdaxis/verdaxis-backend \
+  --name rust-read-release --dir "$ARTIFACT_DIR"
+BINARY="$ARTIFACT_DIR/release/verdaxis-read"
+# CI attests the binary and inner archive, not the outer transport bundle.
+gh attestation verify "$BINARY" --repo Verdaxis/verdaxis-backend
+SHA256=38136c363617f6b9df6112dba27e09e127fdb7456f7ee3e8cf7247cb12622d1c
+printf '%s  %s\n' "$SHA256" "$BINARY" | sha256sum --check --status
+```
 
 ## Install
 

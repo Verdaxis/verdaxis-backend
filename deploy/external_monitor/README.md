@@ -218,7 +218,6 @@ These checks validate tracked source only. They do not install or activate it.
 
 ```bash
 /usr/bin/python3 -m py_compile \
-  deploy/external_monitor/verdaxis_monitor.py \
   deploy/external_monitor/verdaxis_autodiag.py \
   deploy/external_monitor/verdaxis_recover.py
 python3 -m json.tool \
@@ -234,7 +233,7 @@ systemd-analyze verify \
   deploy/external_monitor/systemd/verdaxis-external-recover.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer
-pytest tests/monitor/test_external_monitor.py \
+pytest tests/tooling/test_external_monitor_install.py \
   tests/monitor/test_outbox_backlog_probe.py \
   tests/monitor/test_external_autodiag.py \
   tests/monitor/test_external_recovery.py -q

@@ -13,4 +13,4 @@
 5. Commit and push `chore/external-monitor-rust`, open one PR to `staging`, inspect all CI results and failed logs, amend through normal commits until green. No local Cargo build or tests.
 6. Report exact pinned install, verify, and rollback commands. Delete only the requested temporary clone after the pushed PR is green.
 
-**Resume point:** Source inspection complete. Next: implement installer and tests. PR #170 is already merged into staging; wait for its CI release before selecting the pin.
+**Resume point:** Implementation pushed as PR #172. Pin selected from successful staging CI run 42775104768 and its attested binary. Next: finish CI review, push final documentation and any CI-driven changes, then remove the requested clone after all checks pass.
