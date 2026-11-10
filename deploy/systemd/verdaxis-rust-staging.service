@@ -21,6 +21,11 @@ WorkingDirectory=/home/verdaxis-prod/verdaxis/staging/be
 # credentials stay out of this long-running process.
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-release.env
 EnvironmentFile=/home/verdaxis-prod/verdaxis/staging/be/.runtime-rust/runtime.env
+# glibc gives every Tokio worker thread its own malloc arena, so the heap
+# fragments across arenas and holds pages far above live data. Two arenas
+# bound that; the prestarts' `env -i` drops the variable, which is fine:
+# short-lived guard processes gain nothing from arena tuning.
+Environment=MALLOC_ARENA_MAX=2
 # Both prestarts run without the runtime environment. The shell guard
 # needs no Rust artifact; env launches the binary in the same PID, so
 # unit verification passes before the first artifact exists.

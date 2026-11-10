@@ -69,8 +69,10 @@ pub async fn cleanup_on(
     email: &str,
     domain: &str,
 ) -> Result<Counts, CleanupError> {
+    // The route runs on the read pool, whose sessions default to read-only
+    // transactions; this cleanup writes, so it opens a read-write one.
     let mut transaction = connection
-        .begin()
+        .begin_with("BEGIN READ WRITE")
         .await
         .map_err(|_| CleanupError::Database)?;
     let mut counts = Counts::default();
