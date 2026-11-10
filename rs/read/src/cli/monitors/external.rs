@@ -1,6 +1,6 @@
 //! `verdaxis-read monitor external`: the shared host's route and uptime
-//! monitor (`/usr/local/sbin/verdaxis-monitor`, the installed copy of
-//! `deploy/external_monitor/verdaxis_monitor.py`).
+//! monitor, installed as `/usr/local/libexec/verdaxis/verdaxis-read-monitor`.
+//! The selective operator procedure replaces the former Python monitor.
 //!
 //! One run, in the installed order:
 //!

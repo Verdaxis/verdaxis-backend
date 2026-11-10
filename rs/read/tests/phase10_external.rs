@@ -115,6 +115,35 @@ fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 11, 4, 1, 0, 0).unwrap()
 }
 
+#[test]
+fn installed_environment_names_keep_state_alert_and_render_settings() {
+    let vars = [
+        ("STATE_FILE", "/fixture/state.json"),
+        ("STATUS_FILE", "/fixture/status.json"),
+        ("BACKUP_STATUS_FILE", "/fixture/backup.json"),
+        ("CHROMEDRIVER_BIN", "/fixture/chromedriver"),
+        ("CHROMIUM_PROFILE_PARENT", "/fixture/profiles"),
+        ("RENDER_USER", "fixture-render"),
+        ("TELEGRAM_DISABLED", "true"),
+        ("ALERT_COOLDOWN_SECONDS", "7200"),
+        ("HTTP_TIMEOUT_SECONDS", "12"),
+        ("EXPENSIVE_CHECK_INTERVAL_SECONDS", "2400"),
+    ]
+    .map(|(name, value)| (name.to_owned(), value.to_owned()))
+    .into();
+    let config = ExternalConfig::from_environment(&vars, Path::new("/fixture"), false).unwrap();
+    assert_eq!(config.state_file, Path::new("/fixture/state.json"));
+    assert_eq!(config.status_file, Path::new("/fixture/status.json"));
+    assert_eq!(config.backup_status_file, Path::new("/fixture/backup.json"));
+    assert_eq!(config.render.chromedriver.as_deref(), Some(Path::new("/fixture/chromedriver")));
+    assert_eq!(config.render.profile_parent.as_deref(), Some(Path::new("/fixture/profiles")));
+    assert_eq!(config.render.render_user.as_deref(), Some("fixture-render"));
+    assert!(config.telegram_disabled);
+    assert_eq!(config.alert_cooldown_seconds, 7200);
+    assert_eq!(config.http_timeout_seconds, 12);
+    assert_eq!(config.expensive_interval_seconds, Some(2400));
+}
+
 /// A configuration whose every external piece is disabled or local: the
 /// caller turns on what its case needs.
 fn base_config(scratch: &Scratch) -> ExternalConfig {
