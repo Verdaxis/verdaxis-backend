@@ -53,7 +53,8 @@ async fn scalar(sql: &str) -> i64 {
 }
 
 /// A fresh `verdaxis_staging` with no user or organization rows, and a pool
-/// of the application role.
+/// of the application role. Its sessions default to read-only transactions,
+/// as the runtime read pool that serves the route does.
 async fn fresh_staging() -> PgPool {
     let template = std::env::var("RUST_INGEST_TEMPLATE_DATABASE")
         .expect("RUST_INGEST_TEMPLATE_DATABASE names the converged template");
@@ -70,7 +71,8 @@ async fn fresh_staging() -> PgPool {
     let options = admin_options()
         .username(APP)
         .password(APP_PASSWORD)
-        .database(DATABASE);
+        .database(DATABASE)
+        .options([("default_transaction_read_only", "on")]);
     PgPoolOptions::new()
         .max_connections(10)
         .connect_with(options)
