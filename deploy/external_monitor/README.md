@@ -1,5 +1,22 @@
 # Verdaxis External Monitor, Recovery, and Diagnosis
 
+## Shared-host Rust migration
+
+The reviewed selective procedure is in
+[`outputs/external-monitor-install.md`](../../outputs/external-monitor-install.md).
+It replaces only the monitor and verification services and installs the pinned
+CI binary at `/usr/local/libexec/verdaxis/verdaxis-read-monitor`. It does not
+activate anything from this checkout automatically. The timer, environment,
+state, ChromeDriver, diagnosis and masked recovery stay in place. The Python
+monitor source is removed; Python recovery and diagnosis remain because there
+are no implemented Rust equivalents. `recover` is parsed but returns
+`not_available`.
+
+The rest of this document records the earlier source design and separate
+unreleased procedures. Its source-only warnings still apply to those designs,
+not to the selective migration procedure above. Do not install the directory as
+a whole, or enable the independent watchdog, recovery, or onboarding units.
+
 This directory is a source-only monitor, recovery, and diagnosis design. It is
 not evidence that these exact bytes are installed. The current external canary
 runs on the shared host `194.233.68.86`
@@ -201,7 +218,6 @@ These checks validate tracked source only. They do not install or activate it.
 
 ```bash
 /usr/bin/python3 -m py_compile \
-  deploy/external_monitor/verdaxis_monitor.py \
   deploy/external_monitor/verdaxis_autodiag.py \
   deploy/external_monitor/verdaxis_recover.py
 python3 -m json.tool \
@@ -217,7 +233,7 @@ systemd-analyze verify \
   deploy/external_monitor/systemd/verdaxis-external-recover.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.service \
   deploy/external_monitor/systemd/verdaxis-onboarding-attention.timer
-pytest tests/monitor/test_external_monitor.py \
+pytest tests/tooling/test_external_monitor_install.py \
   tests/monitor/test_outbox_backlog_probe.py \
   tests/monitor/test_external_autodiag.py \
   tests/monitor/test_external_recovery.py -q

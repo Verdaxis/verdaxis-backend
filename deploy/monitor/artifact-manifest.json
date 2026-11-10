@@ -5,13 +5,13 @@
       "source": "../external_monitor/systemd/verdaxis-monitor-verify.service",
       "destination": "/etc/systemd/system/verdaxis-monitor-verify.service",
       "mode": "0644",
-      "sha256": "b6d9ba54185794d270ed65823abb6cfe72603244748662620b5f8fe12406a81d"
+      "sha256": "2f6e2b0984fb0486d69b92b18d01f9db05ec48394da1deb1495b277e529fe436"
     },
     {
       "source": "../external_monitor/systemd/verdaxis-monitor.service",
       "destination": "/etc/systemd/system/verdaxis-monitor.service",
       "mode": "0644",
-      "sha256": "bc17eb6fbaf7d7dff1eed88758145abb1ff7117c12f129b67160048b4d9ffbaa"
+      "sha256": "f9564f9283ec9fc6926eed505b9ff3e0aa78c1226e620c28d2b06714708c58a7"
     },
     {
       "source": "../external_monitor/systemd/verdaxis-monitor.timer",

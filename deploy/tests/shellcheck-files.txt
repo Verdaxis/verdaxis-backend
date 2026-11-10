@@ -17,3 +17,4 @@ deploy/scripts/pre-m-bundle.sh
 deploy/scripts/safe-root-git.sh
 deploy/scripts/provision-bundle-reader.sh
 deploy/tests/bundle-reader-contract.sh
+deploy/external_monitor/install.sh

@@ -601,7 +601,9 @@ fn monitor_units_exec_the_digest_pinned_host_copy() {
         let unit = text(&format!("deploy/external_monitor/systemd/{name}"));
         assert_eq!(
             directives(&unit, "ExecStart"),
-            [format!("{HOST_COPY} monitor external{suffix}")]
+            [format!(
+                "/usr/local/libexec/verdaxis/verdaxis-read-monitor monitor external{suffix}"
+            )]
         );
         assert!(listed.contains(&source.as_str()), "{name}");
         assert_eq!(directives(&unit, "User"), ["root"]);

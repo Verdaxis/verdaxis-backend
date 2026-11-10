@@ -383,11 +383,13 @@ jobs:
           container=$(docker run -d --rm -e POSTGRES_PASSWORD=disposable_pw \
             -e POSTGRES_DB=verdaxis_sqlx_test -p 127.0.0.1::5432 \
             postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272)
+          # The image starts a socket-only server during initialization. Wait
+          # for TCP, as the SQLx client does, not that temporary socket server.
           for _ in {1..90}; do
-            if docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+            if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
             sleep 1
           done
-          docker exec "$container" pg_isready -U postgres
+          docker exec "$container" pg_isready -h 127.0.0.1 -U postgres
           port=$(docker port "$container" 5432/tcp)
           port=${port##*:}
           export DATABASE_URL="postgres://postgres:disposable_pw@127.0.0.1:$port/verdaxis_sqlx_test"
