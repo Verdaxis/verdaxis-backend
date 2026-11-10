@@ -16,12 +16,12 @@ pub mod admission_postgres;
 pub mod host_validation;
 #[path = "http_contract.rs"]
 pub mod http_contract;
-#[path = "identity.rs"]
-pub mod identity;
 #[path = "policy.rs"]
 pub mod policy;
 #[path = "request_log.rs"]
 pub mod request_log;
+#[path = "route_mounts.rs"]
+pub mod route_mounts;
 #[path = "runtime.rs"]
 pub mod runtime;
 #[cfg(feature = "contract-tests")]

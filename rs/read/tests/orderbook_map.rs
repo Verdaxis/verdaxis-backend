@@ -125,3 +125,18 @@ fn counts_keep_zero_products_and_ignore_unknown_codes() {
     assert_eq!(counts["first"], 0);
     assert_eq!(counts["second"], 7);
 }
+
+#[test]
+fn page_aliases_override_skip_and_limit() {
+    use verdaxis_read::routes::orderbook_lists::page_offset;
+    assert_eq!(page_offset(99, 50, Some(2), Some(3)), Some((3, 3)));
+    assert_eq!(page_offset(7, 50, None, Some(3)), Some((7, 3)));
+    assert_eq!(page_offset(7, 50, Some(1), None), Some((0, 50)));
+}
+
+#[test]
+fn page_offset_rejects_zero_page_and_overflow() {
+    use verdaxis_read::routes::orderbook_lists::page_offset;
+    assert_eq!(page_offset(0, 50, Some(0), None), None);
+    assert_eq!(page_offset(0, 100, Some(u64::MAX), None), None);
+}

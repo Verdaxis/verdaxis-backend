@@ -1051,3 +1051,15 @@ async fn approval_route_attempts_frozen_mail_after_commit() {
     );
     f.finish().await;
 }
+
+#[test]
+fn revocation_of_a_missing_user_is_not_found() {
+    let missing = verdaxis_read::business::admission::revocation_failure(sqlx::Error::RowNotFound);
+    match missing {
+        verdaxis_read::business::transaction::AttemptError::Application(error) => {
+            assert_eq!(error.status.as_u16(), 404);
+            assert_eq!(error.detail["code"], "USER_NOT_FOUND");
+        }
+        other => panic!("unexpected refusal: {other:?}"),
+    }
+}

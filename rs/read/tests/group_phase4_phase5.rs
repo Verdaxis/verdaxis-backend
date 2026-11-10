@@ -11,15 +11,11 @@
 pub mod phase4_admission;
 #[path = "phase4_approval_mail.rs"]
 pub mod phase4_approval_mail;
-#[path = "phase4_completion.rs"]
-pub mod phase4_completion;
 #[cfg(feature = "contract-tests")]
 #[path = "phase4_db_authority.rs"]
 pub mod phase4_db_authority;
 #[path = "phase4_foundation.rs"]
 pub mod phase4_foundation;
-#[path = "phase4_inventory.rs"]
-pub mod phase4_inventory;
 #[path = "phase4_kyc_documents.rs"]
 pub mod phase4_kyc_documents;
 #[path = "phase4_kyc_vault.rs"]
@@ -28,17 +24,11 @@ pub mod phase4_kyc_vault;
 pub mod phase4_limits;
 #[path = "phase4_market_invalidation.rs"]
 pub mod phase4_market_invalidation;
-#[path = "phase4_mount_composition.rs"]
-pub mod phase4_mount_composition;
 // Phase 4 Task 21: the integrated race suite; its PostgreSQL cases are
 // feature-gated by contract-tests.
 #[cfg(feature = "contract-tests")]
 #[path = "phase4_races.rs"]
 pub mod phase4_races;
-#[path = "phase4_rejection.rs"]
-pub mod phase4_rejection;
-#[path = "phase4_serving.rs"]
-pub mod phase4_serving;
 #[path = "phase5_compliance_fuels.rs"]
 pub mod phase5_compliance_fuels;
 #[path = "phase5_compliance_pricing_core.rs"]

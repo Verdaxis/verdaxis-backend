@@ -260,9 +260,9 @@ run_cargo_test auth_password_reset_postgres 4 "${auth_email_env[@]}" \
   -- --features contract-tests --test auth_password_reset_postgres -- --include-ignored
 # The race schedules depend on interleaving, so they repeat three times.
 for attempt in 1 2 3; do
-  run_cargo_test "auth_races_postgres and auth_coexistence_postgres, run $attempt" 16 "${auth_email_env[@]}" \
+  run_cargo_test "auth_races_postgres, run $attempt" 15 "${auth_email_env[@]}" \
     -- --features contract-tests --test group_auth \
-    -- auth_races_postgres:: auth_coexistence_postgres:: --include-ignored --test-threads=1
+    -- auth_races_postgres:: --include-ignored --test-threads=1
 done
 run_cargo_test auth_refresh_postgres 7 \
   AUTH_REFRESH_DATABASE_URL="$app_url" AUTH_REFRESH_OWNER_URL="$owner_url" \

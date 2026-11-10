@@ -203,7 +203,6 @@ pub enum MonitorKind {
     Alert,
     Outbox,
     External,
-    ExternalChecks,
     Onboarding,
 }
 

@@ -23,8 +23,6 @@ pub mod phase10_canary_postgres;
 pub mod phase10_cli;
 #[path = "phase10_external.rs"]
 pub mod phase10_external;
-#[path = "phase10_external_checks.rs"]
-pub mod phase10_external_checks;
 // Phase 10 Task 22: the GENA producer-project import.
 #[cfg(feature = "contract-tests")]
 #[path = "phase10_gena.rs"]
