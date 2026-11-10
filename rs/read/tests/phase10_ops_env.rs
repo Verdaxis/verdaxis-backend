@@ -141,6 +141,7 @@ impl EnvFile {
             "MARKET_SUPPORT_CONSENT_VERSION=v2026-11",
             "MARKET_SUPPORT_CONSENT_REFERENCE='market-support/2026-11'",
             "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=",
+            "OFFBOARDING_ENABLED=on",
             "UMAMI_BASE_URL=https://umami.example",
             "UMAMI_WEBSITE_ID=site-from-env",
             &format!("GEMINI_API_KEY={GEMINI_KEY}"),
@@ -486,6 +487,27 @@ fn serve_env_carries_the_monitor_token_only_when_configured() {
         let projected = read_environment_file(&output.join("runtime.env"));
         assert!(!projected.contains_key("MONITOR_TOKEN"), "{label}");
     }
+}
+
+#[test]
+fn serve_env_projects_the_offboarding_switch_only_when_configured() {
+    let (_scratch, output) = prepared_staging_full();
+    let projected = read_environment_file(&output.join("runtime.env"));
+    assert_eq!(
+        projected.get("OFFBOARDING_ENABLED").map(String::as_str),
+        Some("true"),
+        "an .env that sets it reaches runtime.env in normal form"
+    );
+    let scratch = Scratch::new();
+    let environment_file = EnvFile::staging().write(&scratch.path("be"));
+    let output = scratch.path("be/.runtime-rust");
+    let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
+    assert_ok(&result, "absent switch");
+    let projected = read_environment_file(&output.join("runtime.env"));
+    assert!(
+        !projected.contains_key("OFFBOARDING_ENABLED"),
+        "an absent switch is not projected"
+    );
 }
 
 #[test]
