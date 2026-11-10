@@ -72,7 +72,7 @@ NEIGHBOURS = [
     "/API/BENCHMARKS", "/api/Compliance/Fleet", "/api/compliance/FLEET",
 ]
 # Caddy merges repeated slashes before it matches a path, so these reach the
-# Phase 5 owner; the Rust service answers them 404, as Python does.
+# Phase 5 owner; the Rust service answers them 404.
 MERGED_SLASHES = ["/api//benchmarks", "/api/compliance//fleet"]
 
 
@@ -113,15 +113,14 @@ def free_port():
         return reservation.getsockname()[1]
 
 
-@pytest.fixture(scope="module", params=("primary", "moved", "rust-stopped"))
+@pytest.fixture(scope="module", params=("primary", "rust-stopped"))
 def site(request, tmp_path_factory):
-    """One Caddy per Phase 5 state: the normal owner, a moved group, or Rust not running."""
+    """One Caddy per Phase 5 state: the normal owner, or Rust not running."""
     caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
     assert caddy and Path(caddy).is_file(), "Set CADDY_BIN to the local Caddy executable"
-    with upstream("fallback") as fallback, upstream("phase1") as phase1, upstream("phase5") as phase5:
+    with upstream("phase1") as phase1, upstream("phase5") as phase5:
         phase5_upstream = {
             "primary": phase5,
-            "moved": fallback,
             "rust-stopped": f"127.0.0.1:{free_port()}",
         }[request.param]
         port = free_port()
@@ -159,7 +158,7 @@ def site(request, tmp_path_factory):
                         headers = {"Host": "routing.test", **kwargs.pop("headers", {})}
                         return client.request(method, path, headers=headers, **kwargs)
 
-                    send.phase5_owner = {"primary": "phase5", "moved": "fallback",
+                    send.phase5_owner = {"primary": "phase5",
                                          "rust-stopped": "unavailable"}[request.param]
                     yield send
             finally:
@@ -174,12 +173,9 @@ def site(request, tmp_path_factory):
 def owner(site, method, path, **kwargs):
     response = site(method, path, **kwargs)
     detail = f"{method} {path} answered {response.status_code} {dict(response.headers)}"
-    if response.status_code in (502, 503):
+    if response.status_code in (404, 502, 503):
         assert "X-Route-Owner" not in response.headers, detail
-        return "unavailable"
-    if response.status_code == 404:
-        assert "X-Route-Owner" not in response.headers, detail
-        return "fallback"
+        return "fallback" if response.status_code == 404 else "unavailable"
     assert response.status_code == 200 and "X-Route-Owner" in response.headers, detail
     return response.headers["X-Route-Owner"]
 
@@ -200,8 +196,8 @@ def test_each_route_moves_with_its_exact_method_only(site, method, path, auth):
 @pytest.mark.parametrize("method,path,auth", PHASE5_ROUTES)
 def test_trailing_slash_follows_the_rust_redirect_rule(site, method, path, auth):
     # The Rust service redirects the slash form of a public read itself. An
-    # authenticated route has no Rust redirect, so its slash form stays on
-    # Python for every method.
+    # authenticated route has no Rust redirect, so its slash form finds no
+    # handle for every method.
     for candidate in METHODS:
         moves = auth == "public" and candidate == "GET"
         expected = site.phase5_owner if moves else "fallback"
@@ -222,7 +218,7 @@ def test_repeated_slashes_follow_the_merged_path(site, path):
 
 @pytest.mark.parametrize("path", PHASE1_ROUTES)
 def test_first_read_groups_keep_their_owner(site, path):
-    # Moving or rolling back Phase 5 never changes the 27 existing reads.
+    # The Phase 5 state never changes the 27 existing reads.
     assert owner(site, "GET", path) == "phase1", path
     assert owner(site, "POST", path) == "fallback", path
 

@@ -849,7 +849,7 @@ async fn runner_database_applies_the_baseline() {
     assert!(current.foreign.is_empty());
     assert!(current.pending.is_empty());
     let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
-    assert_eq!(current.revision().as_deref(), Some(&head));
+    assert_eq!(current.revision().as_deref(), Some(head.as_str()));
     // No Alembic history remains: the runner databases are sqlx-only.
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('public.alembic_version') IS NOT NULL")

@@ -37,6 +37,7 @@
 	reverse_proxy @admin_pre_auth {args[6]} {
 		method GET
 		rewrite /internal/admin-preauth
+		lb_policy first
 		lb_try_duration 2s
 		lb_try_interval 250ms
 		header_up X-Forwarded-For {client_ip}
@@ -53,6 +54,12 @@
 		handle_response @unmarked {
 			respond "Quota authority did not acknowledge admission" 503
 		}
+		@unavailable 404
+		handle_response @unavailable {
+			# The authority answers 404 only while it starts; a stopped
+			# authority fails closed through the dial error.
+			request_header -X-Verdaxis-Preauth-Counted
+		}
 	}
 	@rust_crud_notifications_get {
 		method GET
@@ -60,6 +67,9 @@
 	}
 	handle @rust_crud_notifications_get {
 		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -73,6 +83,9 @@
 	}
 	handle @rust_crud_notifications_write {
 		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -86,6 +99,9 @@
 	}
 	handle @rust_crud_preferences_get {
 		reverse_proxy {args[1]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -99,6 +115,9 @@
 	}
 	handle @rust_crud_preferences_put {
 		reverse_proxy {args[1]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -114,6 +133,9 @@
 	}
 	handle @rust_crud_feedback_post {
 		reverse_proxy {args[2]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -127,6 +149,9 @@
 	}
 	handle @rust_crud_feedback_admin {
 		reverse_proxy {args[2]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -142,6 +167,9 @@
 	}
 	handle @rust_crud_watchlists_get {
 		reverse_proxy {args[3]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -155,6 +183,9 @@
 	}
 	handle @rust_crud_watchlists_post {
 		reverse_proxy {args[3]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -168,6 +199,9 @@
 	}
 	handle @rust_crud_watchlists_patch {
 		reverse_proxy {args[3]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -181,6 +215,9 @@
 	}
 	handle @rust_crud_watchlists_delete {
 		reverse_proxy {args[3]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -194,6 +231,9 @@
 	}
 	handle @rust_crud_alerts_get {
 		reverse_proxy {args[4]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -207,6 +247,9 @@
 	}
 	handle @rust_crud_alerts_post {
 		reverse_proxy {args[4]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -220,6 +263,9 @@
 	}
 	handle @rust_crud_alerts_delete {
 		reverse_proxy {args[4]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -235,6 +281,9 @@
 	}
 	handle @rust_crud_referrals_get {
 		reverse_proxy {args[5]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -248,6 +297,9 @@
 	}
 	handle @rust_crud_referrals_post {
 		reverse_proxy {args[5]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {

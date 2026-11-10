@@ -25,6 +25,9 @@
 	}
 	handle @rust_phase5_public {
 		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -38,6 +41,9 @@
 	}
 	handle @rust_phase5_compliance_get {
 		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {
@@ -51,6 +57,9 @@
 	}
 	handle @rust_phase5_compliance_post {
 		reverse_proxy {args[0]} {
+			lb_policy first
+			lb_try_duration 10s
+			lb_try_interval 250ms
 			header_up X-Forwarded-For {client_ip}
 			flush_interval -1
 			transport http {

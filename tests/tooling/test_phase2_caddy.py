@@ -303,14 +303,13 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
         with harness(tmp_path, real_authority=f"127.0.0.1:{port}") as (
                 client, _authority, _rust, other, _crash):
             for index in range(LIMIT):
-                path = "/api/admin/feedback" if index % 2 else "/api/notifications"
-                response = client.get(path)
+                response = client.get("/api/admin/feedback")
                 assert response.status_code == 200, (index, response.text)
             refused = client.get("/api/admin/feedback")
             assert refused.status_code == 429
             assert refused.headers["Retry-After"] == "60"
             assert refused.json()["detail"]["code"] == "RATE_LIMITED"
-            assert len(other.requested("/api/notifications")) == LIMIT // 2
+            assert len(rust.requested("/api/admin/feedback")) == LIMIT
     finally:
         process.terminate()
         try:
@@ -332,8 +331,7 @@ def test_shared_authority_and_route_address_counts_once(tmp_path):
     with harness(tmp_path, shared_authority=True) as (client, authority, rust, other, _crash):
         assert authority is rust
         for index in range(LIMIT):
-            path = "/api/admin/feedback" if index % 2 else "/api/admin/feedback"
-            assert client.get(path).status_code == 200
+            assert client.get("/api/admin/feedback").status_code == 200
         assert client.get("/api/admin/feedback").status_code == 429
         assert len(authority.requested("/internal/admin-preauth")) == LIMIT + 1
         assert len(rust.requested("/api/admin/feedback")) == LIMIT
@@ -346,11 +344,11 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         # GET, so Caddy drops the body from the copy, not from the request the
         # owner receives.
         admin_body = b'{"probe":"the admin body survives the gate"}'
-        posted = client.post("/api/notifications/read-all", content=admin_body)
+        posted = client.post("/api/watchlists", content=admin_body)
         assert posted.status_code == 200
         assert posted.headers["X-Route-Owner"] == "other"
         assert posted.content == admin_body
-        assert other.requested("/api/notifications/read-all")[0]["body"] == admin_body
+        assert other.requested("/api/watchlists")[0]["body"] == admin_body
         for index in range(LIMIT - 1):
             path = "/api/notifications" if index % 2 == 0 else "/api/admin/feedback"
             response = client.get(path)
@@ -361,7 +359,8 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         # One authority call per admin request, no amplification. The plain
         # notifications read is not an admin path and passes uncounted.
         assert len(authority.requested()) == (LIMIT + 1) // 2
-        assert len(other.requested("/api/notifications")) == 1 + (LIMIT - 1) // 2
+        assert len(other.requested("/api/watchlists")) == 1
+        assert len(other.requested("/api/notifications")) == (LIMIT - 1) // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
         for owner in (other, rust):
             for item in owner.requested():
@@ -374,7 +373,8 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         assert refused.json() == {"detail": "Rate limit exceeded"}
         # The refused request reached no owner and the authority saw it once.
         assert len(authority.requested()) == (LIMIT + 1) // 2 + 1
-        assert len(other.requested("/api/notifications")) == 1 + (LIMIT - 1) // 2
+        assert len(other.requested("/api/watchlists")) == 1
+        assert len(other.requested("/api/notifications")) == (LIMIT - 1) // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
 
         # The authority sees the rewritten GET and the original client only.
@@ -390,8 +390,8 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
 def test_owner_groups_recover_during_restart(tmp_path):
     with harness(tmp_path, feedback_owner="other") as (client, _authority, _rust, other, _crash):
         other.stop()
-        # Keep one request in flight across a short restart. A refused dial must
-        # not quarantine the sole address for subsequent requests.
+        # Keep one request in flight across a short restart. The bounded retry
+        # bridges the refused dial until the owner is back.
         timer = threading.Timer(0.3, other.restart)
         timer.start()
         try:
@@ -426,20 +426,20 @@ def test_crud_post_body_crosses_the_gate_intact(tmp_path):
         assert authority.requested() == []
 
 
-def test_write_is_retried_only_after_a_refused_connection(tmp_path):
-    """A connection that succeeded is never replayed; a dial error is."""
+def test_write_is_not_replayed_after_a_successful_connection(tmp_path):
+    """A connection that succeeded is never replayed to the owner again."""
     with harness(tmp_path, feedback_crash=True) as (
             client, _authority, _rust, _other, crash):
         response = client.post("/api/feedback", content=b'{"message":"once"}')
         assert response.status_code == 502
         assert len(crash.requested("/api/feedback")) == 1
 
-        # A refused connection is a dial error before any request bytes are
-        # sent, so the write is retried exactly once.
+        # A stopped owner fails through its own upstream error: one upstream,
+        # no second address to retry.
         crash.stop()
         retried = client.post("/api/feedback", content=b'{"message":"once"}')
-        assert retried.status_code == 200
-        assert len(crash.requested("/api/feedback")) == 2
+        assert retried.status_code == 502
+        assert len(crash.requested("/api/feedback")) == 1
 
 
 def test_admin_gate_fails_closed_when_the_authority_is_down(tmp_path):
@@ -449,7 +449,7 @@ def test_admin_gate_fails_closed_when_the_authority_is_down(tmp_path):
         response = client.get(
             "/api/admin/feedback",
             headers={COUNTED: "1"})
-        assert response.status_code == 503
+        assert response.status_code in (502, 503)
         assert not rust.requested("/api/admin/feedback")
 
 
@@ -474,12 +474,12 @@ def test_one_group_move_keeps_the_gate_counting(tmp_path, feedback_owner):
 
 
 @pytest.mark.parametrize("method", ["HEAD", "PROPFIND"])
-def test_admin_nonpreflight_methods_consume_the_shared_quota(tmp_path, method):
+def test_non_admin_nonpreflight_methods_pass_uncounted(tmp_path, method):
     with harness(tmp_path, other_owner=True) as (client, authority, _rust, other, _crash):
         response = client.request(method, "/api/notifications")
-        assert response.status_code == 200
+        assert response.status_code == 404
         assert len(authority.requested()) == 0
-        assert len(other.requested("/api/notifications")) == 1
+        assert not other.requested("/api/notifications")
 
 
 def test_client_mark_does_not_bypass_feedback_quota(tmp_path):

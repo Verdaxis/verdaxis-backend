@@ -1179,7 +1179,7 @@ case_rust_failure() {
     rm -f -- "$H/fail-at" "$H/rust-unready"
     deploy && [[ ! -e $(state_file) ]] || return 1
     push_release
-    approve sqlx_1 sqlx_2
+    approve sqlx_2 sqlx_2
     deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
         && ! called '^systemctl restart verdaxis-backend'
 }
@@ -1280,7 +1280,7 @@ case_metadata_pause() {
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == legacy-python ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]] || return 1
     push_release
-    approve sqlx_1 sqlx_2
+    approve sqlx_2 sqlx_2
     DEPLOY_EXTRA_ENVIRONMENT='WATCHLIST_EVENT_PRODUCER=rust-market-v1' deploy \
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == rust-market-v1 ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]]

@@ -184,6 +184,9 @@ def route_owner(request, tmp_path_factory):
 
                     def owner(method, path):
                         response = client.request(method, path, headers={"Host": "routing.test"})
+                        if response.status_code == 404:
+                            # No handle matched: the site's own fallback answers.
+                            return "fallback"
                         assert response.headers["X-Seen-Host"] == "routing.test"
                         return response.headers["X-Route-Owner"]
 
@@ -205,9 +208,9 @@ def test_inventory_and_method_matrix(route_owner, group, path):
         owned = method == "GET" or (group == "MCP" and method in ("POST", "DELETE"))
         # A method no handle owns answers from the site's own fallback; the
         # stub upstreams never see it, so the owner stays the primary group.
-        assert route_owner(method, path) == (expected if owned else "primary")
+        assert route_owner(method, path) == (expected if owned else "fallback")
         assert route_owner(method, path + "/") == (
-            expected if method == "GET" and group != "MCP" else "primary"
+            expected if method == "GET" and group != "MCP" else "fallback"
         )
 
 
@@ -218,7 +221,7 @@ def test_inventory_and_method_matrix(route_owner, group, path):
     "/api/compliance/fuels", "/api/orderbook/snapshot/unknown", "/api/listings/unknown",
 ])
 def test_excluded_paths_reach_no_handle(route_owner, path):
-    assert route_owner("GET", path) == "primary"
+    assert route_owner("GET", path) == "fallback"
 
 
 @pytest.mark.parametrize(
@@ -233,7 +236,7 @@ def test_excluded_paths_reach_no_handle(route_owner, path):
     ],
 )
 def test_private_and_write_routes_find_no_handle(route_owner, method, path):
-    assert route_owner(method, path) == "primary"
+    assert route_owner(method, path) == "fallback"
 
 
 @pytest.mark.parametrize(("method", "path", "group"), CRUD_CASES)
@@ -242,12 +245,12 @@ def test_crud_operations_follow_their_group(route_owner, method, path, group):
     expected = "second" if route_owner.moved == group else "primary"
     assert route_owner(method, path) == expected
     # Slash variants find no handle; the site answers them.
-    assert route_owner(method, path + "/") == "primary"
+    assert route_owner(method, path + "/") == "fallback"
 
 
 @pytest.mark.parametrize(("method", "path"), UNOWNED)
 def test_phase2_unowned_paths_reach_no_handle(route_owner, method, path):
-    assert route_owner(method, path) == "primary"
+    assert route_owner(method, path) == "fallback"
 
 
 def test_feedback_post_and_admin_get_share_one_group_argument(route_owner):
