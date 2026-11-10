@@ -128,8 +128,9 @@ fi
 
 # A leftover Alembic history table receives no grant: convergence governs it
 # like any unlisted table, and the application and backup roles stay denied.
+# The migrator owns it, as bootstrap_roles.sql made it own the retained table.
 adopted_database verdaxis_acl_alembic
-as_role postgres verdaxis_acl_alembic <<'SQL' > /dev/null
+as_role verdaxis_migrator verdaxis_acl_alembic <<'SQL' > /dev/null
 CREATE TABLE public.alembic_version (version_num varchar(64) NOT NULL);
 INSERT INTO public.alembic_version VALUES ('ob_20261031_offboarding');
 SQL

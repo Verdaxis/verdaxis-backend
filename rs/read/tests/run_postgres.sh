@@ -82,6 +82,12 @@ CREATE EXTENSION postgis;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_member;
 SET ROLE rust_migrator;
+-- The migration-control table, empty and owned by the migrator: the runtime
+-- pool contract proves the app role is denied it.
+CREATE TABLE public._sqlx_migrations (
+    version bigint PRIMARY KEY, description text NOT NULL,
+    installed_on timestamptz NOT NULL DEFAULT now(), success boolean NOT NULL,
+    checksum bytea NOT NULL, execution_time bigint NOT NULL);
 SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
 # Demand cases require an explicit disposable _test URL and create only connection-local temporary tables.
