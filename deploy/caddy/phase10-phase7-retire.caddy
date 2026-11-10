@@ -1,19 +1,19 @@
 # Phase 10 Task 20, founder decision 122 (22 October 2026): retire the
-# Phase 7 indicative routes. Import this file inside the site's route block,
-# before the Python fallback. It owns exactly the 20 method/path operations
+# Phase 7 indicative routes. Import this file inside the site's route block.
+# It owns exactly the 20 method/path operations
 # in tests/rust_contract/phase10/phase7-routes.json.
 #
 # Every handle returns 404 with no upstream. Static paths match exactly. A
-# dynamic id segment matches any single segment, because Python's router does
-# the same and only rejects a bad id later, so a UUID-only matcher would leak
-# braced, URN and percent-encoded spellings back to Python. The one real
+# dynamic id segment matches any single segment, because the retired router
+# did the same and only rejected a bad id later, so a UUID-only matcher would
+# leak braced, URN and percent-encoded spellings back to the fallback. The one real
 # static sibling (/api/supplier-offers/my) has its own GET operation, so only
-# the GET matcher excludes it; Python serves PUT /my through the parametric
-# PUT handler, so the PUT matcher owns that spelling too. Trailing slashes,
-# other methods, extra segments and prefix siblings stay on the fallback.
+# the GET matcher excludes it; the parametric PUT matcher owns the /my
+# spelling too. Trailing slashes, other methods, extra segments and prefix
+# siblings stay on the fallback.
 #
-# Rollback is one change: remove the single import line. All 20 operations
-# then return to the Python upstream. This snippet changes no table or row.
+# Removing the single import line returns all 20 operations to the site's
+# own fallback. This snippet changes no table or row.
 
 # 1/20 POST /api/rfq
 @phase7_rfq_create {

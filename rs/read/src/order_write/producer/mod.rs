@@ -150,6 +150,7 @@ pub fn schema_has_producer(revision: &str) -> bool {
     matches!(
         revision,
         PRODUCER_REVISION | "p89_20261022_trade_freeze" | "ob_20261031_offboarding" | "sqlx_1"
+            | "sqlx_2"
     )
 }
 

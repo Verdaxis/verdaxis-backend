@@ -403,7 +403,7 @@ async fn raw_role_pool_and_health_contract() {
             .unwrap();
         assert_eq!(actual, expected);
     }
-    let error = sqlx::query("SELECT version_num FROM alembic_version")
+    let error = sqlx::query("SELECT version FROM public._sqlx_migrations")
         .execute(&pool)
         .await
         .unwrap_err();

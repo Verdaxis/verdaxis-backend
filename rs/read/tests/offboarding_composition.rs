@@ -379,12 +379,11 @@ fn neighbours() -> Vec<(String, String)> {
 }
 
 /// The reviewed snippet in an isolated Caddy, in front of the real served
-/// Rust router and a Python stand-in. Disabled (import absent, or the Rust
-/// argument equal to the Python one) every request reaches Python, which has
-/// no such route. With the snippet enabled but the Rust switch off, the four
-/// operations reach Rust and find no route. Enabled on both sides, exactly
-/// the four operations reach their Rust handlers; their neighbours stay on
-/// Python in every mode.
+/// Rust router and a fallback stand-in. Disabled (the import absent) every
+/// request reaches the fallback, which has no such route. With the snippet
+/// enabled but the Rust switch off, the four operations reach Rust and find
+/// no route. Enabled on both sides, exactly the four operations reach their
+/// Rust handlers; their neighbours stay on the fallback in every mode.
 #[tokio::test]
 #[ignore = "requires a Caddy 2 binary (CADDY_BINARY or caddy on PATH)"]
 async fn caddy_routes_the_group_only_when_enabled() {
@@ -395,22 +394,21 @@ async fn caddy_routes_the_group_only_when_enabled() {
     let version = String::from_utf8_lossy(&version.stdout).to_string();
     assert!(version.starts_with("v2."), "{version}");
     eprintln!("caddy {version}");
-    let python = serve(python_stub()).await;
+    let fallback = serve(python_stub()).await;
     let rust_on = serve(verdaxis_read::router(state(Some(true)))).await;
     let rust_off = serve(verdaxis_read::router(state(None))).await;
     let import = |rust: u16| {
         Some(format!(
-            "import verdaxis_rust_offboarding 127.0.0.1:{rust} 127.0.0.1:{python}"
+            "import verdaxis_rust_offboarding 127.0.0.1:{rust}"
         ))
     };
     let modes = [
         ("import absent", None, "python"),
-        ("arguments equal", import(python), "python"),
         ("Rust switch off", import(rust_off), "rust 404"),
         ("enabled", import(rust_on), "rust 401"),
     ];
     for (mode, line, expected) in modes {
-        let caddy = caddy(line, python).await;
+        let caddy = caddy(line, fallback).await;
         for (method, path) in ROUTES {
             let path = concrete(path);
             assert_eq!(

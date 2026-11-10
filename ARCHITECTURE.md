@@ -43,11 +43,9 @@ alert handoff preserve existing journal and ownership boundaries.
 
 The source Python API, its schema engine, API container and backend test suites
 are removed. Python remains for retained system-interpreter host tooling and
-its tests. Release compatibility files remain unchanged where the installed M
-helper or pre-M restore depends on their exact behavior. In particular,
-`requirements.txt`, `constraints.txt` and `deploy/scripts/pre-m-bundle.sh` are
-not changed in this release. Legacy operator paths are listed in the gate report;
-they do not imply that this checkout can start the old API.
+its tests. The pre-M rollback bundle and its reader gate are gone with the
+closed rollback window. `requirements.txt` and `constraints.txt` stay
+byte-identical for the installed M deploy helper.
 
 ## CI graph
 

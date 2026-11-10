@@ -353,10 +353,6 @@ async fn cache_revision_is_monotonic_and_rejects_out_of_range_values() {
 #[test]
 fn cache_lease_and_fence_match_the_reader() {
     assert_eq!(FENCE_DRAIN, AUTHORITY_LEASE * 2);
-    // The Python owner the command replaces used the same numbers.
-    let python = include_str!("../../../scripts/rust_cache_authority.py");
-    assert!(python.contains("LEASE_SECONDS = 5\n"));
-    assert!(python.contains("FENCE_DRAIN_SECONDS = 2 * LEASE_SECONDS\n"));
     assert_eq!(AUTHORITY_LEASE, Duration::from_secs(5));
     // Identities are 32 random bytes, distinct each call.
     let (first, second) = (new_identity(), new_identity());

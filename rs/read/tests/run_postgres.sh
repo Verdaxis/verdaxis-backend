@@ -17,7 +17,7 @@ export SQLX_OFFLINE=true
 # workspace:         the default workspace cases on the minimal fixture;
 # market_settlement: market-write targets for trades, settlement and races;
 # market_orders:     market-write targets for order creation and changes;
-# schema:            Phase 4 authority suites, baseline, adoption and ACLs.
+# schema:            Phase 4 authority suites, baseline and ACLs.
 all_groups='workspace market_settlement market_orders schema'
 groups=${RUN_POSTGRES_GROUPS:-$all_groups}
 for group in $groups; do
@@ -67,11 +67,11 @@ CREATE ROLE rust_backup NOLOGIN;
 -- Phase 10 Task 3 target-attestation accept cases need the deployed role names.
 CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
 CREATE ROLE verdaxis_app_staging LOGIN NOINHERIT PASSWORD 'disposable_staging_pw';
--- Phase 10 Tasks 5 and 6: the production migrator name owns the baseline and
--- adoption databases, so the catalog fingerprint's owner projection matches.
+-- Phase 10 Tasks 5 and 6: the production migrator name owns the baseline
+-- databases, so the catalog fingerprint's owner projection matches.
 CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_verdaxis_migrator_pw';
--- The M adoption binds schema ownership to the adopting environment's
--- migrator name; the market fixtures below are staging-shaped.
+-- The market fixtures below are staging-shaped and owned by the staging
+-- migrator name.
 CREATE ROLE verdaxis_migrator_staging LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE DATABASE verdaxis_rust_test OWNER rust_migrator;
 -- A second database proves the attestation refuses a correct role on the
@@ -82,8 +82,6 @@ CREATE EXTENSION postgis;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app, rust_member;
 SET ROLE rust_migrator;
-CREATE TABLE alembic_version(version_num varchar(64));
-INSERT INTO alembic_version VALUES ('kycg_20261014_staging');
 SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_rust_test"
 # Demand cases require an explicit disposable _test URL and create only connection-local temporary tables.
@@ -159,7 +157,7 @@ for database in verdaxis_trades_test verdaxis_create_test verdaxis_amend_test ve
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
     cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
     --features contract-tests --test group_phase10 \
-    phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
+    phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored
   psql -X --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=rust_app \
     -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
@@ -291,32 +289,6 @@ if selected schema; then
   # The cross-component composition case provisions its own schema here too.
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
     --test group_market_write -- --include-ignored --test-threads=1 integration_i1::
-  # Phase 10 Task 6: restore the baseline without sqlx history for adoption cases.
-  # The production migrator owns every object in the template.
-  adoption_head=$(python3 -c 'import json; print(json.load(open("deploy/rust/sqlx-baseline.json"))["alembic_head"])')
-  docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
-CREATE DATABASE verdaxis_adoption_template OWNER verdaxis_migrator;
-\connect verdaxis_adoption_template
-CREATE EXTENSION IF NOT EXISTS postgis;
-ALTER SCHEMA public OWNER TO verdaxis_migrator;
-SQL
-  # pg_dump renders varchar IN-lists as text-cast arrays. The shared helper
-  # reparses only those CHECK/index expressions as IN-lists to reproduce the
-  # source catalog form required by the compiled adoption fingerprint. Native
-  # templates keep the frozen restore form; no migration or fingerprint policy
-  # is changed here.
-  python3 deploy/tests/migrated-catalog-sql.py rs/read/migrations/1_baseline.sql \
-    | docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
-    -X -v ON_ERROR_STOP=1 -q > /dev/null
-  # Adoption validates this source revision and writes sqlx history itself.
-  docker exec -i "$container" psql -U verdaxis_migrator -d verdaxis_adoption_template \
-    -X -v ON_ERROR_STOP=1 -v adoption_head="$adoption_head" <<'SQL'
-CREATE TABLE public.alembic_version(version_num varchar(32) NOT NULL PRIMARY KEY);
-INSERT INTO public.alembic_version VALUES (:'adoption_head');
-SQL
-  export RUST_ADOPTION_TEMPLATE_DATABASE=verdaxis_adoption_template
-  export RUST_ADOPTION_ALEMBIC_HEAD="$adoption_head"
-
   # Phase 10 Task 21: the signal ingestion template, built as on a deployed host:
   # the baseline applied by the staging migrator, then the real ACL convergence
   # with the operator role. Each ingestion case clones it as verdaxis_staging.
@@ -342,15 +314,15 @@ SQL
   export RUST_POSTGRES_CONTAINER="$container"
 
   # Phase 10 Tasks 5 and 6: the frozen sqlx baseline restores into fresh
-  # databases, and adoption runs on clones of the template above; each case
-  # creates and drops its own database. Task 9: `ops preflight` attests a
-  # verdaxis_staging database that its case creates and drops.
-  # The runner-only adoption helper already ran above with each explicit migrator
-  # URL. This group has no runner URL; keep the helper out of its broad selection.
+  # databases; each case creates and drops its own database. Task 9:
+  # `ops preflight` attests a verdaxis_staging database that its case creates
+  # and drops.
+  # The runner-only helper already ran above with each explicit migrator URL.
+  # This group has no runner URL; keep the helper out of its broad selection.
   baseline_log=$(mktemp "${TMPDIR:-/tmp}/rust-postgres-baseline.XXXXXX")
   set +e
   cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --features contract-tests \
-    --test group_phase10 -- --include-ignored --skip runner_database_adopts_to_the_baseline \
+    --test group_phase10 -- --include-ignored --skip runner_database_applies_the_baseline \
     --test-threads=1 \
     phase10_baseline_postgres:: phase10_migrate_postgres:: \
     phase10_ops_preflight_postgres:: phase10_ingest_postgres:: \

@@ -5,9 +5,6 @@
 //! exactly the keys of `deploy/rust/runtime-policy.env`. `ops prepare-budget`
 //! writes the connection budget artifact and `ops preflight` checks the
 //! deployed identity.
-//!
-//! The datasets check runs the pinned generator with `python3 -I` (or
-//! `RUST_TEST_PYTHON`).
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -23,7 +20,7 @@ use verdaxis_read::auth::{
 use verdaxis_read::runtime::config::config_from_deployed_environment;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const STAGING_REVISION: &str = "sqlx_1";
+const STAGING_REVISION: &str = "sqlx_2";
 const PRECONDITION: i32 = 3;
 const DEPENDENCY: i32 = 4;
 
@@ -45,10 +42,6 @@ fn repository_root() -> PathBuf {
         .join("../..")
         .canonicalize()
         .unwrap()
-}
-
-fn python() -> String {
-    std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".to_owned())
 }
 
 /// A private scratch directory, removed on drop.
@@ -710,14 +703,6 @@ fn vendored_auth_domain_datasets_match_manifest() {
             "{list} sorted and unique"
         );
     }
-    // The generator reproduces the committed bytes from the pinned packages.
-    let check = Command::new(python())
-        .arg("-I")
-        .arg(root.join("deploy/scripts/generate-auth-domain-datasets.py"))
-        .arg("--check")
-        .output()
-        .unwrap();
-    assert_ok(&check, "generator --check");
 }
 
 // ---- jobs ----------------------------------------------------------------------------

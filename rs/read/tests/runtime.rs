@@ -9,7 +9,7 @@ fn staging() -> Config {
         db_session_time_zone: "UTC".into(),
         environment: "staging".into(),
         release_sha: compiled_sha().into(),
-        migration_revision: "sqlx_1".into(),
+        migration_revision: "sqlx_2".into(),
         database_url:
             "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging".into(),
         bind: "127.0.0.1:0".parse().unwrap(),
@@ -32,7 +32,7 @@ async fn fleet_config_cases() {
     };
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "sqlx_1",
+        "migration_revision": "sqlx_2",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -226,7 +226,7 @@ fn fleet_config_syntax_is_checked_by_runtime_validation() {
 fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "sqlx_1",
+        "migration_revision": "sqlx_2",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -255,7 +255,7 @@ fn kyc_runtime_input_defaults_enabled_and_rejects_ambiguous_values() {
 #[test]
 fn timezone_policy_is_required_and_cannot_inject_startup_options() {
     let input = serde_json::json!({
-        "environment":"test", "release_sha":compiled_sha(), "migration_revision":"sqlx_1",
+        "environment":"test", "release_sha":compiled_sha(), "migration_revision":"sqlx_2",
         "database_url":"postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind":"127.0.0.1:0", "pool_max":17, "python_budget":52, "configured_max_connections":100
     });
@@ -273,7 +273,7 @@ fn timezone_policy_is_required_and_cannot_inject_startup_options() {
 
 #[test]
 fn revisions_fail_closed() {
-    let allowed = vec!["sqlx_1".to_owned()];
+    let allowed = vec!["sqlx_2".to_owned()];
     assert!(check_revision(&allowed[0], &allowed).is_ok());
     for revision in ["head", "", "kycg_20261014_prod", "unexpected"] {
         assert!(check_revision(revision, &allowed).is_err());
@@ -306,7 +306,7 @@ fn production_requires_its_exact_database_and_sqlx_baseline() {
     let mut base = staging();
     base.environment = "production".into();
     base.database_url = "postgres://verdaxis_app:local-secret@127.0.0.1:5432/verdaxis_prod".into();
-    base.migration_revision = "sqlx_1".into();
+    base.migration_revision = "sqlx_2".into();
     base.bind = "127.0.0.1:8010".parse().unwrap();
     assert!(validate_config(&base).is_err());
     base.prepared_budget = Some(budget_document(compiled_sha()));
@@ -326,8 +326,8 @@ fn production_requires_its_exact_database_and_sqlx_baseline() {
 }
 
 /// The M release admits only the adopted baseline.
-const RELEASE_REVISIONS: [&str; 1] = ["sqlx_1"];
-const PRODUCTION_REVISIONS: [&str; 1] = ["sqlx_1"];
+const RELEASE_REVISIONS: [&str; 1] = ["sqlx_2"];
+const PRODUCTION_REVISIONS: [&str; 1] = ["sqlx_2"];
 
 #[test]
 fn release_pins_admit_exactly_the_reviewed_checkpoints() {
@@ -450,7 +450,7 @@ fn rust_admission_is_independent_of_python_capacity() {
     for slots in [1_u32, 8, 16, 24, 47] {
         let config: Config = serde_json::from_value(serde_json::json!({
             "environment": "staging", "release_sha": compiled_sha(),
-            "migration_revision": "sqlx_1",
+            "migration_revision": "sqlx_2",
             "database_url": "postgres://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
             "db_session_time_zone": "UTC", "bind": "127.0.0.1:0",
             "read_admission_slots": slots, "pool_max": slots + 1,
@@ -622,7 +622,7 @@ fn deployed_environment() -> std::collections::HashMap<String, String> {
     [
         ("ENVIRONMENT", "staging"),
         ("RELEASE_SHA", compiled_sha()),
-        ("MIGRATION_REVISION", "sqlx_1"),
+        ("MIGRATION_REVISION", "sqlx_2"),
         (
             "DATABASE_URL",
             "postgresql://verdaxis_app_staging:local-secret@127.0.0.1:5432/verdaxis_staging",
@@ -841,7 +841,7 @@ fn compliance_exchange_rate_is_an_optional_positive_decimal() {
     // default rate to the pricing core.
     let mut input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "sqlx_1",
+        "migration_revision": "sqlx_2",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC"
@@ -1071,7 +1071,7 @@ fn a_malformed_allowed_hosts_value_stops_the_start() {
 fn allowed_hosts_can_be_carried_in_the_contract_document() {
     let input = serde_json::json!({
         "environment": "test", "release_sha": compiled_sha(),
-        "migration_revision": "sqlx_1",
+        "migration_revision": "sqlx_2",
         "database_url": "postgres://rust_app:pw@127.0.0.1:12345/verdaxis_test",
         "bind": "127.0.0.1:0", "pool_max": 17, "python_budget": 52,
         "configured_max_connections": 100, "db_session_time_zone": "UTC",

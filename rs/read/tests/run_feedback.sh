@@ -26,8 +26,6 @@ CREATE DATABASE verdaxis_feedback_test OWNER rust_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO rust_app;
 SET ROLE rust_migrator;
-CREATE TABLE alembic_version(version_num varchar(64));
-INSERT INTO alembic_version VALUES ('kycg_20261014_staging');
 SQL
 export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$port/verdaxis_feedback_test"
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_feedback_test"

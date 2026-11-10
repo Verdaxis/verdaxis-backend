@@ -17,8 +17,6 @@ editing. Preserve user work and keep changes within the assigned branch.
   before any authorized host action.
 - Keep `requirements.txt` and `constraints.txt` byte-identical in this release.
   The installed M helper checks them against the next source release.
-- Keep `deploy/scripts/pre-m-bundle.sh` unchanged. Its rollback restores the old
-  release and its Python service, not this checkout.
 - Preserve other operator compatibility paths that could block the next deploy;
   report them rather than silently change their protocol.
 

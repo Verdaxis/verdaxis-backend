@@ -1,8 +1,7 @@
 //! `ops prepare-runtime`: project the deployed `.env` into one private file per
 //! purpose (Phase 10 Task 9).
 //!
-//! `serve` gets `runtime.env` and `auth-domains.json`, byte-identical to
-//! `scripts/prepare_rust_runtime.py`, which this replaces. Each job gets
+//! `serve` gets `runtime.env` and `auth-domains.json`; each job gets
 //! `jobs/<name>.env`. The keys of every file are exactly the rows of
 //! `deploy/rust/runtime-policy.env`; the full `.env` is never copied and the
 //! migrator URL is never written. Every value is checked before the first

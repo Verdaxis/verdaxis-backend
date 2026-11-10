@@ -108,7 +108,7 @@ FROM pg_catalog.pg_class AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p', 'S')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND object.relname NOT IN ('spatial_ref_sys')
   AND NOT EXISTS (
       SELECT 1
       FROM pg_catalog.pg_depend AS dependency
@@ -116,19 +116,6 @@ WHERE namespace.nspname = 'public'
         AND dependency.objid = object.oid
         AND dependency.deptype = 'e'
   )
-\gexec
-
--- A legacy database may leave the migration-control table owned by its former
--- all-purpose application role. It is not a governed app object, but the exact
--- migrator must own it to attest and advance the live revision.
-SELECT format('ALTER TABLE public.alembic_version OWNER TO %I', :'migrator_role')
-WHERE to_regclass('public.alembic_version') IS NOT NULL
-\gexec
-SELECT format(
-    'REVOKE ALL ON TABLE public.alembic_version FROM PUBLIC, %I, %I CASCADE',
-    :'app_role', :'backup_role'
-)
-WHERE to_regclass('public.alembic_version') IS NOT NULL
 \gexec
 
 -- Remove app/backup authority from control and extension objects as well as

@@ -56,8 +56,7 @@ pub mod phase10_news;
 pub mod phase10_news_postgres;
 #[path = "phase10_onboarding_postgres.rs"]
 pub mod phase10_onboarding_postgres;
-// Phase 10 Task 9: purpose-bound runtime environments; the parity cases run
-// the Python projection from RUST_TEST_PYTHON.
+// Phase 10 Task 9: purpose-bound runtime environments.
 #[cfg(feature = "contract-tests")]
 #[path = "phase10_ops_env.rs"]
 pub mod phase10_ops_env;

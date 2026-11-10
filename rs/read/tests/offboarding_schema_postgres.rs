@@ -15,7 +15,7 @@
 use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 
-const REVISION: &str = "sqlx_1";
+const REVISION: &str = "sqlx_2";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 const BACKUP_ROLE: &str = "verdaxis_backup_staging";
@@ -52,7 +52,7 @@ impl Database {
         .await
         .unwrap();
         let revision: String = sqlx::query_scalar(
-            "SELECT 'sqlx_1'::text FROM _sqlx_migrations WHERE version=1 AND success",
+            "SELECT 'sqlx_2'::text FROM _sqlx_migrations WHERE version=2 AND success",
         )
         .fetch_one(&mut migrator)
         .await

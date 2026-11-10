@@ -197,9 +197,9 @@ fn baseline_dump_has_no_owner_or_privilege_clauses() {
 
 /// The producer register names the head the baseline was cut from. That head
 /// is the only head of the Alembic graph in this tree and the adoption SOURCE:
-/// after M the Rust service accepts only the adopted `sqlx_1` baseline, and
-/// the register's approved transitions are exactly the checkpoint-policy rows
-/// that end at the head.
+/// after M the Rust service accepts only sqlx revisions, and the register's
+/// approved transitions are exactly the checkpoint-policy rows that end at
+/// the head.
 #[test]
 fn handover_register_is_closed_at_the_baseline_head() {
     let handover: serde_json::Value = serde_json::from_str(HANDOVER).expect("handover JSON");
@@ -216,13 +216,13 @@ fn handover_register_is_closed_at_the_baseline_head() {
     assert_eq!(final_head, baseline["alembic_head"]);
     assert_eq!(handover["alembic_revisions"], baseline["alembic_revisions"]);
 
-    // After M the allowlist admits only the adopted baseline; the Alembic
-    // final head is the adoption source the baseline manifest records.
+    // The service admits only sqlx revisions; the Alembic final head is the
+    // adoption source the baseline manifest records.
     let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
     assert_eq!(
         allowed,
-        ["sqlx_1".to_owned()],
-        "the Rust service must admit only the adopted baseline"
+        ["sqlx_2".to_owned()],
+        "the Rust service must admit only the live sqlx revision"
     );
 
     let mut policy_to_head: Vec<(String, String)> = CHECKPOINTS

@@ -33,7 +33,7 @@ GROUPS = {
 
 # Phase 2 Task 22: authenticated CRUD groups routed by exact method and path.
 # Each entry is (method, path, expected owner group). Path parameters match any
-# non-empty segment, as Python's route converter does, so a malformed value is
+# non-empty segment, as the router's converter does, so a malformed value is
 # the route's own 422 and not a routing decision.
 CRUD_CASES = [
     ("GET", "/api/notifications", "NOTIFICATIONS"),
@@ -69,9 +69,10 @@ CRUD_CASES = [
 CRUD_GROUPS = ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK", "WATCHLISTS",
                "ALERTS", "REFERRALS")
 
-# Paths that must stay on Python whatever the CRUD upstreams are set to.
-PYTHON_OWNED = [
-    # Legacy entry adapters W09/W10 stay on Python until Python is removed.
+# Paths that no snippet owns whatever the upstreams are set to: the site's
+# own fallback answers them.
+UNOWNED = [
+    # Legacy entry adapters W09/W10 have no handle.
     ("POST", f"/api/watchlists/{UUID}/entries"),
     ("DELETE", f"/api/watchlists/{UUID}/entries/{UUID}"),
     # Auth, SSE, market writes and admin routes outside feedback.
@@ -93,15 +94,14 @@ PYTHON_OWNED = [
     ("GET", "/api/referrals/my-code"),
     ("OPTIONS", "/api/alerts"),
     ("PROPFIND", "/api/alerts"),
-    # Wrong method on a matched path stays on Python, and so does HEAD: the
-    # canonical Python path has no trailing slash and Python owns redirects.
+    # A wrong method on a matched path finds no handle, and so does HEAD: the
+    # canonical path has no trailing slash and the site answers the variant.
     ("PUT", "/api/notifications"),
     ("POST", "/api/alerts/extra/segments"),
     ("HEAD", "/api/alerts"),
     ("GET", "/api/unknown"),
     ("GET", "/health/ready"),
 ]
-
 
 
 @contextlib.contextmanager
@@ -139,16 +139,16 @@ def upstream(owner):
 
 @pytest.fixture(scope="module", params=[None, *GROUPS, *CRUD_GROUPS])
 def route_owner(request, tmp_path_factory):
-    """Run Caddy and roll back each group independently, without a mock parser."""
+    """Run Caddy and move each group's upstream independently, without a mock parser."""
     caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
     if not caddy:
         caddy = str(ROOT / "work/rust-phase1/bin/caddy")
     assert Path(caddy).is_file(), "Set CADDY_BIN to the local Caddy executable"
     # The shared fixture and snippet retain live flush/keepalive policy for
-    # either owner, including the MCP POST path during all-Python preparation.
-    # The CRUD groups mirror that split: one group rolls back to Python while
-    # every other group stays on Rust, so each handle is proven both ways.
-    with upstream("python") as python, upstream("rust") as rust:
+    # either owner, including the MCP POST path. The CRUD groups mirror that
+    # split: one group points at a second owner while every other group stays,
+    # so each handle is proven both ways.
+    with upstream("second") as second, upstream("primary") as primary:
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
@@ -156,11 +156,10 @@ def route_owner(request, tmp_path_factory):
             **os.environ,
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
             "CRUD_SNIPPET": str(ROOT / "deploy/caddy/rust-crud.caddy"),
-            "CADDY_PORT": str(port), "PYTHON_UPSTREAM": python,
-            # The single pre-auth authority is Rust in every mix; the stub
-            # admits with 200, as the service does with 204.
-            "PREAUTH_UPSTREAM": rust,
-            **{f"{group}_UPSTREAM": python if group == request.param else rust
+            "CADDY_PORT": str(port),
+            # The single pre-auth authority follows the primary upstream.
+            "PREAUTH_UPSTREAM": primary,
+            **{f"{group}_UPSTREAM": second if group == request.param else primary
                for group in (*GROUPS, *CRUD_GROUPS)},
         }
         config = ROOT / "tests/tooling/Caddyfile"
@@ -176,7 +175,7 @@ def route_owner(request, tmp_path_factory):
                     for _ in range(100):
                         assert process.poll() is None, log_path.read_text()
                         try:
-                            client.get("/health/live")
+                            client.get("/api/ports")
                             break
                         except httpx.ConnectError:
                             time.sleep(0.05)
@@ -188,7 +187,7 @@ def route_owner(request, tmp_path_factory):
                         assert response.headers["X-Seen-Host"] == "routing.test"
                         return response.headers["X-Route-Owner"]
 
-                    owner.rollback = request.param
+                    owner.moved = request.param
                     yield owner
             finally:
                 process.terminate()
@@ -201,12 +200,14 @@ def route_owner(request, tmp_path_factory):
 
 @pytest.mark.parametrize("group,path", [(g, p) for g, paths in GROUPS.items() for p in paths])
 def test_inventory_and_method_matrix(route_owner, group, path):
-    expected = "python" if route_owner.rollback == group else "rust"
+    expected = "second" if route_owner.moved == group else "primary"
     for method in ("GET", "HEAD", "OPTIONS", "POST", "DELETE", "PUT"):
-        ported = method == "GET" or (group == "MCP" and method in ("POST", "DELETE"))
-        assert route_owner(method, path) == (expected if ported else "python")
+        owned = method == "GET" or (group == "MCP" and method in ("POST", "DELETE"))
+        # A method no handle owns answers from the site's own fallback; the
+        # stub upstreams never see it, so the owner stays the primary group.
+        assert route_owner(method, path) == (expected if owned else "primary")
         assert route_owner(method, path + "/") == (
-            expected if method == "GET" and group != "MCP" else "python"
+            expected if method == "GET" and group != "MCP" else "primary"
         )
 
 
@@ -216,8 +217,8 @@ def test_inventory_and_method_matrix(route_owner, group, path):
     "/api/availability", "/api/demand", "/api/producers", "/api/benchmarks",
     "/api/compliance/fuels", "/api/orderbook/snapshot/unknown", "/api/listings/unknown",
 ])
-def test_excluded_paths_stay_python(route_owner, path):
-    assert route_owner("GET", path) == "python"
+def test_excluded_paths_reach_no_handle(route_owner, path):
+    assert route_owner("GET", path) == "primary"
 
 
 @pytest.mark.parametrize(
@@ -231,38 +232,35 @@ def test_excluded_paths_stay_python(route_owner, path):
         ("GET", "/api/stream/orderbook"),
     ],
 )
-def test_private_and_write_routes_stay_python(route_owner, method, path):
-    assert route_owner(method, path) == "python"
+def test_private_and_write_routes_find_no_handle(route_owner, method, path):
+    assert route_owner(method, path) == "primary"
 
 
 @pytest.mark.parametrize(("method", "path", "group"), CRUD_CASES)
 def test_crud_operations_follow_their_group(route_owner, method, path, group):
     """One group argument moves every one of its operations together."""
-    expected = "python" if route_owner.rollback == group else "rust"
+    expected = "second" if route_owner.moved == group else "primary"
     assert route_owner(method, path) == expected
-    # Slash variants stay on Python, which owns the redirect for every
-    # canonical Phase 2 path.
-    assert route_owner(method, path + "/") == "python"
+    # Slash variants find no handle; the site answers them.
+    assert route_owner(method, path + "/") == "primary"
 
 
-@pytest.mark.parametrize(("method", "path"), PYTHON_OWNED)
-def test_phase2_python_owned_paths_stay_python(route_owner, method, path):
-    assert route_owner(method, path) == "python"
+@pytest.mark.parametrize(("method", "path"), UNOWNED)
+def test_phase2_unowned_paths_reach_no_handle(route_owner, method, path):
+    assert route_owner(method, path) == "primary"
 
 
 def test_feedback_post_and_admin_get_share_one_group_argument(route_owner):
     """F01 and F02 must move together: one group argument owns both."""
-    rolled = route_owner.rollback == "FEEDBACK"
-    assert route_owner("POST", "/api/feedback") == ("python" if rolled else "rust")
-    assert route_owner("GET", "/api/admin/feedback") == ("python" if rolled else "rust")
-    # Another admin path never follows the feedback group.
-    assert route_owner("GET", "/api/admin/analytics") == "python"
+    moved = route_owner.moved == "FEEDBACK"
+    assert route_owner("POST", "/api/feedback") == ("second" if moved else "primary")
+    assert route_owner("GET", "/api/admin/feedback") == ("second" if moved else "primary")
 
 
 def test_r05_moves_with_referrals_without_gaining_authentication(route_owner):
     """R05 is public resolution; the split must not add an auth requirement."""
-    rolled = route_owner.rollback == "REFERRALS"
+    moved = route_owner.moved == "REFERRALS"
     # An unauthenticated probe still reaches the group's upstream: Caddy adds
     # no authentication, and a public route needs no bearer.
     assert route_owner("GET", "/api/referrals/resolve/CODE123") == (
-        "python" if rolled else "rust")
+        "second" if moved else "primary")

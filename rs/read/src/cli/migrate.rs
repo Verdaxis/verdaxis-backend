@@ -1,4 +1,4 @@
-//! `migrate`: the sqlx migration history that replaces Alembic (Phase 10 plan
+//! `migrate`: the sqlx migration history that replaced Alembic (Phase 10 plan
 //! section 8). This part holds the read-only pieces: the embedded migrator, the
 //! catalog fingerprint and `migrate status`.
 //!
@@ -38,7 +38,6 @@ pub async fn fingerprint(connection: &mut PgConnection) -> Result<String, sqlx::
         .map(|byte| format!("{byte:02x}"))
         .collect())
 }
-
 /// One row of the sqlx history as stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryRow {
@@ -51,8 +50,6 @@ pub struct HistoryRow {
 /// What `migrate status` reads. It never writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
-    /// The rows of `alembic_version`, in order; empty when the table is absent.
-    pub alembic: Vec<String>,
     /// The rows of `_sqlx_migrations`, by version; empty when the table is absent.
     pub history: Vec<HistoryRow>,
     /// Embedded versions that the history does not record as successful.
@@ -64,21 +61,14 @@ pub struct Status {
 
 impl Status {
     /// The revision literal the database is at: `sqlx_<highest successful
-    /// version>` once sqlx history exists, else the single Alembic literal.
+    /// version>` once sqlx history exists, otherwise nothing.
     pub fn revision(&self) -> Option<String> {
-        if let Some(last) = self
-            .history
+        self.history
             .iter()
             .filter(|row| row.success)
             .map(|row| row.version)
             .max()
-        {
-            return Some(sqlx_revision(last));
-        }
-        match self.alembic.as_slice() {
-            [single] => Some(single.clone()),
-            _ => None,
-        }
+            .map(sqlx_revision)
     }
 
     /// The one-line JSON report; no credential or database URL appears in it.
@@ -86,7 +76,6 @@ impl Status {
         serde_json::json!({
             "command": "migrate status",
             "revision": self.revision(),
-            "alembic": self.alembic,
             "applied": self.history.iter().filter(|row| row.success).map(|row| row.version).collect::<Vec<_>>(),
             "pending": self.pending,
             "foreign": self.foreign,
@@ -101,8 +90,8 @@ async fn table_exists(connection: &mut PgConnection, table: &str) -> Result<bool
         .await
 }
 
-/// Read the Alembic and sqlx histories and compare the sqlx history with the
-/// embedded migrations. Read-only.
+/// Read the sqlx history and compare it with the embedded migrations.
+/// Read-only.
 pub async fn status(connection: &mut PgConnection) -> Result<Status, sqlx::Error> {
     status_with(connection, &MIGRATOR).await
 }
@@ -112,13 +101,6 @@ pub async fn status_with(
     connection: &mut PgConnection,
     migrator: &Migrator,
 ) -> Result<Status, sqlx::Error> {
-    let alembic = if table_exists(connection, "alembic_version").await? {
-        sqlx::query_scalar("SELECT version_num FROM public.alembic_version ORDER BY version_num")
-            .fetch_all(&mut *connection)
-            .await?
-    } else {
-        Vec::new()
-    };
     let history: Vec<HistoryRow> = if table_exists(connection, HISTORY_TABLE).await? {
         sqlx::query(
             "SELECT version, description, success, checksum FROM public._sqlx_migrations ORDER BY version",
@@ -163,201 +145,10 @@ pub async fn status_with(
         .map(|migration| migration.version)
         .collect();
     Ok(Status {
-        alembic,
         history,
         pending,
         foreign,
     })
-}
-
-/// The compiled baseline manifest (`deploy/rust/sqlx-baseline.json`).
-const BASELINE_MANIFEST: &str = include_str!("../../../../deploy/rust/sqlx-baseline.json");
-
-/// The fields of the baseline manifest that adoption checks.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BaselineRecord {
-    pub alembic_head: String,
-    /// The catalog of an Alembic-built database (production, staging).
-    pub fingerprint: String,
-    pub file_sha256: String,
-}
-
-/// The manifest compiled into this binary.
-pub fn compiled_baseline() -> BaselineRecord {
-    let document: serde_json::Value =
-        serde_json::from_str(BASELINE_MANIFEST).expect("the compiled baseline manifest is JSON");
-    let text = |key: &str| {
-        document[key]
-            .as_str()
-            .unwrap_or_else(|| panic!("the compiled baseline manifest has no {key}"))
-            .to_owned()
-    };
-    BaselineRecord {
-        alembic_head: text("alembic_head"),
-        fingerprint: text("fingerprint"),
-        file_sha256: text("file_sha256"),
-    }
-}
-
-/// Why adoption refused. Every refusal happens before the first write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdoptionRefusal {
-    /// `alembic_version` is not exactly one row equal to the expected literal.
-    AlembicRevision,
-    /// The expected literal is not the head the baseline was cut from.
-    BaselineHead,
-    /// The sqlx history holds anything but the exact adoption row.
-    History,
-    /// An application schema is owned by a role other than the environment's
-    /// migrator.
-    SchemaOwner,
-    /// The live catalog differs from the baseline's Alembic-built catalog.
-    Fingerprint,
-    /// The embedded baseline file or migration list differs from the manifest.
-    EmbeddedBaseline,
-    Database,
-}
-
-impl From<sqlx::Error> for AdoptionRefusal {
-    fn from(_: sqlx::Error) -> Self {
-        Self::Database
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Adoption {
-    /// This run created the history with the version 1 row.
-    Adopted,
-    /// The exact adoption row was already there; nothing was written.
-    AlreadyAdopted,
-}
-
-/// The table definition sqlx itself creates for its history.
-const HISTORY_DDL: &str = "CREATE TABLE public._sqlx_migrations (\
-    version BIGINT PRIMARY KEY, \
-    description TEXT NOT NULL, \
-    installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), \
-    success BOOLEAN NOT NULL, \
-    checksum BYTEA NOT NULL, \
-    execution_time BIGINT NOT NULL)";
-
-fn baseline_migration() -> Result<&'static sqlx::migrate::Migration, AdoptionRefusal> {
-    let mut migrations = MIGRATOR.iter();
-    match (migrations.next(), migrations.next()) {
-        (Some(first), None) if first.version == 1 => Ok(first),
-        _ => Err(AdoptionRefusal::EmbeddedBaseline),
-    }
-}
-
-/// Every application schema is owned by exactly this environment's migrator
-/// role. The projection normalizes the owner (one manifest serves production
-/// and staging), so this separate exact assertion is what binds the owner.
-async fn schemas_owned_by_migrator(
-    connection: &mut PgConnection,
-    migrator_role: &str,
-) -> Result<bool, sqlx::Error> {
-    let mismatched = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) \
-         FROM pg_catalog.pg_namespace AS schema \
-         WHERE schema.nspname NOT LIKE 'pg\\_%' \
-           AND schema.nspname <> 'information_schema' \
-           AND NOT EXISTS ( \
-               SELECT 1 FROM pg_catalog.pg_depend AS dependency \
-               WHERE dependency.classid = 'pg_namespace'::regclass \
-                 AND dependency.objid = schema.oid AND dependency.deptype = 'e' \
-           ) \
-           AND pg_get_userbyid(schema.nspowner) <> $1",
-    )
-    .bind(migrator_role)
-    .fetch_one(&mut *connection)
-    .await?;
-    Ok(mismatched == 0)
-}
-
-/// Adopt an Alembic-built database into the sqlx history (plan section 8.4):
-/// every check runs before the first write, then one transaction creates the
-/// history table with sqlx's own definition and records version 1 with the
-/// embedded checksum. An exact earlier adoption is reported without a write.
-/// The database must be the named environment's: every application schema
-/// owner must equal that environment's migrator role (production
-/// `verdaxis_migrator`, staging `verdaxis_migrator_staging`).
-pub async fn adopt(
-    connection: &mut PgConnection,
-    environment: super::Environment,
-    expected_current: &str,
-    baseline: &BaselineRecord,
-) -> Result<Adoption, AdoptionRefusal> {
-    if check_adoption(connection, environment, expected_current, baseline).await? {
-        return Ok(Adoption::AlreadyAdopted);
-    }
-    let migration = baseline_migration()?;
-    let history_exists = table_exists(connection, HISTORY_TABLE).await?;
-    let mut transaction = connection.begin().await?;
-    if !history_exists {
-        sqlx::query(HISTORY_DDL).execute(&mut *transaction).await?;
-    }
-    sqlx::query(
-        "INSERT INTO public._sqlx_migrations \
-           (version, description, installed_on, success, checksum, execution_time) \
-         VALUES ($1, $2, now(), true, $3, 0)",
-    )
-    .bind(migration.version)
-    .bind(&*migration.description)
-    .bind(&*migration.checksum)
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    // Re-read and validate the committed adoption through the same gates.
-    if check_adoption(connection, environment, expected_current, baseline).await? {
-        Ok(Adoption::Adopted)
-    } else {
-        Err(AdoptionRefusal::History)
-    }
-}
-
-/// Validate adoption without writing; true means the exact row is present.
-async fn check_adoption(
-    connection: &mut PgConnection,
-    environment: super::Environment,
-    expected_current: &str,
-    baseline: &BaselineRecord,
-) -> Result<bool, AdoptionRefusal> {
-    let migration = baseline_migration()?;
-    let embedded_digest: String = Sha256::digest(migration.sql.as_str().as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    if embedded_digest != baseline.file_sha256 {
-        return Err(AdoptionRefusal::EmbeddedBaseline);
-    }
-    if expected_current != baseline.alembic_head {
-        return Err(AdoptionRefusal::BaselineHead);
-    }
-    let current = status(connection).await?;
-    if current.alembic.as_slice() != [expected_current.to_owned()] {
-        return Err(AdoptionRefusal::AlembicRevision);
-    }
-    let exact_adoption = |row: &HistoryRow| {
-        row.version == migration.version
-            && row.success
-            && row.checksum.as_slice() == &*migration.checksum
-            && row.description == migration.description
-    };
-    let adopted = match current.history.as_slice() {
-        [] => false,
-        [row] if exact_adoption(row) => true,
-        _ => return Err(AdoptionRefusal::History),
-    };
-    // The environment's own migrator must own the schemas before the catalog
-    // is compared: production and staging share one owner-normalized manifest.
-    let expected_roles = super::acl::roles(environment);
-    if !schemas_owned_by_migrator(connection, expected_roles.migrator_role).await? {
-        return Err(AdoptionRefusal::SchemaOwner);
-    }
-    if fingerprint(connection).await? != baseline.fingerprint {
-        return Err(AdoptionRefusal::Fingerprint);
-    }
-    Ok(adopted)
 }
 
 /// The approved exact current -> target transitions (`deploy/migration-checkpoints.tsv`).
@@ -452,9 +243,9 @@ fn sqlx_version(literal: &str) -> Option<i64> {
     digits.parse().ok()
 }
 
-/// Move an adopted database from `expected_current` to `target` (both
-/// `sqlx_<version>` literals) through the exact approved transition. Adoption
-/// itself is the separate `baseline` action. Without `apply` nothing is written.
+/// Move a database from `expected_current` to `target` (both
+/// `sqlx_<version>` literals) through the exact approved transition.
+/// Without `apply` nothing is written.
 pub async fn run_to_target(
     connection: &mut PgConnection,
     migrator: &Migrator,
@@ -507,61 +298,21 @@ pub async fn run_to_target(
     Ok(RunOutcome::Applied(due))
 }
 
-/// The revision literal adoption moves an Alembic-built database to.
-pub const ADOPTED_REVISION: &str = "sqlx_1";
-
-/// The compiled baseline and the environment it adopts: one manifest serves
-/// production and staging, and the environment's migrator role is the only
-/// accepted schema owner.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AdoptionBaseline<'a> {
-    pub record: &'a BaselineRecord,
-    pub environment: super::Environment,
-}
-
-/// One approved deploy transition (plan section 8.5), from any current
-/// literal the checkpoint policy names:
-///
-/// - `sqlx_<a>` -> `sqlx_<b>`: [`run_to_target`];
-/// - an Alembic literal to itself: no schema change; the database must report
-///   exactly that literal;
-/// - the baseline's Alembic head -> `sqlx_1`: adoption ([`adopt`]). A rerun
-///   after adoption committed finds the exact adoption row and writes nothing,
-///   so an interrupted deploy resumes with the same approval.
-///
-/// Any other Alembic upgrade is refused: it needs the Python schema tool,
-/// which a Python-free deploy does not run.
+/// One approved deploy transition (plan section 8.5): only `sqlx_<a>` ->
+/// `sqlx_<b>` literals run ([`run_to_target`]). An Alembic literal is never
+/// accepted: the adoption of an Alembic-built database into the sqlx history
+/// finished on both hosts, and an Alembic upgrade would need the Python
+/// schema tool, which a Python-free deploy does not run.
 pub async fn run_transition(
     connection: &mut PgConnection,
     migrator: &Migrator,
     policy: &TransitionPolicy,
-    baseline: AdoptionBaseline<'_>,
     expected_current: &str,
     target: &str,
     apply: bool,
 ) -> Result<RunOutcome, RunRefusal> {
     if !policy.allows(expected_current, target) {
         return Err(RunRefusal::Transition);
-    }
-    // The M no-change transition is still an adoption resume: recheck the
-    // retained final Alembic head, exact history and unchanged catalog. This
-    // path must not create history, even when called with --apply.
-    if expected_current == ADOPTED_REVISION && target == ADOPTED_REVISION {
-        return match check_adoption(
-            connection,
-            baseline.environment,
-            &baseline.record.alembic_head,
-            baseline.record,
-        )
-        .await
-        {
-            Ok(true) => Ok(RunOutcome::AtTarget),
-            Ok(false) => Err(RunRefusal::CurrentRevision),
-            Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
-            Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
-            Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
-            Err(_) => Err(RunRefusal::History),
-        };
     }
     match (sqlx_version(expected_current), sqlx_version(target)) {
         (Some(_), Some(_)) => {
@@ -575,58 +326,11 @@ pub async fn run_transition(
             )
             .await
         }
-        (None, None) if expected_current == target => {
-            let current = status_with(connection, migrator).await?;
-            if !current.foreign.is_empty() {
-                return Err(RunRefusal::History);
-            }
-            if current.revision().as_deref() == Some(expected_current) {
-                Ok(RunOutcome::AtTarget)
-            } else {
-                Err(RunRefusal::CurrentRevision)
-            }
-        }
-        (None, Some(_)) if target == ADOPTED_REVISION => {
-            if !apply {
-                return match check_adoption(
-                    connection,
-                    baseline.environment,
-                    expected_current,
-                    baseline.record,
-                )
-                .await
-                {
-                    Ok(false) => Ok(RunOutcome::WouldApply(vec![1])),
-                    Ok(true) => Ok(RunOutcome::AtTarget),
-                    Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
-                    Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
-                    Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
-                    Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
-                    Err(_) => Err(RunRefusal::History),
-                };
-            }
-            match adopt(
-                connection,
-                baseline.environment,
-                expected_current,
-                baseline.record,
-            )
-            .await
-            {
-                Ok(Adoption::Adopted) => Ok(RunOutcome::Applied(vec![1])),
-                Ok(Adoption::AlreadyAdopted) => Ok(RunOutcome::AtTarget),
-                Err(AdoptionRefusal::Database) => Err(RunRefusal::Database),
-                Err(AdoptionRefusal::AlembicRevision) => Err(RunRefusal::CurrentRevision),
-                Err(AdoptionRefusal::BaselineHead) => Err(RunRefusal::Target),
-                Err(AdoptionRefusal::SchemaOwner) => Err(RunRefusal::CurrentRevision),
-                Err(_) => Err(RunRefusal::History),
-            }
-        }
         _ => Err(RunRefusal::Target),
     }
 }
 
-/// What a deploy-owned `migrate baseline` or `migrate run --apply` must find:
+/// What a deploy-owned `migrate run --apply` must find:
 /// the deploy that runs it holds the deploy state and both deploy locks.
 pub struct DeployOwnership<'a> {
     /// The private deploy directory (`.runtime-deploy`).
@@ -757,17 +461,18 @@ where
     use super::{Exit, MigrationAction};
     let writes = match args.action {
         MigrationAction::Status => false,
-        MigrationAction::Baseline => true,
+        MigrationAction::Baseline => {
+            report("baseline", "not_available");
+            return Exit::Precondition;
+        }
         MigrationAction::Run => args.apply,
         MigrationAction::Verify => {
             report("verify", "not_available");
             return Exit::Precondition;
         }
     };
-    // `status` never writes; `baseline` always does and needs --apply.
-    if (args.action == MigrationAction::Status && args.apply)
-        || (args.action == MigrationAction::Baseline && !args.apply)
-    {
+    // `status` never writes.
+    if args.action == MigrationAction::Status && args.apply {
         return Exit::Usage;
     }
     // `--check` belongs to `status` and needs the literal it checks.
@@ -833,40 +538,12 @@ where
             }
             Err(_) => Exit::Dependency,
         },
-        MigrationAction::Baseline => {
-            let expected = args.expected_current.as_deref().unwrap_or_default();
-            match adopt(
-                &mut connection,
-                args.identity.environment,
-                expected,
-                &compiled_baseline(),
-            )
-            .await
-            {
-                Ok(Adoption::Adopted) => {
-                    report("baseline", "adopted");
-                    Exit::Ok
-                }
-                Ok(Adoption::AlreadyAdopted) => {
-                    report("baseline", "already_adopted");
-                    Exit::Ok
-                }
-                Err(AdoptionRefusal::Database) => Exit::Dependency,
-                Err(refusal) => {
-                    report("baseline", &format!("refused_{refusal:?}").to_lowercase());
-                    Exit::Precondition
-                }
-            }
-        }
+        MigrationAction::Baseline => Exit::Precondition,
         MigrationAction::Run => {
             let outcome = run_transition(
                 &mut connection,
                 &MIGRATOR,
                 &TransitionPolicy::compiled(),
-                AdoptionBaseline {
-                    record: &compiled_baseline(),
-                    environment: args.identity.environment,
-                },
                 args.expected_current.as_deref().unwrap_or_default(),
                 args.target.as_deref().unwrap_or_default(),
                 args.apply,

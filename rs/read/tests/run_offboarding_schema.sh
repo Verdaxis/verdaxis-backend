@@ -63,7 +63,7 @@ SQL
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test group_phase10 \
-  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
+  phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE=verdaxis_offboarding_test
 export PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw

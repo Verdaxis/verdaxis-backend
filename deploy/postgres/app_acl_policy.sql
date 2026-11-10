@@ -1,6 +1,6 @@
 -- Central declarative ACL policy for the runtime roles: the application role
 -- first, then the trusted-ingestion operator role (end of file).
--- alembic_version and extension objects remain outside governed application
+-- _sqlx_migrations and extension objects remain outside governed application
 -- objects. Seed, quarantine, and organization approval control tables are
 -- intentionally read-only to the app when those integration-owned tables
 -- exist. Unknown

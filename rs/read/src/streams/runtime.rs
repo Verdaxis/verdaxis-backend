@@ -29,6 +29,7 @@ pub fn schema_has_streams(revision: &str) -> bool {
             | "p89_20261022_trade_freeze"
             | "ob_20261031_offboarding"
             | "sqlx_1"
+            | "sqlx_2"
     )
 }
 const RESTART_COOLDOWN: Duration = Duration::from_secs(30);

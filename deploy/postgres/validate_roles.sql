@@ -1,16 +1,5 @@
 \set ON_ERROR_STOP on
 
--- Optional: bundle_reader_role, the pre-M bundle's read-only reader (plan
--- section 8.7). Absent or empty, no reader grant is expected.
-\if :{?bundle_reader_role}
-\else
-\set bundle_reader_role ''
-\endif
-SELECT 1 / (
-    :'bundle_reader_role' = ''
-    OR :'bundle_reader_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
-)::integer;
-
 SELECT 1 / (current_database() = :'database_name')::integer;
 SELECT 1 / (
     :'app_role' <> :'migrator_role'
@@ -39,45 +28,12 @@ SELECT pg_temp.assert_role_policy(
 FROM pg_catalog.pg_roles
 WHERE rolname IN (:'app_role', :'migrator_role', :'backup_role');
 
+-- The Alembic history is gone from every database the baseline builds and
+-- from every adopted database after the drop migration; a leftover table is
+-- refused instead of audited.
 SELECT pg_temp.assert_role_policy(
-    (
-        SELECT owner.rolname = :'migrator_role'
-        FROM pg_catalog.pg_class AS object
-        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-        JOIN pg_catalog.pg_roles AS owner ON owner.oid = object.relowner
-        WHERE namespace.nspname = 'public'
-          AND object.relname = 'alembic_version'
-          AND object.relkind IN ('r', 'p')
-    ),
-    'alembic_version migration-control table has wrong owner'
-);
-SELECT pg_temp.assert_role_policy(
-    NOT EXISTS (
-        WITH actual AS (
-            SELECT COALESCE(grantee.rolname, 'PUBLIC') AS grantee_name,
-                   acl.privilege_type,
-                   acl.is_grantable,
-                   grantor.rolname AS grantor_name
-            FROM pg_catalog.pg_class AS object
-            CROSS JOIN LATERAL aclexplode(
-                COALESCE(object.relacl, acldefault('r'::"char", object.relowner))
-            ) AS acl
-            LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-            JOIN pg_catalog.pg_roles AS grantor ON grantor.oid = acl.grantor
-            WHERE object.oid = 'public.alembic_version'::regclass
-              AND acl.grantee <> object.relowner
-        ), expected(grantee_name, privilege_type, is_grantable, grantor_name) AS (
-            VALUES (:'backup_role', 'SELECT', false, :'migrator_role'),
-                   (:'bundle_reader_role', 'SELECT', false, :'migrator_role')
-        ), differences AS (
-            (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
-            UNION ALL
-            (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
-        )
-        SELECT 1 FROM differences
-        WHERE :'bundle_reader_role' <> ''
-    ),
-    'alembic_version must grant exact read-only backup authority'
+    to_regclass('public.alembic_version') IS NULL,
+    'alembic_version must not remain after the sqlx cutover'
 );
 
 SELECT pg_temp.assert_role_policy(
@@ -173,7 +129,7 @@ FROM pg_catalog.pg_class AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p', 'S')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND object.relname NOT IN ('spatial_ref_sys')
   AND NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_depend AS dependency
       WHERE dependency.classid = 'pg_class'::regclass
@@ -365,7 +321,7 @@ SELECT pg_temp.assert_role_policy(
           AND object.relkind IN ('r', 'p')
           AND (
               object.relname IN (
-                  'alembic_version', 'spatial_ref_sys', 'seed_runs',
+                  'spatial_ref_sys', 'seed_runs',
                   'market_row_quarantines', 'organization_market_approvals',
                   'market_signal_ingestion_runs', 'market_indications',
                   'fair_price_bands', 'physical_stems',

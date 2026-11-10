@@ -1,17 +1,16 @@
-//! Phase 10 Task 6: `migrate status` and adoption of an Alembic-built database
-//! into the sqlx history, on the disposable PostgreSQL of `run_postgres.sh`.
+//! `migrate status` and `migrate run` on the disposable PostgreSQL of
+//! `run_postgres.sh`: the sqlx history, the approved transitions and every
+//! refusal. Adoption of an Alembic-built database is gone; a runner database
+//! is initialized with the embedded baseline by plain sqlx migration runs.
 //!
-//! Each case clones `RUST_ADOPTION_TEMPLATE_DATABASE` (Alembic-built at the
-//! baseline head and owned by the production migrator name) or creates an empty
-//! database, works as the migrator through `SET ROLE`, and drops its database.
+//! Each case creates an empty database, works as the migrator through
+//! `SET ROLE`, and drops its database.
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Row};
 use std::str::FromStr;
-use verdaxis_read::cli::Environment;
 use verdaxis_read::cli::migrate::{
-    Adoption, AdoptionBaseline, AdoptionRefusal, BaselineRecord, MIGRATOR, RunOutcome, RunRefusal,
-    TransitionPolicy, adopt, compiled_baseline, fingerprint, run_to_target, run_transition, status,
+    MIGRATOR, RunOutcome, RunRefusal, TransitionPolicy, run_to_target, run_transition,
     status_with,
 };
 
@@ -20,20 +19,6 @@ const MIGRATOR_ROLE: &str = "verdaxis_migrator";
 fn admin_url() -> String {
     std::env::var("RUST_TEMPLATE_ADMIN_DATABASE_URL")
         .expect("RUST_TEMPLATE_ADMIN_DATABASE_URL must name the disposable server")
-}
-
-/// The compiled baseline bound to an adopting environment. The manifest is
-/// compiled into the binary, so the record's backing storage is `'static`.
-fn baseline_with(environment: Environment) -> AdoptionBaseline<'static> {
-    let record: &'static BaselineRecord = Box::leak(Box::new(compiled_baseline()));
-    AdoptionBaseline {
-        record,
-        environment,
-    }
-}
-
-fn adoption_head() -> String {
-    std::env::var("RUST_ADOPTION_ALEMBIC_HEAD").expect("RUST_ADOPTION_ALEMBIC_HEAD")
 }
 
 async fn connect(database: &str) -> PgConnection {
@@ -57,21 +42,6 @@ async fn as_migrator(database: &str) -> PgConnection {
 
 fn case_name(label: &str) -> String {
     format!("verdaxis_migrate_{label}_{}", uuid::Uuid::new_v4().simple())
-}
-
-/// A copy of the Alembic-built template.
-async fn alembic_database(label: &str) -> String {
-    let template =
-        std::env::var("RUST_ADOPTION_TEMPLATE_DATABASE").expect("RUST_ADOPTION_TEMPLATE_DATABASE");
-    let name = case_name(label);
-    let mut admin = connect("postgres").await;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "CREATE DATABASE {name} TEMPLATE {template} OWNER {MIGRATOR_ROLE}"
-    )))
-    .execute(&mut admin)
-    .await
-    .expect("clone the Alembic-built template");
-    name
 }
 
 /// An empty database prepared as on the deployed hosts: PostGIS created by the
@@ -105,27 +75,6 @@ async fn drop_database(name: &str) {
     .expect("drop the case database");
 }
 
-/// The catalog of the history table: columns, constraints and indexes.
-async fn history_catalog(database: &str) -> Vec<String> {
-    let mut connection = connect(database).await;
-    sqlx::query_scalar(
-        "SELECT format('column|%s|%s|%s|%s', a.attname, format_type(a.atttypid, a.atttypmod), \
-                       a.attnotnull, COALESCE(pg_get_expr(d.adbin, d.adrelid), '')) \
-         FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
-         WHERE a.attrelid = 'public._sqlx_migrations'::regclass AND a.attnum > 0 AND NOT a.attisdropped \
-         UNION ALL \
-         SELECT format('constraint|%s|%s', contype, pg_get_constraintdef(oid)) \
-         FROM pg_constraint WHERE conrelid = 'public._sqlx_migrations'::regclass \
-         UNION ALL \
-         SELECT format('index|%s', regexp_replace(pg_get_indexdef(indexrelid), '^CREATE UNIQUE INDEX \\S+', 'CREATE UNIQUE INDEX')) \
-         FROM pg_index WHERE indrelid = 'public._sqlx_migrations'::regclass \
-         ORDER BY 1",
-    )
-    .fetch_all(&mut connection)
-    .await
-    .expect("history table catalog")
-}
-
 async fn history_rows(database: &str) -> Vec<(i64, String, bool, Vec<u8>, String)> {
     let mut connection = connect(database).await;
     sqlx::query(
@@ -148,552 +97,40 @@ async fn history_rows(database: &str) -> Vec<(i64, String, bool, Vec<u8>, String
     .collect()
 }
 
-async fn history_exists(database: &str) -> bool {
-    let mut connection = connect(database).await;
-    sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
-        .fetch_one(&mut connection)
-        .await
-        .expect("history table lookup")
-}
-
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn adoption_row_matches_sqlx_created_table() {
-    // sqlx creates its own history on an empty database...
-    let fresh = empty_database("fresh").await;
-    MIGRATOR
-        .run(&mut as_migrator(&fresh).await)
-        .await
-        .expect("sqlx runs the baseline on an empty database");
-    // ...and adoption creates it on an Alembic-built one.
-    let adopted = alembic_database("adopted").await;
-    let outcome = adopt(
-        &mut as_migrator(&adopted).await,
-        Environment::Production,
-        &adoption_head(),
-        &compiled_baseline(),
-    )
-    .await
-    .expect("adopt the Alembic-built database");
-    assert_eq!(outcome, Adoption::Adopted);
-    assert_eq!(
-        history_catalog(&adopted).await,
-        history_catalog(&fresh).await
-    );
-    drop_database(&fresh).await;
-    drop_database(&adopted).await;
-}
-
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn adoption_checksum_matches_sqlx() {
-    let embedded = MIGRATOR.iter().next().expect("the baseline migration");
-    let fresh = empty_database("checksum_fresh").await;
-    MIGRATOR
-        .run(&mut as_migrator(&fresh).await)
-        .await
-        .expect("sqlx runs the baseline");
-    let adopted = alembic_database("checksum_adopted").await;
-    adopt(
-        &mut as_migrator(&adopted).await,
-        Environment::Production,
-        &adoption_head(),
-        &compiled_baseline(),
-    )
-    .await
-    .expect("adopt");
-    let sqlx_row = history_rows(&fresh).await.remove(0);
-    let adopted_row = history_rows(&adopted).await.remove(0);
-    assert_eq!(adopted_row.3, &*embedded.checksum, "adoption checksum");
-    assert_eq!(adopted_row.3, sqlx_row.3, "sqlx's own row");
-    assert_eq!(
-        (adopted_row.0, &adopted_row.1, adopted_row.2),
-        (sqlx_row.0, &sqlx_row.1, sqlx_row.2)
-    );
-    drop_database(&fresh).await;
-    drop_database(&adopted).await;
-}
-
+/// The sqlx baseline leaves no Alembic history behind: a database built from
+/// the embedded migrations reports only sqlx revisions.
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn migrate_status_is_read_only_and_reports_pending() {
-    let database = alembic_database("status").await;
-    let before = fingerprint(&mut connect(&database).await)
+    let database = empty_database("status").await;
+    MIGRATOR
+        .run(&mut as_migrator(&database).await)
         .await
-        .expect("fingerprint");
-    let report = status(&mut as_migrator(&database).await)
+        .expect("apply the embedded migrations");
+    let report = status_with(&mut connect(&database).await, &MIGRATOR)
         .await
         .expect("status");
-    assert_eq!(report.alembic, vec![adoption_head()]);
-    assert!(report.history.is_empty());
-    assert_eq!(report.pending, vec![1]);
+    assert_eq!(report.revision(), Some("sqlx_2".into()));
+    assert!(report.pending.is_empty());
     assert!(report.foreign.is_empty());
-    assert_eq!(report.revision(), Some(adoption_head()));
+    drop_database(&database).await;
+
+    // An empty database has no history: everything is pending, and reading
+    // the status writes nothing.
+    let database = empty_database("status_empty").await;
+    let report = status_with(&mut as_migrator(&database).await, &MIGRATOR)
+        .await
+        .expect("status");
+    assert_eq!(report.revision(), None);
+    assert_eq!(report.pending, vec![1, 2]);
+    assert!(report.foreign.is_empty());
     assert!(
-        !history_exists(&database).await,
+        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
+            .fetch_one(&mut connect(&database).await)
+            .await
+            .expect("history table lookup"),
         "status created the history table"
     );
-    assert_eq!(
-        fingerprint(&mut connect(&database).await)
-            .await
-            .expect("fingerprint"),
-        before
-    );
-    drop_database(&database).await;
-}
-
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn baseline_refuses_wrong_head_fingerprint_or_foreign_failed_history() {
-    let baseline = compiled_baseline();
-
-    let database = alembic_database("wrong_head").await;
-    let refused = adopt(
-        &mut as_migrator(&database).await,
-        Environment::Production,
-        "p5_20261020_read_indexes",
-        &baseline,
-    )
-    .await;
-    assert_eq!(refused, Err(AdoptionRefusal::BaselineHead));
-    let mut other_head = baseline.clone();
-    other_head.alembic_head = "p5_20261020_read_indexes".into();
-    let refused = adopt(
-        &mut as_migrator(&database).await,
-        Environment::Production,
-        "p5_20261020_read_indexes",
-        &other_head,
-    )
-    .await;
-    assert_eq!(refused, Err(AdoptionRefusal::AlembicRevision));
-    assert!(!history_exists(&database).await);
-    drop_database(&database).await;
-
-    let database = alembic_database("catalog").await;
-    sqlx::raw_sql("ALTER TABLE public.products ADD COLUMN adoption_probe integer")
-        .execute(&mut as_migrator(&database).await)
-        .await
-        .expect("change the catalog");
-    let refused = adopt(
-        &mut as_migrator(&database).await,
-        Environment::Production,
-        &adoption_head(),
-        &baseline,
-    )
-    .await;
-    assert_eq!(refused, Err(AdoptionRefusal::Fingerprint));
-    assert!(!history_exists(&database).await);
-    drop_database(&database).await;
-
-    let embedded = MIGRATOR.iter().next().expect("the baseline migration");
-    for (label, version, success, checksum) in [
-        ("failed", 1_i64, false, embedded.checksum.to_vec()),
-        ("foreign", 2, true, vec![0_u8; 48]),
-        ("checksum", 1, true, vec![0_u8; 48]),
-    ] {
-        let database = alembic_database(label).await;
-        let mut connection = as_migrator(&database).await;
-        sqlx::raw_sql(
-            "CREATE TABLE public._sqlx_migrations (version BIGINT PRIMARY KEY, description TEXT NOT NULL, \
-             installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), success BOOLEAN NOT NULL, \
-             checksum BYTEA NOT NULL, execution_time BIGINT NOT NULL)",
-        )
-        .execute(&mut connection)
-        .await
-        .expect("a pre-existing history");
-        sqlx::query(
-            "INSERT INTO public._sqlx_migrations (version, description, success, checksum, execution_time) \
-             VALUES ($1, 'baseline', $2, $3, 0)",
-        )
-        .bind(version)
-        .bind(success)
-        .bind(&checksum)
-        .execute(&mut connection)
-        .await
-        .expect("seed the history row");
-        let before = history_rows(&database).await;
-        let refused = adopt(
-            &mut as_migrator(&database).await,
-            Environment::Production,
-            &adoption_head(),
-            &baseline,
-        )
-        .await;
-        assert_eq!(refused, Err(AdoptionRefusal::History), "{label}");
-        assert_eq!(
-            history_rows(&database).await,
-            before,
-            "{label}: history changed"
-        );
-        drop_database(&database).await;
-    }
-}
-
-/// The catalog projection names one owner placeholder, so adoption separately
-/// binds every application schema owner to the adopting environment's
-/// migrator role: production passes as `verdaxis_migrator`, staging as
-/// `verdaxis_migrator_staging`, and each role fails on the other environment.
-/// A third owner fails on both. Every refusal happens before any write.
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn adoption_binds_schema_owners_to_the_environment_migrator() {
-    let baseline = compiled_baseline();
-
-    // The template's schemas are owned by the production migrator: production
-    // adopts, staging refuses.
-    let database = alembic_database("owner_prod").await;
-    assert_eq!(
-        adopt(
-            &mut as_migrator(&database).await,
-            Environment::Production,
-            &adoption_head(),
-            &baseline,
-        )
-        .await,
-        Ok(Adoption::Adopted)
-    );
-    drop_database(&database).await;
-    let database = alembic_database("owner_staging").await;
-    let refused = adopt(
-        &mut as_migrator(&database).await,
-        Environment::Staging,
-        &adoption_head(),
-        &baseline,
-    )
-    .await;
-    assert_eq!(refused, Err(AdoptionRefusal::SchemaOwner));
-    assert!(!history_exists(&database).await, "refusal wrote nothing");
-
-    // A staging-owned database: staging adopts, production refuses. A template
-    // clone keeps the template's schema owner, so the copy reassigns the
-    // schema exactly as a real staging migration builds it.
-    let staging_name = case_name("owner_staging_owned");
-    let mut admin = connect("postgres").await;
-    sqlx::raw_sql(
-        "DO $$ BEGIN \
-           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'verdaxis_migrator_staging') THEN \
-             CREATE ROLE verdaxis_migrator_staging NOLOGIN; \
-           END IF; \
-         END $$",
-    )
-    .execute(&mut admin)
-    .await
-    .expect("the staging migrator role");
-    // CREATE DATABASE cannot share a statement batch: a batch is one transaction.
-    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
-        "CREATE DATABASE {staging_name} TEMPLATE {}",
-        std::env::var("RUST_ADOPTION_TEMPLATE_DATABASE").expect("RUST_ADOPTION_TEMPLATE_DATABASE")
-    )))
-    .execute(&mut admin)
-    .await
-    .expect("create the staging clone");
-    sqlx::raw_sql(sqlx::AssertSqlSafe(
-        "ALTER SCHEMA public OWNER TO verdaxis_migrator_staging".to_string(),
-    ))
-    .execute(&mut connect(&staging_name).await)
-    .await
-    .expect("hand the schema to the staging migrator");
-    drop(admin);
-    let refused = adopt(
-        &mut as_migrator(&staging_name).await,
-        Environment::Production,
-        &adoption_head(),
-        &baseline,
-    )
-    .await;
-    assert_eq!(refused, Err(AdoptionRefusal::SchemaOwner));
-    assert!(
-        !history_exists(&staging_name).await,
-        "refusal wrote nothing"
-    );
-    assert_eq!(
-        adopt(
-            // The gate binds schema owners, not the connecting role: the same
-            // staging-owned database accepts staging from any connection that
-            // can write, and the adoption row lands exactly.
-            &mut connect(&staging_name).await,
-            Environment::Staging,
-            &adoption_head(),
-            &baseline,
-        )
-        .await,
-        Ok(Adoption::Adopted)
-    );
-    let history = history_rows(&staging_name).await;
-    assert_eq!(history.len(), 1);
-    drop_database(&staging_name).await;
-
-    // A third owner fails on both environments.
-    let database = alembic_database("owner_third").await;
-    sqlx::raw_sql(
-        "DO $$ BEGIN \
-           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'verdaxis_migrator_third') THEN \
-             CREATE ROLE verdaxis_migrator_third NOLOGIN; \
-           END IF; \
-         END $$; \
-         ALTER SCHEMA public OWNER TO verdaxis_migrator_third",
-    )
-    .execute(&mut connect(&database).await)
-    .await
-    .expect("hand the schema to a third owner");
-    for environment in [Environment::Production, Environment::Staging] {
-        let refused = adopt(
-            &mut as_migrator(&database).await,
-            environment,
-            &adoption_head(),
-            &baseline,
-        )
-        .await;
-        assert_eq!(
-            refused,
-            Err(AdoptionRefusal::SchemaOwner),
-            "{environment:?}"
-        );
-    }
-    assert!(!history_exists(&database).await, "refusal wrote nothing");
-    drop_database(&database).await;
-}
-
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn exact_adoption_resume_is_read_only_and_idempotent() {
-    let database = alembic_database("resume").await;
-    let baseline = compiled_baseline();
-    assert_eq!(
-        adopt(
-            &mut as_migrator(&database).await,
-            Environment::Production,
-            &adoption_head(),
-            &baseline
-        )
-        .await,
-        Ok(Adoption::Adopted)
-    );
-    let first = history_rows(&database).await;
-    assert_eq!(first.len(), 1);
-    for _ in 0..2 {
-        assert_eq!(
-            adopt(
-                &mut as_migrator(&database).await,
-                Environment::Production,
-                &adoption_head(),
-                &baseline
-            )
-            .await,
-            Ok(Adoption::AlreadyAdopted)
-        );
-        assert_eq!(
-            history_rows(&database).await,
-            first,
-            "a resume changed the history"
-        );
-    }
-    let report = status(&mut connect(&database).await).await.expect("status");
-    assert!(report.pending.is_empty() && report.foreign.is_empty());
-    assert_eq!(report.revision(), Some("sqlx_1".into()));
-    let rules = TransitionPolicy::compiled();
-    assert!(rules.allows(&adoption_head(), "sqlx_1"));
-    for apply in [false, true] {
-        assert_eq!(
-            run_transition(
-                &mut as_migrator(&database).await,
-                &MIGRATOR,
-                &rules,
-                baseline_with(Environment::Production),
-                "sqlx_1",
-                "sqlx_1",
-                apply,
-            )
-            .await,
-            Ok(RunOutcome::AtTarget)
-        );
-        assert_eq!(history_rows(&database).await, first);
-    }
-    // An intact sqlx row does not excuse a changed retained Alembic head.
-    sqlx::query("UPDATE public.alembic_version SET version_num = 'unexpected'")
-        .execute(&mut as_migrator(&database).await)
-        .await
-        .expect("change the disposable retained head");
-    assert_eq!(
-        run_transition(
-            &mut as_migrator(&database).await,
-            &MIGRATOR,
-            &rules,
-            baseline_with(Environment::Production),
-            "sqlx_1",
-            "sqlx_1",
-            true,
-        )
-        .await,
-        Err(RunRefusal::CurrentRevision)
-    );
-    assert_eq!(history_rows(&database).await, first);
-    sqlx::query("UPDATE public.alembic_version SET version_num = $1")
-        .bind(&baseline.alembic_head)
-        .execute(&mut as_migrator(&database).await)
-        .await
-        .expect("restore the disposable retained head");
-    sqlx::query("CREATE TABLE public.resume_catalog_change (id integer)")
-        .execute(&mut as_migrator(&database).await)
-        .await
-        .expect("change the disposable catalog");
-    assert_eq!(
-        run_transition(
-            &mut as_migrator(&database).await,
-            &MIGRATOR,
-            &rules,
-            baseline_with(Environment::Production),
-            "sqlx_1",
-            "sqlx_1",
-            false,
-        )
-        .await,
-        Err(RunRefusal::History)
-    );
-    assert_eq!(history_rows(&database).await, first);
-    drop_database(&database).await;
-}
-
-/// Task 7: the deploy runs one approved transition from any current literal.
-/// An Alembic literal to itself is a verify-only deploy; the baseline head to
-/// `sqlx_1` is adoption; any other Alembic upgrade is refused, because it
-/// needs the Python schema tool. Nothing is written by a refusal or a dry run.
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn deploy_transitions_cover_alembic_no_change_and_adoption() {
-    let database = alembic_database("transition").await;
-    let head = adoption_head();
-    let older = "p5_20261020_read_indexes";
-    let rules = policy(&[
-        (head.as_str(), head.as_str()),
-        (head.as_str(), "sqlx_1"),
-        (older, older),
-        (older, head.as_str()),
-    ]);
-    let transition = |current: &str, target: &str, apply: bool| {
-        let (database, rules, current, target) = (
-            database.clone(),
-            &rules,
-            current.to_owned(),
-            target.to_owned(),
-        );
-        async move {
-            run_transition(
-                &mut as_migrator(&database).await,
-                &MIGRATOR,
-                rules,
-                baseline_with(Environment::Production),
-                &current,
-                &target,
-                apply,
-            )
-            .await
-        }
-    };
-
-    assert_eq!(
-        transition(&head, &head, true).await,
-        Ok(RunOutcome::AtTarget)
-    );
-    assert_eq!(
-        transition(older, older, true).await,
-        Err(RunRefusal::CurrentRevision),
-        "a no-change deploy checks the exact current literal"
-    );
-    assert_eq!(
-        transition(older, &head, true).await,
-        Err(RunRefusal::Target),
-        "an Alembic upgrade needs the Python schema tool"
-    );
-    assert_eq!(
-        transition(&head, "sqlx_2", true).await,
-        Err(RunRefusal::Transition),
-        "an unlisted pair is refused before anything else"
-    );
-    assert_eq!(
-        transition(&head, "sqlx_1", false).await,
-        Ok(RunOutcome::WouldApply(vec![1]))
-    );
-    assert!(!history_exists(&database).await, "no write before adoption");
-
-    assert_eq!(
-        transition(&head, "sqlx_1", true).await,
-        Ok(RunOutcome::Applied(vec![1]))
-    );
-    assert_eq!(history_rows(&database).await.len(), 1);
-    drop_database(&database).await;
-}
-
-/// Carried from Task 6. Adoption has three publication boundaries: inside its
-/// one transaction (an interruption rolls everything back), after its commit
-/// (the deploy has not recorded success) and after the deploy published the
-/// new revision. A rerun with the same approval adopts once and then reports
-/// `AtTarget` without a write; a stale no-change approval is refused.
-#[tokio::test]
-#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
-async fn adoption_commit_then_interruption_resumes_each_publication_boundary() {
-    let database = alembic_database("interrupt").await;
-    let head = adoption_head();
-    let rules = policy(&[(head.as_str(), head.as_str()), (head.as_str(), "sqlx_1")]);
-    let adopt_once = || {
-        let (database, rules, head) = (database.clone(), &rules, head.clone());
-        async move {
-            run_transition(
-                &mut as_migrator(&database).await,
-                &MIGRATOR,
-                rules,
-                baseline_with(Environment::Production),
-                &head,
-                "sqlx_1",
-                true,
-            )
-            .await
-        }
-    };
-
-    // Boundary 1: the process dies inside the adoption transaction, after the
-    // history table and row exist but before COMMIT.
-    {
-        let mut connection = as_migrator(&database).await;
-        let mut transaction = connection.begin().await.expect("begin");
-        sqlx::raw_sql(
-            "CREATE TABLE public._sqlx_migrations (version BIGINT PRIMARY KEY, \
-             description TEXT NOT NULL, installed_on TIMESTAMPTZ NOT NULL DEFAULT now(), \
-             success BOOLEAN NOT NULL, checksum BYTEA NOT NULL, execution_time BIGINT NOT NULL); \
-             INSERT INTO public._sqlx_migrations (version, description, success, checksum, execution_time) \
-             VALUES (1, 'baseline', true, '\\x00', 0);",
-        )
-        .execute(&mut *transaction)
-        .await
-        .expect("the interrupted adoption writes");
-        drop(transaction);
-        drop(connection);
-    }
-    assert!(
-        !history_exists(&database).await,
-        "an uncommitted adoption leaves nothing"
-    );
-    assert_eq!(adopt_once().await, Ok(RunOutcome::Applied(vec![1])));
-    let adopted = history_rows(&database).await;
-
-    // Boundaries 2 and 3: after COMMIT, and after the deploy published
-    // `sqlx_1`. The same approval resumes without a write.
-    for _ in 0..2 {
-        assert_eq!(adopt_once().await, Ok(RunOutcome::AtTarget));
-        assert_eq!(history_rows(&database).await, adopted, "a resume wrote");
-    }
-    // A stale no-change approval for the old head no longer matches.
-    let stale = run_transition(
-        &mut as_migrator(&database).await,
-        &MIGRATOR,
-        &rules,
-        baseline_with(Environment::Production),
-        &head,
-        &head,
-        true,
-    )
-    .await;
-    assert_eq!(stale, Err(RunRefusal::CurrentRevision));
     drop_database(&database).await;
 }
 
@@ -702,17 +139,23 @@ async fn migrator_with_second_version() -> Migrator {
     migrator_with_second_migration("CREATE TABLE public.migrate_probe (id integer);\n").await
 }
 
-/// The embedded baseline plus a second migration with `sql`, in a fresh folder.
+/// The embedded migrations plus one more with `sql`, in a fresh folder.
 async fn migrator_with_second_migration(sql: &str) -> Migrator {
     let folder = std::env::temp_dir().join(format!(
         "verdaxis-migrations-{}",
         uuid::Uuid::new_v4().simple()
     ));
     std::fs::create_dir_all(&folder).expect("migration folder");
-    let baseline = MIGRATOR.iter().next().expect("the baseline migration");
-    std::fs::write(folder.join("1_baseline.sql"), baseline.sql.as_str())
-        .expect("copy the baseline");
-    std::fs::write(folder.join("2_migrate_probe.sql"), sql).expect("write the second migration");
+    for migration in MIGRATOR.iter() {
+        let name = format!(
+            "{}_{}.sql",
+            migration.version,
+            migration.description.replace(' ', "_")
+        );
+        std::fs::write(folder.join(name), migration.sql.as_str())
+            .expect("copy an embedded migration");
+    }
+    std::fs::write(folder.join("9_migrate_probe.sql"), sql).expect("write the extra migration");
     let migrator = Migrator::new(folder.as_path())
         .await
         .expect("read the migration folder");
@@ -728,20 +171,6 @@ fn policy(rows: &[(&str, &str)]) -> TransitionPolicy {
     TransitionPolicy::parse(&text).expect("a test policy")
 }
 
-/// An Alembic-built database adopted at `sqlx_1`.
-async fn adopted_database(label: &str) -> String {
-    let database = alembic_database(label).await;
-    adopt(
-        &mut as_migrator(&database).await,
-        Environment::Production,
-        &adoption_head(),
-        &compiled_baseline(),
-    )
-    .await
-    .expect("adopt");
-    database
-}
-
 async fn probe_exists(database: &str) -> bool {
     let mut connection = connect(database).await;
     sqlx::query_scalar("SELECT to_regclass('public.migrate_probe') IS NOT NULL")
@@ -750,39 +179,50 @@ async fn probe_exists(database: &str) -> bool {
         .expect("probe lookup")
 }
 
+/// A database at the newest embedded migration.
+async fn migrated_database(label: &str) -> String {
+    let database = empty_database(label).await;
+    MIGRATOR
+        .run(&mut as_migrator(&database).await)
+        .await
+        .expect("apply the embedded migrations");
+    database
+}
+
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn run_to_exact_approved_target_is_idempotent() {
-    let database = adopted_database("run").await;
+    let database = migrated_database("run").await;
+    let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
     let second = migrator_with_second_version().await;
     let rules = policy(&[
-        ("sqlx_1", "sqlx_1"),
-        ("sqlx_1", "sqlx_2"),
-        ("sqlx_2", "sqlx_2"),
+        (&head, &head),
+        (&head, "sqlx_9"),
+        ("sqlx_9", "sqlx_9"),
     ]);
 
-    let at_baseline = run_to_target(
+    let at_head = run_to_target(
         &mut as_migrator(&database).await,
         &MIGRATOR,
         &rules,
-        "sqlx_1",
-        "sqlx_1",
+        &head,
+        &head,
         true,
     )
     .await;
-    assert_eq!(at_baseline, Ok(RunOutcome::AtTarget));
+    assert_eq!(at_head, Ok(RunOutcome::AtTarget));
 
     let before = history_rows(&database).await;
     let dry = run_to_target(
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_1",
-        "sqlx_2",
+        &head,
+        "sqlx_9",
         false,
     )
     .await;
-    assert_eq!(dry, Ok(RunOutcome::WouldApply(vec![2])));
+    assert_eq!(dry, Ok(RunOutcome::WouldApply(vec![9])));
     assert_eq!(
         history_rows(&database).await,
         before,
@@ -797,17 +237,17 @@ async fn run_to_exact_approved_target_is_idempotent() {
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_1",
-        "sqlx_2",
+        &head,
+        "sqlx_9",
         true,
     )
     .await;
-    assert_eq!(applied, Ok(RunOutcome::Applied(vec![2])));
+    assert_eq!(applied, Ok(RunOutcome::Applied(vec![9])));
     assert!(probe_exists(&database).await);
     let report = status_with(&mut connect(&database).await, &second)
         .await
         .expect("status");
-    assert_eq!(report.revision(), Some("sqlx_2".into()));
+    assert_eq!(report.revision(), Some("sqlx_9".into()));
     assert!(report.pending.is_empty() && report.foreign.is_empty());
 
     let after = history_rows(&database).await;
@@ -815,8 +255,8 @@ async fn run_to_exact_approved_target_is_idempotent() {
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_2",
-        "sqlx_2",
+        "sqlx_9",
+        "sqlx_9",
         true,
     )
     .await;
@@ -826,15 +266,15 @@ async fn run_to_exact_approved_target_is_idempotent() {
         after,
         "a repeat changed the history"
     );
-    // Task 7: a deploy interrupted after the migration committed reruns with
-    // the same approval (sqlx_1 -> sqlx_2). The database is at the target, so
-    // the rerun reports it without a write.
+    // A deploy interrupted after the migration committed reruns with the same
+    // approval. The database is at the target, so the rerun reports it without
+    // a write.
     let resumed = run_to_target(
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_1",
-        "sqlx_2",
+        &head,
+        "sqlx_9",
         true,
     )
     .await;
@@ -859,29 +299,30 @@ type RefusalCase<'a> = (
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn unapproved_transition_or_pending_version_refuses_before_mutation() {
+    let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
     let second = migrator_with_second_version().await;
-    let database = adopted_database("refuse").await;
+    let database = migrated_database("refuse").await;
     let before = history_rows(&database).await;
     let cases: [RefusalCase<'_>; 4] = [
         (
             "unlisted pair",
-            &[("sqlx_1", "sqlx_1")],
-            "sqlx_1",
-            "sqlx_2",
+            &[(&head, &head)],
+            &head,
+            "sqlx_9",
             RunRefusal::Transition,
         ),
         (
             "wrong current",
-            &[("sqlx_2", "sqlx_2")],
-            "sqlx_2",
-            "sqlx_2",
+            &[("sqlx_9", "sqlx_9")],
+            "sqlx_9",
+            "sqlx_9",
             RunRefusal::CurrentRevision,
         ),
         (
             "unknown target",
-            &[("sqlx_1", "sqlx_3")],
-            "sqlx_1",
-            "sqlx_3",
+            &[(&head, "sqlx_99")],
+            &head,
+            "sqlx_99",
             RunRefusal::Target,
         ),
         (
@@ -913,22 +354,22 @@ async fn unapproved_transition_or_pending_version_refuses_before_mutation() {
     drop_database(&database).await;
 
     // A failed row for a pending version makes the history foreign: refused.
-    let database = adopted_database("foreign_run").await;
+    let database = migrated_database("foreign_run").await;
     sqlx::raw_sql(
         "INSERT INTO public._sqlx_migrations (version, description, success, checksum, execution_time) \
-         VALUES (2, 'migrate probe', false, '\\x00', 0)",
+         VALUES (9, 'migrate probe', false, '\\x00', 0)",
     )
     .execute(&mut as_migrator(&database).await)
     .await
     .expect("seed a failed row");
     let before = history_rows(&database).await;
-    let rules = policy(&[("sqlx_1", "sqlx_2")]);
+    let rules = policy(&[(&head, "sqlx_9")]);
     let outcome = run_to_target(
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_1",
-        "sqlx_2",
+        &head,
+        "sqlx_9",
         true,
     )
     .await;
@@ -938,15 +379,68 @@ async fn unapproved_transition_or_pending_version_refuses_before_mutation() {
     drop_database(&database).await;
 }
 
+/// An Alembic literal is refused everywhere: the adoption finished and no
+/// Python schema tool runs. Even a listed pair refuses when either literal is
+/// not a sqlx revision, and an unlisted pair refuses before anything else.
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn alembic_literals_are_refused_everywhere() {
+    let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
+    let database = migrated_database("alembic_refused").await;
+    let before = history_rows(&database).await;
+    for (current, target) in [
+        ("ob_20261031_offboarding", "sqlx_1"),
+        ("ob_20261031_offboarding", "ob_20261031_offboarding"),
+        (&head, "ob_20261031_offboarding"),
+    ] {
+        assert_eq!(
+            run_transition(
+                &mut as_migrator(&database).await,
+                &MIGRATOR,
+                &policy(&[(current, target), ("ob_20261031_offboarding", "sqlx_1")]),
+                current,
+                target,
+                true,
+            )
+            .await,
+            Err(RunRefusal::Target),
+            "{current} -> {target}"
+        );
+        // The exact adoption pair is still listed in the compiled policy for
+        // the databases that have not yet applied the drop migration, but an
+        // Alembic current never runs.
+        if (current, target) == ("ob_20261031_offboarding", "sqlx_1") {
+            assert!(TransitionPolicy::compiled().allows(current, target));
+        }
+        assert_eq!(
+            history_rows(&database).await,
+            before,
+            "{current} -> {target}: history changed"
+        );
+    }
+    // An unlisted Alembic pair is refused before anything else.
+    assert_eq!(
+        run_transition(
+            &mut as_migrator(&database).await,
+            &MIGRATOR,
+            &policy(&[("sqlx_1", "sqlx_1")]),
+            "p89_20261022_trade_freeze",
+            "sqlx_2",
+            true,
+        )
+        .await,
+        Err(RunRefusal::Transition)
+    );
+    drop_database(&database).await;
+}
+
 #[test]
-fn compiled_policy_parses_and_keeps_the_alembic_rows() {
+fn compiled_policy_parses_and_keeps_the_sqlx_rows() {
     let compiled = TransitionPolicy::compiled();
-    assert!(compiled.allows(
-        "p5_20261020_read_indexes",
-        "p89_20261022_watchlist_producer"
-    ));
-    assert!(compiled.allows("p89_20261022_trade_freeze", "p89_20261022_trade_freeze"));
-    assert!(!compiled.allows("p89_20261022_trade_freeze", "head"));
+    assert!(compiled.allows("sqlx_1", "sqlx_1"));
+    assert!(compiled.allows("sqlx_1", "sqlx_2"));
+    assert!(!compiled.allows("ob_20261031_offboarding", "sqlx_2"));
+    assert!(!compiled.allows("sqlx_2", "head"));
     assert!(
         TransitionPolicy::parse("a\tHEAD\n").is_none(),
         "an alias or upper case parsed"
@@ -1093,8 +587,7 @@ fn production_literal_and_allowlist_move_together() {
             "{revision} is not allowed"
         );
     }
-    // The sqlx cutover moves the production literal and the allowlist together:
-    // a sqlx literal is in both or in neither, and names an embedded version.
+    // A sqlx literal is in both or in neither, and names an embedded version.
     let sqlx_production: Vec<&str> = PRODUCTION_REVISIONS
         .iter()
         .copied()
@@ -1120,10 +613,11 @@ fn production_literal_and_allowlist_move_together() {
 #[tokio::test]
 #[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
 async fn migrate_and_app_request_do_not_half_apply() {
+    let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
     let two_changes = "CREATE TABLE public.migrate_probe (id integer);\n\
                        ALTER TABLE public.products ADD COLUMN migrate_probe_flag boolean;\n";
     let second = migrator_with_second_migration(two_changes).await;
-    let rules = policy(&[("sqlx_1", "sqlx_2")]);
+    let rules = policy(&[(&head, "sqlx_9")]);
     // Both changes, read by the application in one statement (one snapshot).
     // Both facts are read from the catalog tables under the statement's one
     // snapshot. `to_regclass` would consult the catalog cache instead, whose
@@ -1131,14 +625,14 @@ async fn migrate_and_app_request_do_not_half_apply() {
     let observe = "SELECT EXISTS (SELECT 1 FROM pg_class c \
                                   JOIN pg_namespace n ON n.oid = c.relnamespace \
                                   WHERE n.nspname = 'public' AND c.relname = 'migrate_probe'), \
-                   EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
+                   EXISTS (SELECT 1 FROM pg_attribute a JOIN pg_class c ON a.oid = a.attrelid \
                            JOIN pg_namespace n ON n.oid = c.relnamespace \
                            WHERE n.nspname = 'public' AND c.relname = 'products' \
                              AND a.attname = 'migrate_probe_flag' AND NOT a.attisdropped)";
 
     // 1. An application lock blocks the migration: it fails whole, with no
     //    history row and neither change.
-    let database = adopted_database("blocked").await;
+    let database = migrated_database("blocked").await;
     let mut app = connect(&database).await;
     sqlx::raw_sql("BEGIN; SELECT count(*) FROM public.products;")
         .execute(&mut app)
@@ -1149,7 +643,7 @@ async fn migrate_and_app_request_do_not_half_apply() {
         .execute(&mut migrator)
         .await
         .expect("a short lock wait");
-    let blocked = run_to_target(&mut migrator, &second, &rules, "sqlx_1", "sqlx_2", true).await;
+    let blocked = run_to_target(&mut migrator, &second, &rules, &head, "sqlx_9", true).await;
     assert_eq!(
         blocked,
         Err(RunRefusal::Database),
@@ -1175,12 +669,12 @@ async fn migrate_and_app_request_do_not_half_apply() {
     let report = status_with(&mut connect(&database).await, &second)
         .await
         .expect("status");
-    assert_eq!(report.revision(), Some("sqlx_1".into()));
-    assert_eq!(report.pending, vec![2]);
+    assert_eq!(report.revision(), Some(head.clone()));
+    assert_eq!(report.pending, vec![9]);
     assert!(report.foreign.is_empty(), "a failed run left a history row");
 
     // 2. Once released, a retry applies both changes, and an application that
-    //    reads throughout sees neither or both, never one.
+    // reads throughout sees neither or both, never one.
     let watcher_database = database.clone();
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let watcher_stop = stop.clone();
@@ -1205,14 +699,14 @@ async fn migrate_and_app_request_do_not_half_apply() {
         &mut as_migrator(&database).await,
         &second,
         &rules,
-        "sqlx_1",
-        "sqlx_2",
+        &head,
+        "sqlx_9",
         true,
     )
     .await;
     stop.store(true, std::sync::atomic::Ordering::SeqCst);
     let seen = watcher.await.expect("the application watcher");
-    assert_eq!(applied, Ok(RunOutcome::Applied(vec![2])));
+    assert_eq!(applied, Ok(RunOutcome::Applied(vec![9])));
     for pair in &seen {
         assert!(
             pair.0 == pair.1,
@@ -1250,7 +744,6 @@ async fn migrate_command_refuses_before_any_connection() {
         panic!("a refused migrate command opened a connection")
     };
     let no_vars = HashMap::new();
-    let head = "p89_20261022_trade_freeze";
     for (label, request, expected) in [
         (
             "status with --apply",
@@ -1258,14 +751,9 @@ async fn migrate_command_refuses_before_any_connection() {
             Exit::Usage,
         ),
         (
-            "baseline without --apply",
-            args(MigrationAction::Baseline, false, Some(head), None),
-            Exit::Usage,
-        ),
-        (
-            "baseline without a current",
-            args(MigrationAction::Baseline, true, None, None),
-            Exit::Usage,
+            "baseline is retired",
+            args(MigrationAction::Baseline, true, Some("ob_20261031_offboarding"), None),
+            Exit::Precondition,
         ),
         (
             "run without a target",
@@ -1273,13 +761,8 @@ async fn migrate_command_refuses_before_any_connection() {
             Exit::Usage,
         ),
         (
-            "baseline without deploy state",
-            args(MigrationAction::Baseline, true, Some(head), None),
-            Exit::Precondition,
-        ),
-        (
             "run --apply without deploy state",
-            args(MigrationAction::Run, true, Some("sqlx_1"), Some("sqlx_1")),
+            args(MigrationAction::Run, true, Some("sqlx_1"), Some("sqlx_2")),
             Exit::Precondition,
         ),
         (
@@ -1299,7 +782,7 @@ async fn migrate_command_refuses_before_any_connection() {
             "--check on run",
             MigrateArgs {
                 check: true,
-                ..args(MigrationAction::Run, false, Some("sqlx_1"), Some("sqlx_1"))
+                ..args(MigrationAction::Run, false, Some("sqlx_1"), Some("sqlx_2"))
             },
             Exit::Usage,
         ),
@@ -1312,25 +795,16 @@ async fn migrate_command_refuses_before_any_connection() {
     }
 }
 
-/// Initialize a disposable runner database with the compiled sqlx baseline.
-/// Existing legacy schemas use the native adoption checks. Empty databases
-/// use the same embedded migration and checksum as the runtime. This helper
-/// accepts only numeric loopback endpoints and test database names.
-/// Run with `cargo test ... --test group_phase10
-/// phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored`.
+/// Initialize a disposable runner database with the compiled sqlx migrations:
+/// plain `MIGRATOR.run`, the same embedded migrations and checksums the
+/// runtime applies. This helper accepts only numeric loopback endpoints and
+/// test database names. Run with `cargo test ... --test group_phase10
+/// phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored`.
 #[tokio::test]
 #[ignore = "run by the component runners through their migrator URL"]
-async fn runner_database_adopts_to_the_baseline() {
+async fn runner_database_applies_the_baseline() {
     let raw = std::env::var("RUST_RUNNER_MIGRATOR_DATABASE_URL")
         .expect("RUST_RUNNER_MIGRATOR_DATABASE_URL must name the runner's migrator URL");
-    let environment = match std::env::var("RUST_RUNNER_ENVIRONMENT")
-        .unwrap_or_else(|_| "production".into())
-        .as_str()
-    {
-        "production" => Environment::Production,
-        "staging" => Environment::Staging,
-        other => panic!("unknown runner environment: {other}"),
-    };
     let url = url::Url::parse(&raw).expect("parse the runner URL");
     assert!(matches!(
         url.host_str(),
@@ -1345,85 +819,43 @@ async fn runner_database_adopts_to_the_baseline() {
     let mut connection = PgConnection::connect_with(&options)
         .await
         .expect("connect as the runner migrator");
-    let legacy: bool =
-        sqlx::query_scalar("SELECT to_regclass('public.alembic_version') IS NOT NULL")
-            .fetch_one(&mut connection)
-            .await
-            .expect("inspect runner schema history");
     let initialized: bool =
         sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
             .fetch_one(&mut connection)
             .await
             .expect("inspect runner sqlx history");
-    if !legacy || initialized {
-        if !initialized {
-            let application_objects: i64 = sqlx::query_scalar(
-                "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
-                 WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') \
-                 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass \
-                     AND d.objid=c.oid AND d.deptype='e')",
-            )
+    if !initialized {
+        let application_objects: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
+             WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') \
+             AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid='pg_class'::regclass \
+                 AND d.objid=c.oid AND d.deptype='e')",
+        )
+        .fetch_one(&mut connection)
+        .await
+        .expect("inspect empty runner schema");
+        assert_eq!(
+            application_objects, 0,
+            "refuse to initialize a populated schema"
+        );
+    }
+    MIGRATOR
+        .run(&mut connection)
+        .await
+        .expect("apply the runner sqlx baseline");
+    let current = status_with(&mut connection, &MIGRATOR)
+        .await
+        .expect("read runner sqlx status");
+    assert!(current.foreign.is_empty());
+    assert!(current.pending.is_empty());
+    let head = format!("sqlx_{}", MIGRATOR.iter().map(|m| m.version).max().unwrap());
+    assert_eq!(current.revision().as_deref(), Some(&head));
+    // No Alembic history remains: the runner databases are sqlx-only.
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT to_regclass('public.alembic_version') IS NOT NULL")
             .fetch_one(&mut connection)
             .await
-            .expect("inspect empty runner schema");
-            assert_eq!(
-                application_objects, 0,
-                "refuse to initialize a populated schema"
-            );
-        }
-        MIGRATOR
-            .run(&mut connection)
-            .await
-            .expect("apply the runner sqlx baseline");
-        let current = status(&mut connection)
-            .await
-            .expect("read runner sqlx status");
-        assert!(current.foreign.is_empty());
-        assert!(current.pending.is_empty());
-        assert_eq!(current.revision().as_deref(), Some("sqlx_1"));
-        let manifest: serde_json::Value =
-            serde_json::from_str(include_str!("../../../deploy/rust/sqlx-baseline.json")).unwrap();
-        let catalog = fingerprint(&mut connection).await.unwrap();
-        assert!(
-            catalog == manifest["restored_fingerprint"].as_str().unwrap()
-                || (initialized && catalog == compiled_baseline().fingerprint),
-            "runner catalog does not match either attested baseline form"
-        );
-        // Adopted databases retain this audit row. The unchanged role-policy
-        // tooling still validates its owner and exact grants, so fresh test
-        // fixtures keep the same metadata without running the retired schema tool.
-        if !legacy {
-            sqlx::query(
-                "CREATE TABLE public.alembic_version \
-                 (version_num varchar(32) NOT NULL PRIMARY KEY)",
-            )
-            .execute(&mut connection)
-            .await
-            .expect("create historical fixture metadata");
-            sqlx::query("INSERT INTO public.alembic_version VALUES ($1)")
-                .bind(&compiled_baseline().alembic_head)
-                .execute(&mut connection)
-                .await
-                .expect("record historical fixture revision");
-        }
-        let historical: Vec<String> =
-            sqlx::query_scalar("SELECT version_num FROM public.alembic_version")
-                .fetch_all(&mut connection)
-                .await
-                .unwrap();
-        assert_eq!(historical, vec![compiled_baseline().alembic_head]);
-        return;
-    }
-    let outcome = adopt(
-        &mut connection,
-        environment,
-        &compiled_baseline().alembic_head,
-        &compiled_baseline(),
-    )
-    .await
-    .expect("adopt the runner database");
-    assert!(
-        matches!(outcome, Adoption::Adopted | Adoption::AlreadyAdopted),
-        "{outcome:?}"
+            .expect("inspect runner schema history"),
+        "the runner database still carries an alembic_version table"
     );
 }

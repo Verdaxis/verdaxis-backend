@@ -29,9 +29,6 @@ pub struct Roles {
     /// The trusted-ingestion operator (Task 21); convergence grants it only
     /// once the role exists.
     pub operator_role: &'static str,
-    /// The pre-M bundle's read-only reader (plan section 8.7); convergence
-    /// grants SELECT on `alembic_version` only once the role exists.
-    pub bundle_reader_role: &'static str,
 }
 
 pub fn roles(environment: Environment) -> Roles {
@@ -42,7 +39,6 @@ pub fn roles(environment: Environment) -> Roles {
             migrator_role: "verdaxis_migrator",
             backup_role: "verdaxis_backup",
             operator_role: "verdaxis_operator",
-            bundle_reader_role: "verdaxis_bundle_reader",
         },
         Environment::Staging => Roles {
             database_name: "verdaxis_staging",
@@ -50,7 +46,6 @@ pub fn roles(environment: Environment) -> Roles {
             migrator_role: "verdaxis_migrator_staging",
             backup_role: "verdaxis_backup_staging",
             operator_role: "verdaxis_operator_staging",
-            bundle_reader_role: "verdaxis_bundle_reader_staging",
         },
     }
 }
@@ -190,10 +185,6 @@ pub fn psql_command(psql: &Path, bundle_root: &Path, target: &Target) -> Command
             "--set",
             &format!("operator_role={}", target.roles.operator_role),
         ])
-        .args([
-            "--set",
-            &format!("bundle_reader_role={}", target.roles.bundle_reader_role),
-        ])
         .arg("--file")
         .arg(bundle_root.join(CONVERGENCE_SQL))
         .env_clear()
@@ -300,15 +291,10 @@ mod tests {
             .get_args()
             .map(|argument| argument.to_string_lossy().into_owned())
             .collect();
-        assert!(
-            arguments
-                .iter()
-                .all(|argument| !argument.contains("mig@pw"))
-        );
+        assert!(arguments
+            .iter()
+            .all(|argument| !argument.contains("mig@pw")));
         assert!(arguments.contains(&"migrator_role=verdaxis_migrator_staging".to_owned()));
-        assert!(
-            arguments.contains(&"bundle_reader_role=verdaxis_bundle_reader_staging".to_owned())
-        );
         assert_eq!(
             arguments.last().map(String::as_str),
             Some("/bundle/deploy/postgres/converge_runtime_object_acls.sql")

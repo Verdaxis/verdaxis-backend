@@ -3,8 +3,9 @@
 //! organization rejection and offboarding leave a member without an
 //! organization.
 //!
-//! `switch_follows_the_deployed_environment` runs the deploy projection
-//! (`scripts/prepare_rust_runtime.py`) with the project's interpreter
+//! `switch_follows_the_deployed_environment` runs the release binary's own
+//! projection (`verdaxis-read ops prepare-runtime`), the same command the
+//! deploy transaction runs.
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -103,15 +104,10 @@ fn switch_follows_the_deployed_environment() {
     std::fs::remove_dir_all(&fresh_folder).unwrap();
     std::fs::remove_dir_all(&enabled_folder).unwrap();
 
-    // No deploy source imports the routing snippet; only the projection names
-    // the switch. The private release-window composer
-    // (`scripts/rust_phase10_window_caddy.py`) also names the snippet group:
-    // it rebuilds a candidate site from saved bytes and validates it with a
-    // digest-bound Caddy, and never reloads Caddy or touches the host, so it
-    // is not an activation path either.
+    // No deploy source imports the routing snippet and none names the switch:
+    // only the site file (installed by hand, never a deploy source) and the
+    // binary's own projection know either.
     let snippet = root.join("deploy/caddy/rust-offboarding.caddy");
-    let projection = root.join("scripts/prepare_rust_runtime.py");
-    let window_composer = root.join("scripts/rust_phase10_window_caddy.py");
     let mut deploy_sources = files(
         &root.join("deploy"),
         &[
@@ -120,24 +116,22 @@ fn switch_follows_the_deployed_environment() {
     );
     deploy_sources.extend(files(&root.join("scripts"), &["sh", "py"]));
     for path in deploy_sources {
-        if path == snippet || path == window_composer {
+        if path == snippet {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         for needle in ["verdaxis_rust_offboarding", "rust-offboarding.caddy"] {
             assert!(!text.contains(needle), "{} names {needle}", relative(&path));
         }
-        if path != projection {
-            assert!(
-                !text.contains("OFFBOARDING_ENABLED"),
-                "{} names OFFBOARDING_ENABLED",
-                relative(&path)
-            );
-        }
+        assert!(
+            !text.contains("OFFBOARDING_ENABLED"),
+            "{} names OFFBOARDING_ENABLED",
+            relative(&path)
+        );
     }
 }
 
-/// Run the deploy projection (`scripts/prepare_rust_runtime.py`) over a staging
+/// Run the release binary's projection (`ops prepare-runtime`) over a staging
 /// `.env`, with one extra line when given. Return the Rust runtime file and
 /// the temporary folder, which the caller removes after its last read.
 fn project_deployed_environment(
@@ -162,22 +156,18 @@ fn project_deployed_environment(
     ];
     lines.extend(extra_line.map(str::to_owned));
     std::fs::write(&source, lines.join("\n") + "\n").unwrap();
-    let python = std::env::var("RUST_TEST_PYTHON").unwrap_or_else(|_| "python3".into());
-    let output = Command::new(python)
+    let output = Command::new(env!("CARGO_BIN_EXE_verdaxis-read"))
         .current_dir(root)
-        .env("PYTHONPATH", root)
-        .arg(root.join("scripts/prepare_rust_runtime.py"))
+        .args(["ops", "prepare-runtime", "--environment", "staging"])
+        .args(["--release-sha", release])
+        .arg("--migration-revision")
+        .arg(revision_literal(root))
         .arg("--environment-file")
         .arg(&source)
-        .args(["--release-sha", release])
         .arg("--output-dir")
         .arg(folder.join("prepared"))
-        .arg("--source-root")
-        .arg(root)
-        .args(["--migration-revision", "ob_20261031_offboarding"])
-        .args(["--environment", "staging"])
         .output()
-        .expect("Python interpreter unavailable: set RUST_TEST_PYTHON or put python3 on PATH");
+        .expect("the release binary is built with the test");
     assert!(
         output.status.success(),
         "the projection refused: {}",
@@ -190,6 +180,23 @@ fn project_deployed_environment(
         .map(environment_line)
         .collect();
     (environment, folder)
+}
+
+/// The head revision the compiled migrations define, read from the checkpoint
+/// policy the binary embeds: the projection refuses any other literal.
+fn revision_literal(root: &Path) -> String {
+    let checkpoints = std::fs::read_to_string(root.join("deploy/migration-checkpoints.tsv"))
+        .expect("the checkpoint policy");
+    // The head sqlx revision: the highest `sqlx_<n>` any row names.
+    checkpoints
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .flat_map(|(from, to)| [from, to])
+        .filter_map(|literal| literal.strip_prefix("sqlx_"))
+        .filter_map(|digits| digits.parse::<i64>().ok())
+        .max()
+        .map(|version| format!("sqlx_{version}"))
+        .expect("a sqlx revision in the policy")
 }
 
 /// A source statement that sets a member's organization to none, in Rust SQL
