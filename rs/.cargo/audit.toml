@@ -11,4 +11,11 @@
 # The fix needs crypto-bigint >= 0.7.6, which elliptic-curve 0.13 cannot use.
 # Revisit when jsonwebtoken moves to elliptic-curve 0.14 or offers a
 # feature set without EC.
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]
+#
+# SQLite: libsqlite3-sys 0.37.0 (RUSTSEC-2026-0459) is listed in Cargo.lock
+# only because sqlx-sqlite is an optional sqlx dependency. No workspace crate
+# enables the sqlite feature, so the crate is not compiled or linked:
+# `cargo tree -i libsqlite3-sys --workspace --all-features` prints nothing.
+# The fix needs libsqlite3-sys >= 0.39.0, which sqlx-sqlite 0.9.0 cannot use
+# (<0.38.0). Remove this entry when sqlx allows it.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387", "RUSTSEC-2026-0459"]
