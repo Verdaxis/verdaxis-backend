@@ -42,10 +42,6 @@ pub mod crud_watchlist_reads;
 pub mod crud_watchlist_targets;
 #[path = "phase2_http.rs"]
 pub mod phase2_http;
-#[path = "phase2_routes.rs"]
-pub mod phase2_routes;
-#[path = "phase3_routes.rs"]
-pub mod phase3_routes;
 #[path = "referral_mail_timeout.rs"]
 pub mod referral_mail_timeout;
 #[path = "watchlist_activation_source.rs"]

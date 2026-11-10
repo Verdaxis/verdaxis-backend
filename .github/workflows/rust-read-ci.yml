@@ -293,10 +293,22 @@ jobs:
           # Only stable build inputs affect the key; RELEASE_SHA must not.
           env-vars: RUST_TARGET SQLX_OFFLINE CARGO_INCREMENTAL
 
+      # A slow apt mirror once held this step for over 20 minutes. Each apt
+      # command has its own time limit, and the step tries three times.
       - name: Install the PostgreSQL client
+        timeout-minutes: 12
+        shell: bash -euo pipefail {0}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          for attempt in 1 2 3; do
+            if sudo timeout 90 apt-get "${apt_options[@]}" update -qq &&
+              sudo timeout 120 apt-get "${apt_options[@]}" install -y -qq postgresql-client; then
+              exit 0
+            fi
+            echo "PostgreSQL client install attempt $attempt failed" >&2
+            sleep 10
+          done
+          exit 1
       - name: Run every runner in this explicit shard
         shell: bash -euo pipefail {0}
         env:

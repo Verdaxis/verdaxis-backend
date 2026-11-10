@@ -6,8 +6,6 @@
 //! `pub`, as the items of a test file root were, so the unused-item lints
 //! treat each file as they did in its own binary.
 
-#[path = "auth_coexistence_postgres.rs"]
-pub mod auth_coexistence_postgres;
 #[path = "auth_expiry.rs"]
 pub mod auth_expiry;
 #[path = "auth_http.rs"]

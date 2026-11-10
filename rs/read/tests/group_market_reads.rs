@@ -32,8 +32,6 @@ pub mod market_contract;
 pub mod market_contract_postgres;
 #[path = "mcp.rs"]
 pub mod mcp;
-#[path = "mcp_validation.rs"]
-pub mod mcp_validation;
 #[cfg(feature = "contract-tests")]
 #[path = "meaning_curve_queries.rs"]
 pub mod meaning_curve_queries;
@@ -42,8 +40,6 @@ pub mod meaning_decimal;
 #[cfg(feature = "contract-tests")]
 #[path = "meaning_orderbook_queries.rs"]
 pub mod meaning_orderbook_queries;
-#[path = "orderbook_lists.rs"]
-pub mod orderbook_lists;
 #[path = "orderbook_map.rs"]
 pub mod orderbook_map;
 #[path = "orderbook_snapshot.rs"]

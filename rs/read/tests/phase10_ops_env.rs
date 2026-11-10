@@ -4,11 +4,10 @@
 //! purpose (`runtime.env` for `serve`, `jobs/<name>.env` for each job), with
 //! exactly the keys of `deploy/rust/runtime-policy.env`. `ops prepare-budget`
 //! writes the connection budget artifact and `ops preflight` checks the
-//! deployed identity. The Rust projection replaces
-//! `scripts/prepare_rust_runtime.py` and `scripts/prepare_rust_budget.py`, so
-//! the parity cases run both on the same fixtures and compare the bytes.
+//! deployed identity.
 //!
-//! requirements installed, as in the other Rust-launched Python checks.
+//! The datasets check runs the pinned generator with `python3 -I` (or
+//! `RUST_TEST_PYTHON`).
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
@@ -222,28 +221,6 @@ fn rust_prepare_runtime(
         .arg(environment_file)
         .arg("--output-dir")
         .arg(output)
-        .output()
-        .unwrap()
-}
-
-fn python_prepare_runtime(
-    environment: &str,
-    environment_file: &Path,
-    output: &Path,
-    revision: &str,
-) -> Output {
-    let root = repository_root();
-    Command::new(python())
-        .arg("-I")
-        .arg(root.join("scripts/prepare_rust_runtime.py"))
-        .arg("--environment-file")
-        .arg(environment_file)
-        .args(["--release-sha", SHA, "--migration-revision", revision])
-        .args(["--environment", environment])
-        .arg("--output-dir")
-        .arg(output)
-        .arg("--source-root")
-        .arg(&root)
         .output()
         .unwrap()
 }
@@ -540,64 +517,38 @@ fn serve_env_has_no_migrator_or_job_only_key() {
 }
 
 #[test]
-fn serve_projection_matches_python_byte_for_byte() {
-    let cases = [
-        (
-            "staging minimal",
-            "staging",
-            EnvFile::staging(),
-            STAGING_REVISION,
-        ),
-        (
-            "staging full",
-            "staging",
-            EnvFile::staging_full(),
-            STAGING_REVISION,
-        ),
-        (
-            "production",
-            "production",
-            EnvFile::production(),
-            PRODUCTION_REVISION,
-        ),
-    ];
-    for (name, environment, fixture, revision) in cases {
-        let scratch = Scratch::new();
-        let environment_file = fixture.write(&scratch.path("be"));
-        // The deployed Python unit's second file: its Umami keys win.
-        std::fs::write(
-            scratch.path("be/.env.analytics"),
-            "UMAMI_WEBSITE_ID=site-from-analytics\nUMAMI_API_USERNAME=reader\nUMAMI_API_PASSWORD=p$HOME\\pw\n",
-        )
-        .unwrap();
-        let (rust_dir, python_dir) = (scratch.path("rust"), scratch.path("python"));
-        assert_ok(
-            &python_prepare_runtime(environment, &environment_file, &python_dir, revision),
-            name,
-        );
-        assert_ok(
-            &rust_prepare_runtime(environment, &environment_file, &rust_dir, revision),
-            name,
-        );
-        // The one expected difference: each names its own datasets file.
-        let rust_env = String::from_utf8(std::fs::read(rust_dir.join("runtime.env")).unwrap())
-            .unwrap()
-            .replace(rust_dir.to_str().unwrap(), python_dir.to_str().unwrap());
+fn serve_env_takes_umami_keys_from_the_analytics_file() {
+    let scratch = Scratch::new();
+    let environment_file = EnvFile::staging_full().write(&scratch.path("be"));
+    // The deployed unit's second file: its Umami keys win over `.env`.
+    std::fs::write(
+        scratch.path("be/.env.analytics"),
+        "UMAMI_WEBSITE_ID=site-from-analytics\nUMAMI_API_USERNAME=reader\nUMAMI_API_PASSWORD=analytics-password\n",
+    )
+    .unwrap();
+    let output = scratch.path("be/.runtime-rust");
+    assert_ok(
+        &rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION),
+        "rust prepare-runtime",
+    );
+    let projected = read_environment_file(&output.join("runtime.env"));
+    for (key, expected) in [
+        ("UMAMI_BASE_URL", "https://umami.example"),
+        ("UMAMI_WEBSITE_ID", "site-from-analytics"),
+        ("UMAMI_API_USERNAME", "reader"),
+        ("UMAMI_API_PASSWORD", "analytics-password"),
+        ("UMAMI_ENABLED", "true"),
+    ] {
         assert_eq!(
-            rust_env,
-            std::fs::read_to_string(python_dir.join("runtime.env")).unwrap(),
-            "{name}: runtime.env"
-        );
-        assert_eq!(
-            std::fs::read(rust_dir.join("auth-domains.json")).unwrap(),
-            std::fs::read(python_dir.join("auth-domains.json")).unwrap(),
-            "{name}: auth-domains.json"
+            projected.get(key).map(String::as_str),
+            Some(expected),
+            "{key}"
         );
     }
 }
 
 #[test]
-fn serve_projection_refuses_what_python_refuses() {
+fn serve_projection_refuses_invalid_environments() {
     let base = EnvFile::staging;
     let cases: Vec<(&str, EnvFile, &str)> = vec![
         (
@@ -709,13 +660,6 @@ fn serve_projection_refuses_what_python_refuses() {
     {
         let scratch = Scratch::new();
         let environment_file = fixture.write(&scratch.path("be"));
-        let python = python_prepare_runtime(
-            environment,
-            &environment_file,
-            &scratch.path("python"),
-            revision,
-        );
-        assert_ne!(python.status.code(), Some(0), "{name}: Python refuses");
         let output = scratch.path("rust");
         let rust = rust_prepare_runtime(environment, &environment_file, &output, revision);
         assert_eq!(

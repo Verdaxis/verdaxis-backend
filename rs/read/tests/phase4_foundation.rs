@@ -717,3 +717,24 @@ async fn p4_t2_c11() {
         fixture.finish().await;
     }
 }
+
+#[cfg(feature = "contract-tests")]
+#[tokio::test]
+async fn completion_control_holds_the_owner_after_commit_until_released() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use verdaxis_read::business::transaction::{CompletionControl, CompletionPoint};
+    let control = CompletionControl::new(CompletionPoint::AfterCommit, true);
+    let count = Arc::new(AtomicUsize::new(0));
+    let task_control = control.clone();
+    let calls = count.clone();
+    let owner = tokio::spawn(async move {
+        task_control.wait_at(CompletionPoint::BeforeCommit).await;
+        calls.fetch_add(1, Ordering::SeqCst);
+        task_control.wait_at(CompletionPoint::AfterCommit).await;
+    });
+    control.reached().await;
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    control.release();
+    owner.await.unwrap();
+    assert!(control.lose_ack());
+}

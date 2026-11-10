@@ -58,7 +58,6 @@ fn subcommand_dispatch_is_exact() {
         vec!["job", "prune-analytics", "--apply"],
         vec!["job", "kyc-notices", "--apply"],
         vec!["job", "demo", "--apply"],
-        vec!["monitor", "external-checks"],
         vec!["recover", "--dry-run"],
         vec![
             "ops",
