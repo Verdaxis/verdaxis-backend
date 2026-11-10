@@ -55,8 +55,8 @@ database=verdaxis_offboarding_credentials_test
 # shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/$database" \
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 printf 'GATE=migrate EXIT=0\n'
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database"
@@ -76,7 +76,7 @@ log=$(mktemp "${TMPDIR:-/tmp}/offboarding-credentials.XXXXXX")
 set +e
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test offboarding_credentials_postgres \
+  --features contract-tests --test group_offboarding offboarding_credentials_postgres:: \
   -- --include-ignored --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
@@ -88,5 +88,5 @@ for case in cutoff_is_taken_after_user_lock cutoffs_never_move_back \
   old_equal_malformed_and_future_iat_fail_closed \
   credential_cutoff_requires_the_held_user_lock \
   credential_cutoff_refuses_without_the_caller_lock; do
-  grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
+  grep -q "test offboarding_credentials_postgres::$case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

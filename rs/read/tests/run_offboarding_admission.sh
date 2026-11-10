@@ -62,8 +62,8 @@ SQL
 # shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_migrator_pw@127.0.0.1:$port/verdaxis_offboarding_test" \
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 
 export PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE=verdaxis_offboarding_test
 export PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_migrator_pw
@@ -80,7 +80,7 @@ log=$(mktemp "${TMPDIR:-/tmp}/offboarding-admission.XXXXXX")
 set +e
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test offboarding_admission_postgres \
+  --features contract-tests --test group_offboarding offboarding_admission_postgres:: \
   -- --include-ignored --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
@@ -90,5 +90,5 @@ if (( cargo_status != 0 )); then exit "$cargo_status"; fi
 for case in marked_login_refresh_and_issuance_denied marked_account_denied_before_receipt_replay \
   marked_user_not_in_review_queue marked_account_approval_refused marked_token_shapes_fail_closed \
   offboarding_commit_wins_over_waiting_mutation marker_refuses_where_every_other_rule_admits; do
-  grep -q "test $case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
+  grep -q "test offboarding_admission_postgres::$case ... ok" "$log" || { echo "case did not run: $case" >&2; exit 1; }
 done

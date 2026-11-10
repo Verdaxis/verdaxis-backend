@@ -107,8 +107,8 @@ SQL
 for database in "$analytics_database" "$market_database"; do
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="$(database_url "$migrator_role" "$database")" \
     cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
+    --features contract-tests --test group_phase10 \
+    phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
   apply_role_policy "$database" bootstrap_roles.sql
 done
 
@@ -239,30 +239,30 @@ run_cargo_test crud_alerts 1 \
   ALERT_TEST_DATABASE_URL="$app_url" ALERT_TEST_ORGANIZATION="$alert_org" \
   ALERT_TEST_FOREIGN="$alert_foreign_org" ALERT_TEST_PRODUCT="$alert_product" \
   ALERT_TEST_POINT="$alert_point" ALERT_TEST_ACTORS="$alert_actor_list" \
-  -- --test crud_alerts postgres_crud -- --nocapture
+  -- --test group_crud crud_alerts::postgres_crud -- --nocapture
 
 # --- Auth ---------------------------------------------------------------------
 
 auth_store_env=(AUTH_STORE_TEST_DATABASE_URL="$app_url" AUTH_STORE_TEST_OWNER_URL="$owner_url")
 auth_email_env=(AUTH_EMAIL_TEST_DATABASE_URL="$app_url" AUTH_EMAIL_TEST_OWNER_URL="$owner_url")
 run_cargo_test auth_revocation_postgres 5 "${auth_store_env[@]}" \
-  -- --test auth_revocation_postgres -- --include-ignored
+  -- --test group_auth auth_revocation_postgres:: -- --include-ignored
 run_cargo_test auth_store_postgres 12 "${auth_store_env[@]}" \
-  -- --test auth_store_postgres -- --include-ignored
+  -- --test group_auth auth_store_postgres:: -- --include-ignored
 run_cargo_test auth_email_verification_postgres 6 "${auth_email_env[@]}" \
   -- --features contract-tests --test auth_email_verification_postgres -- --include-ignored
 run_cargo_test auth_invitation_accept_postgres 8 "${auth_email_env[@]}" \
   -- --features contract-tests --test auth_invitation_accept_postgres -- --include-ignored --test-threads=1
 run_cargo_test auth_login_postgres 7 \
   AUTH_LOGIN_DATABASE_URL="$app_url" AUTH_LOGIN_OWNER_URL="$owner_url" \
-  -- --features contract-tests --test auth_login_postgres -- --include-ignored --test-threads=1
+  -- --features contract-tests --test group_auth auth_login_postgres:: -- --include-ignored --test-threads=1
 run_cargo_test auth_password_reset_postgres 4 "${auth_email_env[@]}" \
   -- --features contract-tests --test auth_password_reset_postgres -- --include-ignored
 # The race schedules depend on interleaving, so they repeat three times.
 for attempt in 1 2 3; do
   run_cargo_test "auth_races_postgres and auth_coexistence_postgres, run $attempt" 16 "${auth_email_env[@]}" \
-    -- --features contract-tests --test auth_races_postgres --test auth_coexistence_postgres \
-    -- --include-ignored --test-threads=1
+    -- --features contract-tests --test group_auth \
+    -- auth_races_postgres:: auth_coexistence_postgres:: --include-ignored --test-threads=1
 done
 run_cargo_test auth_refresh_postgres 7 \
   AUTH_REFRESH_DATABASE_URL="$app_url" AUTH_REFRESH_OWNER_URL="$owner_url" \
@@ -331,7 +331,7 @@ INSERT INTO users (id, email, password_hash, role, status, organization_id, emai
 VALUES $(IFS=,; printf '%s' "${stream_user_rows[*]}");
 SQL
 run_cargo_test streams_auth 1 "${stream_auth_env[@]}" \
-  -- --features contract-tests --test streams_auth -- --ignored --exact postgres_admission --nocapture
+  -- --features contract-tests --test group_streams -- --ignored --exact streams_auth::postgres_admission --nocapture
 # Four admitted, nine refused and one unavailable store read.
 require_output 'stream admission postgres coverage: 14 checks'
 # Transaction-local bounds, the lock bound, recovery after it, the acquisition
@@ -343,7 +343,7 @@ require_output 'stream read bounds postgres coverage: 5 checks'
 # Each case starts from an empty outbox; the first needs only the app role.
 clear_retention
 run_cargo_test 'streams_dispatch committed_visibility_and_rollback' 1 STREAM_DISPATCH_APP_URL="$app_url" \
-  -- --features contract-tests --test streams_dispatch postgres::committed_visibility_and_rollback \
+  -- --features contract-tests --test group_streams streams_dispatch::postgres::committed_visibility_and_rollback \
   -- --exact --ignored --test-threads=1
 for case_name in retention_snapshot_resets_existing_subscribers \
   legacy_event_bytes_below_limit legacy_event_bytes_at_limit legacy_event_bytes_above_limit \
@@ -351,7 +351,7 @@ for case_name in retention_snapshot_resets_existing_subscribers \
   clear_retention
   run_cargo_test "streams_dispatch $case_name" 1 \
     STREAM_DISPATCH_APP_URL="$app_url" STREAM_DISPATCH_OWNER_URL="$owner_url" \
-    -- --features contract-tests --test streams_dispatch "postgres::$case_name" \
+    -- --features contract-tests --test group_streams "streams_dispatch::postgres::$case_name" \
     -- --exact --ignored --test-threads=1
 done
 
@@ -374,7 +374,7 @@ WHEN (NEW.aggregate_id = 'assignment_waits_for_shared_row')
 EXECUTE FUNCTION phase6_election_shared_row_update();
 SQL
 run_cargo_test streams_election 19 STREAM_ELECTION_APP_URL="$app_url" \
-  -- --features contract-tests --test streams_election -- --include-ignored --test-threads=1
+  -- --features contract-tests --test group_streams streams_election:: -- --include-ignored --test-threads=1
 owner_sql "$analytics_database" <<'SQL'
 DROP TRIGGER phase6_election_shared_row_update ON market_event_outbox;
 DROP FUNCTION phase6_election_shared_row_update();
@@ -403,7 +403,7 @@ run_cargo_test streams_http 2 \
   STREAM_HTTP_APP_URL="$app_url" STREAM_HTTP_OWNER_URL="$owner_url" \
   STREAM_HTTP_USER="$http_member" STREAM_HTTP_ORG="$http_org" STREAM_HTTP_OTHER_ORG="$http_other_org" \
   STREAM_HTTP_PENDING_USER="$http_pending_member" STREAM_HTTP_PENDING_ORG="$http_pending_org" \
-  -- --features contract-tests --test streams_http -- --ignored --test-threads=1 --nocapture
+  -- --features contract-tests --test group_streams streams_http:: -- --ignored --test-threads=1 --nocapture
 for marker in \
   'header cursor replay is scoped to the organization' \
   'live delivery follows replay without foreign events' \
@@ -420,7 +420,7 @@ done
 clear_retention
 run_cargo_test streams_coexistence 1 \
   STREAM_RUNTIME_APP_URL="$app_url" STREAM_RUNTIME_ADMIN_URL="$admin_url" \
-  -- --features contract-tests --test streams_coexistence -- --ignored --nocapture
+  -- --features contract-tests --test group_streams streams_coexistence:: -- --ignored --nocapture
 for cycle in 1 2 3; do
   require_output "cycle=$cycle "
 done
@@ -439,7 +439,7 @@ INSERT INTO users (id, email, password_hash, role, status, organization_id, emai
 SQL
 run_cargo_test streams_replay 1 \
   STREAM_REPLAY_APP_URL="$app_url" STREAM_REPLAY_OWNER_URL="$owner_url" STREAM_REPLAY_USER="$replay_user" \
-  -- --features contract-tests --test streams_replay -- --ignored --exact postgres_replay_snapshots --nocapture
+  -- --features contract-tests --test group_streams -- --ignored --exact streams_replay::postgres_replay_snapshots --nocapture
 for marker in \
   '601 authorized rows with foreign holes and released connections' \
   'prune after captured page and before next snapshot' \
@@ -455,7 +455,7 @@ store_org=00000000-0000-4000-8000-0000000000a1
 store_foreign_org=00000000-0000-4000-8000-0000000000b2
 run_store_case() {
   run_cargo_test "streams_store $1" 1 STREAMS_STORE_TEST_DATABASE_URL="$app_url" \
-    -- --features contract-tests --test streams_store "$1" -- --exact --nocapture
+    -- --features contract-tests --test group_streams "streams_store::$1" -- --exact --nocapture
 }
 reset_retention_ownership
 run_store_case postgres_empty_store_boundary
@@ -509,7 +509,7 @@ run_store_case postgres_pool_acquisition_is_bounded
 
 run_cargo_test streams_runtime 2 \
   STREAM_RUNTIME_APP_URL="$app_url" STREAM_RUNTIME_OWNER_URL="$owner_url" STREAM_RUNTIME_ADMIN_URL="$admin_url" \
-  -- --features contract-tests --test streams_runtime -- --ignored --test-threads=1 --nocapture
+  -- --features contract-tests --test group_streams streams_runtime:: -- --ignored --test-threads=1 --nocapture
 
 # --- Watchlist guard ------------------------------------------------------------
 
@@ -547,16 +547,16 @@ guard_market=$(printf '{"organization":"%s","owner":"%s","public_order":"%s","cl
   "$guard_org" "$guard_owner" "$guard_public_order" "$guard_closed_order" "$guard_product" "$guard_point")
 run_cargo_test streams_watchlist_guard 7 \
   WATCHLIST_GUARD_APP_URL="$app_url" WATCHLIST_GUARD_FIXTURE_URL="$owner_url" WATCHLIST_GUARD_MARKET="$guard_market" \
-  -- --features contract-tests --test streams_watchlist_guard -- --include-ignored --test-threads=1
+  -- --features contract-tests --test group_streams streams_watchlist_guard:: -- --include-ignored --test-threads=1
 
 # --- Public read cache ----------------------------------------------------------
 
 run_cargo_test cache_events_postgres 4 PUBLIC_CACHE_TEST_DATABASE_URL="$owner_url" \
-  -- --test cache_events_postgres
+  -- --test group_market_reads cache_events_postgres::
 # Two migrated incarnations on one server; the prior-incarnation cases need both.
 run_cargo_test trading_cache_postgres 18 \
   PUBLIC_CACHE_TEST_DATABASE_URL="$owner_url" PUBLIC_CACHE_TEST_SECOND_DATABASE_URL="$market_owner_url" \
-  -- --test trading_cache_postgres -- --test-threads=1
+  -- --test group_market_reads trading_cache_postgres:: -- --test-threads=1
 
 # The route cases read the first active product and delivery point and need
 # one open order: a REAL buyer's BID for Bio Methanol at Singapore.
@@ -580,11 +580,11 @@ INSERT INTO orderbook_orders (id, organization_id, product_id, delivery_point_id
 VALUES ('$route_order', '$route_buyer_org', '$route_product', '$route_point', 'REAL', 'BID', 300, 300, 700, 'SPOT', 'OPEN');
 SQL
 run_cargo_test 'trading_cache_postgres public routes' 2 ROUTE_CACHE_TEST_DATABASE_URL="$market_owner_url" \
-  -- --test trading_cache_postgres public_ -- --test-threads=1
+  -- --test group_market_reads trading_cache_postgres::public_ -- --test-threads=1
 
 run_cargo_test cache_failover_postgres 6 \
   PUBLIC_CACHE_TEST_DATABASE_URL="$owner_url" PUBLIC_CACHE_TEST_SECOND_DATABASE_URL="$market_owner_url" \
-  -- --test cache_failover_postgres -- --test-threads=1
+  -- --test group_market_reads cache_failover_postgres:: -- --test-threads=1
 
 printf '\nAll auth, stream, cache and alert PostgreSQL targets passed:\n'
 printf '  %s\n' "${summary[@]}"

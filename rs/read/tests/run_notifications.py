@@ -10,7 +10,7 @@ def main():
     with DisposablePostgres("verdaxis_notifications_test") as database:
         result = subprocess.run(
             ["cargo", "test", "--manifest-path", str(ROOT / "rs/Cargo.toml"), "--locked",
-             "-p", "verdaxis-read", "--test", "crud_notifications", "--", "--nocapture"],
+             "-p", "verdaxis-read", "--test", "group_crud", "crud_notifications::", "--", "--nocapture"],
             cwd=ROOT,
             env={**os.environ, "SQLX_OFFLINE": "true", "RELEASE_SHA": database.release_sha,
                  "REQUIRE_NOTIFICATIONS_TEST": "true",

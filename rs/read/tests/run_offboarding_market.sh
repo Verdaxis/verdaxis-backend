@@ -18,14 +18,15 @@ RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 
-# Each target and the number of cases it must run.
+# Each test module, the group test binary that holds it, and the number of
+# cases it must run.
 targets=(
-  "offboarding_market_postgres 15"
-  "offboarding_reassignment_postgres 10"
-  "phase4_market_invalidation 26"
-  "market_write_pg_matching 22"
-  "market_write_pg_conservation 8"
-  "market_write_pg_locks 22"
+  "offboarding_market_postgres group_offboarding 15"
+  "offboarding_reassignment_postgres group_offboarding 10"
+  "phase4_market_invalidation group_phase4_phase5 26"
+  "market_write_pg_matching group_market_write 22"
+  "market_write_pg_conservation group_market_write 8"
+  "market_write_pg_locks group_market_write 22"
 )
 
 container=''
@@ -69,8 +70,8 @@ for database in "${templates[@]}"; do
   # shellcheck disable=SC2086
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$database" \
     ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test phase10_migrate_postgres \
-    runner_database_adopts_to_the_baseline -- --ignored
+    --features contract-tests --test group_phase10 \
+    phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
   PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$database" \
     PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
     psql -X --single-transaction -q -v ON_ERROR_STOP=1 \
@@ -103,12 +104,12 @@ export RUST_TEST_DATABASE_URL="$app/verdaxis_rejection_test"
 
 log=$(mktemp "${TMPDIR:-/tmp}/offboarding-market.XXXXXX")
 for entry in "${targets[@]}"; do
-  read -r target expected <<<"$entry"
+  read -r target binary expected <<<"$entry"
   started=$(date -u +%s)
   set +e
   # shellcheck disable=SC2086
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-    --features contract-tests --test "$target" \
+    --features contract-tests --test "$binary" "$target::" \
     -- --include-ignored --test-threads=1 2>&1 | tee "$log"
   cargo_status=${PIPESTATUS[0]}
   set -e

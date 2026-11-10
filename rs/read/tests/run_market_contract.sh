@@ -54,19 +54,20 @@ export RUST_TEST_POSTGRES_CONTAINER="$container"
 # Initialize the empty database with the native baseline before granting reads.
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="$writer" \
   cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 PYTHONDONTWRITEBYTECODE=1 "$python" "$repo/rs/read/tests/market_contract_fixture.py"
 docker exec -i "$container" psql -q -U postgres -d "$db" -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO rust_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO rust_app;"
 
 log=$(mktemp "${TMPDIR:-/tmp}/rust-market-tests.XXXXXX")
 set +e
-# An optional target list permits focused SQL checks on the same matrix.
-targets=${RUST_MARKET_TARGETS:---test market_contract_postgres --test meaning_curve_queries --test meaning_orderbook_queries}
+# An optional list of test module filters permits focused SQL checks on the
+# same matrix.
+targets=${RUST_MARKET_TARGETS:-market_contract_postgres:: meaning_curve_queries:: meaning_orderbook_queries::}
 # shellcheck disable=SC2086
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --features contract-tests $targets -- --test-threads=1 2>&1 | tee "$log"
+  --features contract-tests --test group_market_reads -- $targets --test-threads=1 2>&1 | tee "$log"
 cargo_status=${PIPESTATUS[0]}
 set -e
 if (( cargo_status != 0 )); then

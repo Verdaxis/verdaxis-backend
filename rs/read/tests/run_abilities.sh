@@ -35,8 +35,8 @@ SQL
 # shellcheck disable=SC2086
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_role_pw@127.0.0.1:$port/$template" \
   ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test phase10_migrate_postgres \
-  runner_database_adopts_to_the_baseline -- --ignored
+  --features contract-tests --test group_phase10 \
+  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
 PGHOST=127.0.0.1 PGPORT="$port" PGDATABASE="$template" PGUSER=verdaxis_migrator_staging PGPASSWORD=disposable_role_pw \
   psql -X --single-transaction -q -v ON_ERROR_STOP=1 -v database_name="$template" \
   -v app_role=rust_app -v migrator_role=verdaxis_migrator_staging -v backup_role=rust_backup \
@@ -50,4 +50,5 @@ export RUST_ABILITIES_TEMPLATE_DATABASE="$template"
 # CARGO_RUNNER carries the caller's shared target-directory lock.
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
-  --features contract-tests --test abilities_postgres --test abilities_http -- --include-ignored --test-threads=1
+  --features contract-tests --test group_crud \
+  -- abilities_postgres:: abilities_http:: --include-ignored --test-threads=1

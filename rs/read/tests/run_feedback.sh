@@ -33,4 +33,4 @@ export RUST_TEST_DATABASE_URL="postgres://rust_app:disposable_app_pw@127.0.0.1:$
 export RUST_TEST_MIGRATOR_DATABASE_URL="postgres://rust_migrator:disposable_migrator_pw@127.0.0.1:$port/verdaxis_feedback_test"
 RELEASE_SHA=$(git rev-parse HEAD)
 export RELEASE_SHA
-SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --test crud_feedback -- --test-threads=1
+SQLX_OFFLINE=true cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read --test group_crud crud_feedback:: -- --test-threads=1
