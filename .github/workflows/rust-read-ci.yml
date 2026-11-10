@@ -261,6 +261,10 @@ jobs:
             runners: run_offboarding_schema.sh run_offboarding_admission.sh run_offboarding_credentials.sh run_offboarding_command.sh run_compliance_scores.sh run_phase5_bounds.sh
           - shard: market
             runners: run_offboarding_market.sh run_offboarding_composition.sh run_offboarding_acceptance.sh run_market_contract.sh
+          # Market-write component cases (cancel, commission, contexts,
+          # effects, match completion, post-only, stock, suggestions).
+          - shard: market-write
+            runners: run_market_write_components.sh
           # Auth, stream, public-cache and alert targets that read their own
           # database variables and run only against a seeded disposable database.
           - shard: components
