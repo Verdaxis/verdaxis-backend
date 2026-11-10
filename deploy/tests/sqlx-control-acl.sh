@@ -126,8 +126,9 @@ else
   fail "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it"
 fi
 
-# A leftover Alembic history table receives no grant: convergence governs it
-# like any unlisted table, and the application and backup roles stay denied.
+# A leftover Alembic history table is governed like any unlisted table: the
+# application role is denied it, and the backup role may read it for a dump
+# but never write it.
 # The migrator owns it, as bootstrap_roles.sql made it own the retained table.
 adopted_database verdaxis_acl_alembic
 as_role verdaxis_migrator verdaxis_acl_alembic <<'SQL' > /dev/null
@@ -137,10 +138,11 @@ SQL
 converge verdaxis_acl_alembic
 converge verdaxis_acl_alembic
 if denied verdaxis_app verdaxis_acl_alembic 'SELECT count(*) FROM public.alembic_version' \
-  && denied verdaxis_backup verdaxis_acl_alembic 'SELECT count(*) FROM public.alembic_version'; then
-  pass "leftover_alembic_history_stays_denied"
+  && denied verdaxis_backup verdaxis_acl_alembic "UPDATE public.alembic_version SET version_num = 'x'" \
+  && denied verdaxis_backup verdaxis_acl_alembic 'DELETE FROM public.alembic_version'; then
+  pass "leftover_alembic_history_is_denied_to_the_app_and_read_only_to_backup"
 else
-  fail "leftover_alembic_history_stays_denied"
+  fail "leftover_alembic_history_is_denied_to_the_app_and_read_only_to_backup"
 fi
 
 # A history owned by another role is refused by convergence.
