@@ -37,7 +37,6 @@ Blocked startup state remains until bound signed acceptance succeeds.
 
 `scripts/install_systemd_units.sh` and
 `deploy/scripts/install-host-automation.sh` install reviewed units and automation.
-`scripts/rust_w2_handover.sh` transfers ownership in drained, accepted groups.
 Maintenance commands under `rs/read/src/cli/jobs/` cover news, auth maintenance,
 analytics pruning, reminders, onboarding and demo activity. Monitor commands and
 alert handoff preserve existing journal and ownership boundaries.

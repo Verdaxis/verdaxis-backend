@@ -182,8 +182,8 @@ Malformed state is quarantined and cannot suppress paging.
 ## Native alert handoff (Phase 10, `verdaxis-read monitor alert`)
 
 This section describes the Rust replacement that the Phase 10 unit installer
-activates. Until then the Python units above stay authoritative. The reviewed
-unit and policy bytes are `tests/rust_contract/phase10/alert-handoff/`.
+activates. Until then the Python units above stay authoritative. Its units and
+tmpfiles policy are the files in this directory.
 
 **Journal.** Each monitor admits its observation into its own ordered journal
 before it publishes its status: `/var/lib/verdaxis-health/alert-handoff/` and
