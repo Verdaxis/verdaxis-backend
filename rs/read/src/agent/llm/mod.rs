@@ -153,7 +153,7 @@ impl GoClient {
                     .unwrap_or_else(|poison| poison.into_inner());
                 !state.disabled
                     && !excluded.contains(&index)
-                    && !state.usage.is_some_and(|(at, _)| at.elapsed() < USAGE_TTL)
+                    && state.usage.is_none_or(|(at, _)| at.elapsed() >= USAGE_TTL)
             };
             if !refresh {
                 continue;

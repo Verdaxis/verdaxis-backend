@@ -463,7 +463,8 @@ async fn shared_client_runs_delayed_completions_concurrently() {
             let (mut socket, _) = listener.accept().await.unwrap();
             handlers.spawn(async move {
                 let mut bytes = [0; 8192];
-                socket.read(&mut bytes).await.unwrap();
+                let count = socket.read(&mut bytes).await.unwrap();
+                assert!(count > 0);
                 tokio::time::sleep(Duration::from_millis(600)).await;
                 let reply = success();
                 let response = format!(
