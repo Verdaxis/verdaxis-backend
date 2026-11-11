@@ -35,7 +35,8 @@ const MESSAGES: &str = "/api/agent/conversations/{conversation_id}/messages";
 const AUDIT: &str = "/api/auth/admin/agent/audit";
 const VERIFY: &str = "/api/auth/admin/agent/audit/verify";
 const CONTROLS: &str = "/api/auth/admin/agent/controls";
-const BODY_BYTES: usize = 64 * 1024;
+// JSON escaping can use six bytes per character across all allowed blocks.
+const BODY_BYTES: usize = 400 * 1024;
 
 #[derive(Clone)]
 pub struct RouteState {
@@ -330,20 +331,15 @@ struct MessageBody {
 impl MessageBody {
     fn validate(&self) -> Result<(), ApiError> {
         let valid = |text: &str, max: usize| {
-            !text.trim().is_empty() && text.len() <= max && !text.contains('\0')
+            !text.trim().is_empty() && text.chars().count() <= max && !text.contains('\0')
         };
-        if !valid(&self.text, 16_000) || self.untrusted.len() > 8 {
+        if !valid(&self.text, 4_000) || self.untrusted.len() > 3 {
             return Err(invalid());
         }
-        let mut bytes = 0_usize;
         for block in &self.untrusted {
-            if !valid(&block.label, 80) || !valid(&block.text, 8_000) {
+            if !valid(&block.label, 60) || !valid(&block.text, 20_000) {
                 return Err(invalid());
             }
-            bytes = bytes.checked_add(block.text.len()).ok_or_else(invalid)?;
-        }
-        if bytes > 32_000 {
-            return Err(invalid());
         }
         Ok(())
     }
@@ -392,7 +388,14 @@ async fn send_message(
     };
     match turn::run_turn_with_admission(&deps, context, body.text, body.untrusted, limits).await {
         Ok(outcome) => axum::Json(outcome).into_response(),
-        Err(error) => api_response(turn_error(error)),
+        Err(error) => {
+            let rate_limited = error == TurnError::RateLimited;
+            let mut error = turn_error(error);
+            if rate_limited {
+                error.retry_after = u32::try_from(options.rate_limit_window_seconds).ok();
+            }
+            api_response(error)
+        }
     }
 }
 
@@ -475,7 +478,7 @@ impl ControlBody {
         if !matches!(self.scope.as_str(), "global" | "organization" | "user")
             || (self.scope == "global") != self.scope_id.is_none()
             || self.reason.trim().is_empty()
-            || self.reason.len() > 1_000
+            || self.reason.chars().count() > 200
             || self.reason.contains('\0')
         {
             return Err(invalid());

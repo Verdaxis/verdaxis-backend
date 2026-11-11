@@ -207,14 +207,25 @@ async fn agent_mounting_respects_startup_gates() {
         for case in ["disabled", "missing", "rejected", "ready"] {
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
             command
-                .args(["--exact", "route_mounts::agent_mounting_respects_startup_gates", "--nocapture"])
+                .args([
+                    "--exact",
+                    "route_mounts::agent_mounting_respects_startup_gates",
+                    "--nocapture",
+                ])
                 .env(CASE, case);
-            for key in ["OPENCODE_API_KEY", "OPENCODE_API_KEY_2", "OPENCODE_API_KEY_3"] {
+            for key in [
+                "OPENCODE_API_KEY",
+                "OPENCODE_API_KEY_2",
+                "OPENCODE_API_KEY_3",
+            ] {
                 command.env_remove(key);
             }
             match case {
                 "disabled" | "ready" => {
-                    command.env("OPENCODE_API_KEY", format!("mount-fixture-{}", std::process::id()));
+                    command.env(
+                        "OPENCODE_API_KEY",
+                        format!("mount-fixture-{}", std::process::id()),
+                    );
                 }
                 "rejected" => {
                     command.env("OPENCODE_API_KEY", "not-ascii-\u{e9}");
@@ -222,13 +233,23 @@ async fn agent_mounting_respects_startup_gates() {
                 _ => {}
             }
             let output = command.output().unwrap();
-            assert!(output.status.success(), "{case}: {}", String::from_utf8_lossy(&output.stderr));
-            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "child case did not run");
+            assert!(
+                output.status.success(),
+                "{case}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "child case did not run"
+            );
         }
         return;
     };
     let state = app_state(case != "disabled");
-    assert_eq!(verdaxis_read::runtime::agent::mounts(&state), case == "ready");
+    assert_eq!(
+        verdaxis_read::runtime::agent::mounts(&state),
+        case == "ready"
+    );
     let app = verdaxis_read::router(state);
     for (method, path) in [
         ("POST", "/api/agent/conversations".to_owned()),
@@ -239,10 +260,23 @@ async fn agent_mounting_respects_startup_gates() {
         ("GET", "/api/auth/admin/agent/controls".to_owned()),
         ("PUT", "/api/auth/admin/agent/controls".to_owned()),
     ] {
-        let response = app.clone().oneshot(Request::builder()
-            .method(method).uri(&path).header("content-type", "application/json")
-            .body(Body::from("{}")).unwrap()).await.unwrap();
-        assert_eq!(response.status().as_u16(), if case == "ready" { 401 } else { 404 }, "{method} {path}: {case}");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(&path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if case == "ready" { 401 } else { 404 },
+            "{method} {path}: {case}"
+        );
     }
 }
 

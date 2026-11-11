@@ -1,12 +1,12 @@
 //! Release-switched assistant routes and the process-lifetime model transport.
 use std::sync::Arc;
 
-use axum::{middleware, Router};
+use axum::{Router, middleware};
 
 use crate::{
+    AppState,
     agent::{llm::GoClient, routes::RouteState, turn::ModelClient},
     auth::limits::SharedLimits,
-    AppState,
 };
 
 use super::agent_config::AgentOptions;

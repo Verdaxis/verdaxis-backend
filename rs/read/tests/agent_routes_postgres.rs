@@ -361,7 +361,10 @@ async fn pause_and_resume(scope: &str) {
     f.control(scope, scope_id, true).await;
     let (status, _, body) = f.message(conversation).await;
     assert_eq!(status, StatusCode::LOCKED, "{body}");
-    assert_eq!(body, json!({"detail":"The assistant is paused.","reason":"Operator maintenance"}));
+    assert_eq!(
+        body,
+        json!({"detail":"The assistant is paused.","reason":"Operator maintenance"})
+    );
     assert_eq!(f.model.calls.load(Ordering::SeqCst), 0);
     assert_eq!(f.count("messages").await, 0);
     f.control(scope, scope_id, false).await;
@@ -454,7 +457,12 @@ async fn concurrent_conversations_share_one_user_rate_limit() {
     let (left, right) = tokio::join!(f.message(first), f.message(second));
     let mut statuses = [left.0.as_u16(), right.0.as_u16()];
     statuses.sort_unstable();
-    assert!(matches!(statuses, [200, 429] | [200, 503]), "left={} right={}", left.2, right.2);
+    assert!(
+        matches!(statuses, [200, 429] | [200, 503]),
+        "left={} right={}",
+        left.2,
+        right.2
+    );
     let (status, headers, _) = f.message(second).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert!(headers.get("retry-after").is_some());
@@ -633,9 +641,14 @@ async fn admin_audit_filters_and_verification_require_admin_role() {
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["events"].as_array().unwrap().is_empty());
-    url.query_pairs_mut().clear().append_pair("to", &(Utc::now() - ChronoDuration::minutes(1)).to_rfc3339());
+    url.query_pairs_mut().clear().append_pair(
+        "to",
+        &(Utc::now() - ChronoDuration::minutes(1)).to_rfc3339(),
+    );
     let path = format!("{}?{}", url.path(), url.query().unwrap());
-    let (status, _, body) = f.send(Method::GET, &path, Some(f.administrator), None).await;
+    let (status, _, body) = f
+        .send(Method::GET, &path, Some(f.administrator), None)
+        .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["events"].as_array().unwrap().is_empty());
     let (status, _, body) = f
