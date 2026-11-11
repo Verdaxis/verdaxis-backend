@@ -20,5 +20,5 @@ cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --test group_runtime agent_llm:: -- --test-threads=1 2>&1 | tee "$log"
 check_count 1
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
-  --test group_phase10 phase10_ops_env::serve_env_ -- --test-threads=1 2>&1 | tee "$log"
+  --features contract-tests --test group_phase10 phase10_ops_env::serve_env_ -- --test-threads=1 2>&1 | tee "$log"
 check_count 9
