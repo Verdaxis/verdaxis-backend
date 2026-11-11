@@ -27,6 +27,7 @@ pub(super) enum Headroom {
 #[derive(Default)]
 pub(super) struct SlotState {
     pub disabled: bool,
+    pub rate_limited_at: Option<Instant>,
     pub usage: Option<(Instant, Headroom)>,
 }
 

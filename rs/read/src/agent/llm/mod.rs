@@ -158,6 +158,7 @@ impl GoClient {
             if !refresh {
                 continue;
             }
+            let refresh_started = Instant::now();
             let response = self
                 .http
                 .get(&self.usage_endpoint)
@@ -188,13 +189,17 @@ impl GoClient {
                 }
                 Err(_) => Headroom::Unknown,
             };
-            // Concurrent refreshes may finish in either order. A refresh never
-            // clears the permanent disabled flag set by an authorization refusal.
-            credential
-                .state
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .usage = Some((Instant::now(), headroom));
+            // Ordinary refreshes are last-write-wins. A refresh started before
+            // a chat rate limit cannot clear that newer exhausted state.
+            {
+                let mut state = credential
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                if state.rate_limited_at.is_none_or(|at| at < refresh_started) {
+                    state.usage = Some((Instant::now(), headroom));
+                }
+            }
         }
         let mut best: Option<(usize, f64)> = None;
         let mut fallback = None;
@@ -301,11 +306,13 @@ impl GoClient {
                     }
                     if status == 429 {
                         excluded.push(index);
-                        self.credentials[index]
+                        let mut state = self.credentials[index]
                             .state
                             .lock()
-                            .unwrap_or_else(|poison| poison.into_inner())
-                            .usage = Some((Instant::now(), Headroom::Exhausted));
+                            .unwrap_or_else(|poison| poison.into_inner());
+                        let at = Instant::now();
+                        state.rate_limited_at = Some(at);
+                        state.usage = Some((at, Headroom::Exhausted));
                     }
                     if matches!(status, 429 | 502 | 503 | 504) && attempt < MAX_ATTEMPTS {
                         wait = Some(retry_wait(response.headers().get("retry-after"), attempt));

@@ -552,3 +552,27 @@ async fn known_headroom_beats_unknown_and_all_exhausted_refuses() {
         ErrorCode::NoHeadroom
     );
 }
+
+#[tokio::test]
+async fn stale_usage_refresh_cannot_clear_newer_rate_limit() {
+    let mut reply = meter(1);
+    reply.delay = Duration::from_millis(150);
+    let mock = Mock::new(vec![reply]).await;
+    let client = mock.client(1);
+    let refresh = client.select(&[]);
+    let record_rate_limit = async {
+        while mock.captured().is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let at = Instant::now();
+        let mut state = client.credentials[0].state.lock().unwrap();
+        state.rate_limited_at = Some(at);
+        state.usage = Some((at, Headroom::Exhausted));
+    };
+    let (selection, ()) = tokio::join!(refresh, record_rate_limit);
+    assert_eq!(selection, Err(ErrorCode::NoHeadroom));
+    assert!(matches!(
+        client.credentials[0].state.lock().unwrap().usage,
+        Some((_, Headroom::Exhausted))
+    ));
+}
