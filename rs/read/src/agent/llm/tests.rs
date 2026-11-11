@@ -395,7 +395,7 @@ const MODELS_COUNT: usize = models::MODELS.len();
 
 #[tokio::test]
 async fn encoded_decision_credentials_are_refused() {
-    let content = r#"{"reply":"fixture-account-0"}"#;
+    let content = format!(r#"{{"reply":"{}u0066ixture-account-0"}}"#, char::from(92));
     let reply = Reply::json(
         200,
         json!({"model": models::MODELS[0].id,
