@@ -308,17 +308,16 @@ impl AgentTool {
             Self::CreateDraft(args) => {
                 args.canonical_terms(policy, now)?;
             }
-            Self::AskUser(args) => {
+            Self::AskUser(args)
                 if !(1..=500).contains(&args.question.chars().count())
                     || args.options.as_ref().is_some_and(|options| {
                         options.len() > 6
                             || options
                                 .iter()
                                 .any(|option| !(1..=80).contains(&option.chars().count()))
-                    })
-                {
-                    return Err(ToolError::validation());
-                }
+                    }) =>
+            {
+                return Err(ToolError::validation());
             }
             _ => {}
         }

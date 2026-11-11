@@ -255,7 +255,7 @@ pub(crate) fn validate_slice(
             codes.sort();
             invalid(format!(
                 "Unsupported market product {}. Supported products: {}",
-                super::transport::python_string_repr(&product),
+                super::transport::python_string_repr(product),
                 codes.join(", ")
             ))
         })?;
@@ -267,7 +267,7 @@ pub(crate) fn validate_slice(
         .ok_or_else(|| {
             invalid(format!(
                 "Unsupported delivery point {}. Supported delivery points: {}",
-                super::transport::python_string_repr(&point),
+                super::transport::python_string_repr(point),
                 policy
                     .points
                     .iter()
