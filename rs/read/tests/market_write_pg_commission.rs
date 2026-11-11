@@ -73,12 +73,12 @@ impl Fixture {
         assert_ne!(a.username(), r.username());
         let mut admin = PgConnection::connect(&admin_url).await.unwrap();
         let revision: String = sqlx::query_scalar(
-            "SELECT 'sqlx_2'::text FROM _sqlx_migrations WHERE version=2 AND success",
+            "SELECT 'sqlx_3'::text FROM _sqlx_migrations WHERE version=3 AND success",
         )
         .fetch_one(&mut admin)
         .await
         .unwrap();
-        assert_eq!(revision, "sqlx_2");
+        assert_eq!(revision, "sqlx_3");
         sqlx::raw_sql(include_str!("fixtures/phase8_commission.sql"))
             .execute(&mut admin)
             .await

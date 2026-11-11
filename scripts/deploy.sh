@@ -628,7 +628,7 @@ write_monitor_identity() {
 # deploy/rust/allowed-revisions.json.
 revision_has_watchlist_producer() {
     case "$1" in
-        p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1|sqlx_2) return 0 ;;
+        p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1|sqlx_2|sqlx_3) return 0 ;;
     esac
     return 1
 }
@@ -1093,12 +1093,12 @@ if [[ ! "$MIGRATION_EXPECTED_CURRENT_REVISION" =~ ^[A-Za-z0-9][A-Za-z0-9_]{0,127
     echo "Exact literal migration current and target revisions are required." >&2
     exit 1
 fi
-# The release serves only sqlx_2 (deploy/rust/allowed-revisions.json). The
-# first deploy of a host moves it from sqlx_1; later deploys keep sqlx_2.
+# The release serves only sqlx_3 (deploy/rust/allowed-revisions.json). The
+# first deploy of a host moves it from sqlx_2; later deploys keep sqlx_3.
 case "$MIGRATION_EXPECTED_CURRENT_REVISION:$MIGRATION_TARGET_REVISION" in
-    sqlx_1:sqlx_2|sqlx_2:sqlx_2) ;;
+    sqlx_2:sqlx_3|sqlx_3:sqlx_3) ;;
     *)
-        echo "Deploy requires the sqlx_1 to sqlx_2 transition or the sqlx_2 self-transition." >&2; exit 1
+        echo "Deploy requires the sqlx_2 to sqlx_3 transition or the sqlx_3 self-transition." >&2; exit 1
         ;;
 esac
 if [[ -z "$DEPLOY_ACCEPTANCE_RECORD" || -z "$DEPLOY_ACCEPTANCE_SIGNATURE" ]]; then
@@ -1341,7 +1341,7 @@ if [[ "$RUST_SELECTED" == "1" ]]; then
     # list equal to that part of deploy/rust/allowed-revisions.json.
     RUST_STREAM_LISTENER="0"
     case "$MIGRATION_TARGET_REVISION" in
-        sse_20261021_replay_floor|p5_20261020_read_indexes|p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1|sqlx_2) RUST_STREAM_LISTENER="1" ;;
+        sse_20261021_replay_floor|p5_20261020_read_indexes|p89_20261022_watchlist_producer|p89_20261022_trade_freeze|ob_20261031_offboarding|sqlx_1|sqlx_2|sqlx_3) RUST_STREAM_LISTENER="1" ;;
     esac
     publication_boundary before budget
     if ! run_release_binary "$STAGED_BINARY" ops prepare-budget \

@@ -25,7 +25,11 @@ for _ in $(seq 1 120); do
 done
 
 failures=0
-pass() { echo "  ok   $1"; }
+passes=0
+pass() {
+  passes=$((passes + 1))
+  echo "  ok   $1"
+}
 fail() {
   echo "  FAIL $1" >&2
   failures=$((failures + 1))
@@ -62,6 +66,8 @@ adopted_database() {
   local database=$1
   make_database "$database"
   as_role verdaxis_migrator "$database" < rs/read/migrations/1_baseline.sql > /dev/null
+  as_role verdaxis_migrator "$database" < rs/read/migrations/2_drop_alembic_version.sql > /dev/null
+  as_role verdaxis_migrator "$database" < rs/read/migrations/3_agent_foundation.sql > /dev/null
   as_role verdaxis_migrator "$database" <<'SQL'
 CREATE TABLE public._sqlx_migrations (
     version BIGINT PRIMARY KEY, description TEXT NOT NULL,
@@ -126,6 +132,37 @@ else
   fail "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it"
 fi
 
+# Exercise the generated sequence through the runtime role, not the owner.
+if as_role verdaxis_app verdaxis_acl_test -c "INSERT INTO public.agent_audit_events (kind, payload, prev_hash, hash) VALUES ('test', '{}'::jsonb, '', 'test')" > /dev/null \
+  && [[ $(as_role verdaxis_app verdaxis_acl_test -tA -c "SELECT count(*) FROM public.agent_audit_events WHERE kind = 'test'") == 1 ]] \
+  && denied verdaxis_app verdaxis_acl_test "UPDATE public.agent_audit_events SET kind = 'changed'" \
+  && denied verdaxis_app verdaxis_acl_test 'DELETE FROM public.agent_audit_events' \
+  && denied verdaxis_app verdaxis_acl_test 'TRUNCATE public.agent_audit_events' \
+  && denied verdaxis_app verdaxis_acl_test "SELECT setval('public.agent_audit_events_id_seq', 1)"; then
+  pass "agent_audit_runtime_can_append_and_read_only"
+else
+  fail "agent_audit_runtime_can_append_and_read_only"
+fi
+
+# Rebuild stale table and column grants, including authority through PUBLIC.
+as_role verdaxis_migrator verdaxis_acl_test <<'SQL' > /dev/null
+GRANT UPDATE, DELETE ON public.agent_audit_events TO verdaxis_app;
+GRANT UPDATE (payload) ON public.agent_audit_events TO PUBLIC;
+GRANT UPDATE ON SEQUENCE public.agent_audit_events_id_seq TO verdaxis_app;
+SQL
+converge verdaxis_acl_test
+first=$(acl_snapshot verdaxis_acl_test)
+converge verdaxis_acl_test
+if [[ $first == "$(acl_snapshot verdaxis_acl_test)" ]] \
+  && denied verdaxis_app verdaxis_acl_test "UPDATE public.agent_audit_events SET payload = '{}'::jsonb" \
+  && denied verdaxis_app verdaxis_acl_test 'DELETE FROM public.agent_audit_events' \
+  && denied verdaxis_app verdaxis_acl_test "SELECT setval('public.agent_audit_events_id_seq', 1)" \
+  && as_role verdaxis_app verdaxis_acl_test -c "INSERT INTO public.agent_audit_events (kind, payload, prev_hash, hash) VALUES ('after_convergence', '{}'::jsonb, 'test', 'next')" > /dev/null; then
+  pass "agent_audit_acl_convergence_removes_stale_writes"
+else
+  fail "agent_audit_acl_convergence_removes_stale_writes"
+fi
+
 # A leftover Alembic history table is governed like any unlisted table: the
 # application role is denied it, and the backup role may read it for a dump
 # but never write it.
@@ -154,6 +191,9 @@ else
   pass "convergence_refuses_a_history_owned_by_another_role"
 fi
 
+if ((passes != 7)); then
+  fail "expected exactly 7 passing ACL cases, got $passes"
+fi
 if ((failures > 0)); then
   echo "SQLX_CONTROL_ACL=failed ($failures)" >&2
   exit 1

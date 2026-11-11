@@ -9,7 +9,7 @@ use verdaxis_read::{Config, compiled_sha, connect, kyc::keyring::KeyRing};
 
 /// The Alembic head the runner's database sits at: the adoption source. The
 /// runner adopts the database to the runtime revision before serving it.
-const REVISION: &str = "sqlx_2";
+const REVISION: &str = "sqlx_3";
 const APP_ROLE: &str = "verdaxis_app_staging";
 const MIGRATOR_ROLE: &str = "verdaxis_migrator_staging";
 
@@ -49,7 +49,7 @@ impl Database {
             assert!(!superuser && !create_role && !bypass_rls);
         }
         let revision: String = sqlx::query_scalar(
-            "SELECT 'sqlx_2'::text FROM _sqlx_migrations WHERE version=2 AND success",
+            "SELECT 'sqlx_3'::text FROM _sqlx_migrations WHERE version=3 AND success",
         )
         .fetch_one(&mut migrator)
         .await

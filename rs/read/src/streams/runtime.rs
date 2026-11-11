@@ -30,6 +30,7 @@ pub fn schema_has_streams(revision: &str) -> bool {
             | "ob_20261031_offboarding"
             | "sqlx_1"
             | "sqlx_2"
+            | "sqlx_3"
     )
 }
 const RESTART_COOLDOWN: Duration = Duration::from_secs(30);

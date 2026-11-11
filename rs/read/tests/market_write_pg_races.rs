@@ -122,12 +122,12 @@ impl Fixture {
         let mut admin = PgConnection::connect(&admin_url).await.unwrap();
         assert_eq!(
             sqlx::query_scalar::<_, String>(
-                "SELECT 'sqlx_2'::text FROM _sqlx_migrations WHERE version=2 AND success"
+                "SELECT 'sqlx_3'::text FROM _sqlx_migrations WHERE version=3 AND success"
             )
             .fetch_one(&mut admin)
             .await
             .unwrap(),
-            "sqlx_2"
+            "sqlx_3"
         );
         for source in [
             include_str!("fixtures/market_write_matching.sql"),

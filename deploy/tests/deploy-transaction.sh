@@ -67,7 +67,7 @@ check() {
     fi
 }
 
-START_REVISION=sqlx_1
+START_REVISION=sqlx_2
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 
@@ -109,7 +109,7 @@ new_host() {
     while IFS=$'\t' read -r _ unit; do
         [[ -n ${unit:-} ]] && cp -- "deploy/systemd/$unit" "$H/src/deploy/systemd/$unit"
     done < <(grep -v '^#' deploy/systemd/runtime-units.manifest)
-    for relative in "$(printf 'sqlx_1\tsqlx_2')" "$(printf 'sqlx_2\tsqlx_2')" "$extra_row"; do
+    for relative in "$(printf 'sqlx_2\tsqlx_3')" "$(printf 'sqlx_3\tsqlx_3')" "$extra_row"; do
         if [[ -n $relative ]] && ! grep -q -F -x -- "$relative" "$H/src/deploy/migration-checkpoints.tsv"; then
             printf '%s\n' "$relative" >> "$H/src/deploy/migration-checkpoints.tsv"
         fi
@@ -471,7 +471,7 @@ said() { grep -q -F -- "$1" "$H/stdout" "$H/stderr"; }
 approved_host() {
     new_host "$1" "${2:-staging}" "${3:-}"
     deploy --dry-run
-    approve "${4:-sqlx_1}" "${5:-sqlx_2}"
+    approve "${4:-sqlx_2}" "${5:-sqlx_3}"
 }
 
 # The real run was refused before any change: nonzero, the checkout still at
@@ -570,12 +570,12 @@ check cache_authority_failure_blocks_activation case_cache_failure
 
 case_binding() {
     approved_host binding && deploy \
-        && called "migrate status .*--check --expected-current sqlx_1" \
-        && called "migrate run .*--expected-current sqlx_1 --target sqlx_2 .*--apply" \
-        && before 'migrate run' 'migrate status .*--expected-current sqlx_2' \
-        && grep -q '^MIGRATION_REVISION=sqlx_2$' "$BE/.runtime-release.env" \
-        && jq -e '.revision == "sqlx_2"' "$BE/.runtime-rust/revision.json" > /dev/null \
-        && [[ $(cat "$H/db-revision") == sqlx_2 ]]
+        && called "migrate status .*--check --expected-current sqlx_2" \
+        && called "migrate run .*--expected-current sqlx_2 --target sqlx_3 .*--apply" \
+        && before 'migrate run' 'migrate status .*--expected-current sqlx_3' \
+        && grep -q '^MIGRATION_REVISION=sqlx_3$' "$BE/.runtime-release.env" \
+        && jq -e '.revision == "sqlx_3"' "$BE/.runtime-rust/revision.json" > /dev/null \
+        && [[ $(cat "$H/db-revision") == sqlx_3 ]]
 }
 check dry_run_real_run_and_postcheck_bind_the_same_exact_transition case_binding
 
@@ -609,7 +609,7 @@ case_interruptions() {
             echo "    the start guard allowed a start after a crash at: $point" >&2
             ok=1
         fi
-        if ! deploy || [[ -f $(state_file) ]] || [[ $(cat "$H/db-revision") != sqlx_2 ]]; then
+        if ! deploy || [[ -f $(state_file) ]] || [[ $(cat "$H/db-revision") != sqlx_3 ]]; then
             echo "    a rerun did not resume after a crash at: $point" >&2
             ok=1
         fi
@@ -636,7 +636,7 @@ case_publication_kills() {
             if bash "$BE/deploy/scripts/verify-deploy-start-guard.sh" --environment staging \
                 --expected-release-sha "$B" 2> /dev/null; then return 1; fi
             deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
-                && [[ $(cat "$H/db-revision") == sqlx_2 ]] \
+                && [[ $(cat "$H/db-revision") == sqlx_3 ]] \
                 && ! called '^systemctl restart verdaxis-backend' || return 1
         done
     done
@@ -698,7 +698,7 @@ case_dependency_change() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve sqlx_1 sqlx_2
+    approve sqlx_2 sqlx_3
     refused_before_any_change && ! called 'migrate run' && said 'installs no dependency'
 }
 check 'a backend dependency change is refused before any state' case_dependency_change
@@ -855,13 +855,13 @@ check test_dry_run_prints_the_producer_keys case_dry_run_producer_keys
 
 case_dry_run_checkpoint_pair() {
     new_host dry-pair
-    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_1 MIGRATION_TARGET_REVISION=sqlx_2 deploy --dry-run \
-        && said "APPROVED_MIGRATION_CURRENT=sqlx_1" && said 'APPROVED_MIGRATION_TARGET=sqlx_2' || return 1
-    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_1 MIGRATION_TARGET_REVISION='' deploy --dry-run && return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_2 MIGRATION_TARGET_REVISION=sqlx_3 deploy --dry-run \
+        && said "APPROVED_MIGRATION_CURRENT=sqlx_2" && said 'APPROVED_MIGRATION_TARGET=sqlx_3' || return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_2 MIGRATION_TARGET_REVISION='' deploy --dry-run && return 1
     said 'both literal migration current and target' || return 1
-    MIGRATION_EXPECTED_CURRENT_REVISION='' MIGRATION_TARGET_REVISION=sqlx_2 deploy --dry-run && return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION='' MIGRATION_TARGET_REVISION=sqlx_3 deploy --dry-run && return 1
     said 'both literal migration current and target' || return 1
-    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_1 MIGRATION_TARGET_REVISION=head deploy --dry-run && return 1
+    MIGRATION_EXPECTED_CURRENT_REVISION=sqlx_2 MIGRATION_TARGET_REVISION=head deploy --dry-run && return 1
     [[ $(head_sha) == "$A" && ! -e $(state_file) ]] && ! called '^binary'
 }
 check dry_run_attests_optional_exact_checkpoint_pair_without_candidate_execution case_dry_run_checkpoint_pair
@@ -893,7 +893,7 @@ check test_moved_sha_refuses_before_source_mutation case_moved_remote
 case_unallowlisted() {
     approved_host unallowlisted
     export MIGRATION_TARGET_REVISION=pref_20260709_user_preferences
-    refused_before_any_change && said 'Deploy requires the sqlx_1 to sqlx_2 transition or the sqlx_2 self-transition.'
+    refused_before_any_change && said 'Deploy requires the sqlx_2 to sqlx_3 transition or the sqlx_3 self-transition.'
 }
 check test_real_deploy_refuses_unallowlisted_checkpoint_before_source_mutation case_unallowlisted
 
@@ -901,7 +901,7 @@ case_unexpected_revision() {
     approved_host unexpected-revision
     printf 'p5_20261020_read_indexes' > "$H/db-revision"
     refused_before_any_change \
-        && called "migrate status .*--check --expected-current sqlx_1" \
+        && called "migrate status .*--check --expected-current sqlx_2" \
         && (($(grep -n -m 1 -x 'acquire_deploy_lock' scripts/deploy.sh | cut -d: -f1) < $(source_line 'migrate status --check \'))) \
         && (($(source_line 'migrate status --check \') < $(source_line 'write_deploy_state "blocked" "$APPROVED_RELEASE_SHA"')))
 }
@@ -980,7 +980,7 @@ case_policy_off() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve sqlx_1 sqlx_2
+    approve sqlx_2 sqlx_3
     refused_before_any_change && said 'does not enable the Rust service' && ! called '^binary'
 }
 check test_policy_off_refuses_before_any_service_change case_policy_off staging
@@ -997,7 +997,7 @@ case_manifest_without_rust() {
     git -C "$H/src" push -q origin staging
     B=$(git -C "$H/src" rev-parse HEAD)
     sed -i "s/^RELEASE_SHA=.*/RELEASE_SHA=$B/" "$BE/.env"
-    approve sqlx_1 sqlx_2
+    approve sqlx_2 sqlx_3
     refused_before_any_change && said 'not manifest-selected'
 }
 check test_missing_rust_manifest_entry_refuses_before_service_change case_manifest_without_rust
@@ -1080,7 +1080,7 @@ case_post_restart_health() {
         && grep -q "^RELEASE_SHA=$B\$" "$BE/.runtime-release.env" \
         && (($(first_line '^systemctl restart verdaxis-rust-staging') < $(last_line '^systemctl stop verdaxis-rust-staging'))) \
         && python_retired_before_migration && ! called '^systemctl restart verdaxis-backend' \
-        && called "migrate run .*--expected-current sqlx_1 --target sqlx_2" \
+        && called "migrate run .*--expected-current sqlx_2 --target sqlx_3" \
         && before 'migrate run' 'acl converge' && before 'acl converge' '^systemctl restart'
 }
 check test_failed_post_restart_health_stops_service_and_restores_guard case_post_restart_health
@@ -1178,7 +1178,7 @@ case_rust_failure() {
     rm -f -- "$H/fail-at" "$H/rust-unready"
     deploy && [[ ! -e $(state_file) ]] || return 1
     push_release
-    approve sqlx_2 sqlx_2
+    approve sqlx_3 sqlx_3
     deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
         && ! called '^systemctl restart verdaxis-backend'
 }
@@ -1216,8 +1216,8 @@ check test_deploy_refuses_an_invalid_listener_value_before_schema_change case_in
 case_stream_listener() {
     approved_host stream-listener && deploy \
         && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 ' || return 1
-    approved_host stream-self-loop staging '' sqlx_1 sqlx_2
-    printf sqlx_1 > "$H/db-revision"
+    approved_host stream-self-loop staging '' sqlx_2 sqlx_3
+    printf sqlx_2 > "$H/db-revision"
     deploy && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 '
 }
 check test_canonical_stream_release_prepares_enabled_budget case_stream_listener
@@ -1279,7 +1279,7 @@ case_metadata_pause() {
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == legacy-python ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]] || return 1
     push_release
-    approve sqlx_2 sqlx_2
+    approve sqlx_3 sqlx_3
     DEPLOY_EXTRA_ENVIRONMENT='WATCHLIST_EVENT_PRODUCER=rust-market-v1' deploy \
         && [[ $(release_value WATCHLIST_EVENT_PRODUCER) == rust-market-v1 ]] \
         && [[ $(release_value WATCHLIST_PRODUCER_ACTIVATED_AT) == "$INSTANT" ]]

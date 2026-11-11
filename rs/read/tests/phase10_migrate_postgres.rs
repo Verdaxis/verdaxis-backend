@@ -15,6 +15,130 @@ use verdaxis_read::cli::migrate::{
 
 const MIGRATOR_ROLE: &str = "verdaxis_migrator";
 
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn agent_upgrade_and_fresh_catalogs_match() {
+    use verdaxis_read::cli::migrate::fingerprint;
+
+    let upgraded = empty_database("agent_upgrade").await;
+    let mut connection = as_migrator(&upgraded).await;
+    for migration in MIGRATOR.iter().filter(|migration| migration.version <= 2) {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
+            .execute(&mut connection)
+            .await
+            .expect("apply the prior schema");
+    }
+    let before = fingerprint(&mut connection).await.expect("prior catalog");
+    sqlx::raw_sql(include_str!("../migrations/3_agent_foundation.sql"))
+        .execute(&mut connection)
+        .await
+        .expect("apply agent storage to the prior schema");
+    let after = fingerprint(&mut connection).await.expect("agent catalog");
+    assert_ne!(before, after);
+    let fresh = migrated_database("agent_fresh").await;
+    assert_eq!(
+        after,
+        fingerprint(&mut as_migrator(&fresh).await)
+            .await
+            .expect("fresh catalog")
+    );
+    for table in [
+        "agent_conversations",
+        "agent_messages",
+        "order_drafts",
+        "agent_audit_events",
+        "agent_controls",
+    ] {
+        let exists: bool = sqlx::query_scalar("SELECT to_regclass('public.' || $1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(&mut connection)
+            .await
+            .expect("agent table lookup");
+        assert!(exists, "missing {table}");
+    }
+    drop(connection);
+    drop_database(&upgraded).await;
+    drop_database(&fresh).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable PostgreSQL of run_postgres.sh"]
+async fn agent_storage_enforces_scopes_sequences_and_exact_amounts() {
+    let database = migrated_database("agent_constraints").await;
+    let mut connection = as_migrator(&database).await;
+    sqlx::raw_sql(
+        "INSERT INTO public.users (id, email, password_hash) VALUES \
+         ('00000000-0000-0000-0000-000000000001', 'agent@example.invalid', 'unused'); \
+         INSERT INTO public.agent_conversations (id, user_id) VALUES \
+         ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001'); \
+         INSERT INTO public.agent_messages (id, conversation_id, seq, role, content) VALUES \
+         ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000002', 1, 'user', '{}'); \
+         INSERT INTO public.order_drafts (id, conversation_id, user_id, side, market_product, \
+         delivery_point, availability_window, quantity_mt, limit_price_usd, terms_digest, source_text) VALUES \
+         ('00000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-000000000002', \
+         '00000000-0000-0000-0000-000000000001', 'BID', 'fuel', 'port', 'SPOT', \
+         123.123456789012345678, 456.123456789012345678, 'digest', 'source'); \
+         INSERT INTO public.agent_controls (scope, reason, updated_by) VALUES \
+         ('global', 'test', '00000000-0000-0000-0000-000000000001');",
+    )
+    .execute(&mut connection)
+    .await
+    .expect("insert agent storage rows");
+    let amounts: (String, String) =
+        sqlx::query_as("SELECT quantity_mt::text, limit_price_usd::text FROM public.order_drafts")
+            .fetch_one(&mut connection)
+            .await
+            .expect("read exact amounts");
+    assert_eq!(amounts.0, "123.123456789012345678");
+    assert_eq!(amounts.1, "456.123456789012345678");
+    for (statement, code) in [
+        (
+            "UPDATE public.agent_conversations SET status = 'invalid'",
+            "23514",
+        ),
+        ("UPDATE public.agent_messages SET role = 'invalid'", "23514"),
+        ("UPDATE public.agent_messages SET seq = 0", "23514"),
+        (
+            "INSERT INTO public.agent_messages SELECT gen_random_uuid(), conversation_id, seq, role, content, created_at FROM public.agent_messages",
+            "23505",
+        ),
+        (
+            "UPDATE public.agent_messages SET conversation_id = gen_random_uuid()",
+            "23503",
+        ),
+        ("UPDATE public.order_drafts SET side = 'invalid'", "23514"),
+        ("UPDATE public.order_drafts SET status = 'invalid'", "23514"),
+        (
+            "UPDATE public.order_drafts SET quantity_mt = 'NaN'",
+            "23514",
+        ),
+        (
+            "UPDATE public.order_drafts SET limit_price_usd = 'Infinity'",
+            "23514",
+        ),
+        (
+            "INSERT INTO public.agent_controls SELECT * FROM public.agent_controls",
+            "23505",
+        ),
+        ("UPDATE public.agent_controls SET scope = 'user'", "23514"),
+        (
+            "UPDATE public.agent_controls SET scope_id = gen_random_uuid()",
+            "23514",
+        ),
+    ] {
+        let error = sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
+            .execute(&mut connection)
+            .await
+            .expect_err("invalid agent row must be refused");
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some(code)
+        );
+    }
+    drop(connection);
+    drop_database(&database).await;
+}
+
 fn admin_url() -> String {
     std::env::var("RUST_TEMPLATE_ADMIN_DATABASE_URL")
         .expect("RUST_TEMPLATE_ADMIN_DATABASE_URL must name the disposable server")
@@ -109,7 +233,7 @@ async fn migrate_status_is_read_only_and_reports_pending() {
     let report = status_with(&mut connect(&database).await, &MIGRATOR)
         .await
         .expect("status");
-    assert_eq!(report.revision(), Some("sqlx_2".into()));
+    assert_eq!(report.revision(), Some("sqlx_3".into()));
     assert!(report.pending.is_empty());
     assert!(report.foreign.is_empty());
     drop_database(&database).await;
@@ -121,7 +245,7 @@ async fn migrate_status_is_read_only_and_reports_pending() {
         .await
         .expect("status");
     assert_eq!(report.revision(), None);
-    assert_eq!(report.pending, vec![1, 2]);
+    assert_eq!(report.pending, vec![1, 2, 3]);
     assert!(report.foreign.is_empty());
     assert!(
         !sqlx::query_scalar::<_, bool>("SELECT to_regclass('public._sqlx_migrations') IS NOT NULL")
@@ -431,10 +555,12 @@ async fn alembic_literals_are_refused_everywhere() {
 #[test]
 fn compiled_policy_parses_and_keeps_only_the_sqlx_rows() {
     let compiled = TransitionPolicy::compiled();
-    // The release serves only sqlx_2: a host moves there from sqlx_1 and then
-    // keeps it. No Alembic adoption pair and no sqlx_1 self row remain.
+    // Historical transition rows remain available; this release adds the
+    // move from sqlx_2 and the sqlx_3 self-transition.
     assert!(compiled.allows("sqlx_1", "sqlx_2"));
     assert!(compiled.allows("sqlx_2", "sqlx_2"));
+    assert!(compiled.allows("sqlx_2", "sqlx_3"));
+    assert!(compiled.allows("sqlx_3", "sqlx_3"));
     assert!(!compiled.allows("sqlx_1", "sqlx_1"));
     assert!(!compiled.allows("ob_20261031_offboarding", "sqlx_1"));
     assert!(!compiled.allows("ob_20261031_offboarding", "sqlx_2"));
