@@ -150,7 +150,7 @@ async fn receipts_require_committed_intent_and_keep_reference_when_capped() {
         .await
         .unwrap();
         let intent_id = handle.id();
-        let receipt = record_receipt(handle, json!({"text": "x".repeat(70_000)}))
+        let receipt = record_receipt(&handle, json!({"text": "x".repeat(70_000)}))
             .await
             .unwrap();
         let (payload,): (Value,) =
@@ -161,7 +161,12 @@ async fn receipts_require_committed_intent_and_keep_reference_when_capped() {
                 .unwrap();
         assert_eq!(payload["intent_id"], intent_id);
         assert_eq!(payload["truncated"], true);
+        let retried = record_receipt(&handle, json!({"retry": true}))
+            .await
+            .unwrap();
+        assert_eq!(retried, receipt);
     }
+    assert_eq!(verify_chain(&app, None, None).await.unwrap().checked, 4);
     assert!(
         append(
             &app,

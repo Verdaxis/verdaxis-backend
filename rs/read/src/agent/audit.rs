@@ -106,8 +106,9 @@ impl IntentKind {
 
 /// Created only after the intent commits. Fields are private, and the handle
 /// carries its originating pool so a receipt cannot target another database.
-/// Consume it after the external operation; an interrupted operation leaves an
-/// intent without a receipt rather than an unrecorded request.
+/// Borrow it after the external operation; an interrupted operation leaves an
+/// intent without a receipt rather than an unrecorded request. Receipt retries
+/// return the first stored receipt, including after an uncertain commit.
 ///
 /// ```compile_fail
 /// use verdaxis_read::agent::audit::IntentHandle;
@@ -168,8 +169,14 @@ pub async fn record_intent(
     })
 }
 
-pub async fn record_receipt(handle: IntentHandle, outcome: Value) -> Result<AppendedEvent> {
+/// Borrow the handle so failed or uncertain commits can be retried. Under the
+/// chain lock an existing receipt wins, making retries return the original row.
+pub async fn record_receipt(handle: &IntentHandle, outcome: Value) -> Result<AppendedEvent> {
     let mut tx = handle.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(CHAIN_LOCK)
+        .execute(&mut *tx)
+        .await?;
     let found: Option<(String, String)> =
         sqlx::query_as("SELECT kind, hash FROM public.agent_audit_events WHERE id = $1")
             .bind(handle.intent.id)
@@ -178,10 +185,16 @@ pub async fn record_receipt(handle: IntentHandle, outcome: Value) -> Result<Appe
     if found
         != Some((
             handle.kind.kinds().0.as_str().to_owned(),
-            handle.intent.hash,
+            handle.intent.hash.clone(),
         ))
     {
         return Err(AuditError("audit intent is unavailable"));
+    }
+    let existing: Option<(i64, String)> = sqlx::query_as("SELECT id, hash FROM public.agent_audit_events WHERE kind = $1 AND payload -> 'intent_id' = to_jsonb($2::bigint) ORDER BY id LIMIT 1")
+        .bind(handle.kind.kinds().1.as_str()).bind(handle.intent.id).fetch_optional(&mut *tx).await?;
+    if let Some((id, hash)) = existing {
+        tx.commit().await?;
+        return Ok(AppendedEvent { id, hash });
     }
     let event = AuditEvent {
         kind: handle.kind.kinds().1,
@@ -212,7 +225,7 @@ async fn append_locked(
         Some(id) => json!({"intent_id": id, "outcome": redacted}),
         None => redacted,
     };
-    let payload = cap_payload(normalize_numbers(payload)?, intent_id)?;
+    let payload = cap_payload(payload, intent_id)?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(CHAIN_LOCK)
         .execute(&mut **tx)
@@ -234,6 +247,11 @@ async fn append_locked(
 // JSONB expands exponents and may change zero spelling. Normalize numbers
 // exactly, without f64 conversion or the financial helper's 28-digit rounding.
 fn normalize_numbers(value: Value) -> Result<Value> {
+    let mut budget = MAX_PAYLOAD_BYTES + 4096;
+    normalize_numbers_bounded(value, &mut budget)
+}
+
+fn normalize_numbers_bounded(value: Value, budget: &mut usize) -> Result<Value> {
     match value {
         Value::Number(number) => {
             let text = number.to_string();
@@ -261,6 +279,22 @@ fn normalize_numbers(value: Value) -> Result<Value> {
             let point = i64::try_from(digits.len())
                 .map_err(|_| AuditError("audit numeric value out of range"))?
                 + power;
+            let expanded = if power >= 0 {
+                digits.len().checked_add(power as usize)
+            } else if point <= 0 {
+                digits
+                    .len()
+                    .checked_add((-point) as usize)
+                    .and_then(|n| n.checked_add(2))
+            } else {
+                digits.len().checked_add(1)
+            };
+            let expanded = expanded
+                .and_then(|n| n.checked_add(usize::from(negative)))
+                .ok_or(AuditError("audit payload expansion limit"))?;
+            *budget = budget
+                .checked_sub(expanded)
+                .ok_or(AuditError("audit payload expansion limit"))?;
             let body = if power >= 0 {
                 format!("{digits}{}", "0".repeat(power as usize))
             } else if point <= 0 {
@@ -279,12 +313,12 @@ fn normalize_numbers(value: Value) -> Result<Value> {
         }
         Value::Array(items) => items
             .into_iter()
-            .map(normalize_numbers)
+            .map(|item| normalize_numbers_bounded(item, budget))
             .collect::<Result<Vec<_>>>()
             .map(Value::Array),
         Value::Object(items) => items
             .into_iter()
-            .map(|(k, v)| normalize_numbers(v).map(|v| (k, v)))
+            .map(|(k, v)| normalize_numbers_bounded(v, budget).map(|v| (k, v)))
             .collect::<Result<serde_json::Map<_, _>>>()
             .map(Value::Object),
         other => Ok(other),
@@ -332,7 +366,7 @@ impl Redactor {
         let patterns = [
             r"sk-[A-Za-z0-9_-]{16,}",
             r"oc_sk_[A-Za-z0-9_-]+",
-            r"Bearer\s+\S+",
+            r"(?i:Bearer)\s+\S+",
         ]
         .iter()
         .map(|pattern| {
@@ -401,13 +435,42 @@ impl Redactor {
 
 /// Oversized redacted payloads are replaced, not byte-sliced: this preserves
 /// valid JSON and avoids partial credentials or misleading partial evidence.
-/// `redacted_bytes` is the original compact size. Receipts retain `intent_id`.
+/// `limit_bytes` states the cap. Numeric expansion also shares a bounded
+/// budget before allocating strings. Receipts always retain `intent_id`.
 fn cap_payload(value: Value, intent_id: Option<i64>) -> Result<Value> {
-    let bytes = canonical_json(&value)?.len();
-    if bytes <= MAX_PAYLOAD_BYTES {
-        return Ok(value);
+    struct LimitedWriter {
+        remaining: usize,
     }
-    let mut marker = json!({"truncated": true, "redacted_bytes": bytes});
+    impl std::io::Write for LimitedWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.remaining = self
+                .remaining
+                .checked_sub(bytes.len())
+                .ok_or_else(|| std::io::Error::other("audit payload size limit"))?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let fits = |value: &Value| {
+        serde_json::to_writer(
+            &mut LimitedWriter {
+                remaining: MAX_PAYLOAD_BYTES,
+            },
+            value,
+        )
+        .is_ok()
+    };
+    // Reject oversized input before normalization, then check expanded JSON.
+    if fits(&value) {
+        match normalize_numbers(value) {
+            Ok(normalized) if fits(&normalized) => return Ok(normalized),
+            Ok(_) | Err(AuditError("audit payload expansion limit")) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    let mut marker = json!({"truncated": true, "limit_bytes": MAX_PAYLOAD_BYTES});
     if let Some(id) = intent_id {
         marker["intent_id"] = json!(id);
     }
@@ -521,6 +584,8 @@ mod tests {
             format!("sk-{}", "x".repeat(20)),
             format!("oc_{}{}", "sk_", "x".repeat(8)),
             format!("Bearer\t{}", "fake-token"),
+            format!("bearer {}", "fake-token"),
+            format!("bEaReR {}", "fake-token"),
         ] {
             let input = json!({secret.clone(): [{"value": format!("before {secret} after")}]});
             assert_eq!(
@@ -577,6 +642,14 @@ mod tests {
         assert_eq!(capped["truncated"], true);
         assert_eq!(capped["intent_id"], 42);
         assert!(canonical_json(&capped).unwrap().len() <= MAX_PAYLOAD_BYTES);
+    }
+
+    #[test]
+    fn aggregate_numeric_expansion_is_capped_before_allocation() {
+        let input: Value = serde_json::from_str("[1e40000,1e40000,1e40000]").unwrap();
+        let capped = cap_payload(input, None).unwrap();
+        assert_eq!(capped["truncated"], true);
+        assert_eq!(capped["limit_bytes"], MAX_PAYLOAD_BYTES);
     }
 
     #[test]
