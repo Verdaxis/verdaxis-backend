@@ -333,6 +333,7 @@ pub struct Phase2Options {
     /// reassignment. Off unless the deployed environment turns it on; while
     /// off, no router mounts any of these routes (see `runtime::offboarding`).
     pub offboarding_enabled: bool,
+    pub agent: runtime::agent_config::AgentOptions,
 }
 
 fn read_admission_default() -> u32 {

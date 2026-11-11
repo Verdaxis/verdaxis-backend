@@ -159,6 +159,7 @@ mod tests {
             allowed_hosts: None,
             market_write: Default::default(),
             offboarding_enabled: false,
+            agent: Default::default(),
         }
     }
 
