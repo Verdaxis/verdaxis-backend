@@ -229,6 +229,7 @@ pub fn config_from_deployed_environment(
             allowed_hosts: environment.get("ALLOWED_HOSTS").cloned(),
             market_write,
             offboarding_enabled: deployed_bool(environment, super::offboarding::SWITCH, false)?,
+            agent: deployed_agent_options(environment)?,
         },
     };
     // Refuse an unknown status or an over-long message before serving, like
@@ -239,6 +240,39 @@ pub fn config_from_deployed_environment(
     )?;
     HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
     Ok(config)
+}
+
+fn deployed_agent_options(
+    environment: &std::collections::HashMap<String, String>,
+) -> Result<super::agent_config::AgentOptions, String> {
+    let defaults = super::agent_config::AgentOptions::default();
+    let integer = |key: &str, default: u64| {
+        environment
+            .get(key)
+            .map(|value| value.trim().parse::<u64>())
+            .transpose()
+            .map_err(|_| format!("{key} must be a positive integer"))
+            .map(|value| value.unwrap_or(default))
+    };
+    let options = super::agent_config::AgentOptions {
+        enabled: deployed_bool(environment, super::agent::SWITCH, false)?,
+        model: environment
+            .get("AGENT_MODEL")
+            .cloned()
+            .unwrap_or(defaults.model),
+        rate_limit_messages: u32::try_from(integer(
+            "AGENT_RATE_LIMIT_MESSAGES",
+            u64::from(defaults.rate_limit_messages),
+        )?)
+        .map_err(|_| "AGENT_RATE_LIMIT_MESSAGES is too large".to_owned())?,
+        rate_limit_window_seconds: integer(
+            "AGENT_RATE_LIMIT_WINDOW_SECONDS",
+            defaults.rate_limit_window_seconds,
+        )?,
+        daily_token_budget: integer("AGENT_DAILY_TOKEN_BUDGET", defaults.daily_token_budget)?,
+    };
+    options.validate()?;
+    Ok(options)
 }
 
 /// Resolve a deployed boolean switch. The environment file decides, so Rust
@@ -594,6 +628,7 @@ pub fn runtime_connection_total(config: &Config) -> Result<u32, String> {
 pub fn validate_config(config: &Config) -> Result<(), String> {
     // Filesystem resolution belongs to startup, not repeated DB/state validation.
     validate_fleet_path_syntax(&config.fleet_artifact_path)?;
+    config.phase2.agent.validate()?;
     if !matches!(
         config.environment.as_str(),
         "development" | "test" | "staging" | "production"
@@ -651,4 +686,69 @@ pub fn validate_config(config: &Config) -> Result<(), String> {
         config.configured_max_connections,
         config.configured_max_connections,
     )
+}
+
+#[cfg(test)]
+mod agent_tests {
+    use super::deployed_agent_options;
+    use std::collections::HashMap;
+
+    #[test]
+    fn deployed_agent_switch_uses_existing_boolean_spellings() {
+        assert!(!deployed_agent_options(&HashMap::new()).unwrap().enabled);
+        for raw in ["true", "t", "y", "yes", "1", "on", " True "] {
+            let environment = HashMap::from([("AGENT_ENABLED".to_owned(), raw.to_owned())]);
+            assert!(
+                deployed_agent_options(&environment).unwrap().enabled,
+                "{raw}"
+            );
+        }
+        for raw in ["false", "f", "n", "no", "0", "off", " OFF "] {
+            let environment = HashMap::from([("AGENT_ENABLED".to_owned(), raw.to_owned())]);
+            assert!(
+                !deployed_agent_options(&environment).unwrap().enabled,
+                "{raw}"
+            );
+        }
+        for raw in ["", "enabled", "2"] {
+            let environment = HashMap::from([("AGENT_ENABLED".to_owned(), raw.to_owned())]);
+            assert!(deployed_agent_options(&environment).is_err(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn deployed_agent_limits_parse_and_validate() {
+        for (key, maximum) in [
+            ("AGENT_RATE_LIMIT_MESSAGES", 10_000_u64),
+            ("AGENT_RATE_LIMIT_WINDOW_SECONDS", 86_400),
+            ("AGENT_DAILY_TOKEN_BUDGET", 1_000_000_000),
+        ] {
+            for raw in ["1".to_owned(), format!(" +{maximum} ")] {
+                let environment = HashMap::from([(key.to_owned(), raw.clone())]);
+                assert!(deployed_agent_options(&environment).is_ok(), "{key}={raw}");
+            }
+            for raw in ["", "0", "-1", "1e2", "1_0", "1.5", "18446744073709551616"] {
+                let environment = HashMap::from([(key.to_owned(), raw.to_owned())]);
+                assert!(deployed_agent_options(&environment).is_err(), "{key}={raw}");
+            }
+            let environment = HashMap::from([(key.to_owned(), (maximum + 1).to_string())]);
+            assert!(deployed_agent_options(&environment).is_err(), "{key}");
+        }
+        let environment = HashMap::from([
+            ("AGENT_RATE_LIMIT_MESSAGES".to_owned(), "7".to_owned()),
+            (
+                "AGENT_RATE_LIMIT_WINDOW_SECONDS".to_owned(),
+                "30".to_owned(),
+            ),
+            ("AGENT_DAILY_TOKEN_BUDGET".to_owned(), "900".to_owned()),
+        ]);
+        let options = deployed_agent_options(&environment).unwrap();
+        assert_eq!(options.rate_limit_messages, 7);
+        assert_eq!(options.rate_limit_window_seconds, 30);
+        assert_eq!(options.daily_token_budget, 900);
+        for model in ["", "unknown"] {
+            let environment = HashMap::from([("AGENT_MODEL".to_owned(), model.to_owned())]);
+            assert!(deployed_agent_options(&environment).is_err());
+        }
+    }
 }

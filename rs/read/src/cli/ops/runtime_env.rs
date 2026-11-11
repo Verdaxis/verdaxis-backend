@@ -483,6 +483,28 @@ fn agent_settings(
         crate::agent::llm::models::settings(raw).map_err(|_| Refusal("agent_model"))?;
         projected.insert("AGENT_MODEL".to_owned(), raw.to_owned());
     }
+    use crate::runtime::agent_config::{
+        MAX_DAILY_TOKEN_BUDGET, MAX_RATE_LIMIT_MESSAGES, MAX_RATE_LIMIT_WINDOW_SECONDS,
+    };
+    for (key, maximum) in [
+        (
+            "AGENT_RATE_LIMIT_MESSAGES",
+            u64::from(MAX_RATE_LIMIT_MESSAGES),
+        ),
+        (
+            "AGENT_RATE_LIMIT_WINDOW_SECONDS",
+            MAX_RATE_LIMIT_WINDOW_SECONDS,
+        ),
+        ("AGENT_DAILY_TOKEN_BUDGET", MAX_DAILY_TOKEN_BUDGET),
+    ] {
+        if let Some(raw) = present(values, key) {
+            let number = plain_integer(raw)
+                .and_then(|number| u64::try_from(number).ok())
+                .filter(|number| (1..=maximum).contains(number))
+                .ok_or(Refusal("market_integer"))?;
+            projected.insert(key.to_owned(), number.to_string());
+        }
+    }
     Ok(())
 }
 
@@ -846,6 +868,58 @@ mod tests {
                 app_database_url(&values(url), Environment::Staging).is_err(),
                 "{url}"
             );
+        }
+    }
+
+    #[test]
+    fn agent_limits_are_optional_serve_only_rows() {
+        for key in [
+            "AGENT_RATE_LIMIT_MESSAGES",
+            "AGENT_RATE_LIMIT_WINDOW_SECONDS",
+            "AGENT_DAILY_TOKEN_BUDGET",
+        ] {
+            let rows: Vec<_> = policy().into_iter().filter(|row| row.key == key).collect();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].purpose, "serve");
+            assert_eq!(rows[0].delivery, "runtime.env");
+            assert_eq!(rows[0].status, Status::Optional);
+        }
+        let mut projected = BTreeMap::new();
+        agent_settings(&Bindings::new(), &mut projected).unwrap();
+        assert!(projected.is_empty());
+    }
+
+    #[test]
+    fn agent_limits_project_normal_form_and_enforce_bounds() {
+        for (key, maximum) in [
+            ("AGENT_RATE_LIMIT_MESSAGES", 10_000_u64),
+            ("AGENT_RATE_LIMIT_WINDOW_SECONDS", 86_400),
+            ("AGENT_DAILY_TOKEN_BUDGET", 1_000_000_000),
+        ] {
+            for raw in ["1".to_owned(), format!(" +00{maximum} ")] {
+                let values = Bindings::from([(key.to_owned(), Some(raw.clone()))]);
+                let mut projected = BTreeMap::new();
+                agent_settings(&values, &mut projected).unwrap();
+                let expected = if raw == "1" {
+                    "1".to_owned()
+                } else {
+                    maximum.to_string()
+                };
+                assert_eq!(projected.get(key), Some(&expected));
+            }
+            for raw in ["", "0", "-1", "1e2", "1_0", "1.5", "18446744073709551616"] {
+                let values = Bindings::from([(key.to_owned(), Some(raw.to_owned()))]);
+                assert!(
+                    agent_settings(&values, &mut BTreeMap::new()).is_err(),
+                    "{key}={raw}"
+                );
+            }
+            let values = Bindings::from([(key.to_owned(), Some((maximum + 1).to_string()))]);
+            assert!(agent_settings(&values, &mut BTreeMap::new()).is_err());
+        }
+        for (key, raw) in [("AGENT_ENABLED", "enabled"), ("AGENT_MODEL", "unknown")] {
+            let values = Bindings::from([(key.to_owned(), Some(raw.to_owned()))]);
+            assert!(agent_settings(&values, &mut BTreeMap::new()).is_err());
         }
     }
 

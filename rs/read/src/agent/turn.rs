@@ -103,13 +103,16 @@ pub struct TurnOutcome {
     pub assistant_seq: i32,
     pub stopped: Option<StopReason>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TurnError {
     InvalidConfiguration,
     ContextUnavailable,
     StorageUnavailable,
     AuditUnavailable,
     Busy,
+    RateLimited,
+    DailyBudgetExceeded,
+    Paused(String),
 }
 impl std::fmt::Display for TurnError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -119,6 +122,9 @@ impl std::fmt::Display for TurnError {
             Self::StorageUnavailable => "The conversation could not be saved.",
             Self::AuditUnavailable => "The assistant evidence could not be saved.",
             Self::Busy => "The assistant is busy. Please try again shortly.",
+            Self::RateLimited => "The assistant message limit has been reached.",
+            Self::DailyBudgetExceeded => "The daily assistant token budget has been reached.",
+            Self::Paused(_) => "The assistant is paused.",
         })
     }
 }
@@ -257,6 +263,36 @@ pub async fn run_turn(
     user_text: String,
     untrusted: Vec<UntrustedBlock>,
 ) -> Result<TurnOutcome, TurnError> {
+    run_turn_inner(deps, ctx, user_text, untrusted, None).await
+}
+
+/// Persisted HTTP admission limits. Checks and the user message commit together.
+#[derive(Clone, Copy, Debug)]
+pub struct AdmissionLimits {
+    pub messages: u32,
+    pub window_seconds: u64,
+    pub daily_tokens: u64,
+}
+
+/// Uses the existing dedicated turn session for a nonblocking user lock, so
+/// separate instances cannot run overlapping admitted turns for one buyer.
+pub async fn run_turn_with_admission(
+    deps: &TurnDeps,
+    ctx: ToolContext,
+    user_text: String,
+    untrusted: Vec<UntrustedBlock>,
+    admission: AdmissionLimits,
+) -> Result<TurnOutcome, TurnError> {
+    run_turn_inner(deps, ctx, user_text, untrusted, Some(admission)).await
+}
+
+async fn run_turn_inner(
+    deps: &TurnDeps,
+    ctx: ToolContext,
+    user_text: String,
+    untrusted: Vec<UntrustedBlock>,
+    admission: Option<AdmissionLimits>,
+) -> Result<TurnOutcome, TurnError> {
     let context = ctx;
     if deps.model.trim().is_empty()
         || !(1..=6).contains(&deps.limits.max_tool_calls)
@@ -280,6 +316,20 @@ pub async fn run_turn(
         .await
         .map_err(|_| TurnError::StorageUnavailable)??;
     session.close_on_drop();
+    let user_key = user_lock_key(context.user_id);
+    if admission.is_some() {
+        let acquired: bool = timeout_at(
+            deadline,
+            sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+                .bind(user_key)
+                .fetch_one(&mut *session),
+        )
+        .await
+        .map_err(|_| TurnError::StorageUnavailable)??;
+        if !acquired {
+            return Err(TurnError::Busy);
+        }
+    }
     let hash = Sha256::digest(
         [
             b"verdaxis-agent-turn:".as_slice(),
@@ -293,7 +343,27 @@ pub async fn run_turn(
     timeout_at(deadline, acquire_turn_lock(&mut session, key))
         .await
         .map_err(|_| TurnError::StorageUnavailable)??;
-    let result = run_locked(deps, &context, &mut session, user_text, untrusted, deadline).await;
+    let result = run_locked(
+        deps,
+        &context,
+        &mut session,
+        (user_text, untrusted),
+        deadline,
+        admission,
+    )
+    .await;
+    if admission.is_some() {
+        let released = timeout(
+            CLEANUP_TIMEOUT,
+            sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1)")
+                .bind(user_key)
+                .fetch_one(&mut *session),
+        )
+        .await;
+        if !matches!(released, Ok(Ok(true))) {
+            return Err(TurnError::StorageUnavailable);
+        }
+    }
     match timeout(
         CLEANUP_TIMEOUT,
         sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1)")
@@ -323,15 +393,24 @@ async fn run_locked(
     deps: &TurnDeps,
     context: &ToolContext,
     conn: &mut PgConnection,
-    user: String,
-    blocks: Vec<UntrustedBlock>,
+    input: (String, Vec<UntrustedBlock>),
     deadline: Instant,
+    admission: Option<AdmissionLimits>,
 ) -> Result<TurnOutcome, TurnError> {
+    let (user, blocks) = input;
     let mut progress = TurnProgress::default();
-    let result = timeout_at(
-        deadline,
-        run_loop(deps, context, conn, user, blocks, deadline, &mut progress),
-    )
+    let result = timeout_at(deadline, async {
+        let seq = record_user_message(conn, context, &user, &blocks, admission).await?;
+        run_loop(
+            deps,
+            context,
+            conn,
+            (user, blocks, seq),
+            deadline,
+            &mut progress,
+        )
+        .await
+    })
     .await;
     // This bounded cleanup is intentionally outside the full-loop deadline.
     // A model receipt remains possible after cancellation, including when the
@@ -382,18 +461,11 @@ async fn run_loop(
     deps: &TurnDeps,
     context: &ToolContext,
     conn: &mut PgConnection,
-    user: String,
-    blocks: Vec<UntrustedBlock>,
+    input: (String, Vec<UntrustedBlock>, i32),
     deadline: Instant,
     progress: &mut TurnProgress,
 ) -> Result<TurnOutcome, TurnError> {
-    let seq = persist(
-        conn,
-        context,
-        "user",
-        json!({"text":user,"untrusted":blocks}),
-    )
-    .await?;
+    let (user, blocks, seq) = input;
     let mut messages = vec![
         llm::Message {
             role: llm::Role::System,
@@ -566,6 +638,83 @@ async fn lock_context(conn: &mut PgConnection, context: &ToolContext) -> Result<
     }
     Ok(())
 }
+fn user_lock_key(user: Uuid) -> i64 {
+    let hash = Sha256::digest([b"verdaxis-agent-user:".as_slice(), user.as_bytes()].concat());
+    let mut bytes = [0_u8; 8];
+    bytes.copy_from_slice(&hash[..8]);
+    i64::from_be_bytes(bytes)
+}
+
+pub(crate) async fn paused_reason(
+    conn: &mut PgConnection,
+    user: Uuid,
+    organization: Option<Uuid>,
+) -> Result<Option<String>, TurnError> {
+    Ok(sqlx::query_scalar("SELECT reason FROM public.agent_controls WHERE paused AND ((scope='global' AND scope_id IS NULL) OR (scope='organization' AND scope_id=$2) OR (scope='user' AND scope_id=$1)) ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'organization' THEN 1 ELSE 2 END LIMIT 1")
+        .bind(user).bind(organization).fetch_optional(conn).await?)
+}
+
+async fn record_user_message(
+    conn: &mut PgConnection,
+    context: &ToolContext,
+    text: &str,
+    blocks: &[UntrustedBlock],
+    admission: Option<AdmissionLimits>,
+) -> Result<i32, TurnError> {
+    let Some(limits) = admission else {
+        return persist(
+            conn,
+            context,
+            "user",
+            json!({"text":text,"untrusted":blocks}),
+        )
+        .await;
+    };
+    let window =
+        i64::try_from(limits.window_seconds).map_err(|_| TurnError::InvalidConfiguration)?;
+    let budget = i64::try_from(limits.daily_tokens).map_err(|_| TurnError::InvalidConfiguration)?;
+    if limits.messages == 0 || window <= 0 || budget <= 0 {
+        return Err(TurnError::InvalidConfiguration);
+    }
+    let mut tx = conn
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(user_lock_key(context.user_id))
+        .execute(&mut *tx)
+        .await?;
+    lock_context(&mut tx, context).await?;
+    let eligible: bool = sqlx::query_scalar("SELECT role='BUYER' AND status='APPROVED' AND offboarded_at IS NULL AND NOT must_change_password FROM public.users WHERE id=$1")
+        .bind(context.user_id).fetch_one(&mut *tx).await?;
+    if !eligible {
+        return Err(TurnError::ContextUnavailable);
+    }
+    if let Some(reason) = paused_reason(&mut tx, context.user_id, context.organization_id).await? {
+        return Err(TurnError::Paused(reason));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM public.agent_messages m JOIN public.agent_conversations c ON c.id=m.conversation_id WHERE c.user_id=$1 AND m.role='user' AND m.created_at >= now() - make_interval(secs => $2::bigint::double precision)")
+        .bind(context.user_id).bind(window).fetch_one(&mut *tx).await?;
+    if count >= i64::from(limits.messages) {
+        return Err(TurnError::RateLimited);
+    }
+    // Receipts are wrapped by audit::record_receipt in payload.outcome. Sum
+    // every attempt, not only successful completions, against UTC midnight.
+    let exhausted: bool = sqlx::query_scalar("SELECT COALESCE(SUM(CASE WHEN jsonb_typeof(receipt->'usage'->'total_tokens')='number' AND (receipt->'usage'->>'total_tokens') ~ '^[0-9]+$' THEN (receipt->'usage'->>'total_tokens')::numeric ELSE 0 END),0) >= $2::bigint::numeric FROM public.agent_audit_events e CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.payload->'outcome'->'receipts')='array' THEN e.payload->'outcome'->'receipts' ELSE '[]'::jsonb END) receipt WHERE e.kind='model_request_receipt' AND e.user_id=$1 AND e.at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')")
+        .bind(context.user_id).bind(budget).fetch_one(&mut *tx).await?;
+    if exhausted {
+        return Err(TurnError::DailyBudgetExceeded);
+    }
+    let seq = insert_message(
+        &mut tx,
+        context,
+        "user",
+        json!({"text":text,"untrusted":blocks}),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(seq)
+}
+
 async fn persist(
     conn: &mut PgConnection,
     context: &ToolContext,
@@ -576,11 +725,22 @@ async fn persist(
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
         .await?;
     lock_context(&mut tx, context).await?;
+    let seq = insert_message(&mut tx, context, role, content).await?;
+    tx.commit().await?;
+    Ok(seq)
+}
+
+async fn insert_message(
+    conn: &mut PgConnection,
+    context: &ToolContext,
+    role: &str,
+    content: Value,
+) -> Result<i32, TurnError> {
     let last: i32 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(seq),0) FROM public.agent_messages WHERE conversation_id=$1",
     )
     .bind(context.conversation_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut *conn)
     .await?;
     let seq = last.checked_add(1).ok_or(TurnError::StorageUnavailable)?;
     let content = if role == "assistant" {
@@ -591,12 +751,11 @@ async fn persist(
         content
     };
     sqlx::query("INSERT INTO public.agent_messages(id,conversation_id,seq,role,content) VALUES($1,$2,$3,$4,$5)")
-        .bind(Uuid::new_v4()).bind(context.conversation_id).bind(seq).bind(role).bind(content).execute(&mut *tx).await?;
+        .bind(Uuid::new_v4()).bind(context.conversation_id).bind(seq).bind(role).bind(content).execute(&mut *conn).await?;
     sqlx::query("UPDATE public.agent_conversations SET updated_at=now() WHERE id=$1")
         .bind(context.conversation_id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
-    tx.commit().await?;
     Ok(seq)
 }
 #[derive(Clone, Debug, Serialize, Deserialize, sqlx::FromRow)]

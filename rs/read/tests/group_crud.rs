@@ -49,6 +49,8 @@ pub mod referral_mail_timeout;
 #[path = "watchlist_activation_source.rs"]
 pub mod watchlist_activation_source;
 
+#[path = "agent_routes_postgres.rs"]
+pub mod agent_routes_postgres;
 #[path = "agent_tools.rs"]
 pub mod agent_tools;
 #[path = "agent_tools_postgres.rs"]

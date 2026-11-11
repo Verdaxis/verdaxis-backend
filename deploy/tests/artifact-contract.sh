@@ -22,6 +22,7 @@ for path in paths:
     assert (re.fullmatch(r'(deploy|scripts)/[A-Za-z0-9_./-]+\.sh', path)
             or re.fullmatch(r'rs/read/tests/run_phase10_[a-z0-9_]+\.sh', path)
             or path in {'rs/read/tests/run_agent_audit.sh',
+                        'rs/read/tests/run_agent_routes.sh',
                         'rs/read/tests/run_agent_turn.sh',
                         'rs/read/tests/run_agent_turn_unit.sh'}), path
     assert Path(path).is_file() and not Path(path).is_symlink(), path

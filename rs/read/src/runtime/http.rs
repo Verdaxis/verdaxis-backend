@@ -743,6 +743,10 @@ pub fn router_with(extra: Router<crate::AppState>, state: crate::AppState) -> Ro
         Some(offboarding) => routes.merge(offboarding),
         None => routes,
     };
+    let routes = match super::agent::routes(&state, limits.clone()) {
+        Some(agent) => routes.merge(agent),
+        None => routes,
+    };
     let routes = routes
         .fallback(fallback)
         .method_not_allowed_fallback(method_not_allowed);

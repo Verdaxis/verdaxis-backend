@@ -20,6 +20,7 @@ CREATE TABLE public.agent_messages (
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (conversation_id, seq)
 );
+CREATE INDEX agent_messages_user_window_idx ON public.agent_messages (conversation_id, created_at) WHERE role = 'user';
 
 CREATE TABLE public.order_drafts (
     id uuid PRIMARY KEY,
@@ -55,6 +56,8 @@ CREATE TABLE public.agent_audit_events (
     hash text NOT NULL
 );
 CREATE INDEX agent_audit_events_at_idx ON public.agent_audit_events(at);
+CREATE INDEX agent_audit_events_user_at_idx ON public.agent_audit_events (user_id, at) WHERE user_id IS NOT NULL;
+CREATE INDEX agent_audit_events_organization_at_idx ON public.agent_audit_events (organization_id, at) WHERE organization_id IS NOT NULL;
 CREATE INDEX agent_audit_events_conversation_id_idx ON public.agent_audit_events(conversation_id);
 
 CREATE TABLE public.agent_controls (
