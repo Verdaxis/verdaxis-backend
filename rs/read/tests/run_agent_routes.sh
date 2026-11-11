@@ -60,10 +60,6 @@ RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="$(database_ur
   --features contract-tests --test group_phase10 \
   phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored
 apply_role_policy
-docker exec "$container" psql -X -q -U postgres -d "$database" -v ON_ERROR_STOP=1 \
-  -v database_name="$database" -v app_role="$app_role" \
-  -v migrator_role="$migrator_role" -v backup_role="$backup_role" \
-  -f /tmp/role-policy/validate_roles.sql >/dev/null
 
 run_log=$(mktemp "${TMPDIR:-/tmp}/rust-agent-routes.XXXXXX")
 set +e

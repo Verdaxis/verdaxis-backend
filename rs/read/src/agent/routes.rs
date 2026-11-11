@@ -497,6 +497,34 @@ impl ControlBody {
         Ok(())
     }
 }
+
+async fn set_control(State(state): State<RouteState>, request: Request) -> Response {
+    let headers = request.headers().clone();
+    let parsed = body::<ControlBody>(request).await;
+    response(authenticated(&state, &headers, "PUT", CONTROLS, true, move |tx| Box::pin(async move {
+        let body = parsed?;
+        body.validate()?;
+        let actor = tx.actor().clone();
+        // Serialize absent-row upserts as well as existing rows, before taking
+        // the global evidence-chain lock. The outer auth transaction is RW.
+        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(i64::from_be_bytes(*b"AGENTCTL")).execute(tx.connection()).await.map_err(|_| ApiError::database())?;
+        let previous: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM public.agent_controls c WHERE scope=$1 AND scope_id IS NOT DISTINCT FROM $2 FOR UPDATE")
+            .bind(&body.scope).bind(body.scope_id).fetch_optional(tx.connection()).await.map_err(|_| ApiError::database())?;
+        if let Some(previous) = &previous
+            && previous["paused"] == body.paused
+            && previous["reason"] == body.reason
+        {
+            return Ok(previous.clone());
+        }
+        let mut savepoint = tx.connection().begin().await.map_err(|_| ApiError::database())?;
+        let control: Value = sqlx::query_scalar("INSERT INTO public.agent_controls(scope,scope_id,paused,reason,updated_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(scope,scope_id) DO UPDATE SET paused=EXCLUDED.paused,reason=EXCLUDED.reason,updated_by=EXCLUDED.updated_by,updated_at=now() RETURNING to_jsonb(agent_controls)")
+            .bind(&body.scope).bind(body.scope_id).bind(body.paused).bind(&body.reason).bind(actor.id).fetch_one(&mut *savepoint).await.map_err(|_| ApiError::database())?;
+        audit::append_in(&mut savepoint, AuditEvent { kind:AuditKind::ControlChanged, actor:AuditActor {user_id:Some(actor.id),organization_id:actor.organization_id,conversation_id:None},payload:json!({"scope":body.scope,"scope_id":body.scope_id,"paused":body.paused,"reason":body.reason,"previous":previous}) }).await.map_err(|_| refusal(StatusCode::SERVICE_UNAVAILABLE,"AGENT_AUDIT_UNAVAILABLE","The assistant evidence could not be saved."))?;
+        savepoint.commit().await.map_err(|_| ApiError::database())?;
+        Ok(control)
+    })).await)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,28 +549,4 @@ mod tests {
         assert!(parsed.validate().is_ok());
         assert_eq!(parsed.text.chars().count(), 4_000);
     }
-}
-
-async fn set_control(State(state): State<RouteState>, request: Request) -> Response {
-    let headers = request.headers().clone();
-    let parsed = body::<ControlBody>(request).await;
-    response(authenticated(&state, &headers, "PUT", CONTROLS, true, move |tx| Box::pin(async move {
-        let body = parsed?;
-        body.validate()?;
-        let actor = tx.actor().clone();
-        // Serialize absent-row upserts as well as existing rows, before taking
-        // the global evidence-chain lock. The outer auth transaction is RW.
-        sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(i64::from_be_bytes(*b"AGENTCTL")).execute(tx.connection()).await.map_err(|_| ApiError::database())?;
-        let previous: Option<Value> = sqlx::query_scalar("SELECT to_jsonb(c) FROM public.agent_controls c WHERE scope=$1 AND scope_id IS NOT DISTINCT FROM $2 FOR UPDATE")
-            .bind(&body.scope).bind(body.scope_id).fetch_optional(tx.connection()).await.map_err(|_| ApiError::database())?;
-        if let Some(previous) = &previous {
-            if previous["paused"] == body.paused && previous["reason"] == body.reason { return Ok(previous.clone()); }
-        }
-        let mut savepoint = tx.connection().begin().await.map_err(|_| ApiError::database())?;
-        let control: Value = sqlx::query_scalar("INSERT INTO public.agent_controls(scope,scope_id,paused,reason,updated_by) VALUES($1,$2,$3,$4,$5) ON CONFLICT(scope,scope_id) DO UPDATE SET paused=EXCLUDED.paused,reason=EXCLUDED.reason,updated_by=EXCLUDED.updated_by,updated_at=now() RETURNING to_jsonb(agent_controls)")
-            .bind(&body.scope).bind(body.scope_id).bind(body.paused).bind(&body.reason).bind(actor.id).fetch_one(&mut *savepoint).await.map_err(|_| ApiError::database())?;
-        audit::append_in(&mut savepoint, AuditEvent { kind:AuditKind::ControlChanged, actor:AuditActor {user_id:Some(actor.id),organization_id:actor.organization_id,conversation_id:None},payload:json!({"scope":body.scope,"scope_id":body.scope_id,"paused":body.paused,"reason":body.reason,"previous":previous}) }).await.map_err(|_| refusal(StatusCode::SERVICE_UNAVAILABLE,"AGENT_AUDIT_UNAVAILABLE","The assistant evidence could not be saved."))?;
-        savepoint.commit().await.map_err(|_| ApiError::database())?;
-        Ok(control)
-    })).await)
 }
