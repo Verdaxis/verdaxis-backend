@@ -99,7 +99,7 @@ pub struct AppState {
     pub(crate) pools: runtime::db::Pools,
     pub policy: std::sync::Arc<MarketPolicy>,
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
-    /// Turn-owned sessions leave one pooled connection for tools and evidence.
+    /// Bounded agent capacity preserves the shared marketplace read budget.
     pub(crate) agent_turn_slots: std::sync::Arc<tokio::sync::Semaphore>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
@@ -148,7 +148,7 @@ impl AppState {
             config.read_admission_slots as usize,
         ));
         let agent_turn_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(
-            config.read_admission_slots.saturating_sub(1) as usize,
+            agent::turn::turn_slot_capacity(config.read_admission_slots),
         ));
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;

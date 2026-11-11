@@ -52,9 +52,14 @@ All stopped turns use fixed safe reply text. Model audit records carry request
 and content digests and transport receipts, never prompts or completions.
 
 A per-conversation PostgreSQL session advisory lock serializes complete turns.
-An application-state turn semaphore admits at most read-pool capacity minus one
-turn sessions, leaving shared capacity for tool and audit work. Turns require
-at least two read connections and create no connections outside the pool.
+An application-state turn semaphore admits `max(1, min(4, read_slots / 4))`
+turn sessions. Each turn holds one session and uses at most one nested tool or
+audit connection, limiting agent work to half the pool for pools of at least
+four connections. The minimum two-connection pool admits one turn. Turns create
+no connections outside the pool. Slot admission waits at most five seconds or
+the remaining turn deadline, whichever is shorter, then returns `TurnError::Busy`
+before any message, audit or model work. Route admission can map this distinct
+error to 503 with Retry-After.
 The turn does not retain a conversation row lock across tool execution. The dedicated
 connection closes on cancellation so its session lock cannot return to the pool.
 Message writes each use explicit READ COMMITTED, READ WRITE transactions and
@@ -62,7 +67,10 @@ recheck ownership, organization and open status under a conversation row lock.
 User content, tool observations and the assistant outcome remain in ordered,
 gap-free message sequences. Older history above the estimated token budget is
 folded deterministically into stored `system_note` summaries without another
-model call. Untrusted text and labels are escaped within data boundaries.
+model call. The latest user text is a plain user-role buyer request, not a data
+block. Older history, including earlier user messages and summaries, remains
+wrapped as data. Forwarded or pasted untrusted text and labels are escaped
+within data boundaries.
 Deadline handling admits no further model or tool calls, then allows bounded
 audit and message finalization. An already admitted tool database operation can
 finish after caller cancellation under the existing admission policy; a timeout
@@ -188,10 +196,11 @@ and eight typed validation/catalog/digest cases. `run_agent_tools.sh` requires
 six PostgreSQL cases under production session options for draft transactions,
 source scope, private isolation, receipts and evidence-write failures. Both
 runners reject failed or ignored cases and run in CI. `run_agent_turn_unit.sh`
-requires six prompt, history and strict-decision cases. `run_agent_turn.sh`
-requires seventeen scripted-model PostgreSQL cases under production session
-options, including draft persistence, contract feedback, stops, evidence-write
-failures, stored history summaries and concurrent-turn serialization.
+requires seven pool-budget, prompt, history and strict-decision cases.
+`run_agent_turn.sh` requires eighteen scripted-model PostgreSQL cases under
+production session options, including draft persistence, contract feedback,
+stops, evidence-write failures, stored history summaries, concurrent-turn
+serialization and bounded busy admission without writes or model dispatch.
 `tests/tooling/` and
 `tests/monitor/` cover retained host tools. Disposable test resources and temporary
 logs are not committed.
