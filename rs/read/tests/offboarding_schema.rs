@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use verdaxis_read::{compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config, Config};
+use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS, validate_config};
 
 /// The revision that precedes the offboarding revision on the shared chain.
 const PARENT: &str = "p89_20261022_trade_freeze";
@@ -110,10 +110,12 @@ fn checkpoint_requires_exact_transition() {
         .map(|(current, target)| (current.as_str(), target.as_str()))
         .collect();
     assert_eq!(runtime_rows, [(HEAD, HEAD)]);
-    assert!(pairs
-        .iter()
-        .filter(|(_, target)| target == HEAD)
-        .all(|(current, _)| current.starts_with("sqlx_")));
+    assert!(
+        pairs
+            .iter()
+            .filter(|(_, target)| target == HEAD)
+            .all(|(current, _)| current.starts_with("sqlx_"))
+    );
     let policy = verdaxis_read::cli::migrate::TransitionPolicy::compiled();
     assert!(
         policy.allows("sqlx_2", HEAD),
@@ -239,8 +241,10 @@ fn runtime_policy_grants_the_audit_table_only_read_and_append() {
         "the audit table has no column-level grants"
     );
     // The convergence bundle applies this one policy file.
-    assert!(read("deploy/postgres/converge_runtime_object_acls.sql")
-        .contains(r"\ir app_acl_policy.sql"));
+    assert!(
+        read("deploy/postgres/converge_runtime_object_acls.sql")
+            .contains(r"\ir app_acl_policy.sql")
+    );
     // The role validator treats the table as append-only for the application and read-only for backup.
     assert!(read("deploy/postgres/validate_roles.sql").contains(AUDIT_TABLE));
 }
