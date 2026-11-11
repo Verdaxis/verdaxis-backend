@@ -392,3 +392,41 @@ fn credentials_and_model_contract_are_validated_without_values() {
     assert_eq!(body["thinking"]["type"], "disabled");
 }
 const MODELS_COUNT: usize = models::MODELS.len();
+
+#[tokio::test]
+async fn encoded_decision_credentials_are_refused() {
+    let content = r#"{"reply":"fixture-account-0"}"#;
+    let reply = Reply::json(
+        200,
+        json!({"model": models::MODELS[0].id,
+        "choices": [{"finish_reason":"stop","message":{"content":content}}]}),
+    );
+    let mock = Mock::new(vec![meter(1), reply]).await;
+    let error = failure(mock.client(1).complete(&request()).await);
+    assert_eq!(error.code, ErrorCode::CredentialEcho);
+    assert!(!format!("{error:?}").contains("fixture-account"));
+}
+
+#[tokio::test]
+async fn oversized_retryable_error_body_does_not_cancel_retry() {
+    let mut reply = Reply::retry(503, "0");
+    reply.body = " ".repeat(RESPONSE_LIMIT + 1);
+    let mock = Mock::new(vec![meter(1), reply, success()]).await;
+    let completion = mock.client(1).complete(&request()).await.unwrap();
+    assert_eq!(completion.receipts.len(), 2);
+    assert_eq!(completion.receipts[0].error, Some(ErrorCode::ResponseLimit));
+}
+
+#[tokio::test]
+async fn zero_cost_stays_unknown_but_positive_cost_is_retained() {
+    for (cost, known) in [(0, false), (1, true)] {
+        let reply = Reply::json(
+            200,
+            json!({"model":models::MODELS[0].id,
+            "choices":[{"finish_reason":"stop","message":{"content":"{}"}}],"usage":{"cost":cost}}),
+        );
+        let mock = Mock::new(vec![meter(1), reply]).await;
+        let completion = mock.client(1).complete(&request()).await.unwrap();
+        assert_eq!(completion.receipts[0].cost.is_some(), known);
+    }
+}

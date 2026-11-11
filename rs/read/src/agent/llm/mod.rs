@@ -183,7 +183,11 @@ impl GoClient {
         self.credentials
             .iter()
             .enumerate()
-            .filter(|(index, key)| !key.disabled && !excluded.contains(index))
+            .filter(|(index, key)| {
+                !key.disabled
+                    && !excluded.contains(index)
+                    && key.usage.is_some_and(|(at, _)| at.elapsed() < USAGE_TTL)
+            })
             .filter_map(|(index, key)| {
                 key.usage
                     .and_then(|(_, percent)| percent.map(|percent| (index, percent)))
@@ -266,10 +270,7 @@ impl GoClient {
                         wait = Some(retry_wait(response.headers().get("retry-after"), attempt));
                     }
                     match bounded_body(response).await {
-                        Err(code) => {
-                            wait = None;
-                            Err(code)
-                        }
+                        Err(code) => Err(code),
                         Ok(bytes) => {
                             if contains_key(&bytes, &self.credentials) {
                                 wait = None;
@@ -312,7 +313,7 @@ impl GoClient {
             .as_number()
             .filter(|cost| {
                 cost.as_f64()
-                    .is_some_and(|cost| cost.is_finite() && cost >= 0.0)
+                    .is_some_and(|cost| cost.is_finite() && cost > 0.0)
             })
             .cloned();
         let choices = value["choices"]
@@ -330,6 +331,12 @@ impl GoClient {
         let content = choices[0]["message"]["content"]
             .as_str()
             .ok_or(ErrorCode::InvalidResponse)?;
+        if serde_json::from_str::<Value>(content)
+            .ok()
+            .is_some_and(|decision| value_contains_key(&decision, &self.credentials))
+        {
+            return Err(ErrorCode::CredentialEcho);
+        }
         if content.contains("DSML") {
             return Err(ErrorCode::InvalidResponse);
         }
