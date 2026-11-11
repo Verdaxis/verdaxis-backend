@@ -556,6 +556,37 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn configured_environment_values_are_redacted() {
+        const CHILD: &str = "VERDAXIS_AUDIT_ENV_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let redactor = Redactor::from_environment().unwrap();
+            for name in KEY_ENV_NAMES {
+                let value = std::env::var(name).unwrap();
+                assert_eq!(
+                    redactor.redact(json!({value.clone(): [value]})).unwrap(),
+                    json!({"[REDACTED]": ["[REDACTED]"]})
+                );
+            }
+            return;
+        }
+        // A child process tests real environment lookup without mutating the
+        // parent test process or racing other parallel tests.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+        child.args([
+            "--exact",
+            "agent::audit::tests::configured_environment_values_are_redacted",
+            "--nocapture",
+        ]);
+        child.env(CHILD, "1");
+        for (index, name) in KEY_ENV_NAMES.iter().enumerate() {
+            child.env(name, format!("fake-audit-environment-value-{index}"));
+        }
+        let output = child.output().unwrap();
+        assert!(output.status.success(), "audit environment child failed");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    }
+
+    #[test]
     fn canonical_json_sorts_nested_keys() {
         let a: Value = serde_json::from_str(r#"{"z":[{"b":2,"a":1}],"a":null}"#).unwrap();
         let b = json!({"a": null, "z": [{"a": 1, "b": 2}]});
