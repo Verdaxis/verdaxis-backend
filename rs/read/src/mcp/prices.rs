@@ -218,14 +218,7 @@ pub async fn market_slice(
     let window = window.to_owned();
     let owned = state.clone();
     run_admitted(state, move |connection| Box::pin(async move {
-        // Python validates these arguments inside tool admission, before SQL.
-        let window = normalize_window(&window, now.date_naive()).map_err(invalid)?;
-        let product_id = owned.policy.products.iter().find(|value| value.code == product).map(|value| value.id).ok_or_else(|| {
-            let mut codes: Vec<_> = owned.policy.products.iter().map(|value| value.code.as_str()).collect();
-            codes.sort();
-            invalid(format!("Unsupported market product {}. Supported products: {}", super::transport::python_string_repr(&product), codes.join(", ")))
-        })?;
-        let point_id = owned.policy.points.iter().find(|value| value.name == point).map(|value| value.id).ok_or_else(|| invalid(format!("Unsupported delivery point {}. Supported delivery points: {}", super::transport::python_string_repr(&point), owned.policy.points.iter().map(|value| value.name.as_str()).collect::<Vec<_>>().join(", "))))?;
+        let (product_id, point_id, window) = validate_slice(&owned.policy, &product, &point, &window, now)?;
         let query = order_query_sql("SELECT side::text AS side, price_per_mt_usd::text AS price, remaining_quantity_mt::text AS quantity, provenance::text AS provenance FROM eligible_orders");
         let filters = PublicOrderFilters { product_id: Some(product_id), delivery_point_id: Some(point_id), availability_window: Some(&window), ..Default::default() };
         let rows = bind_order_query(&query, &owned.policy, &VisibilityClock::at(now), &owned.config, &filters)
@@ -237,4 +230,58 @@ pub async fn market_slice(
         let observed = curve_projection::timestamp(now);
         project_slice(&product, &point, &window, &rows, quote["price"].as_str(), observed.as_str().ok_or_else(ApiError::internal)?).map_err(|_| ApiError::internal())
     })).await
+}
+
+/// The same catalog and canonical-window checks serve MCP and agent drafts.
+pub(crate) fn validate_slice(
+    policy: &crate::MarketPolicy,
+    product: &str,
+    point: &str,
+    window: &str,
+    now: DateTime<Utc>,
+) -> Result<(uuid::Uuid, uuid::Uuid, String), ApiError> {
+    let window = normalize_window(window, now.date_naive()).map_err(invalid)?;
+    let product_id = policy
+        .products
+        .iter()
+        .find(|value| value.code == product)
+        .map(|value| value.id)
+        .ok_or_else(|| {
+            let mut codes: Vec<_> = policy
+                .products
+                .iter()
+                .map(|value| value.code.as_str())
+                .collect();
+            codes.sort();
+            invalid(format!(
+                "Unsupported market product {}. Supported products: {}",
+                super::transport::python_string_repr(&product),
+                codes.join(", ")
+            ))
+        })?;
+    let point_id = policy
+        .points
+        .iter()
+        .find(|value| value.name == point)
+        .map(|value| value.id)
+        .ok_or_else(|| {
+            invalid(format!(
+                "Unsupported delivery point {}. Supported delivery points: {}",
+                super::transport::python_string_repr(&point),
+                policy
+                    .points
+                    .iter()
+                    .map(|value| value.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+    Ok((product_id, point_id, window))
+}
+
+pub(crate) fn list_markets() -> Result<Json, ApiError> {
+    let catalog: Json =
+        serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
+            .map_err(|_| ApiError::internal())?;
+    Ok(json!({"products": catalog["products"], "delivery_points": catalog["delivery_points"]}))
 }

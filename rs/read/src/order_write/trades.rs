@@ -893,11 +893,59 @@ impl TradePort<'_> {
         config: &crate::Config,
         now: DateTime<Utc>,
     ) -> Result<Value, MarketWriteError> {
-        let kyc = crate::kyc::policy::eligibility_sql(crate::kyc::policy::KycSqlParty::USER)
-            .replace("/*kyc_enabled*/", "$4")
-            .replace("/*kyc_now*/", "$5");
-        let relation = format!(
-            r#"WITH caller AS (
+        owner_read(
+            self.conn,
+            OwnerTradeScope {
+                user_id: actor.user_id(),
+                organization_id: actor.account().current_organization_id,
+                admin: actor.account().role == ActorRole::Admin,
+                supported,
+                owner_only: false,
+            },
+            page,
+            summary,
+            config,
+            now,
+        )
+        .await
+    }
+}
+
+/// Participant scope is supplied only after authentication; agent callers never
+/// supply a support organization or administrative projection.
+pub(crate) struct OwnerTradeScope {
+    pub user_id: Uuid,
+    pub organization_id: Option<Uuid>,
+    pub admin: bool,
+    pub supported: Option<Uuid>,
+    pub owner_only: bool,
+}
+
+pub(crate) async fn owner_read(
+    conn: &mut PgConnection,
+    scope: OwnerTradeScope,
+    page: &TradePage,
+    summary: bool,
+    config: &crate::Config,
+    now: DateTime<Utc>,
+) -> Result<Value, MarketWriteError> {
+    let OwnerTradeScope {
+        user_id,
+        organization_id,
+        admin,
+        supported,
+        owner_only,
+    } = scope;
+    let owner_filter = if owner_only {
+        "(t.buyer_user_id=$1 OR t.seller_user_id=$1) AND"
+    } else {
+        ""
+    };
+    let kyc = crate::kyc::policy::eligibility_sql(crate::kyc::policy::KycSqlParty::USER)
+        .replace("/*kyc_enabled*/", "$4")
+        .replace("/*kyc_now*/", "$5");
+    let relation = format!(
+        r#"WITH caller AS (
    SELECT u.*,o.verification_status::text AS organization_status,({kyc}) AS kyc_eligible FROM users u LEFT JOIN organizations o ON o.id=u.organization_id WHERE u.id=$1
   ), authorized AS (
    SELECT t.id,t.status,t.created_at,
@@ -908,7 +956,7 @@ impl TradePort<'_> {
     (bo.creation_method::text='MARKET_SUPPORT' AND bo.side::text='BID' AND bo.organization_id=t.buyer_id AND bo.owner_user_id=t.buyer_user_id AND bo.created_by_actor_user_id=bo.owner_user_id) AS buyer_assisted,
     (so.creation_method::text='MARKET_SUPPORT' AND so.side::text='ASK' AND so.organization_id=t.seller_id AND so.owner_user_id=t.seller_user_id AND so.created_by_actor_user_id=so.owner_user_id) AS seller_assisted
    FROM trades t CROSS JOIN caller u JOIN organizations buyer_org ON buyer_org.id=t.buyer_id JOIN organizations seller_org ON seller_org.id=t.seller_id LEFT JOIN orderbook_orders bo ON bo.id=t.bid_order_id LEFT JOIN orderbook_orders so ON so.id=t.ask_order_id
-   WHERE CASE WHEN $2::uuid IS NOT NULL THEN t.buyer_id=$2 OR t.seller_id=$2 ELSE
+   WHERE {owner_filter} CASE WHEN $2::uuid IS NOT NULL THEN t.buyer_id=$2 OR t.seller_id=$2 ELSE
     (u.organization_id IS NOT NULL AND (t.buyer_id=u.organization_id OR t.seller_id=u.organization_id))
     OR (u.organization_id IS NULL AND t.buyer_user_id=$1 AND buyer_org.verification_status='REJECTED' AND COALESCE(bo.creation_method::text,'')<>'MARKET_SUPPORT')
     OR (u.organization_id IS NULL AND t.seller_user_id=$1 AND seller_org.verification_status='REJECTED' AND COALESCE(so.creation_method::text,'')<>'MARKET_SUPPORT') END
@@ -918,91 +966,81 @@ impl TradePort<'_> {
     status::text='PENDING_CONFIRMATION' AND initiator=viewer AS awaiting
    FROM authorized
   ), selected AS (SELECT * FROM flags WHERE ($3::text='all' OR ($3='active' AND status::text='PENDING_CONFIRMATION') OR ($3='completed' AND status::text IN ('CONFIRMED','DELIVERED','PAID'))) AND (NOT $6 OR action)) "#
-        );
-        if summary {
-            let sql = format!(
-                "{relation} SELECT count(*) AS total, count(*) FILTER(WHERE action) AS action,count(*) FILTER(WHERE awaiting) AS awaiting,count(*) FILTER(WHERE status::text IN ('CONFIRMED','DELIVERED','PAID')) AS confirmed FROM flags"
-            );
-            let row = sqlx::query(sqlx::AssertSqlSafe(sql))
-                .bind(actor.user_id())
-                .bind(supported)
-                .bind("all")
-                .bind(config.kyc_execution_gate_enabled)
-                .bind(now)
-                .bind(false)
-                .fetch_one(&mut *self.conn)
-                .await?;
-            if supported.is_none()
-                && actor.account().current_organization_id.is_none()
-                && row.get::<i64, _>("total") == 0
-            {
-                return Err(refusal(
-                    MarketErrorCode::ValidationFailed,
-                    StatusCode::BAD_REQUEST,
-                ));
-            }
-            return Ok(
-                json!({"total_count":row.get::<i64,_>("total"),"action_required_count":row.get::<i64,_>("action"),"awaiting_counterparty_count":row.get::<i64,_>("awaiting"),"confirmed_count":row.get::<i64,_>("confirmed")}),
-            );
-        }
+    );
+    if summary {
         let sql = format!(
-            "{relation} SELECT (SELECT count(*) FROM flags) AS authorized_count,(SELECT count(*) FROM selected) AS total,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'viewer',p.viewer) ORDER BY p.created_at DESC,p.id DESC) FROM (SELECT id,viewer,created_at FROM selected ORDER BY created_at DESC,id DESC OFFSET $7 LIMIT $8) p),'[]'::jsonb) AS entries"
+            "{relation} SELECT count(*) AS total, count(*) FILTER(WHERE action) AS action,count(*) FILTER(WHERE awaiting) AS awaiting,count(*) FILTER(WHERE status::text IN ('CONFIRMED','DELIVERED','PAID')) AS confirmed FROM flags"
         );
         let row = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(actor.user_id())
+            .bind(user_id)
             .bind(supported)
-            .bind(&page.status_group)
+            .bind("all")
             .bind(config.kyc_execution_gate_enabled)
             .bind(now)
-            .bind(page.action_required)
-            .bind(page.skip)
-            .bind(page.limit)
-            .fetch_one(&mut *self.conn)
+            .bind(false)
+            .fetch_one(&mut *conn)
             .await?;
-        if supported.is_none()
-            && actor.account().current_organization_id.is_none()
-            && row.get::<i64, _>("authorized_count") == 0
-        {
+        if supported.is_none() && organization_id.is_none() && row.get::<i64, _>("total") == 0 {
             return Err(refusal(
                 MarketErrorCode::ValidationFailed,
                 StatusCode::BAD_REQUEST,
             ));
         }
-        let entries: Value = row.get("entries");
-        let entries = entries.as_array().ok_or_else(fault)?;
-        let ids: Vec<Uuid> = entries
-            .iter()
-            .map(|entry| {
-                entry["id"]
-                    .as_str()
-                    .and_then(|id| id.parse().ok())
-                    .ok_or_else(fault)
-            })
-            .collect::<Result<_, _>>()?;
-        let mut trades = std::collections::HashMap::new();
-        for value in load_trades(self.conn, &ids).await? {
-            let id: Uuid = value["id"]
+        return Ok(
+            json!({"total_count":row.get::<i64,_>("total"),"action_required_count":row.get::<i64,_>("action"),"awaiting_counterparty_count":row.get::<i64,_>("awaiting"),"confirmed_count":row.get::<i64,_>("confirmed")}),
+        );
+    }
+    let sql = format!(
+        "{relation} SELECT (SELECT count(*) FROM flags) AS authorized_count,(SELECT count(*) FROM selected) AS total,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'viewer',p.viewer) ORDER BY p.created_at DESC,p.id DESC) FROM (SELECT id,viewer,created_at FROM selected ORDER BY created_at DESC,id DESC OFFSET $7 LIMIT $8) p),'[]'::jsonb) AS entries"
+    );
+    let row = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .bind(user_id)
+        .bind(supported)
+        .bind(&page.status_group)
+        .bind(config.kyc_execution_gate_enabled)
+        .bind(now)
+        .bind(page.action_required)
+        .bind(page.skip)
+        .bind(page.limit)
+        .fetch_one(&mut *conn)
+        .await?;
+    if supported.is_none()
+        && organization_id.is_none()
+        && row.get::<i64, _>("authorized_count") == 0
+    {
+        return Err(refusal(
+            MarketErrorCode::ValidationFailed,
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+    let entries: Value = row.get("entries");
+    let entries = entries.as_array().ok_or_else(fault)?;
+    let ids: Vec<Uuid> = entries
+        .iter()
+        .map(|entry| {
+            entry["id"]
                 .as_str()
                 .and_then(|id| id.parse().ok())
-                .ok_or_else(fault)?;
-            trades.insert(id, Self::enrich(value));
-        }
-        let mut items = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let id = entry["id"]
-                .as_str()
-                .and_then(|v| v.parse().ok())
-                .ok_or_else(fault)?;
-            let viewer = entry["viewer"].as_str().and_then(|v| v.parse().ok());
-            let value = trades.remove(&id).ok_or_else(fault)?;
-            items.push(project_trade(
-                value,
-                viewer,
-                actor.account().role == ActorRole::Admin,
-            )?);
-        }
-        Ok(
-            json!({"items":items,"total":row.get::<i64,_>("total"),"skip":page.skip,"limit":page.limit}),
-        )
+                .ok_or_else(fault)
+        })
+        .collect::<Result<_, _>>()?;
+    let mut trades = std::collections::HashMap::new();
+    for value in load_trades(conn, &ids).await? {
+        let id: Uuid = value["id"]
+            .as_str()
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(fault)?;
+        trades.insert(id, TradePort::enrich(value));
     }
+    let mut items = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let id = entry["id"]
+            .as_str()
+            .and_then(|v| v.parse().ok())
+            .ok_or_else(fault)?;
+        let viewer = entry["viewer"].as_str().and_then(|v| v.parse().ok());
+        let value = trades.remove(&id).ok_or_else(fault)?;
+        items.push(project_trade(value, viewer, admin)?);
+    }
+    Ok(json!({"items":items,"total":row.get::<i64,_>("total"),"skip":page.skip,"limit":page.limit}))
 }
