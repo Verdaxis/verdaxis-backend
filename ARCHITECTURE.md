@@ -241,6 +241,10 @@ requires seven pool-budget, prompt, history and strict-decision cases.
 production session options, including draft persistence, contract feedback,
 stops, evidence-write failures, stored history summaries, concurrent-turn
 serialization and bounded busy admission without writes or model dispatch.
+`run_agent_routes.sh` requires thirteen HTTP cases with an injected scripted
+model and production session options. It covers buyer and administrator access,
+conversation isolation, all pause scopes and resume, durable limits, busy
+responses, safe history, strict body validation and transactional control evidence.
 `tests/tooling/` and
 `tests/monitor/` cover retained host tools. Disposable test resources and temporary
 logs are not committed.

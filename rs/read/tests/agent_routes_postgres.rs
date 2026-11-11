@@ -333,7 +333,6 @@ async fn other_buyers_conversations_are_not_visible_or_writable() {
     let conversation = f.conversation(f.other_buyer).await;
     for (method, suffix, body) in [
         (Method::GET, "", None),
-        (Method::GET, "/messages", None),
         (Method::POST, "/messages", Some(json!({"text":"Hello"}))),
     ] {
         let (status, _, body) = f
@@ -362,7 +361,7 @@ async fn pause_and_resume(scope: &str) {
     f.control(scope, scope_id, true).await;
     let (status, _, body) = f.message(conversation).await;
     assert_eq!(status, StatusCode::LOCKED, "{body}");
-    assert!(body.to_string().contains("AGENT_PAUSED"));
+    assert_eq!(body, json!({"detail":"The assistant is paused.","reason":"Operator maintenance"}));
     assert_eq!(f.model.calls.load(Ordering::SeqCst), 0);
     assert_eq!(f.count("messages").await, 0);
     f.control(scope, scope_id, false).await;
@@ -455,13 +454,10 @@ async fn concurrent_conversations_share_one_user_rate_limit() {
     let (left, right) = tokio::join!(f.message(first), f.message(second));
     let mut statuses = [left.0.as_u16(), right.0.as_u16()];
     statuses.sort_unstable();
-    assert_eq!(statuses, [200, 429], "left={} right={}", left.2, right.2);
-    let rejected = if left.0 == StatusCode::TOO_MANY_REQUESTS {
-        &left.2
-    } else {
-        &right.2
-    };
-    assert!(rejected.to_string().contains("AGENT_RATE_LIMITED"));
+    assert!(matches!(statuses, [200, 429] | [200, 503]), "left={} right={}", left.2, right.2);
+    let (status, headers, _) = f.message(second).await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(headers.get("retry-after").is_some());
     assert_eq!(f.model.calls.load(Ordering::SeqCst), 1);
     assert_eq!(f.count("messages").await, 2);
 }
@@ -481,7 +477,7 @@ async fn daily_budget_uses_persisted_model_receipt_usage() {
     let second = f.conversation(f.buyer).await;
     let (status, _, body) = f.message(second).await;
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{body}");
-    assert!(body.to_string().contains("AGENT_DAILY_BUDGET_EXCEEDED"));
+    assert_eq!(body, json!({"detail":"Daily assistant limit reached."}));
     assert_eq!(f.model.calls.load(Ordering::SeqCst), 1);
     assert_eq!(f.count("messages").await, 2);
 }
@@ -542,7 +538,7 @@ async fn history_exposes_only_safe_user_and_assistant_content() {
     let (status, _, body) = f
         .send(
             Method::GET,
-            &format!("{CONVERSATIONS}/{conversation}/messages"),
+            &format!("{CONVERSATIONS}/{conversation}"),
             Some(f.buyer),
             None,
         )
@@ -570,7 +566,7 @@ async fn history_exposes_only_safe_user_and_assistant_content() {
     let (status, _, body) = f
         .send(
             Method::GET,
-            &format!("{CONVERSATIONS}/{conversation}/messages?limit=1&before_seq=5"),
+            &format!("{CONVERSATIONS}/{conversation}?limit=1&before_seq=5"),
             Some(f.buyer),
             None,
         )
@@ -612,11 +608,11 @@ async fn admin_audit_filters_and_verification_require_admin_role() {
     url.query_pairs_mut()
         .append_pair("user_id", &f.buyer.to_string())
         .append_pair(
-            "since",
+            "from",
             &(Utc::now() - ChronoDuration::minutes(1)).to_rfc3339(),
         )
         .append_pair(
-            "until",
+            "to",
             &(Utc::now() + ChronoDuration::minutes(1)).to_rfc3339(),
         );
     let path = format!("{}?{}", url.path(), url.query().unwrap());
@@ -628,13 +624,18 @@ async fn admin_audit_filters_and_verification_require_admin_role() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0]["user_id"], f.buyer.to_string());
     url.query_pairs_mut().clear().append_pair(
-        "since",
+        "from",
         &(Utc::now() + ChronoDuration::minutes(1)).to_rfc3339(),
     );
     let path = format!("{}?{}", url.path(), url.query().unwrap());
     let (status, _, body) = f
         .send(Method::GET, &path, Some(f.administrator), None)
         .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["events"].as_array().unwrap().is_empty());
+    url.query_pairs_mut().clear().append_pair("to", &(Utc::now() - ChronoDuration::minutes(1)).to_rfc3339());
+    let path = format!("{}?{}", url.path(), url.query().unwrap());
+    let (status, _, body) = f.send(Method::GET, &path, Some(f.administrator), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["events"].as_array().unwrap().is_empty());
     let (status, _, body) = f
@@ -662,8 +663,10 @@ async fn unknown_empty_and_excessive_bodies_are_rejected_before_dispatch() {
         json!({}),
         json!({"text":""}),
         json!({"text":"   "}),
-        json!({"text":"x".repeat(16001)}),
-        json!({"text":"Hello","untrusted":vec![json!({"label":"attachment","text":"data"});9]}),
+        json!({"text":"x".repeat(4001)}),
+        json!({"text":"Hello","untrusted":vec![json!({"label":"attachment","text":"data"});4]}),
+        json!({"text":"Hello","untrusted":[{"label":"x".repeat(61),"text":"data"}]}),
+        json!({"text":"Hello","untrusted":[{"label":"attachment","text":"x".repeat(20001)}]}),
         json!({"text":"Hello","untrusted":[{"label":"attachment","text":"data","extra":true}]}),
     ] {
         let (status, _, response) = f.send(Method::POST, &path, Some(f.buyer), Some(body)).await;

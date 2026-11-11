@@ -255,7 +255,7 @@ fn deployed_agent_options(
             .map(|value| value.unwrap_or(default))
     };
     let options = super::agent_config::AgentOptions {
-        enabled: deployed_bool(environment, "AGENT_ENABLED", false)?,
+        enabled: deployed_bool(environment, super::agent::SWITCH, false)?,
         model: environment
             .get("AGENT_MODEL")
             .cloned()

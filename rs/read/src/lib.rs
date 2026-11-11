@@ -153,7 +153,6 @@ impl AppState {
         let agent_turn_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(
             agent::turn::turn_slot_capacity(config.read_admission_slots),
         ));
-        config.phase2.agent.validate()?;
         let agent_model = runtime::agent::startup_model(&config.phase2.agent);
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
