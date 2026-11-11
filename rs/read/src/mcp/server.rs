@@ -48,13 +48,10 @@ impl MarketServer {
         description = "List supported products, delivery ports and EU scope before planning; no database access."
     )]
     fn list_markets(&self) -> CallToolResult {
-        let catalog: Json =
-            serde_json::from_str(include_str!("../../../../deploy/rust/mcp-catalog.json"))
-                .expect("committed MCP catalog");
-        structured(serde_json::json!({
-            "products": catalog["products"],
-            "delivery_points": catalog["delivery_points"],
-        }))
+        match super::prices::list_markets() {
+            Ok(value) => structured(value),
+            Err(_) => tool_error("list_markets", "Internal error"),
+        }
     }
 
     #[tool(

@@ -129,20 +129,35 @@ impl IntentHandle {
     }
 }
 
-/// Accepts `&PgPool` or `&mut Transaction<Postgres>`. For a supplied transaction
-/// SQLx opens a savepoint; the caller must commit the outer transaction. Only
-/// READ COMMITTED is supported so waiting writers always read the latest head.
+/// Append and commit in an explicit READ COMMITTED, READ WRITE transaction.
 /// Receipt kinds are reserved for [`record_receipt`].
-pub async fn append<'a, A>(target: A, event: AuditEvent) -> Result<AppendedEvent>
-where
-    A: Acquire<'a, Database = Postgres>,
-{
+pub async fn append(pool: &PgPool, event: AuditEvent) -> Result<AppendedEvent> {
     if event.kind.is_receipt() {
         return Err(AuditError("audit receipt requires intent handle"));
     }
-    let mut tx = target.begin().await?;
+    let mut tx = pool
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+        .await?;
     let result = append_locked(&mut tx, event, None).await?;
     tx.commit().await?;
+    Ok(result)
+}
+
+/// Append within the caller's READ COMMITTED, READ WRITE transaction.
+/// A savepoint rolls back a failed append without aborting the caller's work.
+/// The caller must commit the outer transaction to retain the event. Only
+/// READ COMMITTED is supported so waiting writers always read the latest head.
+/// Receipt kinds are reserved for [`record_receipt`].
+pub async fn append_in(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    event: AuditEvent,
+) -> Result<AppendedEvent> {
+    if event.kind.is_receipt() {
+        return Err(AuditError("audit receipt requires intent handle"));
+    }
+    let mut savepoint = tx.begin().await?;
+    let result = append_locked(&mut savepoint, event, None).await?;
+    savepoint.commit().await?;
     Ok(result)
 }
 
@@ -172,7 +187,10 @@ pub async fn record_intent(
 /// Borrow the handle so failed or uncertain commits can be retried. Under the
 /// chain lock an existing receipt wins, making retries return the original row.
 pub async fn record_receipt(handle: &IntentHandle, outcome: Value) -> Result<AppendedEvent> {
-    let mut tx = handle.pool.begin().await?;
+    let mut tx = handle
+        .pool
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+        .await?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(CHAIN_LOCK)
         .execute(&mut *tx)
@@ -211,6 +229,12 @@ async fn append_locked(
     event: AuditEvent,
     intent_id: Option<i64>,
 ) -> Result<AppendedEvent> {
+    let read_only: String = sqlx::query_scalar("SHOW transaction_read_only")
+        .fetch_one(&mut **tx)
+        .await?;
+    if read_only != "off" {
+        return Err(AuditError("audit append requires a read-write transaction"));
+    }
     let isolation: String = sqlx::query_scalar("SHOW transaction_isolation")
         .fetch_one(&mut **tx)
         .await?;

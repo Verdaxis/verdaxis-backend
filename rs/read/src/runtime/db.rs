@@ -41,19 +41,14 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
     if std::env::var_os("PGOPTIONS").is_some() {
         return Err(ApiError::internal());
     }
-    let options = sqlx::postgres::PgConnectOptions::new_without_pgpass()
-        .host(&target.host)
-        .port(target.port)
-        .username(&target.user)
-        .password(&target.password)
-        .database(&target.database)
-        .options([
-            ("statement_timeout", "30000"),
-            ("lock_timeout", "3000"),
-            ("idle_in_transaction_session_timeout", "60000"),
-            ("default_transaction_read_only", "on"),
-        ])
-        .disable_statement_logging();
+    let options = session_options(
+        sqlx::postgres::PgConnectOptions::new_without_pgpass()
+            .host(&target.host)
+            .port(target.port)
+            .username(&target.user)
+            .password(&target.password)
+            .database(&target.database),
+    );
     // Test-only SQLx row counters; release builds never enable statement events.
     #[cfg(feature = "contract-tests")]
     let options = if config.environment == "test"
@@ -90,6 +85,29 @@ pub async fn connect(config: &Config) -> Result<Pools, ApiError> {
         }
     };
     Ok(Pools { read, health })
+}
+
+fn session_options(options: sqlx::postgres::PgConnectOptions) -> sqlx::postgres::PgConnectOptions {
+    options
+        .options([
+            ("statement_timeout", "30000"),
+            ("lock_timeout", "3000"),
+            ("idle_in_transaction_session_timeout", "60000"),
+            ("default_transaction_read_only", "on"),
+        ])
+        .disable_statement_logging()
+}
+
+/// Connect a disposable contract pool with the runtime session and pool policy.
+#[cfg(feature = "contract-tests")]
+pub async fn connect_contract_pool(
+    options: sqlx::postgres::PgConnectOptions,
+    max_connections: u32,
+    timezone: String,
+) -> Result<sqlx::PgPool, sqlx::Error> {
+    pool_options(max_connections, timezone)
+        .connect_with(session_options(options))
+        .await
 }
 
 fn pool_options(max_connections: u32, timezone: String) -> PgPoolOptions {

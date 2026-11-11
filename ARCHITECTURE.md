@@ -34,6 +34,36 @@ The transport does not mount routes or enable the agent. Later Phase A tasks
 own the decision contract, audit persistence, tools and route controls.
 Local mock HTTP tests do not contact the provider.
 
+## Agent tool boundary
+
+`rs/read/src/agent/tools.rs` owns seven typed operations: market catalog,
+market slice, voyage planning, private orders, private trades, draft creation
+and user questions. Unknown tools and unknown argument fields are refused.
+There is no order execution or order mutation operation. Market operations
+reuse MCP catalog, validation and query functions. Private reads reuse the
+HTTP owner query and projection functions in `order_write/orders.rs` and
+`order_write/trades.rs`; agent calls add the signed-in user's ownership filter
+without changing HTTP organization visibility or support behavior.
+
+Tool context comes from the signed-in boundary and binds user, organization
+and conversation. Execution checks that scope in PostgreSQL. Draft creation
+copies only a user-role message from that conversation and inserts a draft
+and its `draft_created` event in one transaction. It never writes orders.
+The draft terms digest covers all eight argument fields: side, product, point,
+canonical window, exact normalized quantity and optional price, optional UTC
+microsecond expiry, and source message sequence. Missing optional values are
+explicit nulls. The source message content is retained separately as text.
+
+Each execution commits a tool intent before work and records a receipt even
+for a refused operation. Receipts contain only success, safe error code,
+SHA-256 content digest, provenance and serialized character count, not results.
+A failed evidence write cannot return success. Content over 12000 serialized
+characters becomes a complete JSON summary marker, never partial JSON.
+Detailed market evidence stays in the content: mixed live/demo slices are
+labelled DEMO, real-only slices LIVE, and empty slices BENCHMARK. Static
+catalogs, questions and voyage estimates are CALCULATED; private data and
+drafts are USER_DATA. The catalog schemas are generated from argument types.
+
 ## Schema and runtime identity
 
 `rs/read/migrations/1_baseline.sql` is the native migration baseline.
@@ -49,6 +79,9 @@ serialize under a transaction advisory lock and hash the previous head plus
 sorted JSON with explicit UTC microsecond timestamps. Keys and string values
 are redacted before storage; oversized payloads become truncation markers.
 Committed intent handles bind model and tool receipts to their intent IDs.
+Agent writes explicitly begin READ COMMITTED, READ WRITE transactions because
+runtime pool sessions default to read-only; caller-owned audit appends use a
+savepoint.
 Read-only chain checks use a consistent snapshot and bounded batches. Range
 checks trust the stored predecessor hash; external trusted heads are needed to
 detect a privileged complete-chain rewrite or removal of the entire ledger.
@@ -113,10 +146,16 @@ be a crate root or own their process keep their own `[[test]]` target.
 `rs/read/tests/run_auth_streams_cache.sh` seeds and runs the auth, stream,
 public-cache and alert targets whose database cases need their own variables.
 `rs/read/tests/run_agent_audit.sh` runs `group_crud` audit-ledger cases with the
-runtime role, plus explicit superuser tampering in the disposable database. It
-requires seven passed cases and zero ignored cases in the CI components cell.
-`tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test
-resources and temporary logs are not committed.
+runtime role and production session options, plus explicit superuser tampering
+in the disposable database. It requires eight passed cases and zero ignored cases
+in the CI components cell.
+`rs/read/tests/run_agent_tools_unit.sh` requires one library content-cap case
+and eight typed validation/catalog/digest cases. `run_agent_tools.sh` requires
+six PostgreSQL cases under production session options for draft transactions,
+source scope, private isolation, receipts and evidence-write failures. Both
+runners reject failed or ignored cases and run in CI. `tests/tooling/` and
+`tests/monitor/` cover retained host tools. Disposable test resources and temporary
+logs are not committed.
 
 Historical design and rollout records under `docs/` describe their dated
 checkpoints, not current application entry points. Current gate results and

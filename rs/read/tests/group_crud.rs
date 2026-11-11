@@ -48,3 +48,8 @@ pub mod phase2_http;
 pub mod referral_mail_timeout;
 #[path = "watchlist_activation_source.rs"]
 pub mod watchlist_activation_source;
+
+#[path = "agent_tools.rs"]
+pub mod agent_tools;
+#[path = "agent_tools_postgres.rs"]
+pub mod agent_tools_postgres;
