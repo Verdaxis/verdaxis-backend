@@ -7,7 +7,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{Acquire, PgConnection};
+use sqlx::{Connection, PgConnection};
 use uuid::Uuid;
 
 pub const MAX_CONTENT_CHARS: usize = 12_000;
@@ -549,7 +549,9 @@ async fn create_draft(
 ) -> Result<Value, ToolError> {
     let terms = args.canonical_terms(&context.state.policy, now)?;
     let digest = crate::market::terms::digest_terms(&terms).map_err(|_| ToolError::validation())?;
-    let mut tx = conn.begin().await?;
+    let mut tx = conn
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE")
+        .await?;
     // Lock the account before the conversation, then check both current facts.
     // A concurrent departure or close must finish before this draft is admitted,
     // or wait until its transaction (including the audit append) commits.
@@ -587,7 +589,7 @@ async fn create_draft(
         .map_err(|_| ToolError::validation())?;
     sqlx::query("INSERT INTO public.order_drafts(id,conversation_id,user_id,side,market_product,delivery_point,availability_window,quantity_mt,limit_price_usd,expires_at,terms_digest,source_text,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft')")
         .bind(id).bind(context.conversation_id).bind(context.user_id).bind(args.side.as_str()).bind(&args.market_product).bind(&args.delivery_point).bind(terms["availability_window"].as_str().ok_or_else(ToolError::validation)?).bind(quantity).bind(price).bind(expiry).bind(&digest).bind(source_text).execute(&mut *tx).await?;
-    audit::append(&mut tx, AuditEvent { kind: AuditKind::DraftCreated, actor: context.actor(), payload: json!({"draft_id": id, "terms_digest": digest, "source_message_seq": args.source_message_seq}) }).await.map_err(|_| ToolError::audit())?;
+    audit::append_in(&mut tx, AuditEvent { kind: AuditKind::DraftCreated, actor: context.actor(), payload: json!({"draft_id": id, "terms_digest": digest, "source_message_seq": args.source_message_seq}) }).await.map_err(|_| ToolError::audit())?;
     tx.commit().await?;
     Ok(json!({"id": id, "status": "draft", "terms": terms, "terms_digest": digest}))
 }

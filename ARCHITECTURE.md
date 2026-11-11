@@ -79,6 +79,9 @@ serialize under a transaction advisory lock and hash the previous head plus
 sorted JSON with explicit UTC microsecond timestamps. Keys and string values
 are redacted before storage; oversized payloads become truncation markers.
 Committed intent handles bind model and tool receipts to their intent IDs.
+Agent writes explicitly begin READ COMMITTED, READ WRITE transactions because
+runtime pool sessions default to read-only; caller-owned audit appends use a
+savepoint.
 Read-only chain checks use a consistent snapshot and bounded batches. Range
 checks trust the stored predecessor hash; external trusted heads are needed to
 detect a privileged complete-chain rewrite or removal of the entire ledger.
@@ -143,12 +146,13 @@ be a crate root or own their process keep their own `[[test]]` target.
 `rs/read/tests/run_auth_streams_cache.sh` seeds and runs the auth, stream,
 public-cache and alert targets whose database cases need their own variables.
 `rs/read/tests/run_agent_audit.sh` runs `group_crud` audit-ledger cases with the
-runtime role, plus explicit superuser tampering in the disposable database. It
-requires seven passed cases and zero ignored cases in the CI components cell.
+runtime role and production session options, plus explicit superuser tampering
+in the disposable database. It requires eight passed cases and zero ignored cases
+in the CI components cell.
 `rs/read/tests/run_agent_tools_unit.sh` requires one library content-cap case
 and eight typed validation/catalog/digest cases. `run_agent_tools.sh` requires
-five PostgreSQL cases for draft transactions, source scope, private isolation,
-receipts and evidence-write failures. Both runners reject failed or ignored
+six PostgreSQL cases under production session options for draft transactions,
+source scope, private isolation, receipts and evidence-write failures. Both runners reject failed or ignored
 cases and run in CI. `tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test
 resources and temporary logs are not committed.
 

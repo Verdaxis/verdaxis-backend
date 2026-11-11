@@ -72,8 +72,8 @@ status=${PIPESTATUS[0]}
 set -e
 if (( status != 0 )); then exit "$status"; fi
 passed=$(awk '/^test result: /{sum += $4} END{print sum + 0}' "$run_log")
-if (( passed != 5 )); then
-  echo "agent tools: expected 5 passed tests, got $passed" >&2
+if (( passed != 6 )); then
+  echo "agent tools: expected 6 passed tests, got $passed" >&2
   exit 1
 fi
 if grep -E '^test result: ' "$run_log" | grep -Ev ' 0 failed; 0 ignored;' >/dev/null; then

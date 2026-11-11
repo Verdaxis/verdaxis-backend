@@ -32,11 +32,13 @@ impl Fixture {
             assert_eq!(url.host_str(), Some("127.0.0.1"));
             assert_eq!(url.path(), "/verdaxis_agent_tools_test");
         }
-        let app = PgPoolOptions::new()
-            .max_connections(6)
-            .connect(&app_url)
-            .await
-            .unwrap();
+        let app = verdaxis_read::runtime::db::connect_contract_pool(
+            app_url.parse().unwrap(),
+            6,
+            "UTC".into(),
+        )
+        .await
+        .unwrap();
         let admin = PgPoolOptions::new()
             .max_connections(1)
             .connect(&admin_url)
@@ -114,9 +116,13 @@ impl Fixture {
             config,
             verdaxis_read::runtime::db::Pools {
                 read: app.clone(),
-                health: PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect_lazy_with((*app.connect_options()).clone()),
+                health: verdaxis_read::runtime::db::connect_contract_pool(
+                    app_url.parse().unwrap(),
+                    1,
+                    "UTC".into(),
+                )
+                .await
+                .unwrap(),
             },
             policy,
         )
@@ -163,6 +169,51 @@ impl Fixture {
 }
 fn call(name: &str, args: Value) -> AgentTool {
     serde_json::from_value(json!({"tool":name,"arguments":args})).unwrap()
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn create_draft_uses_read_write_transactions_on_read_only_sessions() {
+    let f = Fixture::new().await;
+    let mut tx = f.app.begin().await.unwrap();
+    let read_only: String = sqlx::query_scalar("SHOW transaction_read_only")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(read_only, "on");
+    let error = sqlx::query("INSERT INTO public.agent_audit_events(kind,payload,prev_hash,hash) VALUES('draft_created','{}',$1,$1)")
+        .bind(verdaxis_read::agent::audit::GENESIS_HASH)
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("25006")
+    );
+    tx.rollback().await.unwrap();
+
+    let orders = f.count("orders").await;
+    let result = execute(&f.context(), f.draft(1)).await;
+    assert!(result.ok, "{:?}", result.content);
+    assert_eq!(f.count("drafts").await, 1);
+    assert_eq!(f.count("orders").await, orders);
+    let kinds: Vec<String> =
+        sqlx::query_scalar("SELECT kind FROM public.agent_audit_events ORDER BY id")
+            .fetch_all(&f.app)
+            .await
+            .unwrap();
+    assert_eq!(
+        kinds,
+        ["tool_call_intent", "draft_created", "tool_call_receipt"]
+    );
+    let report = verify_chain(&f.app, None, None).await.unwrap();
+    assert_eq!(report.checked, 3);
+    assert_eq!(report.first_broken_id, None);
+    let read_only: String = sqlx::query_scalar("SHOW default_transaction_read_only")
+        .fetch_one(&f.app)
+        .await
+        .unwrap();
+    assert_eq!(read_only, "on");
 }
 
 #[tokio::test]
