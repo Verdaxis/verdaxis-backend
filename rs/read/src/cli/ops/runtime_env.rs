@@ -452,6 +452,40 @@ fn offboarding_settings(
     Ok(())
 }
 
+/// Agent settings are serve-only and absent unless configured. Credentials
+/// retain their exact bytes; refusals never include a value.
+fn agent_settings(
+    values: &Bindings,
+    projected: &mut BTreeMap<String, String>,
+) -> Result<(), Refusal> {
+    for key in [
+        "OPENCODE_API_KEY",
+        "OPENCODE_API_KEY_2",
+        "OPENCODE_API_KEY_3",
+    ] {
+        if let Some(raw) = present(values, key).filter(|raw| !raw.is_empty()) {
+            if raw.len() > 512 || !raw.is_ascii() || raw.chars().any(char::is_control) {
+                return Err(Refusal("agent_credential"));
+            }
+            projected.insert(key.to_owned(), raw.to_owned());
+        }
+    }
+    if let Some(raw) = present(values, "AGENT_ENABLED").filter(|raw| !is_blank(raw)) {
+        if raw.chars().any(char::is_control) {
+            return Err(Refusal("control_character"));
+        }
+        projected.insert(
+            "AGENT_ENABLED".to_owned(),
+            bool_text(deployed_bool(values, "AGENT_ENABLED", false)?),
+        );
+    }
+    if let Some(raw) = present(values, "AGENT_MODEL").filter(|raw| !raw.is_empty()) {
+        crate::agent::llm::models::settings(raw).map_err(|_| Refusal("agent_model"))?;
+        projected.insert("AGENT_MODEL".to_owned(), raw.to_owned());
+    }
+    Ok(())
+}
+
 /// A seller fee in USD/MT: a plain decimal with at most two places, at most
 /// 100000, written as Python's `str(Decimal(...))` writes it.
 fn seller_fee(raw: Option<&str>, default: &str) -> Result<String, Refusal> {
@@ -541,6 +575,7 @@ pub fn project_serve(
     system_status_settings(values, &mut projected)?;
     market_write_settings(values, &mut projected)?;
     offboarding_settings(values, &mut projected)?;
+    agent_settings(values, &mut projected)?;
     refuse_control_characters(&projected)?;
     Ok(projected)
 }

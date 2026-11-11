@@ -12,6 +12,8 @@ pub mod ad01_limiter;
 #[cfg(feature = "contract-tests")]
 #[path = "admission_postgres.rs"]
 pub mod admission_postgres;
+#[path = "agent_llm.rs"]
+pub mod agent_llm;
 #[path = "host_validation.rs"]
 pub mod host_validation;
 #[path = "http_contract.rs"]
