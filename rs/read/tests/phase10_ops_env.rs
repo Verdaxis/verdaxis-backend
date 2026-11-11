@@ -483,6 +483,27 @@ fn serve_env_carries_the_monitor_token_only_when_configured() {
 }
 
 #[test]
+fn serve_env_projects_the_offboarding_switch_only_when_configured() {
+    let (_scratch, output) = prepared_staging_full();
+    let projected = read_environment_file(&output.join("runtime.env"));
+    assert_eq!(
+        projected.get("OFFBOARDING_ENABLED").map(String::as_str),
+        Some("true"),
+        "an .env that sets it reaches runtime.env in normal form"
+    );
+    let scratch = Scratch::new();
+    let environment_file = EnvFile::staging().write(&scratch.path("be"));
+    let output = scratch.path("be/.runtime-rust");
+    let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
+    assert_ok(&result, "absent switch");
+    let projected = read_environment_file(&output.join("runtime.env"));
+    assert!(
+        !projected.contains_key("OFFBOARDING_ENABLED"),
+        "an absent switch is not projected"
+    );
+}
+
+#[test]
 fn serve_env_has_no_migrator_or_job_only_key() {
     let (_scratch, output) = prepared_staging_full();
     for name in ["runtime.env", "auth-domains.json"] {
