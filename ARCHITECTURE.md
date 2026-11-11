@@ -152,9 +152,10 @@ in the CI components cell.
 `rs/read/tests/run_agent_tools_unit.sh` requires one library content-cap case
 and eight typed validation/catalog/digest cases. `run_agent_tools.sh` requires
 six PostgreSQL cases under production session options for draft transactions,
-source scope, private isolation, receipts and evidence-write failures. Both runners reject failed or ignored
-cases and run in CI. `tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test
-resources and temporary logs are not committed.
+source scope, private isolation, receipts and evidence-write failures. Both
+runners reject failed or ignored cases and run in CI. `tests/tooling/` and
+`tests/monitor/` cover retained host tools. Disposable test resources and temporary
+logs are not committed.
 
 Historical design and rollout records under `docs/` describe their dated
 checkpoints, not current application entry points. Current gate results and
