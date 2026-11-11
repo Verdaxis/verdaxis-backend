@@ -101,6 +101,9 @@ pub struct AppState {
     pub reads: std::sync::Arc<tokio::sync::Semaphore>,
     /// Bounded agent capacity preserves the shared marketplace read budget.
     pub(crate) agent_turn_slots: std::sync::Arc<tokio::sync::Semaphore>,
+    /// One model transport for this process, absent while the assistant is off
+    /// or startup credentials cannot be accepted.
+    pub(crate) agent_model: Option<std::sync::Arc<dyn agent::turn::ModelClient>>,
     pub reference_cache:
         std::sync::Arc<runtime::cache::ReferenceCache<runtime::cache::ReferenceKey>>,
     /// Verified Phase 2 settings; `None` means this composition does not mount
@@ -150,6 +153,8 @@ impl AppState {
         let agent_turn_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(
             agent::turn::turn_slot_capacity(config.read_admission_slots),
         ));
+        config.phase2.agent.validate()?;
+        let agent_model = runtime::agent::startup_model(&config.phase2.agent);
         let phase2 = runtime::phase2::Phase2Settings::from_options(&config.phase2)?;
         let phase3 = runtime::phase3::Phase3Settings::from_options(&config.phase2)?;
         let host_policy = runtime::host::HostPolicy::parse(config.phase2.allowed_hosts.as_deref())?;
@@ -180,6 +185,7 @@ impl AppState {
             policy: std::sync::Arc::new(policy),
             reads,
             agent_turn_slots,
+            agent_model,
             reference_cache,
             phase2,
             streams: None,

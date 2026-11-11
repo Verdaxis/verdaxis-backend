@@ -1,4 +1,5 @@
 pub mod admission;
+pub mod agent;
 pub mod artifact;
 pub mod cache;
 pub mod cache_authority;

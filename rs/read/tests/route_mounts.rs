@@ -153,7 +153,11 @@ const OPERATIONS: &[(&str, &str, Expect)] = &[
 
 /// The serving router over a pool that refuses every connection quickly.
 fn app() -> axum::Router {
-    let config = Config {
+    verdaxis_read::router(app_state(false))
+}
+
+fn app_state(agent_enabled: bool) -> AppState {
+    let mut config = Config {
         environment: "test".into(),
         release_sha: verdaxis_read::compiled_sha().into(),
         migration_revision: ALLOWED_REVISIONS[0].into(),
@@ -191,8 +195,55 @@ fn app() -> axum::Router {
     };
     let policy =
         serde_json::from_str(include_str!("../../../deploy/rust/market-policy.json")).unwrap();
-    let state = AppState::new(config, pools, policy).unwrap();
-    verdaxis_read::router(state)
+    config.phase2.agent.enabled = agent_enabled;
+    AppState::new(config, pools, policy).unwrap()
+}
+
+/// Each child owns its environment; no test changes process-wide credentials.
+#[tokio::test]
+async fn agent_mounting_respects_startup_gates() {
+    const CASE: &str = "VERDAXIS_AGENT_MOUNT_CASE";
+    let Ok(case) = std::env::var(CASE) else {
+        for case in ["disabled", "missing", "rejected", "ready"] {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "route_mounts::agent_mounting_respects_startup_gates", "--nocapture"])
+                .env(CASE, case);
+            for key in ["OPENCODE_API_KEY", "OPENCODE_API_KEY_2", "OPENCODE_API_KEY_3"] {
+                command.env_remove(key);
+            }
+            match case {
+                "disabled" | "ready" => {
+                    command.env("OPENCODE_API_KEY", format!("mount-fixture-{}", std::process::id()));
+                }
+                "rejected" => {
+                    command.env("OPENCODE_API_KEY", "not-ascii-\u{e9}");
+                }
+                _ => {}
+            }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "{case}: {}", String::from_utf8_lossy(&output.stderr));
+            assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "child case did not run");
+        }
+        return;
+    };
+    let state = app_state(case != "disabled");
+    assert_eq!(verdaxis_read::runtime::agent::mounts(&state), case == "ready");
+    let app = verdaxis_read::router(state);
+    for (method, path) in [
+        ("POST", "/api/agent/conversations".to_owned()),
+        ("GET", format!("/api/agent/conversations/{ID}")),
+        ("POST", format!("/api/agent/conversations/{ID}/messages")),
+        ("GET", "/api/auth/admin/agent/audit".to_owned()),
+        ("GET", "/api/auth/admin/agent/audit/verify".to_owned()),
+        ("GET", "/api/auth/admin/agent/controls".to_owned()),
+        ("PUT", "/api/auth/admin/agent/controls".to_owned()),
+    ] {
+        let response = app.clone().oneshot(Request::builder()
+            .method(method).uri(&path).header("content-type", "application/json")
+            .body(Body::from("{}")).unwrap()).await.unwrap();
+        assert_eq!(response.status().as_u16(), if case == "ready" { 401 } else { 404 }, "{method} {path}: {case}");
+    }
 }
 
 #[tokio::test]

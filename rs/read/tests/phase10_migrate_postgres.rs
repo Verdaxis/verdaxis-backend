@@ -56,6 +56,18 @@ async fn agent_upgrade_and_fresh_catalogs_match() {
             .expect("agent table lookup");
         assert!(exists, "missing {table}");
     }
+    for (index, table, columns, predicate) in [
+        ("agent_messages_user_window_idx", "agent_messages", "conversation_id, created_at", "(role = 'user'::text)"),
+        ("agent_audit_events_user_at_idx", "agent_audit_events", "user_id, at", "(user_id IS NOT NULL)"),
+        ("agent_audit_events_organization_at_idx", "agent_audit_events", "organization_id, at", "(organization_id IS NOT NULL)"),
+    ] {
+        let (definition, actual_predicate, valid, ready, unique): (String, String, bool, bool, bool) = sqlx::query_as(
+            "SELECT pg_get_indexdef(i.indexrelid), pg_get_expr(i.indpred, i.indrelid), i.indisvalid, i.indisready, i.indisunique FROM pg_index i WHERE i.indexrelid = to_regclass('public.' || $1)",
+        ).bind(index).fetch_one(&mut connection).await.expect("agent window index");
+        assert_eq!(definition, format!("CREATE INDEX {index} ON public.{table} USING btree ({columns}) WHERE {predicate}"));
+        assert_eq!(actual_predicate, predicate);
+        assert!(valid && ready && !unique, "{index} must support window reads");
+    }
     drop(connection);
     drop_database(&upgraded).await;
     drop_database(&fresh).await;

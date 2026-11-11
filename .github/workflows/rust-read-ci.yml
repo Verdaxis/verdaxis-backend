@@ -275,7 +275,7 @@ jobs:
           # Auth, stream, public-cache and alert targets that read their own
           # database variables and run only against a seeded disposable database.
           - shard: components
-            runners: run_auth_streams_cache.sh run_agent_audit.sh run_agent_tools.sh run_agent_turn.sh
+            runners: run_auth_streams_cache.sh run_agent_audit.sh run_agent_tools.sh run_agent_turn.sh run_agent_routes.sh
     env:
       SQLX_OFFLINE: "true"
       RUST_TEST_PYTHON: /usr/bin/python3

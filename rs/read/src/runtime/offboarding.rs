@@ -78,7 +78,11 @@ pub(crate) fn routes(app: &AppState, limits: SharedLimits) -> Option<Router> {
 
 /// Charge the request to the client's `/api/admin/` quota before its handler
 /// runs, so an unauthenticated flood is refused before any database work.
-async fn admin_quota(State(limits): State<SharedLimits>, request: Request, next: Next) -> Response {
+pub(crate) async fn admin_quota(
+    State(limits): State<SharedLimits>,
+    request: Request,
+    next: Next,
+) -> Response {
     let peer = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()

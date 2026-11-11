@@ -30,10 +30,50 @@ raw provider error bodies are neither returned nor logged.
 
 `ops prepare-runtime` projects optional serve-only `OPENCODE_API_KEY`,
 `OPENCODE_API_KEY_2`, `OPENCODE_API_KEY_3`, `AGENT_ENABLED` and `AGENT_MODEL`.
-The transport does not mount routes or enable the agent. Separate agent modules
-own the decision contract, audit persistence and tools; route admission remains
-outside the turn boundary.
+The transport does not mount routes itself. `runtime/agent.rs` mounts the group
+only when `AGENT_ENABLED` is true and startup credential validation succeeds.
+`AppState` retains one shared model client for the process lifetime. Missing or
+rejected credentials leave the routes absent and emit one code-only warning.
 Local mock HTTP tests do not contact the provider.
+
+## Agent routes and configuration
+
+`agent/routes.rs` owns signed-in buyer routes and administrator evidence and
+controls. Other trading roles cannot use the assistant. Conversation reads and
+turns enforce user ownership; missing and foreign identifiers both return 404.
+History exposes user text and safe assistant outcome fields, not tool observations
+or contract feedback. Drafts remain drafts; these routes cannot place orders.
+Administrator routes use the existing administrator authorization and the shared
+`/api/admin/` quota layer.
+
+| Method | Route | Access |
+| --- | --- | --- |
+| POST | `/api/agent/conversations` | BUYER; creates an open conversation |
+| GET | `/api/agent/conversations/{id}` | BUYER; own history and drafts |
+| POST | `/api/agent/conversations/{id}/messages` | BUYER; own conversation turn |
+| GET | `/api/auth/admin/agent/audit` | ADMIN; filtered stored evidence |
+| GET | `/api/auth/admin/agent/audit/verify` | ADMIN; audit-chain report |
+| GET, PUT | `/api/auth/admin/agent/controls` | ADMIN; list or upsert pause controls |
+
+| Serve setting | Default | Accepted values |
+| --- | --- | --- |
+| `AGENT_ENABLED` | false | Deployed boolean spellings |
+| `AGENT_MODEL` | `deepseek-v4.1-flash` | Model allow-list only |
+| `AGENT_RATE_LIMIT_MESSAGES` | 20 | 1–10000 |
+| `AGENT_RATE_LIMIT_WINDOW_SECONDS` | 600 | 1–86400 |
+| `AGENT_DAILY_TOKEN_BUDGET` | 200000 | 1–1000000000 |
+
+The settings are optional serve rows projected by `ops prepare-runtime`; runtime
+parsing applies the same bounds. Global, organization and user pause controls
+return 423 with the stored reason before model dispatch. Admission counts persisted
+user messages across the user's conversations and sums model-receipt token usage
+for the UTC day. Limits survive process restarts and multiple instances. Rate and
+budget refusals return 429; busy turns return 503 with `Retry-After: 5`. Provider
+and database details never appear in user responses.
+
+Unreleased migration 3 includes partial message-window and user/organization
+audit-time indexes. The catalog fingerprint includes their definitions; the
+`sqlx_2` to `sqlx_3` transition remains unchanged.
 
 ## Agent turn boundary
 
