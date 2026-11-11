@@ -30,9 +30,51 @@ raw provider error bodies are neither returned nor logged.
 
 `ops prepare-runtime` projects optional serve-only `OPENCODE_API_KEY`,
 `OPENCODE_API_KEY_2`, `OPENCODE_API_KEY_3`, `AGENT_ENABLED` and `AGENT_MODEL`.
-The transport does not mount routes or enable the agent. Later Phase A tasks
-own the decision contract, audit persistence, tools and route controls.
+The transport does not mount routes or enable the agent. Separate agent modules
+own the decision contract, audit persistence and tools; route admission remains
+outside the turn boundary.
 Local mock HTTP tests do not contact the provider.
+
+## Agent turn boundary
+
+`rs/read/src/agent/turn.rs` owns bounded buyer-assistant turns. The public
+`run_turn` accepts signed-in tool context, user text and explicitly labelled
+untrusted blocks. An object-safe `ModelClient` permits the shared `GoClient`
+and scripted test clients. Requests use thinking mode and a visible output
+allowance of 2048 tokens; the transport supplies its reasoning headroom.
+
+Decisions are strict JSON: one typed tool call with a reason, or one reply
+with field citations to successful tool steps in the current turn. Contract
+feedback stays in model observations, not user replies. Questions end the turn;
+successful drafts are collected without placing orders. Limits permit at most
+six tool calls, two consecutive contract errors and a 90-second loop deadline.
+All stopped turns use fixed safe reply text. Model audit records carry request
+and content digests and transport receipts, never prompts or completions.
+
+A per-conversation PostgreSQL session advisory lock serializes complete turns.
+An application-state turn semaphore admits `max(1, min(4, read_slots / 4))`
+turn sessions. Each turn holds one session and uses at most one nested tool or
+audit connection, limiting agent work to half the pool for pools of at least
+four connections. The minimum two-connection pool admits one turn. Turns create
+no connections outside the pool. Slot admission waits at most five seconds or
+the remaining turn deadline, whichever is shorter, then returns `TurnError::Busy`
+before any message, audit or model work. Route admission can map this distinct
+error to 503 with Retry-After.
+The turn does not retain a conversation row lock across tool execution. The dedicated
+connection closes on cancellation so its session lock cannot return to the pool.
+Message writes each use explicit READ COMMITTED, READ WRITE transactions and
+recheck ownership, organization and open status under a conversation row lock.
+User content, tool observations and the assistant outcome remain in ordered,
+gap-free message sequences. Older history above the estimated token budget is
+folded deterministically into stored `system_note` summaries without another
+model call. The latest user text is a plain user-role buyer request, not a data
+block. Older history, including earlier user messages and summaries, remains
+wrapped as data. Forwarded or pasted untrusted text and labels are escaped
+within data boundaries.
+Deadline handling admits no further model or tool calls, then allows bounded
+audit and message finalization. An already admitted tool database operation can
+finish after caller cancellation under the existing admission policy; a timeout
+does not prove that a draft was not saved.
 
 ## Agent tool boundary
 
@@ -153,7 +195,13 @@ in the CI components cell.
 and eight typed validation/catalog/digest cases. `run_agent_tools.sh` requires
 six PostgreSQL cases under production session options for draft transactions,
 source scope, private isolation, receipts and evidence-write failures. Both
-runners reject failed or ignored cases and run in CI. `tests/tooling/` and
+runners reject failed or ignored cases and run in CI. `run_agent_turn_unit.sh`
+requires seven pool-budget, prompt, history and strict-decision cases.
+`run_agent_turn.sh` requires eighteen scripted-model PostgreSQL cases under
+production session options, including draft persistence, contract feedback,
+stops, evidence-write failures, stored history summaries, concurrent-turn
+serialization and bounded busy admission without writes or model dispatch.
+`tests/tooling/` and
 `tests/monitor/` cover retained host tools. Disposable test resources and temporary
 logs are not committed.
 
