@@ -156,9 +156,9 @@ impl ToolResult {
             content,
             truncated: false,
         };
-        if result.content.to_string().chars().count() > MAX_CONTENT_CHARS {
-            let original_chars = result.content.to_string().chars().count();
-            result.content = json!({"summary": "Result exceeded the display limit. Request a smaller result.", "original_chars": original_chars});
+        let original_chars = result.content.to_string().chars().count();
+        if original_chars > MAX_CONTENT_CHARS {
+            result.content = summarize_content(&result.content, original_chars);
             result.truncated = true;
         }
         result
@@ -172,6 +172,54 @@ impl ToolResult {
         }
     }
 }
+fn summarize_content(content: &Value, original_chars: usize) -> Value {
+    let mut summary = json!({"summary": "Result exceeded the display limit; compact items are shown where available.", "original_chars": original_chars});
+    let items = content
+        .as_array()
+        .or_else(|| content.get("items").and_then(Value::as_array));
+    if let Some(items) = items {
+        summary["item_count"] = json!(items.len());
+        if let Some(total) = content.get("total") {
+            summary["total"] = total.clone();
+        }
+        let mut compact = Vec::new();
+        for item in items {
+            let mut fields = serde_json::Map::new();
+            for name in [
+                "id",
+                "side",
+                "status",
+                "market_product",
+                "delivery_point_name",
+                "availability_window",
+                "quantity_mt",
+                "remaining_quantity_mt",
+                "price_per_mt_usd",
+                "created_at",
+            ] {
+                if let Some(value) = item.get(name) {
+                    fields.insert(name.to_owned(), value.clone());
+                }
+            }
+            compact.push(Value::Object(fields));
+            summary["items"] = json!(compact);
+            if summary.to_string().chars().count() > MAX_CONTENT_CHARS {
+                compact.pop();
+                summary["items"] = json!(compact);
+                break;
+            }
+        }
+        summary["shown_count"] = json!(compact.len());
+        // Reserve a small envelope margin for the count added above.
+        while summary.to_string().chars().count() > MAX_CONTENT_CHARS && !compact.is_empty() {
+            compact.pop();
+            summary["items"] = json!(compact);
+            summary["shown_count"] = json!(compact.len());
+        }
+    }
+    summary
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ToolError {
     pub code: &'static str,
@@ -503,9 +551,26 @@ async fn create_draft(
     let terms = args.canonical_terms(&context.state.policy, now)?;
     let digest = crate::market::terms::digest_terms(&terms).map_err(|_| ToolError::validation())?;
     let mut tx = conn.begin().await?;
-    authorize(&mut tx, context).await?;
-    let source: Option<Value> = sqlx::query_scalar("SELECT m.content FROM public.agent_messages m JOIN public.agent_conversations c ON c.id=m.conversation_id WHERE m.conversation_id=$1 AND m.seq=$2 AND m.role='user' AND c.user_id=$3 AND c.organization_id IS NOT DISTINCT FROM $4 FOR SHARE OF c")
-        .bind(context.conversation_id).bind(args.source_message_seq).bind(context.user_id).bind(context.organization_id).fetch_optional(&mut *tx).await?;
+    // Lock the account before the conversation, then check both current facts.
+    // A concurrent departure or close must finish before this draft is admitted,
+    // or wait until its transaction (including the audit append) commits.
+    let user_organization: Option<Option<Uuid>> =
+        sqlx::query_scalar("SELECT organization_id FROM public.users WHERE id=$1 FOR SHARE")
+            .bind(context.user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if user_organization != Some(context.organization_id) {
+        return Err(ToolError::context());
+    }
+    let conversation: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM public.agent_conversations WHERE id=$1 AND user_id=$2 AND organization_id IS NOT DISTINCT FROM $3 AND status='open' FOR SHARE",
+    ).bind(context.conversation_id).bind(context.user_id).bind(context.organization_id)
+        .fetch_optional(&mut *tx).await?;
+    if conversation.is_none() {
+        return Err(ToolError::context());
+    }
+    let source: Option<Value> = sqlx::query_scalar("SELECT content FROM public.agent_messages WHERE conversation_id=$1 AND seq=$2 AND role='user'")
+        .bind(context.conversation_id).bind(args.source_message_seq).fetch_optional(&mut *tx).await?;
     let source = source.ok_or_else(ToolError::validation)?;
     // Messages may contain a JSON string or a structured user content value.
     // Store the exact text for strings, and compact JSON for structured content.
@@ -593,6 +658,20 @@ mod tests {
             json!("x".repeat(MAX_CONTENT_CHARS - 2)),
         );
         assert!(!result.truncated);
+        let items: Vec<_> = (0..50).map(|index| json!({"id":index,"quantity_mt":"10.123456789","private_terms":"x".repeat(1000)})).collect();
+        let summarized = ToolResult::success(ToolProvenance::UserData, json!(items));
+        assert!(summarized.truncated);
+        assert_eq!(summarized.content["shown_count"], 50);
+        assert_eq!(
+            summarized.content["items"][0]["quantity_mt"],
+            "10.123456789"
+        );
+        assert!(
+            summarized.content["items"][0]
+                .get("private_terms")
+                .is_none()
+        );
+        assert!(summarized.content.to_string().chars().count() <= MAX_CONTENT_CHARS);
         assert_eq!(
             result.content.to_string().chars().count(),
             MAX_CONTENT_CHARS

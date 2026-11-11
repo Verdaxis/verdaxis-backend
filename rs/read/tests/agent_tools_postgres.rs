@@ -209,6 +209,24 @@ async fn source_role_and_conversation_are_required() {
     assert_eq!(f.count("drafts").await, 0);
     let receipts:i64=sqlx::query_scalar("SELECT count(*) FROM public.agent_audit_events WHERE kind='tool_call_receipt' AND payload->'outcome'->>'ok'='false'").fetch_one(&f.app).await.unwrap();
     assert_eq!(receipts, 3);
+    sqlx::query("UPDATE public.agent_conversations SET status='closed' WHERE id=$1")
+        .bind(f.conversation)
+        .execute(&f.admin)
+        .await
+        .unwrap();
+    assert!(!execute(&f.context(), f.draft(1)).await.ok);
+    sqlx::query("UPDATE public.agent_conversations SET status='open' WHERE id=$1")
+        .bind(f.conversation)
+        .execute(&f.admin)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE public.users SET organization_id=NULL WHERE id=$1")
+        .bind(f.user)
+        .execute(&f.admin)
+        .await
+        .unwrap();
+    assert!(!execute(&f.context(), f.draft(1)).await.ok);
+    assert_eq!(f.count("drafts").await, 0);
 }
 #[tokio::test]
 #[ignore = "requires disposable PostgreSQL runner"]
