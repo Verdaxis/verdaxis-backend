@@ -22,8 +22,8 @@ use std::time::{Duration, Instant};
 
 /// Longest a process may rely on an owner record it has not re-read. The owner
 /// waits twice this long after publishing a revocation before it binds a new
-/// authority (`FENCE_DRAIN_SECONDS` in `scripts/rust_cache_authority.py`), so
-/// every process has expired or re-read before the successor can serve.
+/// authority, so every process has expired or re-read before the successor
+/// can serve.
 pub const AUTHORITY_LEASE: Duration = Duration::from_secs(5);
 
 /// How often the runtime re-reads the record. Several attempts fit in one lease,

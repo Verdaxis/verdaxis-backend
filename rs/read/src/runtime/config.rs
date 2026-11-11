@@ -4,9 +4,10 @@ use crate::{Config, DEFAULT_READ_ADMISSION_SLOTS, verify_release};
 use percent_encoding::percent_decode_str;
 use std::net::IpAddr;
 
-/// M starts only at the adopted baseline. A rollback restores the complete
-/// previous release bundle, not an older pin in this binary's startup list.
-pub const PRODUCTION_REVISIONS: &[&str] = &["sqlx_1"];
+/// The release starts only at the head sqlx revision. A rollback restores the
+/// complete previous release bundle, not an older pin in this binary's startup
+/// list.
+pub const PRODUCTION_REVISIONS: &[&str] = &["sqlx_2"];
 
 pub fn check_revision(actual: &str, allowed: &[String]) -> Result<(), String> {
     if allowed.iter().any(|value| value == actual) {

@@ -93,7 +93,7 @@ SQL
 RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="postgresql://verdaxis_migrator_staging:disposable_writer_pw@127.0.0.1:$port/producer_bounds_test" \
   cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --features contract-tests --test group_phase10 \
-  phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
+  phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored
 
 docker exec -i "$producer_container" psql -q -U postgres -d producer_bounds_test -v ON_ERROR_STOP=1 -c \
   "GRANT USAGE ON SCHEMA public TO phase5_bounds_app; GRANT SELECT ON ALL TABLES IN SCHEMA public TO phase5_bounds_app;"

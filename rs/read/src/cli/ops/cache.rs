@@ -1,5 +1,5 @@
 //! `ops cache-authority status|revoke|activate`: publish and rotate the
-//! public-read cache authority (ports `scripts/rust_cache_authority.py`).
+//! public-read cache authority.
 //!
 //! The Rust read service serves a cached trading payload only while the
 //! owner record in the runtime directory names an active authority and the

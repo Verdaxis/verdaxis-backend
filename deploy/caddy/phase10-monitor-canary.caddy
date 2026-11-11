@@ -1,16 +1,16 @@
 # Phase 10 Task 19: the signup-canary cleanup route (group G2).
 #
 # Import this file inside the API site's route block. Argument 0 is the one
-# upstream that serves POST /api/monitor/signup-canary-cleanup. There is no
-# second argument and no Python fallback in this snippet: the route has
-# exactly one owner at a time.
+# upstream that serves POST /api/monitor/signup-canary-cleanup. There is
+# no second argument and no fallback in this snippet: the route has exactly
+# one owner at a time.
 #
 # The matcher names the one path and no method, so a wrong method reaches the
-# same owner and gets its 405, as with Python. A trailing slash or a longer
-# path is not named here and stays with the site's own fallback.
+# same owner and gets its 405. A trailing slash or a longer path is not named
+# here and stays with the site's own fallback.
 #
-# Rollback is one change: set argument 0 back to the Python upstream at the
-# import line. The external monitor, the only caller, is unchanged.
+# Rollback is one change: remove the single import line. The external
+# monitor, the only caller, is unchanged.
 #
 # The transport settings are the root/health group's (Task 18): one upstream
 # and no passive health, so a refused connection is retried every

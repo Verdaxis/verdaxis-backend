@@ -108,7 +108,7 @@ for database in "$analytics_database" "$market_database"; do
   RUST_RUNNER_ENVIRONMENT=staging RUST_RUNNER_MIGRATOR_DATABASE_URL="$(database_url "$migrator_role" "$database")" \
     cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
     --features contract-tests --test group_phase10 \
-    phase10_migrate_postgres::runner_database_adopts_to_the_baseline -- --ignored
+    phase10_migrate_postgres::runner_database_applies_the_baseline -- --ignored
   apply_role_policy "$database" bootstrap_roles.sql
 done
 

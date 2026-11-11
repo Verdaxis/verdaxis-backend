@@ -2,13 +2,12 @@
 
 The authority is one Rust process that counts every ``/api/admin/*`` request
 before Caddy chooses an owner. These tests run the real routing snippet against
-small local upstreams: a counting authority, one Python owner and one Rust
-owner. One case replaces the counting stub with the real Rust quota middleware.
-They need a real Caddy 2.11 binary on the path and fail without one, so a gate
-run can never pass by skipping them.
+small local upstreams: a counting authority and owner stubs. One case replaces
+the counting stub with the real Rust quota middleware. They need a real Caddy
+2.11 binary on the path and fail without one, so a gate run can never pass by
+skipping them.
 """
 from __future__ import annotations
-from pathlib import Path
 
 import contextlib
 import http.server
@@ -20,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -38,17 +38,9 @@ import {$CRUD_SNIPPET}
 
 http://127.0.0.1:{$CADDY_PORT} {
 	route {
-		import verdaxis_rust_crud {$NOTIFICATIONS_UPSTREAM} {$PREFERENCES_UPSTREAM} {$FEEDBACK_UPSTREAM} {$WATCHLISTS_UPSTREAM} {$ALERTS_UPSTREAM} {$REFERRALS_UPSTREAM} {$PREAUTH_UPSTREAM} {$PYTHON_UPSTREAM}
+		import verdaxis_rust_crud {$NOTIFICATIONS_UPSTREAM} {$PREFERENCES_UPSTREAM} {$FEEDBACK_UPSTREAM} {$WATCHLISTS_UPSTREAM} {$ALERTS_UPSTREAM} {$REFERRALS_UPSTREAM} {$PREAUTH_UPSTREAM}
 		handle {
-			reverse_proxy {$PYTHON_UPSTREAM} {
-				header_up X-Forwarded-For {client_ip}
-				lb_try_duration 15s
-				lb_try_interval 250ms
-				flush_interval -1
-				transport http {
-					keepalive off
-				}
-			}
+			respond 404
 		}
 	}
 }
@@ -63,11 +55,10 @@ class _Server(http.server.ThreadingHTTPServer):
 class Stub:
     """A local upstream that records what it received and answers as told."""
 
-    def __init__(self, label: str, *, python: bool = False,
-                 authority: bool = False, crash: bool = False, port: int = 0,
+    def __init__(self, label: str, *, authority: bool = False,
+                 crash: bool = False, port: int = 0,
                  authority_mark: bool = True):
         self.label = label
-        self.python = python
         self.authority = authority
         self.authority_mark = authority_mark
         self.crash = crash
@@ -130,12 +121,6 @@ class Stub:
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
-                if parent.python and path == "/internal/admin-preauth":
-                    # Python has no authority route; 404 is the fail-open signal.
-                    self.send_response(404)
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
-                    return
                 self.send_response(200)
                 self.send_header("X-Route-Owner", parent.label)
                 if body:
@@ -188,19 +173,24 @@ def unused_port(exclude: set[int] = frozenset()) -> int:
 
 @contextlib.contextmanager
 def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = False,
-           feedback_crash: bool = False, trusted_proxy: bool = False,
-           all_python: bool = False, shared_authority: bool = False,
-           authority_mark: bool = True, real_authority: str | None = None):
-    """Run the real CRUD snippet with one counting authority and two owners."""
+            feedback_crash: bool = False, trusted_proxy: bool = False,
+            other_owner: bool = False, shared_authority: bool = False,
+            authority_mark: bool = True, real_authority: str | None = None,
+            site_fallback: bool = False):
+    """Run the real CRUD snippet with one counting authority and owner stubs.
+
+    With ``site_fallback`` the site's own fallback proxies to the second stub,
+    so a path no group owns (another admin route) still reaches an owner.
+    """
     caddy = shutil.which("caddy")
     if not caddy:
         pytest.fail("real Caddy 2.11 is required for the test-host gate")
     rust = Stub("rust", authority=shared_authority)
     authority = rust if shared_authority else Stub(
         "authority", authority=True, authority_mark=authority_mark)
-    python = Stub("python", python=True)
+    other = Stub("other")
     crash = Stub("crash", crash=True) if feedback_crash else None
-    used = {authority.port, rust.port, python.port}
+    used = {authority.port, rust.port, other.port}
     if crash is not None:
         used.add(crash.port)
     if authority_down:
@@ -214,6 +204,10 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         configuration = configuration.replace(
             "\tauto_https off\n", "\tauto_https off\n\tservers {\n"
             "\t\ttrusted_proxies static 127.0.0.1/32\n\t}\n")
+    if site_fallback:
+        configuration = configuration.replace(
+            "\t\thandle {\n\t\t\trespond 404\n\t\t}\n",
+            "\t\thandle {\n\t\t\treverse_proxy {$FALLBACK_UPSTREAM}\n\t\t}\n")
     config.write_text(configuration)
     env = {
         **os.environ,
@@ -226,16 +220,18 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
         "REFERRALS_UPSTREAM": f"127.0.0.1:{rust.port}",
         "FEEDBACK_UPSTREAM": (
             f"127.0.0.1:{crash.port}" if crash is not None
-            else f"127.0.0.1:{(rust if feedback_owner == 'rust' else python).port}"),
+            else f"127.0.0.1:{(rust if feedback_owner == 'rust' else other).port}"),
         "PREAUTH_UPSTREAM": f"127.0.0.1:{authority.port}",
-        "PYTHON_UPSTREAM": f"127.0.0.1:{python.port}",
+        "FALLBACK_UPSTREAM": f"127.0.0.1:{other.port}",
     }
     if real_authority:
         env["PREAUTH_UPSTREAM"] = real_authority
         env["FEEDBACK_UPSTREAM"] = real_authority
-    if all_python:
-        for group in ("NOTIFICATIONS", "PREFERENCES", "FEEDBACK", "WATCHLISTS", "ALERTS", "REFERRALS"):
-            env[f"{group}_UPSTREAM"] = env["PYTHON_UPSTREAM"]
+    if other_owner:
+        # Every group except feedback points at the second owner: one group
+        # moving keeps the shared authority counting for both.
+        for group in ("NOTIFICATIONS", "PREFERENCES", "WATCHLISTS", "ALERTS", "REFERRALS"):
+            env[f"{group}_UPSTREAM"] = f"127.0.0.1:{other.port}"
     for verb in ("validate", "adapt"):
         result = subprocess.run(
             [caddy, verb, "--config", str(config), "--adapter", "caddyfile"],
@@ -254,14 +250,14 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
                 if process.poll() is not None:
                     pytest.fail((tmp_path / f"caddy-{caddy_port}.log").read_text())
                 try:
-                    if client.get("/health/live").status_code == 200:
+                    if client.get("/api/notifications").status_code == 200:
                         break
                 except httpx.HTTPError:
                     pass
                 time.sleep(0.05)
             else:
                 pytest.fail("disposable Caddy did not start")
-            yield client, authority, rust, python, crash
+            yield client, authority, rust, other, crash
     finally:
         process.terminate()
         try:
@@ -270,20 +266,20 @@ def harness(tmp_path, *, feedback_owner: str = "rust", authority_down: bool = Fa
             process.kill()
             process.wait()
         log.close()
-        for stub in dict.fromkeys((authority, rust, python, crash)):
+        for stub in dict.fromkeys((authority, rust, other, crash)):
             if stub is not None:
                 with contextlib.suppress(Exception):
                     stub.stop()
 
 
-@pytest.mark.parametrize("feedback_owner", ["rust", "python"])
+@pytest.mark.parametrize("feedback_owner", ["rust", "other"])
 def test_trusted_proxy_preserves_client_for_gate_and_owner(tmp_path, feedback_owner):
     with harness(tmp_path, feedback_owner=feedback_owner, trusted_proxy=True) as (
-            client, authority, rust, python, _crash):
+            client, authority, rust, other, _crash):
         response = client.get(
             "/api/admin/feedback", headers={"X-Forwarded-For": "198.51.100.24"})
         assert response.status_code == 200
-        owner = rust if feedback_owner == "rust" else python
+        owner = rust if feedback_owner == "rust" else other
         assert authority.requested()[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
         assert owner.requested("/api/admin/feedback")[0]["headers"]["x-forwarded-for"] == "198.51.100.24"
 
@@ -314,8 +310,10 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
                 time.sleep(0.05)
             else:
                 pytest.fail("Rust quota adapter did not start")
-        with harness(tmp_path, real_authority=f"127.0.0.1:{port}") as (
-                client, _authority, _rust, python, _crash):
+        # The real authority also owns the feedback group; another admin path
+        # reaches the site's fallback owner. Both draw from the one counter.
+        with harness(tmp_path, real_authority=f"127.0.0.1:{port}", site_fallback=True) as (
+                client, _authority, _rust, other, _crash):
             for index in range(LIMIT):
                 path = "/api/admin/feedback" if index % 2 else "/api/admin/analytics"
                 response = client.get(path)
@@ -324,7 +322,7 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
             assert refused.status_code == 429
             assert refused.headers["Retry-After"] == "60"
             assert refused.json()["detail"]["code"] == "RATE_LIMITED"
-            assert len(python.requested("/api/admin/analytics")) == LIMIT // 2
+            assert len(other.requested("/api/admin/analytics")) == LIMIT // 2
     finally:
         process.terminate()
         try:
@@ -336,51 +334,48 @@ def test_real_rust_authority_stops_mixed_caddy_at_301(tmp_path):
 
 
 def test_unmarked_authority_response_does_not_admit_an_owner(tmp_path):
-    with harness(tmp_path, authority_mark=False) as (client, _authority, rust, python, _crash):
+    with harness(tmp_path, authority_mark=False) as (client, _authority, rust, _other, _crash):
         response = client.get("/api/admin/feedback")
         assert response.status_code == 503
         assert not rust.requested("/api/admin/feedback")
-        assert not python.requested("/api/admin/feedback")
 
 
 def test_shared_authority_and_route_address_counts_once(tmp_path):
-    with harness(tmp_path, shared_authority=True) as (client, authority, rust, python, _crash):
+    with harness(tmp_path, shared_authority=True) as (client, authority, rust, other, _crash):
         assert authority is rust
         for index in range(LIMIT):
-            path = "/api/admin/feedback" if index % 2 else "/api/admin/analytics"
-            assert client.get(path).status_code == 200
+            assert client.get("/api/admin/feedback").status_code == 200
         assert client.get("/api/admin/feedback").status_code == 429
         assert len(authority.requested("/internal/admin-preauth")) == LIMIT + 1
-        assert len(rust.requested("/api/admin/feedback")) == LIMIT // 2
-        assert len(python.requested("/api/admin/analytics")) == LIMIT // 2
+        assert len(rust.requested("/api/admin/feedback")) == LIMIT
 
 
 def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
-    """Python and Rust admin paths draw from one counter, once per request."""
-    with harness(tmp_path) as (client, authority, rust, python, _crash):
+    """A group's admin path and the site's other admin paths draw from one
+    counter, once per request."""
+    with harness(tmp_path, site_fallback=True) as (client, authority, rust, other, _crash):
         # A write also passes the gate. The gate's request copy is changed to
         # GET, so Caddy drops the body from the copy, not from the request the
         # owner receives.
         admin_body = b'{"probe":"the admin body survives the gate"}'
         posted = client.post("/api/admin/analytics", content=admin_body)
         assert posted.status_code == 200
-        assert posted.headers["X-Route-Owner"] == "python"
+        assert posted.headers["X-Route-Owner"] == "other"
         assert posted.content == admin_body
-        assert python.requested("/api/admin/analytics")[0]["body"] == admin_body
+        assert other.requested("/api/admin/analytics")[0]["body"] == admin_body
         for index in range(LIMIT - 1):
             path = "/api/admin/analytics" if index % 2 == 0 else "/api/admin/feedback"
             response = client.get(path)
             assert response.status_code == 200, (index, path, response.text)
-            expected = "python" if index % 2 == 0 else "rust"
+            expected = "other" if index % 2 == 0 else "rust"
             assert response.headers["X-Route-Owner"] == expected, (index, path)
 
         # One authority call per admin request, no amplification.
         assert len(authority.requested()) == LIMIT
-        assert len(python.requested("/api/admin/analytics")) == 1 + LIMIT // 2
+        assert len(other.requested("/api/admin/analytics")) == 1 + LIMIT // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
-        for owner in (python, rust):
+        for owner in (other, rust):
             for item in owner.requested():
-                # The readiness probe reaches Python before the gate exists.
                 if item["path"].startswith("/api/admin/"):
                     assert item["headers"].get(COUNTED.lower()) == "1", item
 
@@ -390,7 +385,7 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         assert refused.json() == {"detail": "Rate limit exceeded"}
         # The refused request reached no owner and the authority saw it once.
         assert len(authority.requested()) == LIMIT + 1
-        assert len(python.requested("/api/admin/analytics")) == 1 + LIMIT // 2
+        assert len(other.requested("/api/admin/analytics")) == 1 + LIMIT // 2
         assert len(rust.requested("/api/admin/feedback")) == (LIMIT - 1) // 2
 
         # The authority sees the rewritten GET and the original client only.
@@ -403,12 +398,12 @@ def test_admin_split_stops_at_exactly_300_across_both_owners(tmp_path):
         assert "x-forwarded-uri" not in first["headers"]
 
 
-def test_python_owned_groups_recover_during_restart(tmp_path):
-    with harness(tmp_path, all_python=True) as (client, _authority, _rust, python, _crash):
-        python.stop()
-        # Keep one request in flight across a short restart. A refused dial must
-        # not quarantine the sole Python address for subsequent requests.
-        timer = threading.Timer(0.3, python.restart)
+def test_owner_groups_recover_during_restart(tmp_path):
+    with harness(tmp_path, feedback_owner="other") as (client, _authority, _rust, other, _crash):
+        other.stop()
+        # Keep one request in flight across a short restart. The bounded retry
+        # bridges the refused dial until the owner is back.
+        timer = threading.Timer(0.3, other.restart)
         timer.start()
         try:
             response = client.post("/api/feedback", content=b"{}")
@@ -420,21 +415,20 @@ def test_python_owned_groups_recover_during_restart(tmp_path):
                              ("GET", "/api/alerts")):
             recovered = client.request(method, path)
             assert recovered.status_code == 200
-            assert recovered.headers["X-Route-Owner"] == "python"
 
 
-def test_crud_post_body_crosses_the_gate_intact_to_python(tmp_path):
-    """A group rolled back to Python keeps its own counter and body."""
-    with harness(tmp_path, feedback_owner="python") as (
-            client, authority, _rust, python, _crash):
+def test_crud_post_body_crosses_the_gate_intact(tmp_path):
+    """A group with its own owner keeps its own counter and body."""
+    with harness(tmp_path, feedback_owner="other") as (
+            client, authority, _rust, other, _crash):
         body = b'{"message":"the body crosses Caddy byte for byte"}'
         response = client.post(
             "/api/feedback", content=body,
             headers={"Content-Type": "application/json"})
         assert response.status_code == 200
-        assert response.headers["X-Route-Owner"] == "python"
+        assert response.headers["X-Route-Owner"] == "other"
         assert response.content == body
-        seen = python.requested("/api/feedback")
+        seen = other.requested("/api/feedback")
         assert len(seen) == 1
         assert seen[0]["body"] == body
         # F01 is not an admin path, so the shared authority is not consulted:
@@ -443,53 +437,39 @@ def test_crud_post_body_crosses_the_gate_intact_to_python(tmp_path):
         assert authority.requested() == []
 
 
-def test_write_is_retried_only_after_a_refused_connection(tmp_path):
-    """A connection that succeeded is never replayed; a dial error is."""
+def test_write_is_not_replayed_after_a_successful_connection(tmp_path):
+    """A connection that succeeded is never replayed to the owner again."""
     with harness(tmp_path, feedback_crash=True) as (
-            client, _authority, _rust, python, crash):
-        before = len(python.requested("/api/feedback"))
+            client, _authority, _rust, _other, crash):
         response = client.post("/api/feedback", content=b'{"message":"once"}')
         assert response.status_code == 502
         assert len(crash.requested("/api/feedback")) == 1
-        assert len(python.requested("/api/feedback")) == before
 
-        # A refused connection is a dial error before any request bytes are
-        # sent, so the write is retried exactly once on Python.
+        # A stopped owner fails through its own upstream error: one upstream,
+        # no second address to retry.
         crash.stop()
         retried = client.post("/api/feedback", content=b'{"message":"once"}')
-        assert retried.status_code == 200
-        assert retried.headers["X-Route-Owner"] == "python"
-        assert len(python.requested("/api/feedback")) == before + 1
+        assert retried.status_code == 502
+        assert len(crash.requested("/api/feedback")) == 1
 
 
-def test_admin_gate_fails_open_when_the_authority_is_down(tmp_path):
-    """A stopped authority must not stop admin service or keep a stale mark."""
+def test_admin_gate_fails_closed_when_the_authority_is_down(tmp_path):
+    """A stopped authority must not admit an admin request uncounted."""
     with harness(tmp_path, authority_down=True) as (
-            client, _authority, _rust, python, _crash):
+            client, _authority, rust, _other, _crash):
         response = client.get(
-            "/api/admin/analytics",
+            "/api/admin/feedback",
             headers={COUNTED: "1"})
-        assert response.status_code == 200
-        assert response.headers["X-Route-Owner"] == "python"
-        forwarded = python.requested("/api/admin/analytics")
-        assert len(forwarded) == 1
-        assert COUNTED.lower() not in forwarded[0]["headers"]
-        # The gate itself reached Python's missing authority route and got 404.
-        assert python.requested("/internal/admin-preauth")
-
-        # The next request takes the same fail-open path.
-        again = client.get("/api/admin/analytics")
-        assert again.status_code == 200
-        assert again.headers["X-Route-Owner"] == "python"
-        assert len(python.requested("/api/admin/analytics")) == 2
+        assert response.status_code in (502, 503)
+        assert not rust.requested("/api/admin/feedback")
 
 
-@pytest.mark.parametrize("feedback_owner", ["rust", "python"])
-def test_one_group_rollback_keeps_the_gate_counting(tmp_path, feedback_owner):
-    """Rolling one group back changes its owner, not the shared counter."""
+@pytest.mark.parametrize("feedback_owner", ["rust", "other"])
+def test_one_group_move_keeps_the_gate_counting(tmp_path, feedback_owner):
+    """Moving one group changes its owner, not the shared counter."""
     with harness(tmp_path, feedback_owner=feedback_owner) as (
-            client, authority, rust, python, _crash):
-        owner = rust if feedback_owner == "rust" else python
+            client, authority, rust, other, _crash):
+        owner = rust if feedback_owner == "rust" else other
         for method, path in (("GET", "/api/admin/feedback"), ("POST", "/api/feedback")):
             response = client.request(method, path, content=b"{}",
                                       headers={"Content-Type": "application/json"})
@@ -499,37 +479,24 @@ def test_one_group_rollback_keeps_the_gate_counting(tmp_path, feedback_owner):
         # Only the admin operation passes the authority gate; F01 has one owner
         # in either position, so its own counter cannot be shared or doubled.
         assert len(authority.requested()) == 1
-        other = python if feedback_owner == "rust" else rust
-        assert not other.requested("/api/admin/feedback")
-        assert not other.requested("/api/feedback")
+        other_owner = other if feedback_owner == "rust" else rust
+        assert not other_owner.requested("/api/admin/feedback")
+        assert not other_owner.requested("/api/feedback")
 
 
-@pytest.mark.parametrize("method", ["HEAD", "OPTIONS", "PROPFIND"])
-def test_admin_nonpreflight_methods_consume_the_shared_quota(tmp_path, method):
-    with harness(tmp_path) as (client, authority, _rust, python, _crash):
-        response = client.request(method, "/api/admin/analytics")
-        assert response.status_code == 200
-        assert len(authority.requested()) == 1
-        assert len(python.requested("/api/admin/analytics")) == 1
+@pytest.mark.parametrize("method", ["HEAD", "PROPFIND"])
+def test_non_admin_nonpreflight_methods_pass_uncounted(tmp_path, method):
+    with harness(tmp_path, other_owner=True) as (client, authority, _rust, other, _crash):
+        response = client.request(method, "/api/notifications")
+        assert response.status_code == 404
+        assert len(authority.requested()) == 0
+        # The harness readiness probe is a GET; this method reaches no owner.
+        assert not [item for item in other.requested("/api/notifications")
+                    if item["method"] == method]
 
 
 def test_client_mark_does_not_bypass_feedback_quota(tmp_path):
-    with harness(tmp_path) as (client, _authority, rust, _python, _crash):
+    with harness(tmp_path) as (client, _authority, rust, _other, _crash):
         response = client.post("/api/feedback", headers={COUNTED: "1"})
         assert response.status_code == 200
         assert COUNTED.lower() not in rust.requested("/api/feedback")[0]["headers"]
-
-
-def test_options_preflight_is_never_counted(tmp_path):
-    """A CORS preflight creates no endpoint work and consumes no quota."""
-    with harness(tmp_path) as (client, authority, rust, python, _crash):
-        response = client.options(
-            "/api/admin/feedback",
-            headers={"Origin": "https://staging.verdaxis.exchange",
-                     "Access-Control-Request-Method": "GET"})
-        assert response.status_code == 200
-        # OPTIONS matches no operation matcher, so Python owns it uncounted.
-        assert response.headers["X-Route-Owner"] == "python"
-        assert authority.requested() == []
-        assert len(python.requested("/api/admin/feedback")) == 1
-        assert not rust.requested("/api/admin/feedback")

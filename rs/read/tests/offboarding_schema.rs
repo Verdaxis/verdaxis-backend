@@ -14,11 +14,13 @@ use verdaxis_read::{Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS, 
 
 /// The revision that precedes the offboarding revision on the shared chain.
 const PARENT: &str = "p89_20261022_trade_freeze";
-/// The offboarding revision. `alembic_version.version_num` is `VARCHAR(32)`.
+/// The offboarding revision on the retired Alembic chain.
 const REVISION: &str = "ob_20261031_offboarding";
-/// The runtime revision the M binary serves: the adoption target and the only
-/// startup admission.
-const ADOPTED: &str = ALLOWED_REVISIONS[0];
+/// The runtime revision the binary serves: the head sqlx revision and the
+/// only startup admission.
+const HEAD: &str = ALLOWED_REVISIONS[0];
+/// The first sqlx revision, which both hosts were adopted to.
+const SQLX_1: &str = "sqlx_1";
 const AUDIT_TABLE: &str = "individual_offboardings";
 
 fn repo_root() -> PathBuf {
@@ -43,7 +45,7 @@ fn is_literal_revision(value: &str) -> bool {
         )
 }
 
-/// Parse the checkpoint policy with the rules of `scripts/apply_migration_checkpoint.py`.
+/// Parse the checkpoint policy: literal revision pairs, no aliases, no duplicates.
 fn parse_checkpoints(text: &str) -> Vec<(String, String)> {
     let mut pairs: Vec<(String, String)> = Vec::new();
     for (index, raw) in text.lines().enumerate() {
@@ -91,40 +93,45 @@ fn checkpoint_requires_exact_transition() {
         (PARENT.to_owned(), REVISION.to_owned()),
     ];
     assert_eq!(to_revision, expected.iter().collect::<Vec<_>>());
-    // From the offboarding revision the only onward row is the adoption to
-    // the runtime revision, which the no-change runtime row keeps reachable.
+    // The retired Alembic chain ends at the offboarding revision with its self
+    // row only. No row leaves it for a sqlx revision: the adoption finished on
+    // both hosts and its row is gone.
     let from_revision: Vec<_> = pairs
         .iter()
         .filter(|(current, _)| current == REVISION)
         .map(|(_, target)| target.as_str())
         .collect();
-    assert_eq!(from_revision, [REVISION, ADOPTED]);
-    // The runtime revision admits no transition except its own no-change row.
+    assert_eq!(from_revision, [REVISION]);
+    // The runtime revision admits no transition except its own no-change row,
+    // and only a sqlx revision moves to it.
     let runtime_rows: Vec<_> = pairs
         .iter()
-        .filter(|(current, _)| current == ADOPTED)
+        .filter(|(current, _)| current == HEAD)
         .map(|(current, target)| (current.as_str(), target.as_str()))
         .collect();
-    assert_eq!(runtime_rows, [(ADOPTED, ADOPTED)]);
-    // The runtime revision is the adopted baseline: it moves nowhere else, and
-    // no other revision skips to it except the adoption row above.
+    assert_eq!(runtime_rows, [(HEAD, HEAD)]);
     assert!(
         pairs
             .iter()
-            .filter(|(current, _)| current == ADOPTED)
-            .all(|(_, target)| target == ADOPTED)
+            .filter(|(_, target)| target == HEAD)
+            .all(|(current, _)| current.starts_with("sqlx_"))
     );
     let policy = verdaxis_read::cli::migrate::TransitionPolicy::compiled();
-    assert!(policy.allows(REVISION, ADOPTED), "the adoption row");
-    assert!(policy.allows(ADOPTED, ADOPTED), "the runtime no-change row");
-    // The retained offboarding self row keeps its approval: a database the
-    // schema tool paused at the head stays startable by the pre-M release.
+    assert!(
+        policy.allows(SQLX_1, HEAD),
+        "the move to the runtime revision"
+    );
+    assert!(policy.allows(HEAD, HEAD), "the runtime no-change row");
+    // The offboarding self row stays as history; `migrate run` refuses every
+    // Alembic literal, so the row never runs.
     assert!(policy.allows(REVISION, REVISION), "the retained self row");
     for (current, target) in [
-        (PARENT, ADOPTED),
-        (ADOPTED, REVISION),
-        (ADOPTED, PARENT),
-        (REVISION, PARENT),
+        (REVISION, SQLX_1),
+        (REVISION, HEAD),
+        (PARENT, SQLX_1),
+        (PARENT, HEAD),
+        (HEAD, REVISION),
+        (HEAD, PARENT),
     ] {
         assert!(
             !policy.allows(current, target),
@@ -134,24 +141,23 @@ fn checkpoint_requires_exact_transition() {
 }
 
 #[test]
-fn allowlists_admit_only_the_adopted_baseline_revision() {
-    // The M binary serves only the adopted sqlx baseline; the retained
-    // Alembic chain ends at the offboarding revision, which is the adoption
-    // source, not a startup admission.
+fn allowlists_admit_only_the_head_sqlx_revision() {
+    // The binary serves only the head sqlx revision; the retained Alembic
+    // chain ends at the offboarding revision, which is not a startup admission.
     let reviewed: Vec<String> =
         serde_json::from_str(&read("deploy/rust/allowed-revisions.json")).unwrap();
-    assert_eq!(reviewed, [ADOPTED]);
-    assert_eq!(ALLOWED_REVISIONS, [ADOPTED]);
+    assert_eq!(reviewed, [HEAD]);
+    assert_eq!(ALLOWED_REVISIONS, [HEAD]);
 
     // The deploy enables the stream listener at every checkpoint that keeps
-    // the stream tables, including the adoption and the runtime revision.
+    // the stream tables, including the runtime revision.
     let deploy = read("scripts/deploy.sh");
     let line = deploy
         .lines()
         .find(|line| line.contains(r#"RUST_STREAM_LISTENER="1" ;;"#))
         .expect("stream listener checkpoint list");
     let listed: Vec<&str> = line.trim().split(')').next().unwrap().split('|').collect();
-    assert_eq!(listed.last().copied(), Some(ADOPTED));
+    assert_eq!(listed.last().copied(), Some(HEAD));
     assert!(listed.contains(&REVISION));
     assert!(listed.contains(&PARENT));
 }
@@ -182,11 +188,10 @@ fn runtime_configuration(environment: &str, revision: &str) -> Config {
 }
 
 #[test]
-fn staging_runtime_accepts_only_the_adopted_baseline_revision() {
-    assert!(validate_config(&runtime_configuration("staging", ADOPTED)).is_ok());
-    // The M runtime refuses the offboarding revision on both environments:
-    // a database still at the Alembic head is the adoption source, and
-    // adoption happens through `migrate`, never through a serving start.
+fn staging_runtime_accepts_only_the_head_sqlx_revision() {
+    assert!(validate_config(&runtime_configuration("staging", HEAD)).is_ok());
+    // The runtime refuses the offboarding revision on both environments: a
+    // database still at the Alembic head is not a sqlx database.
     assert!(validate_config(&runtime_configuration("staging", REVISION)).is_err());
     assert!(validate_config(&runtime_configuration("production", REVISION)).is_err());
     assert!(validate_config(&runtime_configuration("staging", "ob_20261031_unlisted")).is_err());

@@ -1,9 +1,9 @@
 """Exercise the exact Phase 5 route row through a real disposable Caddy.
 
 The site imports the first read groups and the Phase 5 snippet together, as the
-reviewed site files do, and sends everything else to Python. Three stub owners
-answer with their label: ``phase1`` (the first read groups), ``phase5`` (the
-Phase 5 upstream) and ``python`` (the fallback). The method and path row comes
+reviewed site files do; every unmatched path answers from the site's own
+fallback. Stub owners answer with their label: ``phase1`` (the first read
+groups) and ``phase5`` (the Phase 5 upstream). The method and path row comes
 from the neutral route inventory, so this file and the Rust routing cases pin
 the same ten routes.
 
@@ -41,15 +41,10 @@ import {$PHASE5_SNIPPET}
 http://:{$CADDY_PORT} {
 	bind 127.0.0.1
 	route {
-		import verdaxis_rust_public {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PYTHON_UPSTREAM}
-		import verdaxis_rust_phase5 {$PHASE5_UPSTREAM} {$PYTHON_UPSTREAM}
+		import verdaxis_rust_public {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM} {$PHASE1_UPSTREAM}
+		import verdaxis_rust_phase5 {$PHASE5_UPSTREAM}
 		handle {
-			reverse_proxy {$PYTHON_UPSTREAM} {
-				flush_interval -1
-				transport http {
-					keepalive off
-				}
-			}
+			respond 404
 		}
 	}
 }
@@ -77,7 +72,7 @@ NEIGHBOURS = [
     "/API/BENCHMARKS", "/api/Compliance/Fleet", "/api/compliance/FLEET",
 ]
 # Caddy merges repeated slashes before it matches a path, so these reach the
-# Phase 5 owner; the Rust service answers them 404, as Python does.
+# Phase 5 owner; the Rust service answers them 404.
 MERGED_SLASHES = ["/api//benchmarks", "/api/compliance//fleet"]
 
 
@@ -118,15 +113,14 @@ def free_port():
         return reservation.getsockname()[1]
 
 
-@pytest.fixture(scope="module", params=("rust", "python", "rust-stopped"))
+@pytest.fixture(scope="module", params=("primary", "rust-stopped"))
 def site(request, tmp_path_factory):
-    """One Caddy per Phase 5 state: moved, rolled back, or Rust not running."""
+    """One Caddy per Phase 5 state: the normal owner, or Rust not running."""
     caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
     assert caddy and Path(caddy).is_file(), "Set CADDY_BIN to the local Caddy executable"
-    with upstream("python") as python, upstream("phase1") as phase1, upstream("phase5") as phase5:
+    with upstream("phase1") as phase1, upstream("phase5") as phase5:
         phase5_upstream = {
-            "rust": phase5,
-            "python": python,
+            "primary": phase5,
             "rust-stopped": f"127.0.0.1:{free_port()}",
         }[request.param]
         port = free_port()
@@ -138,7 +132,6 @@ def site(request, tmp_path_factory):
             "ROUTE_SNIPPET": str(ROOT / "deploy/caddy/rust-public-staging.caddy"),
             "PHASE5_SNIPPET": str(ROOT / "deploy/caddy/rust-phase5.caddy"),
             "CADDY_PORT": str(port),
-            "PYTHON_UPSTREAM": python,
             "PHASE1_UPSTREAM": phase1,
             "PHASE5_UPSTREAM": phase5_upstream,
         }
@@ -165,7 +158,7 @@ def site(request, tmp_path_factory):
                         headers = {"Host": "routing.test", **kwargs.pop("headers", {})}
                         return client.request(method, path, headers=headers, **kwargs)
 
-                    send.phase5_owner = {"rust": "phase5", "python": "python",
+                    send.phase5_owner = {"primary": "phase5",
                                          "rust-stopped": "unavailable"}[request.param]
                     yield send
             finally:
@@ -180,9 +173,9 @@ def site(request, tmp_path_factory):
 def owner(site, method, path, **kwargs):
     response = site(method, path, **kwargs)
     detail = f"{method} {path} answered {response.status_code} {dict(response.headers)}"
-    if response.status_code == 502:
+    if response.status_code in (404, 502, 503):
         assert "X-Route-Owner" not in response.headers, detail
-        return "unavailable"
+        return "fallback" if response.status_code == 404 else "unavailable"
     assert response.status_code == 200 and "X-Route-Owner" in response.headers, detail
     return response.headers["X-Route-Owner"]
 
@@ -196,44 +189,44 @@ def test_inventory_has_the_ten_routes():
 @pytest.mark.parametrize("method,path,auth", PHASE5_ROUTES)
 def test_each_route_moves_with_its_exact_method_only(site, method, path, auth):
     for candidate in METHODS:
-        expected = site.phase5_owner if candidate == method else "python"
+        expected = site.phase5_owner if candidate == method else "fallback"
         assert owner(site, candidate, path) == expected, f"{candidate} {path}"
 
 
 @pytest.mark.parametrize("method,path,auth", PHASE5_ROUTES)
 def test_trailing_slash_follows_the_rust_redirect_rule(site, method, path, auth):
     # The Rust service redirects the slash form of a public read itself. An
-    # authenticated route has no Rust redirect, so its slash form stays on
-    # Python for every method.
+    # authenticated route has no Rust redirect, so its slash form finds no
+    # handle for every method.
     for candidate in METHODS:
         moves = auth == "public" and candidate == "GET"
-        expected = site.phase5_owner if moves else "python"
+        expected = site.phase5_owner if moves else "fallback"
         assert owner(site, candidate, path + "/") == expected, f"{candidate} {path}/"
 
 
 @pytest.mark.parametrize("path", NEIGHBOURS)
-def test_neighbouring_paths_stay_on_python(site, path):
+def test_neighbouring_paths_find_no_handle(site, path):
     for candidate in ("GET", "POST", "PUT", "PATCH", "DELETE"):
-        assert owner(site, candidate, path) == "python", f"{candidate} {path}"
+        assert owner(site, candidate, path) == "fallback", f"{candidate} {path}"
 
 
 @pytest.mark.parametrize("path", MERGED_SLASHES)
 def test_repeated_slashes_follow_the_merged_path(site, path):
     assert owner(site, "GET", path) == site.phase5_owner
-    assert owner(site, "POST", path) == "python"
+    assert owner(site, "POST", path) == "fallback"
 
 
 @pytest.mark.parametrize("path", PHASE1_ROUTES)
 def test_first_read_groups_keep_their_owner(site, path):
-    # Moving or rolling back Phase 5 never changes the 27 existing reads.
+    # The Phase 5 state never changes the 27 existing reads.
     assert owner(site, "GET", path) == "phase1", path
-    assert owner(site, "POST", path) == "python", path
+    assert owner(site, "POST", path) == "fallback", path
 
 
 def test_mcp_and_health_are_unchanged(site):
     assert owner(site, "POST", "/mcp") == "phase1"
     for path in ("/health/live", "/health/ready", "/health", "/", "/docs", "/openapi.json"):
-        assert owner(site, "GET", path) == "python", path
+        assert owner(site, "GET", path) == "fallback", path
 
 
 def test_requests_reach_the_owner_unchanged(site):

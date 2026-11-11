@@ -55,9 +55,3 @@ runbook and current host instructions; this source change performs no host work.
 the installed M deploy helper rejects a release that changes them. They are not
 backend CI inputs and are not a request to install an API environment.
 
-`deploy/scripts/pre-m-bundle.sh` remains unchanged. It restores a captured old
-release, including its Python service. Other retained operator helpers can have
-legacy application imports; these are compatibility paths, not a second running
-backend. Their disposition and gate results are recorded in
-`outputs/ci-faster-results.md`. Do not run these paths against this checkout as
-if it still contained the old application.

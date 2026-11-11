@@ -7,8 +7,6 @@
 #   - denies the application role any access to the history,
 #   - converges twice to the same ACLs and leaves writes to the migrator only,
 #   - lets the backup role dump and restore the history but not write it,
-#   - keeps the pre-M bundle reader's SELECT on the retained Alembic head
-#     alive across convergence without any write authority,
 #   - refuses a history that another role owns.
 # Usage: bash deploy/tests/sqlx-control-acl.sh (from the repository root)
 set -euo pipefail
@@ -49,7 +47,6 @@ as_role postgres postgres <<'SQL'
 CREATE ROLE verdaxis_migrator LOGIN NOINHERIT PASSWORD 'disposable_migrator_pw';
 CREATE ROLE verdaxis_app LOGIN NOINHERIT PASSWORD 'disposable_app_pw';
 CREATE ROLE verdaxis_backup LOGIN NOINHERIT PASSWORD 'disposable_backup_pw';
-CREATE ROLE verdaxis_bundle_reader LOGIN NOINHERIT PASSWORD 'disposable_bundle_reader_pw';
 SQL
 make_database() {
   local database=$1
@@ -82,7 +79,6 @@ converge() {
     --single-transaction -v ON_ERROR_STOP=1 \
     -v database_name="$database" -v app_role=verdaxis_app \
     -v migrator_role=verdaxis_migrator -v backup_role=verdaxis_backup \
-    -v bundle_reader_role=verdaxis_bundle_reader \
     -f deploy/postgres/converge_runtime_object_acls.sql > /dev/null
 }
 acl_snapshot() {
@@ -130,61 +126,23 @@ else
   fail "backup_reader_can_dump_and_restore_sqlx_history_but_cannot_write_it"
 fi
 
-# bundle_reader_keeps_select_on_retained_alembic_head_through_convergence:
-# the pre-M bundle reads the retained Alembic audit head through its dedicated
-# reader role before and after the forward deploy (plan section 8.7), so
-# convergence must keep that grant alive. SELECT only: no write privilege on
-# the control table and no privilege on any application table or the history.
-adopted_database verdaxis_acl_reader
-as_role postgres verdaxis_acl_reader <<'SQL' > /dev/null
+# A leftover Alembic history table is governed like any unlisted table: the
+# application role is denied it, and the backup role may read it for a dump
+# but never write it.
+# The migrator owns it, as bootstrap_roles.sql made it own the retained table.
+adopted_database verdaxis_acl_alembic
+as_role verdaxis_migrator verdaxis_acl_alembic <<'SQL' > /dev/null
 CREATE TABLE public.alembic_version (version_num varchar(64) NOT NULL);
 INSERT INTO public.alembic_version VALUES ('ob_20261031_offboarding');
 SQL
-converge verdaxis_acl_reader
-converge verdaxis_acl_reader
-reader_grants() {
-  as_role postgres "$1" -tA -c "SELECT string_agg(privilege_type, ',' ORDER BY privilege_type)
-    FROM information_schema.role_table_grants
-    WHERE grantee = 'verdaxis_bundle_reader' AND table_schema = 'public'"
-}
-if [[ $(reader_grants verdaxis_acl_reader) == "SELECT" ]] \
-  && [[ $(as_role verdaxis_bundle_reader verdaxis_acl_reader -tA \
-       -c 'SELECT version_num FROM public.alembic_version ORDER BY 1') \
-     == 'ob_20261031_offboarding' ]] \
-  && denied verdaxis_bundle_reader verdaxis_acl_reader \
-       "INSERT INTO public.alembic_version VALUES ('x')" \
-  && denied verdaxis_bundle_reader verdaxis_acl_reader \
-       "UPDATE public.alembic_version SET version_num = 'x'" \
-  && denied verdaxis_bundle_reader verdaxis_acl_reader \
-       'DELETE FROM public.alembic_version' \
-  && denied verdaxis_bundle_reader verdaxis_acl_reader \
-       'SELECT count(*) FROM public.products' \
-  && denied verdaxis_bundle_reader verdaxis_acl_reader \
-       'SELECT count(*) FROM public._sqlx_migrations'; then
-  pass "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence"
+converge verdaxis_acl_alembic
+converge verdaxis_acl_alembic
+if denied verdaxis_app verdaxis_acl_alembic 'SELECT count(*) FROM public.alembic_version' \
+  && denied verdaxis_backup verdaxis_acl_alembic "UPDATE public.alembic_version SET version_num = 'x'" \
+  && denied verdaxis_backup verdaxis_acl_alembic 'DELETE FROM public.alembic_version'; then
+  pass "leftover_alembic_history_is_denied_to_the_app_and_read_only_to_backup"
 else
-  fail "bundle_reader_keeps_select_on_retained_alembic_head_through_convergence"
-fi
-
-# A deployment that does not name a bundle reader (bootstrap's unset or empty
-# variable) converges without granting one; a named reader that does not exist
-# refuses rather than passing silently.
-make_database verdaxis_acl_no_reader
-PGPASSWORD=disposable_admin_pw psql -X -q -h 127.0.0.1 -p "$port" -U postgres -d verdaxis_acl_no_reader \
-  --single-transaction -v ON_ERROR_STOP=1 \
-  -v database_name=verdaxis_acl_no_reader -v app_role=verdaxis_app \
-  -v migrator_role=verdaxis_migrator -v backup_role=verdaxis_backup \
-  -f deploy/postgres/converge_runtime_object_acls.sql > /dev/null
-if [[ $(reader_grants verdaxis_acl_no_reader) == "" ]] \
-  && ! PGPASSWORD=disposable_admin_pw psql -X -q -h 127.0.0.1 -p "$port" -U postgres -d verdaxis_acl_no_reader \
-    --single-transaction -v ON_ERROR_STOP=1 \
-    -v database_name=verdaxis_acl_no_reader -v app_role=verdaxis_app \
-    -v migrator_role=verdaxis_migrator -v backup_role=verdaxis_backup \
-    -v bundle_reader_role=verdaxis_reader_absent \
-    -f deploy/postgres/converge_runtime_object_acls.sql > /dev/null 2>&1; then
-  pass "absent_bundle_reader_receives_nothing"
-else
-  fail "absent_bundle_reader_receives_nothing"
+  fail "leftover_alembic_history_is_denied_to_the_app_and_read_only_to_backup"
 fi
 
 # A history owned by another role is refused by convergence.

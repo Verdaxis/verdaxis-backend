@@ -452,7 +452,7 @@ async fn root_health_snippet_has_one_argument_and_exact_paths() {
         ]
     );
     let existing = snippet_lines("deploy/caddy/rust-public-staging.caddy");
-    let reference = transport_lines(&existing, "reverse_proxy {args[0]} {args[5]} {");
+    let reference = transport_lines(&existing, "reverse_proxy {args[0]} {");
     assert!(ours.iter().all(|line| reference.contains(line)));
 
     // Each named path is served by this binary: mounted, never the 404 that

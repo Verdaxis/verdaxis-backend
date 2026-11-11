@@ -1,18 +1,13 @@
 \set ON_ERROR_STOP on
 
 -- Required psql variables: database_name, app_role, migrator_role, backup_role.
--- Optional: operator_role (Phase 10 Task 21) and bundle_reader_role (the
--- pre-M bundle's read-only reader). Absent, empty, or naming a role that does
--- not exist yet, either receives nothing.
+-- Optional: operator_role (Phase 10 Task 21). Absent, empty, or naming a role
+-- that does not exist yet, it receives nothing.
 -- This include is transaction-neutral: bootstrap owns its transaction and the
 -- steady-state runner invokes psql with --single-transaction.
 \if :{?operator_role}
 \else
 \set operator_role ''
-\endif
-\if :{?bundle_reader_role}
-\else
-\set bundle_reader_role ''
 \endif
 SELECT 1 / (current_database() = :'database_name')::integer;
 SELECT 1 / (
@@ -50,22 +45,6 @@ SELECT 1 / (
     OR :'operator_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
 )::integer;
 SELECT 1 / (
-    :'bundle_reader_role' = ''
-    OR :'bundle_reader_role' NOT IN (:'app_role', :'migrator_role', :'backup_role')
-)::integer;
-SELECT 1 / (
-    :'bundle_reader_role' = ''
-    OR :'operator_role' = ''
-    OR :'bundle_reader_role' <> :'operator_role'
-)::integer;
-SELECT 1 / (
-    :'bundle_reader_role' = ''
-    OR EXISTS (
-        SELECT 1 FROM pg_catalog.pg_roles
-        WHERE rolname = :'bundle_reader_role'
-    )
-)::integer;
-SELECT 1 / (
     NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_roles AS operator
@@ -92,72 +71,13 @@ FROM pg_catalog.pg_class AS object
 JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
 WHERE namespace.nspname = 'public'
   AND object.relkind IN ('r', 'p', 'S')
-  AND object.relname NOT IN ('alembic_version', 'spatial_ref_sys')
+  AND object.relname NOT IN ('spatial_ref_sys')
   AND NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_depend AS dependency
       WHERE dependency.classid = 'pg_class'::regclass
         AND dependency.objid = object.oid AND dependency.deptype = 'e'
   );
 CREATE UNIQUE INDEX governed_objects_oid_idx ON governed_objects (oid);
-
--- alembic_version is migration control rather than an application-governed
--- table, but a complete logical backup must still be able to lock and read it.
--- Rebuild its non-owner ACL separately so the app remains denied and pg_dump
--- can capture the database revision through the dedicated backup role.
-SELECT format(
-    'REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM %s CASCADE',
-    namespace.nspname,
-    object.relname,
-    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE format('%I', grantee.rolname) END
-)
-FROM pg_catalog.pg_class AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-CROSS JOIN LATERAL aclexplode(
-    COALESCE(object.relacl, acldefault('r'::"char", object.relowner))
-) AS acl
-LEFT JOIN pg_catalog.pg_roles AS grantee ON grantee.oid = acl.grantee
-WHERE namespace.nspname = 'public'
-  AND object.relname = 'alembic_version'
-  AND object.relkind IN ('r', 'p')
-  AND acl.grantee <> object.relowner
-GROUP BY namespace.nspname, object.relname, acl.grantee, grantee.rolname
-ORDER BY acl.grantee
-\gexec
-
-SELECT format(
-    'GRANT SELECT ON TABLE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'backup_role'
-)
-FROM pg_catalog.pg_class AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relname = 'alembic_version'
-  AND object.relkind IN ('r', 'p')
-\gexec
-
--- The pre-M bundle reads the retained Alembic head through its dedicated
--- reader role before and after the forward deploy, so convergence keeps that
--- one SELECT grant alive. SELECT only: the reader never writes migration
--- control (plan section 8.7). Nothing is granted when the role is absent.
-SELECT format(
-    'GRANT SELECT ON TABLE %I.%I TO %I',
-    namespace.nspname,
-    object.relname,
-    :'bundle_reader_role'
-)
-FROM pg_catalog.pg_class AS object
-JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
-WHERE namespace.nspname = 'public'
-  AND object.relname = 'alembic_version'
-  AND object.relkind IN ('r', 'p')
-  AND :'bundle_reader_role' <> ''
-  AND EXISTS (
-      SELECT 1 FROM pg_catalog.pg_roles
-      WHERE rolname = :'bundle_reader_role'
-  )
-\gexec
 
 -- Migrations run as the named owner. A wrong-owner object is not silently
 -- repaired with elevated credentials during deploy; convergence refuses.

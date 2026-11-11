@@ -1,5 +1,5 @@
 //! Test-only stand-in for the deploy/recovery owner. It writes the same record
-//! format and the same database row as `scripts/rust_cache_authority.py`; the
+//! format and the same database row as the cache authority record; the
 //! Python tests prove that script produces exactly these shapes.
 #![allow(dead_code)]
 

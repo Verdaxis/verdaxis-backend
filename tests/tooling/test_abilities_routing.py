@@ -24,28 +24,28 @@ import {$ABILITIES_SNIPPET}
 http://:{$CADDY_PORT} {
     bind 127.0.0.1
     route {
-        import verdaxis_rust_abilities {$RUST_UPSTREAM} {$PYTHON_UPSTREAM}
+        import verdaxis_rust_abilities {$RUST_UPSTREAM}
         handle {
-            reverse_proxy {$PYTHON_UPSTREAM}
+            respond 404
         }
     }
 }
 """
 
 
-@pytest.fixture(scope="module", params=("rust", "python", "rust-stopped"))
+@pytest.fixture(scope="module", params=("rust", "rust-stopped"))
 def site(request, tmp_path_factory):
     caddy = os.environ.get("CADDY_BIN") or shutil.which("caddy")
     assert caddy and Path(caddy).is_file(), "Set CADDY_BIN to the local Caddy executable"
-    with upstream("python") as python, upstream("rust") as rust:
-        selected = {"rust": rust, "python": python,
+    with upstream("rust") as rust:
+        selected = {"rust": rust,
                     "rust-stopped": f"127.0.0.1:{free_port()}"}[request.param]
         port = free_port()
         work = tmp_path_factory.mktemp("abilities-routing")
         config = work / "Caddyfile"
         config.write_text(CADDYFILE)
         env = {**os.environ, "ABILITIES_SNIPPET": str(ROOT / "deploy/caddy/rust-abilities.caddy"),
-               "CADDY_PORT": str(port), "RUST_UPSTREAM": selected, "PYTHON_UPSTREAM": python}
+               "CADDY_PORT": str(port), "RUST_UPSTREAM": selected}
         subprocess.run([caddy, "adapt", "--config", str(config), "--validate"],
                        env=env, check=True, capture_output=True)
         with (work / "caddy.log").open("w") as log:
@@ -67,7 +67,7 @@ def site(request, tmp_path_factory):
                     def send(method, path):
                         return client.request(method, path)
 
-                    send.expected_owner = {"rust": "rust", "python": "python",
+                    send.expected_owner = {"rust": "rust",
                                            "rust-stopped": "unavailable"}[request.param]
                     yield send
             finally:
@@ -88,8 +88,8 @@ def test_route_inventory():
 
 
 @pytest.mark.parametrize("method", METHODS)
-def test_exact_methods_and_disabled_equal_arguments(site, method):
-    expected = site.expected_owner if method in ("GET", "HEAD", "OPTIONS") else "python"
+def test_exact_methods_only(site, method):
+    expected = site.expected_owner if method in ("GET", "HEAD", "OPTIONS") else "fallback"
     assert owner(site, method, PATH) == expected
 
 
@@ -98,6 +98,6 @@ def test_exact_methods_and_disabled_equal_arguments(site, method):
     "/api/auth/me/ability", "/api/auth/me/abilitiesx", "/api/auth/Me/abilities",
     "/api/auth/me/Abilities", "/api/auth/me/password",
 ])
-def test_neighbours_stay_on_python(site, path):
+def test_neighbours_find_no_handle(site, path):
     for method in METHODS:
-        assert owner(site, method, path) == "python"
+        assert owner(site, method, path) == "fallback"

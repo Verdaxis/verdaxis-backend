@@ -5,7 +5,6 @@ deploy/tests/guard-contract.sh
 rs/read/tests/run_phase10_reminders.sh
 rs/read/tests/run_phase10_inspect.sh
 deploy/tests/alert-handoff-contract.sh
-deploy/scripts/generate-sqlx-baseline.sh
 deploy/tests/sqlx-control-acl.sh
 scripts/deploy.sh
 deploy/scripts/converge-acls.sh
@@ -13,8 +12,5 @@ deploy/tests/deploy-transaction.sh
 deploy/tests/units-contract.sh
 deploy/scripts/install-host-automation.sh
 scripts/install_systemd_units.sh
-deploy/scripts/pre-m-bundle.sh
 deploy/scripts/safe-root-git.sh
-deploy/scripts/provision-bundle-reader.sh
-deploy/tests/bundle-reader-contract.sh
 deploy/external_monitor/install.sh

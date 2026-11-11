@@ -1,6 +1,5 @@
 //! `ops prepare-budget`: the private connection budget artifact (Phase 10
-//! Task 9), byte-identical to `scripts/prepare_rust_budget.py`, which this
-//! replaces.
+//! Task 9), the one budget artifact the deploy installs.
 //!
 //! The budget is configured authority, never measured load: it is computed
 //! from the deployed `.env` alone and opens no connection. The six settings

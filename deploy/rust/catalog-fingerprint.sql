@@ -2,17 +2,16 @@
 --
 -- One read-only query that returns an ordered text projection of the
 -- application schema. The fingerprint is the SHA-256 of these lines joined by
--- "\n" (no trailing newline). The generator, the baseline tests and
--- `migrate baseline` all read this file, so the projection has one definition.
+-- "\n" (no trailing newline). `migrate` and the baseline tests read this
+-- file, so the projection has one definition.
 --
 -- Included: application schemas and their owner slot; tables, views,
 -- materialized views and sequences with their persistence; columns (type,
 -- nullability, default); constraints; indexes; functions and triggers; enum
 -- labels in order; extension names and versions.
 -- The schema owner slot is one normalized placeholder, not the live owner
--- name: one baseline manifest serves production and staging, and adoption
--- separately asserts every live schema owner against the adopting
--- environment's migrator role (plan sections 8.3 and 8.4).
+-- name: one baseline manifest serves production and staging (plan section
+-- 8.3).
 -- Excluded: alembic_version, _sqlx_migrations, temporary objects, objects that
 -- belong to an extension, ACLs, column owners, statistics and physical layout.
 -- Run it inside one REPEATABLE READ transaction so every part sees one snapshot.

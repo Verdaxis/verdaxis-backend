@@ -13,7 +13,7 @@ use verdaxis_read::{AppState, Config, compiled_sha};
 fn config() -> Config {
     serde_json::from_value(serde_json::json!({
         "environment":"test", "release_sha":compiled_sha(),
-        "migration_revision":"sqlx_1",
+        "migration_revision":"sqlx_2",
         "database_url":"postgresql://verdaxis_app_test:fixture@127.0.0.1:1/verdaxis_analytics_test",
         "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
         "read_admission_slots":2, "pool_max":3, "python_budget":52,
@@ -78,6 +78,7 @@ fn stream_schema_starts_at_its_checkpoint_and_stays_for_later_ones() {
         "p89_20261022_trade_freeze",
         "ob_20261031_offboarding",
         "sqlx_1",
+        "sqlx_2",
     ] {
         assert!(schema_has_streams(revision), "{revision}");
     }

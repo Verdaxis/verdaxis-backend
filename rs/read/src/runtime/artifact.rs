@@ -19,8 +19,9 @@ pub const LIBC_MIN: &str = "2.35";
 ///
 /// This is the same reviewed file `runtime::config::validate_config` reads; the
 /// unit tests below assert the two definitions cannot drift.
-/// M admits only the adopted baseline; older releases retain their own lists.
-pub const ALLOWED_REVISIONS: &[&str] = &["sqlx_1"];
+/// The release admits only the head sqlx revision; older releases retain
+/// their own lists.
+pub const ALLOWED_REVISIONS: &[&str] = &["sqlx_2"];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.
 #[cfg(test)]
@@ -121,7 +122,7 @@ mod tests {
         assert_eq!(document["os"], std::env::consts::OS);
         assert_eq!(
             document["migration_revision_allowlist"],
-            serde_json::json!(["sqlx_1"])
+            serde_json::json!(["sqlx_2"])
         );
     }
 
