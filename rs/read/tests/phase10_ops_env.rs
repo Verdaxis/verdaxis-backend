@@ -135,6 +135,11 @@ impl EnvFile {
             "MARKET_SUPPORT_CONSENT_REFERENCE='market-support/2026-11'",
             "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=",
             "OFFBOARDING_ENABLED=on",
+            "OPENCODE_API_KEY=fixture-slot-one",
+            "OPENCODE_API_KEY_2=fixture-slot-two",
+            "OPENCODE_API_KEY_3=fixture-slot-three",
+            "AGENT_ENABLED=on",
+            "AGENT_MODEL=deepseek-v4.1-flash",
             "UMAMI_BASE_URL=https://umami.example",
             "UMAMI_WEBSITE_ID=site-from-env",
             &format!("GEMINI_API_KEY={GEMINI_KEY}"),
@@ -501,6 +506,92 @@ fn serve_env_projects_the_offboarding_switch_only_when_configured() {
         !projected.contains_key("OFFBOARDING_ENABLED"),
         "an absent switch is not projected"
     );
+}
+
+#[test]
+fn serve_env_projects_agent_settings_only_to_serve_without_logging_values() {
+    let (scratch, output) = prepared_staging_full();
+    let projected = read_environment_file(&output.join("runtime.env"));
+    for (key, value) in [
+        ("OPENCODE_API_KEY", "fixture-slot-one"),
+        ("OPENCODE_API_KEY_2", "fixture-slot-two"),
+        ("OPENCODE_API_KEY_3", "fixture-slot-three"),
+        ("AGENT_ENABLED", "true"),
+        ("AGENT_MODEL", "deepseek-v4.1-flash"),
+    ] {
+        assert!(
+            projected.get(key).is_some_and(|actual| actual == value),
+            "{key}"
+        );
+        for job in std::fs::read_dir(output.join("jobs")).unwrap() {
+            let job = read_environment_file(&job.unwrap().path());
+            assert!(!job.contains_key(key));
+        }
+    }
+    let result = rust_prepare_runtime(
+        "staging",
+        &scratch.path("be/.env"),
+        &output,
+        STAGING_REVISION,
+    );
+    assert_ok(&result, "agent settings");
+    for value in ["fixture-slot-one", "fixture-slot-two", "fixture-slot-three"] {
+        assert!(!contains(&result.stdout, value));
+        assert!(!contains(&result.stderr, value));
+    }
+}
+
+#[test]
+fn serve_env_omits_absent_and_empty_agent_settings() {
+    for file in [
+        EnvFile::staging(),
+        EnvFile::staging().with(&[
+            "OPENCODE_API_KEY=",
+            "OPENCODE_API_KEY_2=",
+            "OPENCODE_API_KEY_3=",
+            "AGENT_ENABLED=",
+            "AGENT_MODEL=",
+        ]),
+    ] {
+        let scratch = Scratch::new();
+        let environment_file = file.write(&scratch.path("be"));
+        let output = scratch.path("be/.runtime-rust");
+        let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
+        assert_ok(&result, "optional agent settings");
+        let projected = read_environment_file(&output.join("runtime.env"));
+        for key in [
+            "OPENCODE_API_KEY",
+            "OPENCODE_API_KEY_2",
+            "OPENCODE_API_KEY_3",
+            "AGENT_ENABLED",
+            "AGENT_MODEL",
+        ] {
+            assert!(!projected.contains_key(key));
+        }
+    }
+}
+
+#[test]
+fn serve_env_refuses_invalid_agent_settings_without_logging_values() {
+    for (key, value) in [
+        ("OPENCODE_API_KEY", "\"fixture\\nprivate\""),
+        ("OPENCODE_API_KEY_2", "\"fixture\\tprivate\""),
+        ("OPENCODE_API_KEY_3", "\"fixture\u{7f}private\""),
+        ("AGENT_ENABLED", "invalid-agent-switch"),
+        ("AGENT_MODEL", "unlisted-agent-model"),
+    ] {
+        let scratch = Scratch::new();
+        let environment_file = EnvFile::staging()
+            .set(key, value)
+            .write(&scratch.path("be"));
+        let output = scratch.path("be/.runtime-rust");
+        let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
+        assert_eq!(result.status.code(), Some(PRECONDITION), "{key}");
+        assert!(!output.join("runtime.env").exists());
+        assert!(!contains(&result.stdout, value));
+        assert!(!contains(&result.stderr, value));
+        assert!(!contains(&result.stderr, "private"));
+    }
 }
 
 #[test]

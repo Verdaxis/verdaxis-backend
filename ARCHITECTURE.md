@@ -13,6 +13,21 @@ SQLx supplies PostgreSQL access. Financial calculations use exact decimal
 values. Route adapters preserve scoped authorization and transaction boundaries;
 job commands reuse the domain code rather than a separate application stack.
 
+## Agent model transport
+
+`rs/read/src/agent/llm/` owns the async OpenCode Go chat-completions
+transport. Its single model table permits `deepseek-v4.1-flash`. Credentials
+come from three runtime environment slots; usage meters are cached per slot
+for 60 seconds. The client selects available headroom, rotates after 429,
+and disables unauthorized slots until restart. Bounded requests have no
+redirects and return key-free attempt receipts, including failed attempts.
+
+`ops prepare-runtime` projects optional serve-only `OPENCODE_API_KEY`,
+`OPENCODE_API_KEY_2`, `OPENCODE_API_KEY_3`, `AGENT_ENABLED` and `AGENT_MODEL`.
+The transport does not mount routes or enable the agent. Later Phase A tasks
+own the decision contract, audit persistence, tools and route controls.
+Local mock HTTP tests do not contact the provider.
+
 ## Schema and runtime identity
 
 `rs/read/migrations/1_baseline.sql` is the native migration baseline.
