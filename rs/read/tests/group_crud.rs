@@ -53,3 +53,5 @@ pub mod watchlist_activation_source;
 pub mod agent_tools;
 #[path = "agent_tools_postgres.rs"]
 pub mod agent_tools_postgres;
+#[path = "agent_turn_postgres.rs"]
+pub mod agent_turn_postgres;

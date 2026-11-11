@@ -152,6 +152,7 @@ jobs:
         run: |
           bash rs/read/tests/run_agent_llm.sh
           bash rs/read/tests/run_agent_tools_unit.sh
+          bash rs/read/tests/run_agent_turn_unit.sh
       - name: Check formatting and both feature configurations
         env:
           RELEASE_SHA: ${{ github.sha }}
@@ -274,7 +275,7 @@ jobs:
           # Auth, stream, public-cache and alert targets that read their own
           # database variables and run only against a seeded disposable database.
           - shard: components
-            runners: run_auth_streams_cache.sh run_agent_audit.sh run_agent_tools.sh
+            runners: run_auth_streams_cache.sh run_agent_audit.sh run_agent_tools.sh run_agent_turn.sh
     env:
       SQLX_OFFLINE: "true"
       RUST_TEST_PYTHON: /usr/bin/python3
