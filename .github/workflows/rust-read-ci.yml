@@ -146,6 +146,10 @@ jobs:
         env:
           RELEASE_SHA: ${{ github.sha }}
         run: cargo test --manifest-path rs/Cargo.toml --locked --workspace --no-fail-fast
+      - name: Verify exact agent transport test counts
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: bash rs/read/tests/run_agent_llm.sh
       - name: Check formatting and both feature configurations
         env:
           RELEASE_SHA: ${{ github.sha }}
