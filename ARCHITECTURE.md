@@ -44,6 +44,15 @@ verified binary identity. Agent audit events have runtime INSERT and SELECT
 authority only; ACL convergence grants only USAGE on their sequence. Drafts do
 not create orders. The frozen baseline and its catalog manifest stay unchanged.
 
+`rs/read/src/agent/audit.rs` owns the global append-only audit chain. Appends
+serialize under a transaction advisory lock and hash the previous head plus
+sorted JSON with explicit UTC microsecond timestamps. Keys and string values
+are redacted before storage; oversized payloads become truncation markers.
+Committed intent handles bind model and tool receipts to their intent IDs.
+Read-only chain checks use a consistent snapshot and bounded batches. Range
+checks trust the stored predecessor hash; external trusted heads are needed to
+detect a privileged complete-chain rewrite or removal of the entire ledger.
+
 `deploy/rust/` holds release policy and frozen data. The public-read cache
 requires a separately published authority record and matching database identity.
 Revocation and drain precede replacement. Listener and pool budgets remain bound
@@ -103,6 +112,9 @@ be a crate root or own their process keep their own `[[test]]` target.
 `scripts/check_test_groups.py` fails when a test file is in no binary.
 `rs/read/tests/run_auth_streams_cache.sh` seeds and runs the auth, stream,
 public-cache and alert targets whose database cases need their own variables.
+`rs/read/tests/run_agent_audit.sh` runs `group_crud` audit-ledger cases with the
+runtime role, plus explicit superuser tampering in the disposable database. It
+requires seven passed cases and zero ignored cases in the CI components cell.
 `tests/tooling/` and `tests/monitor/` cover retained host tools. Disposable test
 resources and temporary logs are not committed.
 

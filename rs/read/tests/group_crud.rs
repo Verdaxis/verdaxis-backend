@@ -16,6 +16,8 @@ pub mod abilities_http;
 pub mod abilities_policy;
 #[path = "abilities_postgres.rs"]
 pub mod abilities_postgres;
+#[path = "agent_audit_postgres.rs"]
+pub mod agent_audit_postgres;
 #[path = "crud_alerts.rs"]
 pub mod crud_alerts;
 #[path = "crud_feedback.rs"]

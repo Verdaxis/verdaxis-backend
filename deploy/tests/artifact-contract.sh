@@ -20,7 +20,8 @@ assert paths and len(paths) == len(set(paths))
 assert {'deploy/scripts/verify-artifact.sh', 'deploy/tests/artifact-contract.sh'} <= set(paths)
 for path in paths:
     assert (re.fullmatch(r'(deploy|scripts)/[A-Za-z0-9_./-]+\.sh', path)
-            or re.fullmatch(r'rs/read/tests/run_phase10_[a-z0-9_]+\.sh', path)), path
+            or re.fullmatch(r'rs/read/tests/run_phase10_[a-z0-9_]+\.sh', path)
+            or path == 'rs/read/tests/run_agent_audit.sh'), path
     assert Path(path).is_file() and not Path(path).is_symlink(), path
 # Every active Phase 10 shell file is reviewed; future files join atomically.
 # The Phase 10 PostgreSQL runners are test scripts; they are reviewed the same way.

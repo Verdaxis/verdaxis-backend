@@ -1549,7 +1549,7 @@ pub fn redact_terms(profile: &str, terms: &Json) -> Result<Json, String> {
 // Reviewed-terms digest (app/services/order_terms.py).
 // ---------------------------------------------------------------------------
 
-fn sorted_json(value: &Json) -> Json {
+pub(crate) fn sorted_json(value: &Json) -> Json {
     match value {
         Json::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();

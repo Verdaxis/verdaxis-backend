@@ -2,6 +2,7 @@ deploy/scripts/verify-artifact.sh
 deploy/tests/artifact-contract.sh
 deploy/scripts/verify-deploy-start-guard.sh
 deploy/tests/guard-contract.sh
+rs/read/tests/run_agent_audit.sh
 rs/read/tests/run_phase10_reminders.sh
 rs/read/tests/run_phase10_inspect.sh
 deploy/tests/alert-handoff-contract.sh
