@@ -18,9 +18,15 @@ job commands reuse the domain code rather than a separate application stack.
 `rs/read/src/agent/llm/` owns the async OpenCode Go chat-completions
 transport. Its single model table permits `deepseek-v4.1-flash`. Credentials
 come from three runtime environment slots; usage meters are cached per slot
-for 60 seconds. The client selects available headroom, rotates after 429,
-and disables unauthorized slots until restart. Bounded requests have no
-redirects and return key-free attempt receipts, including failed attempts.
+for 60 seconds. The shared `GoClient` supports concurrent calls through
+`complete(&self)`; short per-slot mutex sections never span network waits.
+Keep one instance for the service lifetime to preserve caches and disabled
+slots. Selection prefers known headroom, then the lowest unknown slot during
+usage outages; known exhausted slots remain excluded. Receipts record whether
+headroom was known. The client rotates after 429 or 401/403, and disables
+unauthorized slots until restart. Bounded requests have no redirects and return
+key-free attempt receipts, including failed attempts. Unknown cost is null;
+raw provider error bodies are neither returned nor logged.
 
 `ops prepare-runtime` projects optional serve-only `OPENCODE_API_KEY`,
 `OPENCODE_API_KEY_2`, `OPENCODE_API_KEY_3`, `AGENT_ENABLED` and `AGENT_MODEL`.

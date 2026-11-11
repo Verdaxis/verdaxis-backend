@@ -2,7 +2,7 @@
 mod credentials;
 pub mod models;
 
-use credentials::{Credential, contains_key, value_contains_key};
+use credentials::{Credential, Headroom, contains_key, value_contains_key};
 use reqwest::{Client, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,6 +68,7 @@ pub struct Usage {
 #[derive(Clone, Debug, Serialize)]
 pub struct Receipt {
     pub slot: u8,
+    pub headroom_known: bool,
     pub model: String,
     pub request_id: Uuid,
     pub attempt: u32,
@@ -90,7 +91,8 @@ pub struct Completion {
     pub receipts: Vec<Receipt>,
 }
 
-/// A mutable client owns the account cache and disabled-slot state until restart.
+/// A shared client owns the account cache and disabled-slot state until restart.
+/// Slot locks protect only short state reads and writes, never network waits.
 /// Keep one instance for the service lifetime, rather than one per turn.
 pub struct GoClient {
     http: Client,
@@ -130,33 +132,40 @@ impl GoClient {
         })
     }
 
-    fn disable(&mut self, index: usize) {
-        self.credentials[index].disabled = true;
+    fn disable(&self, index: usize) {
+        self.credentials[index]
+            .state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .disabled = true;
         tracing::warn!(
             slot = self.credentials[index].slot,
             "agent credential slot disabled"
         );
     }
 
-    async fn select(&mut self, excluded: &[usize]) -> Result<usize, ErrorCode> {
-        for index in 0..self.credentials.len() {
-            if self.credentials[index].disabled || excluded.contains(&index) {
-                continue;
-            }
-            if self.credentials[index]
-                .usage
-                .is_some_and(|(at, _)| at.elapsed() < USAGE_TTL)
-            {
+    async fn select(&self, excluded: &[usize]) -> Result<(usize, bool), ErrorCode> {
+        for (index, credential) in self.credentials.iter().enumerate() {
+            let refresh = {
+                let state = credential
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                !state.disabled
+                    && !excluded.contains(&index)
+                    && !state.usage.is_some_and(|(at, _)| at.elapsed() < USAGE_TTL)
+            };
+            if !refresh {
                 continue;
             }
             let response = self
                 .http
                 .get(&self.usage_endpoint)
-                .bearer_auth(&self.credentials[index].key)
+                .bearer_auth(&credential.key)
                 .header("Accept", "application/json")
                 .send()
                 .await;
-            let percent = match response {
+            let headroom = match response {
                 Ok(response) => {
                     let status = response.status().as_u16();
                     if matches!(status, 401 | 403) {
@@ -168,36 +177,60 @@ impl GoClient {
                                 serde_json::from_slice::<Value>(&bytes)
                                     .ok()
                                     .filter(|value| !value_contains_key(value, &self.credentials))
-                                    .and_then(|value| credentials::highest_usage(&value))
+                                    .map(|value| credentials::headroom(&value))
+                                    .unwrap_or_default()
                             }
-                            _ => None,
+                            _ => Headroom::Unknown,
                         }
                     } else {
-                        None
+                        Headroom::Unknown
                     }
                 }
-                Err(_) => None,
+                Err(_) => Headroom::Unknown,
             };
-            self.credentials[index].usage = Some((Instant::now(), percent));
+            // Concurrent refreshes may finish in either order. A refresh never
+            // clears the permanent disabled flag set by an authorization refusal.
+            credential
+                .state
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .usage = Some((Instant::now(), headroom));
         }
-        self.credentials
-            .iter()
-            .enumerate()
-            .filter(|(index, key)| {
-                !key.disabled
-                    && !excluded.contains(index)
-                    && key.usage.is_some_and(|(at, _)| at.elapsed() < USAGE_TTL)
-            })
-            .filter_map(|(index, key)| {
-                key.usage
-                    .and_then(|(_, percent)| percent.map(|percent| (index, percent)))
-            })
-            .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
-            .map(|(index, _)| index)
+        let mut best: Option<(usize, f64)> = None;
+        let mut fallback = None;
+        for (index, credential) in self.credentials.iter().enumerate() {
+            let state = credential
+                .state
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+            if state.disabled || excluded.contains(&index) {
+                continue;
+            }
+            let headroom = state
+                .usage
+                .filter(|(at, _)| at.elapsed() < USAGE_TTL)
+                .map(|(_, headroom)| headroom)
+                .unwrap_or_default();
+            match headroom {
+                Headroom::Available(percent) => {
+                    if best.is_none_or(|(_, lowest)| percent < lowest) {
+                        best = Some((index, percent));
+                    }
+                }
+                Headroom::Unknown => {
+                    if fallback.is_none() {
+                        fallback = Some(index);
+                    }
+                }
+                Headroom::Exhausted => (),
+            }
+        }
+        best.map(|(index, _)| (index, true))
+            .or_else(|| fallback.map(|index| (index, false)))
             .ok_or(ErrorCode::NoHeadroom)
     }
 
-    pub async fn complete(&mut self, request: &Request) -> Result<Completion, Failure> {
+    pub async fn complete(&self, request: &Request) -> Result<Completion, Failure> {
         let payload = models::payload(
             &request.model,
             request.max_tokens,
@@ -223,13 +256,14 @@ impl GoClient {
         let mut receipts = Vec::new();
         let mut excluded = Vec::new();
         for attempt in 1..=MAX_ATTEMPTS {
-            let index = self.select(&excluded).await.map_err(|code| Failure {
+            let (index, headroom_known) = self.select(&excluded).await.map_err(|code| Failure {
                 code,
                 receipts: receipts.clone(),
             })?;
             let started = Instant::now();
             let mut receipt = Receipt {
                 slot: self.credentials[index].slot,
+                headroom_known,
                 model: request.model.clone(),
                 request_id,
                 attempt,
@@ -261,10 +295,17 @@ impl GoClient {
                     receipt.status = Some(status);
                     if matches!(status, 401 | 403) {
                         self.disable(index);
+                        if attempt < MAX_ATTEMPTS {
+                            wait = Some(Ok(Duration::ZERO));
+                        }
                     }
                     if status == 429 {
                         excluded.push(index);
-                        self.credentials[index].usage = Some((Instant::now(), None));
+                        self.credentials[index]
+                            .state
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner())
+                            .usage = Some((Instant::now(), Headroom::Exhausted));
                     }
                     if matches!(status, 429 | 502 | 503 | 504) && attempt < MAX_ATTEMPTS {
                         wait = Some(retry_wait(response.headers().get("retry-after"), attempt));

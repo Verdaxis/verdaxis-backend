@@ -1,6 +1,7 @@
 //! Environment credentials are private and have no Debug or Serialize implementation.
 use super::ErrorCode;
 use serde_json::Value;
+use std::sync::Mutex;
 use tokio::time::Instant;
 
 pub const VARIABLES: [&str; 3] = [
@@ -12,8 +13,21 @@ pub const VARIABLES: [&str; 3] = [
 pub(super) struct Credential {
     pub slot: u8,
     pub key: String,
+    pub state: Mutex<SlotState>,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(super) enum Headroom {
+    Available(f64),
+    Exhausted,
+    #[default]
+    Unknown,
+}
+
+#[derive(Default)]
+pub(super) struct SlotState {
     pub disabled: bool,
-    pub usage: Option<(Instant, Option<f64>)>,
+    pub usage: Option<(Instant, Headroom)>,
 }
 
 pub(super) fn load(lookup: impl Fn(&str) -> Option<String>) -> Result<Vec<Credential>, ErrorCode> {
@@ -32,8 +46,7 @@ pub(super) fn load(lookup: impl Fn(&str) -> Option<String>) -> Result<Vec<Creden
         credentials.push(Credential {
             slot: index as u8 + 1,
             key,
-            disabled: false,
-            usage: None,
+            state: Mutex::new(SlotState::default()),
         });
     }
     if credentials.is_empty() {
@@ -42,17 +55,31 @@ pub(super) fn load(lookup: impl Fn(&str) -> Option<String>) -> Result<Vec<Creden
     Ok(credentials)
 }
 
-pub(super) fn highest_usage(body: &Value) -> Option<f64> {
+/// A known unavailable meter wins over missing fields in another window.
+pub(super) fn headroom(body: &Value) -> Headroom {
     let mut highest: f64 = 0.0;
+    let mut complete = true;
     for window in ["rolling", "weekly", "monthly"] {
         let meter = &body["usage"][window];
-        let percent = meter["percent"].as_f64()?;
-        if meter["status"] != "ok" || !percent.is_finite() || !(0.0..100.0).contains(&percent) {
-            return None;
+        if meter["status"]
+            .as_str()
+            .is_some_and(|status| status != "ok")
+        {
+            return Headroom::Exhausted;
         }
-        highest = highest.max(percent);
+        match meter["percent"].as_f64() {
+            Some(percent) if percent.is_finite() && percent >= 100.0 => return Headroom::Exhausted,
+            Some(percent) if percent.is_finite() && percent >= 0.0 && meter["status"] == "ok" => {
+                highest = highest.max(percent);
+            }
+            _ => complete = false,
+        }
     }
-    Some(highest)
+    if complete {
+        Headroom::Available(highest)
+    } else {
+        Headroom::Unknown
+    }
 }
 
 pub(super) fn contains_key(bytes: &[u8], credentials: &[Credential]) -> bool {

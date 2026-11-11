@@ -15,7 +15,7 @@ check_count() {
 
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --lib agent::llm::tests:: -- --test-threads=1 2>&1 | tee "$log"
-check_count 18
+check_count 22
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --test group_runtime agent_llm:: -- --test-threads=1 2>&1 | tee "$log"
 check_count 1

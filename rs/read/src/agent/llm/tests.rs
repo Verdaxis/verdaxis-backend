@@ -159,7 +159,7 @@ async fn usage_cache_expires_at_sixty_seconds_per_key() {
         success(),
     ])
     .await;
-    let mut client = mock.client(2);
+    let client = mock.client(2);
     assert_eq!(
         client.complete(&request()).await.unwrap().receipts[0].slot,
         2
@@ -169,7 +169,14 @@ async fn usage_cache_expires_at_sixty_seconds_per_key() {
         2
     );
     assert_eq!(mock.captured().len(), 4);
-    client.credentials[0].usage.as_mut().unwrap().0 = Instant::now() - USAGE_TTL;
+    client.credentials[0]
+        .state
+        .lock()
+        .unwrap()
+        .usage
+        .as_mut()
+        .unwrap()
+        .0 = Instant::now() - USAGE_TTL;
     assert_eq!(
         client.complete(&request()).await.unwrap().receipts[0].slot,
         1
@@ -199,18 +206,31 @@ async fn rotates_on_429_to_next_cached_slot() {
 }
 
 #[tokio::test]
-async fn unauthorized_chat_slots_stay_disabled_without_retry() {
+async fn unauthorized_chat_slots_rotate_immediately_and_stay_disabled() {
     for status in [401, 403] {
         let mock = Mock::new(vec![
             meter(1),
             meter(2),
             Reply::json(status, json!({})),
             success(),
+            success(),
         ])
         .await;
-        let mut client = mock.client(2);
-        assert_eq!(failure(client.complete(&request()).await).receipts.len(), 1);
-        assert!(client.credentials[0].disabled);
+        let client = mock.client(2);
+        let started = Instant::now();
+        let completion = client.complete(&request()).await.unwrap();
+        assert_eq!(
+            completion
+                .receipts
+                .iter()
+                .map(|receipt| receipt.slot)
+                .collect::<Vec<_>>(),
+            [1, 2]
+        );
+        assert_eq!(completion.receipts[0].status, Some(status));
+        assert_eq!(completion.receipts[1].attempt, 2);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(client.credentials[0].state.lock().unwrap().disabled);
         assert_eq!(
             client.complete(&request()).await.unwrap().receipts[0].slot,
             2
@@ -228,13 +248,13 @@ async fn unauthorized_usage_slots_are_disabled_and_never_selected() {
             success(),
         ])
         .await;
-        let mut client = mock.client(2);
+        let client = mock.client(2);
         assert_eq!(
             client.complete(&request()).await.unwrap().receipts[0].slot,
             2
         );
         client.complete(&request()).await.unwrap();
-        assert!(client.credentials[0].disabled);
+        assert!(client.credentials[0].state.lock().unwrap().disabled);
         assert_eq!(mock.captured().len(), 4);
     }
 }
@@ -429,4 +449,106 @@ async fn zero_cost_stays_unknown_but_positive_cost_is_retained() {
         let completion = mock.client(1).complete(&request()).await.unwrap();
         assert_eq!(completion.receipts[0].cost.is_some(), known);
     }
+}
+
+#[tokio::test]
+async fn shared_client_runs_delayed_completions_concurrently() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<GoClient>();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let mut handlers = tokio::task::JoinSet::new();
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            handlers.spawn(async move {
+                let mut bytes = [0; 8192];
+                socket.read(&mut bytes).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                let reply = success();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.body.len(),
+                    reply.body
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            });
+        }
+        while let Some(result) = handlers.join_next().await {
+            result.unwrap();
+        }
+    });
+    let keys = credentials::load(|name| {
+        (name == credentials::VARIABLES[0]).then(|| "fixture-account-0".into())
+    })
+    .unwrap();
+    let client = Arc::new(GoClient::build(keys, &url, &url, Duration::from_secs(2)).unwrap());
+    client.credentials[0].state.lock().unwrap().usage =
+        Some((Instant::now(), Headroom::Available(1.0)));
+    let started = Instant::now();
+    let first = client.clone();
+    let second = client.clone();
+    let a = tokio::spawn(async move { first.complete(&request()).await.unwrap().receipts.len() });
+    let b = tokio::spawn(async move { second.complete(&request()).await.unwrap().receipts.len() });
+    assert_eq!(a.await.unwrap(), 1);
+    assert_eq!(b.await.unwrap(), 1);
+    assert!(
+        started.elapsed() < Duration::from_millis(1050),
+        "calls must overlap two 600ms responses"
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn usage_outage_uses_unknown_fallback_and_caches_it() {
+    for reply in [
+        Reply::json(500, json!({})),
+        Reply::json(200, json!({})),
+        Reply {
+            body: "not-json".into(),
+            ..Reply::json(200, json!({}))
+        },
+    ] {
+        let mock = Mock::new(vec![reply, success(), success()]).await;
+        let client = mock.client(1);
+        for _ in 0..2 {
+            let completion = client.complete(&request()).await.unwrap();
+            assert_eq!(completion.receipts[0].slot, 1);
+            assert!(!completion.receipts[0].headroom_known);
+        }
+        assert_eq!(mock.captured().len(), 3);
+    }
+}
+
+#[tokio::test]
+async fn exhausted_slots_are_never_outage_fallbacks() {
+    for exhausted in [
+        meter(100),
+        Reply::json(200, json!({"usage":{"rolling":{"status":"blocked"}}})),
+    ] {
+        let mock = Mock::new(vec![
+            exhausted,
+            Reply::json(500, json!({})),
+            Reply::json(200, json!({})),
+            success(),
+        ])
+        .await;
+        let completion = mock.client(3).complete(&request()).await.unwrap();
+        assert_eq!(completion.receipts[0].slot, 2);
+        assert!(!completion.receipts[0].headroom_known);
+        assert!(mock.captured()[3].contains("Bearer fixture-account-1"));
+    }
+}
+
+#[tokio::test]
+async fn known_headroom_beats_unknown_and_all_exhausted_refuses() {
+    let mock = Mock::new(vec![Reply::json(500, json!({})), meter(90), success()]).await;
+    let completion = mock.client(2).complete(&request()).await.unwrap();
+    assert_eq!(completion.receipts[0].slot, 2);
+    assert!(completion.receipts[0].headroom_known);
+    let mock = Mock::new(vec![meter(100)]).await;
+    assert_eq!(
+        failure(mock.client(1).complete(&request()).await).code,
+        ErrorCode::NoHeadroom
+    );
 }
