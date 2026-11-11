@@ -35,8 +35,9 @@ const MESSAGES: &str = "/api/agent/conversations/{conversation_id}/messages";
 const AUDIT: &str = "/api/auth/admin/agent/audit";
 const VERIFY: &str = "/api/auth/admin/agent/audit/verify";
 const CONTROLS: &str = "/api/auth/admin/agent/controls";
-// JSON escaping can use six bytes per character across all allowed blocks.
-const BODY_BYTES: usize = 400 * 1024;
+// A supplementary Unicode scalar can use a twelve-byte JSON surrogate pair.
+// Allow all 64,180 permitted scalars plus the small field-name envelope.
+const BODY_BYTES: usize = 800 * 1024;
 
 #[derive(Clone)]
 pub struct RouteState {
@@ -117,6 +118,16 @@ fn api_response(error: ApiError) -> Response {
         return (
             error.status,
             axum::Json(json!({"detail":"Daily assistant limit reached."})),
+        )
+            .into_response();
+    }
+    if matches!(
+        error.kind,
+        ApiErrorKind::Database | ApiErrorKind::Unexpected
+    ) {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(json!({"detail":"The assistant is unavailable."})),
         )
             .into_response();
     }
@@ -486,6 +497,32 @@ impl ControlBody {
         Ok(())
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn escaped_unicode_at_character_limits_is_accepted() {
+        let scalar = "\\ud83d\\ude00";
+        let block = format!(
+            r#"{{"label":"{}","text":"{}"}}"#,
+            scalar.repeat(60),
+            scalar.repeat(20_000)
+        );
+        let encoded = format!(
+            r#"{{"text":"{}","untrusted":[{block},{block},{block}]}}"#,
+            scalar.repeat(4_000)
+        );
+        let request = Request::builder()
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(encoded))
+            .unwrap();
+        let parsed: MessageBody = body(request).await.unwrap();
+        assert!(parsed.validate().is_ok());
+        assert_eq!(parsed.text.chars().count(), 4_000);
+    }
+}
+
 async fn set_control(State(state): State<RouteState>, request: Request) -> Response {
     let headers = request.headers().clone();
     let parsed = body::<ControlBody>(request).await;

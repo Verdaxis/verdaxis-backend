@@ -697,6 +697,7 @@ async fn unknown_empty_and_excessive_bodies_are_rejected_before_dispatch() {
     for body in [
         json!({"scope":"global","paused":true,"reason":"","extra":true}),
         json!({"scope":"global","paused":true,"reason":"   "}),
+        json!({"scope":"global","paused":true,"reason":"x".repeat(201)}),
     ] {
         let (status, _, response) = f
             .send(

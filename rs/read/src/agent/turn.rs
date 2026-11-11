@@ -684,6 +684,11 @@ async fn record_user_message(
         .execute(&mut *tx)
         .await?;
     lock_context(&mut tx, context).await?;
+    let eligible: bool = sqlx::query_scalar("SELECT role='BUYER' AND status='APPROVED' AND offboarded_at IS NULL AND NOT must_change_password FROM public.users WHERE id=$1")
+        .bind(context.user_id).fetch_one(&mut *tx).await?;
+    if !eligible {
+        return Err(TurnError::ContextUnavailable);
+    }
     if let Some(reason) = paused_reason(&mut tx, context.user_id, context.organization_id).await? {
         return Err(TurnError::Paused(reason));
     }
