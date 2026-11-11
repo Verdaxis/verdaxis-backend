@@ -154,6 +154,7 @@ pub fn schema_has_producer(revision: &str) -> bool {
             | "ob_20261031_offboarding"
             | "sqlx_1"
             | "sqlx_2"
+            | "sqlx_3"
     )
 }
 

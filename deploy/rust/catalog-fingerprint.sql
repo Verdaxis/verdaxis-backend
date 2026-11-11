@@ -8,7 +8,8 @@
 -- Included: application schemas and their owner slot; tables, views,
 -- materialized views and sequences with their persistence; columns (type,
 -- nullability, default); constraints; indexes; functions and triggers; enum
--- labels in order; extension names and versions.
+-- labels in order; extension names and versions. Agent tables and their audit
+-- sequence use this same projection; no agent object is excluded.
 -- The schema owner slot is one normalized placeholder, not the live owner
 -- name: one baseline manifest serves production and staging (plan section
 -- 8.3).

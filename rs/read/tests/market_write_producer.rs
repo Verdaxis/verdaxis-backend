@@ -615,6 +615,7 @@ fn producer_is_inactive_when_activation_is_missing() {
     assert!(schema_has_producer("ob_20261031_offboarding"));
     assert!(schema_has_producer("sqlx_1"));
     assert!(schema_has_producer("sqlx_2"));
+    assert!(schema_has_producer("sqlx_3"));
     assert!(!schema_has_producer("p5_20261020_read_indexes"));
     assert!(!schema_has_producer("unknown_revision"));
 }

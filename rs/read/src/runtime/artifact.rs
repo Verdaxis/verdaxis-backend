@@ -21,7 +21,7 @@ pub const LIBC_MIN: &str = "2.35";
 /// unit tests below assert the two definitions cannot drift.
 /// The release admits only the head sqlx revision; older releases retain
 /// their own lists.
-pub const ALLOWED_REVISIONS: &[&str] = &["sqlx_2"];
+pub const ALLOWED_REVISIONS: &[&str] = &["sqlx_3"];
 
 /// The reviewed allowlist file, read by the drift test against `ALLOWED_REVISIONS`.
 #[cfg(test)]
@@ -122,7 +122,7 @@ mod tests {
         assert_eq!(document["os"], std::env::consts::OS);
         assert_eq!(
             document["migration_revision_allowlist"],
-            serde_json::json!(["sqlx_2"])
+            serde_json::json!(["sqlx_3"])
         );
     }
 
