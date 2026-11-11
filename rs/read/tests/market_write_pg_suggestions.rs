@@ -406,12 +406,12 @@ impl MigratedFixture {
         assert_eq!(r.username(), "rust_app");
         let mut admin = PgConnection::connect(&admin_url).await.unwrap();
         let revision: String = sqlx::query_scalar(
-            "SELECT 'sqlx_2'::text FROM _sqlx_migrations WHERE version=2 AND success",
+            "SELECT 'sqlx_3'::text FROM _sqlx_migrations WHERE version=3 AND success",
         )
         .fetch_one(&mut admin)
         .await
         .unwrap();
-        assert_eq!(revision, "sqlx_2");
+        assert_eq!(revision, "sqlx_3");
         let invented:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='orderbook_orders' AND column_name='tier_label')").fetch_one(&mut admin).await.unwrap();
         assert!(!invented);
         sqlx::raw_sql(section("migrated-reset"))

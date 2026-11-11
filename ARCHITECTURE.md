@@ -31,11 +31,12 @@ Local mock HTTP tests do not contact the provider.
 ## Schema and runtime identity
 
 `rs/read/migrations/1_baseline.sql` is the native migration baseline.
-Adoption validates the expected catalog, owners and retained historical audit
-row before publishing sqlx history. Runtime admission accepts `sqlx_1` and binds
-the environment, full source SHA and verified binary identity. The historical
-migration audit data remains in the database; it is not an executable migration
-engine in this repository.
+Migration `2` removes the retired history table. Migration `3` adds agent
+conversations, messages, order drafts, audit events and scoped controls. Runtime
+admission accepts only `sqlx_3` and binds the environment, full source SHA and
+verified binary identity. Agent audit events have runtime INSERT and SELECT
+authority only; ACL convergence grants only USAGE on their sequence. Drafts do
+not create orders. The frozen baseline and its catalog manifest stay unchanged.
 
 `deploy/rust/` holds release policy and frozen data. The public-read cache
 requires a separately published authority record and matching database identity.

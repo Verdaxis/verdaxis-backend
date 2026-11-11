@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 FINAL_ALEMBIC = "ob_20261031_offboarding"
-SQLX_REVISIONS = ["sqlx_2"]
+SQLX_REVISIONS = ["sqlx_3"]
 
 
 def string_constant(path: str, name: str) -> list[str]:
@@ -31,16 +31,18 @@ def test_policy_rows_move_hosts_to_the_head_sqlx_revision():
         for line in (ROOT / "deploy/migration-checkpoints.tsv").read_text().splitlines()
         if line and not line.startswith("#")
     }
-    # Both hosts are on sqlx_1: they move to sqlx_2 and then keep it. The
-    # adoption row and the sqlx_1 self row are gone with the adoption path.
+    # Keep the historical rows and add the current release transitions.
     assert ("sqlx_1", "sqlx_2") in rows
     assert ("sqlx_2", "sqlx_2") in rows
+    assert ("sqlx_2", "sqlx_3") in rows
+    assert ("sqlx_3", "sqlx_3") in rows
     assert (FINAL_ALEMBIC, "sqlx_1") not in rows
     assert ("sqlx_1", "sqlx_1") not in rows
     assert all("head" not in pair and "latest" not in pair for pair in rows)
     assert sorted(path.name for path in (ROOT / "rs/read/migrations").glob("*.sql")) == [
         "1_baseline.sql",
         "2_drop_alembic_version.sql",
+        "3_agent_foundation.sql",
     ]
 
 

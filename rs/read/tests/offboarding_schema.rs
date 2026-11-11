@@ -118,9 +118,10 @@ fn checkpoint_requires_exact_transition() {
     );
     let policy = verdaxis_read::cli::migrate::TransitionPolicy::compiled();
     assert!(
-        policy.allows(SQLX_1, HEAD),
+        policy.allows("sqlx_2", HEAD),
         "the move to the runtime revision"
     );
+    assert!(policy.allows(SQLX_1, "sqlx_2"), "the historical sqlx step");
     assert!(policy.allows(HEAD, HEAD), "the runtime no-change row");
     // The offboarding self row stays as history; `migrate run` refuses every
     // Alembic literal, so the row never runs.

@@ -21,6 +21,11 @@ CREATE TEMP TABLE app_table_policy (
 );
 
 INSERT INTO app_table_policy (table_name, privileges) VALUES
+    ('agent_audit_events', ARRAY['SELECT', 'INSERT']),
+    ('agent_controls', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    ('agent_conversations', ARRAY['SELECT', 'INSERT', 'UPDATE']),
+    ('agent_messages', ARRAY['SELECT', 'INSERT']),
+    ('order_drafts', ARRAY['SELECT', 'INSERT', 'UPDATE']),
     ('audit_logs', ARRAY['SELECT', 'INSERT']),
     ('benchmarks', ARRAY['SELECT']),
     ('commissions', ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE']),
@@ -260,6 +265,7 @@ CREATE TEMP TABLE app_sequence_policy (
 -- Stage 5 (shared SSE transport): the in-worker sequencer assigns durable
 -- stream sequence numbers via nextval(); USAGE only, never SELECT/UPDATE.
 INSERT INTO app_sequence_policy (sequence_name, privileges) VALUES
+    ('agent_audit_events_id_seq', ARRAY['USAGE']),
     ('market_event_stream_seq', ARRAY['USAGE']),
     ('orderbook_acceptance_ordinal_seq', ARRAY['USAGE']);
 

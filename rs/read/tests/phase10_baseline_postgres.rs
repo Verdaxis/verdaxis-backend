@@ -221,7 +221,7 @@ fn handover_register_is_closed_at_the_baseline_head() {
     let allowed: Vec<String> = serde_json::from_str(ALLOWED_REVISIONS).expect("allowed revisions");
     assert_eq!(
         allowed,
-        ["sqlx_2".to_owned()],
+        ["sqlx_3".to_owned()],
         "the Rust service must admit only the live sqlx revision"
     );
 

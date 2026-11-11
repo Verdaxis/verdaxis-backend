@@ -20,7 +20,7 @@ use verdaxis_read::auth::{
 use verdaxis_read::runtime::config::config_from_deployed_environment;
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-const STAGING_REVISION: &str = "sqlx_2";
+const STAGING_REVISION: &str = "sqlx_3";
 const PRECONDITION: i32 = 3;
 const DEPENDENCY: i32 = 4;
 
