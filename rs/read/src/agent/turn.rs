@@ -171,7 +171,10 @@ fn parse_decision(text: &str, successful: &[usize]) -> Result<Decision, ()> {
     Ok(decision)
 }
 fn digest(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 fn escape_data(text: &str) -> String {
     text.replace('&', "&amp;")

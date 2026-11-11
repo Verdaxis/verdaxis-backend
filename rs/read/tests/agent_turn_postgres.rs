@@ -282,10 +282,10 @@ impl ModelClient for ScriptedModel {
             let prompt = json!({"model":request.model,"messages":request.messages,
                 "thinking":request.thinking,"max_tokens":request.max_tokens})
             .to_string();
-            let prompt_digest = format!(
-                "{:x}",
-                <sha2::Sha256 as sha2::Digest>::digest(prompt.as_bytes())
-            );
+            let prompt_digest: String = <sha2::Sha256 as sha2::Digest>::digest(prompt.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
             let outstanding: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM public.agent_audit_events i WHERE i.kind='model_request_intent' AND i.payload->>'prompt_digest'=$1 AND NOT EXISTS(SELECT 1 FROM public.agent_audit_events r WHERE r.kind='model_request_receipt' AND r.payload->'intent_id'=to_jsonb(i.id))"
             ).bind(prompt_digest).fetch_one(&self.app).await.unwrap();
