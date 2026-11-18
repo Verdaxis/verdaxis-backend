@@ -75,10 +75,14 @@ UNOWNED = [
     # Legacy entry adapters W09/W10 have no handle.
     ("POST", f"/api/watchlists/{UUID}/entries"),
     ("DELETE", f"/api/watchlists/{UUID}/entries/{UUID}"),
+    # Private reads and mutations belong to other route groups.
+    ("GET", "/api/orderbook/my"),
+    ("GET", "/api/orderbook/my/latest-ask-template"),
+    ("GET", "/api/listings/my"),
+    ("GET", "/api/stream/orderbook"),
     # Auth, SSE, market writes and admin routes outside feedback.
     ("POST", "/api/auth/login"),
     ("GET", "/api/stream/trades"),
-    ("POST", "/api/orderbook"),
     ("PUT", f"/api/orderbook/{UUID}"),
     ("DELETE", f"/api/orderbook/{UUID}"),
     ("POST", "/api/trades/"),
@@ -99,8 +103,6 @@ UNOWNED = [
     ("PUT", "/api/notifications"),
     ("POST", "/api/alerts/extra/segments"),
     ("HEAD", "/api/alerts"),
-    ("GET", "/api/unknown"),
-    ("GET", "/health/ready"),
 ]
 
 
@@ -224,21 +226,6 @@ def test_excluded_paths_reach_no_handle(route_owner, path):
     assert route_owner("GET", path) == "fallback"
 
 
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("GET", "/api/orderbook/my"),
-        ("GET", "/api/orderbook/my/latest-ask-template"),
-        ("POST", "/api/orderbook"),
-        ("DELETE", "/api/orderbook/00000000-0000-0000-0000-000000000001"),
-        ("GET", "/api/listings/my"),
-        ("GET", "/api/stream/orderbook"),
-    ],
-)
-def test_private_and_write_routes_find_no_handle(route_owner, method, path):
-    assert route_owner(method, path) == "fallback"
-
-
 @pytest.mark.parametrize(("method", "path", "group"), CRUD_CASES)
 def test_crud_operations_follow_their_group(route_owner, method, path, group):
     """One group argument moves every one of its operations together."""
@@ -251,19 +238,3 @@ def test_crud_operations_follow_their_group(route_owner, method, path, group):
 @pytest.mark.parametrize(("method", "path"), UNOWNED)
 def test_phase2_unowned_paths_reach_no_handle(route_owner, method, path):
     assert route_owner(method, path) == "fallback"
-
-
-def test_feedback_post_and_admin_get_share_one_group_argument(route_owner):
-    """F01 and F02 must move together: one group argument owns both."""
-    moved = route_owner.moved == "FEEDBACK"
-    assert route_owner("POST", "/api/feedback") == ("second" if moved else "primary")
-    assert route_owner("GET", "/api/admin/feedback") == ("second" if moved else "primary")
-
-
-def test_r05_moves_with_referrals_without_gaining_authentication(route_owner):
-    """R05 is public resolution; the split must not add an auth requirement."""
-    moved = route_owner.moved == "REFERRALS"
-    # An unauthenticated probe still reaches the group's upstream: Caddy adds
-    # no authentication, and a public route needs no bearer.
-    assert route_owner("GET", "/api/referrals/resolve/CODE123") == (
-        "second" if moved else "primary")

@@ -40,8 +40,7 @@ use std::time::Duration;
 use url::{Host, Url};
 use uuid::Uuid;
 
-/// The advisory key the Python job used. It must stay identical while the
-/// Python command can still run, so the two never overlap.
+/// Serializes news refreshes across service instances in the same database.
 pub const NEWS_REFRESH_ADVISORY_LOCK_ID: i64 = 6_216_461_178_696_259_923;
 
 pub const NEWS_PROVIDER_TIMEOUT: Duration = Duration::from_secs(15);

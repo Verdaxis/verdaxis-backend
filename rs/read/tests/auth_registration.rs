@@ -97,8 +97,16 @@ fn e5_e6_quota_policy_covers_slash_forms() {
 }
 
 #[test]
-fn e5_account_template_has_sign_in_link() {
-    let html = include_str!("../src/auth/templates/account_exists.html");
-    assert!(html.contains("{{URL}}"));
-    assert!(!html.contains("{{TOKEN}}"));
+fn existing_account_email_links_to_sign_in_without_a_token() {
+    let mail = email::AuthMail::AccountExists {
+        to: "recipient@example.com".into(),
+    };
+    let message = email::render(&mail, "sender@example.com", "https://app.example.com/");
+    let html = message["html"].as_str().unwrap();
+    let links: Vec<_> = html
+        .split("href=\"")
+        .skip(1)
+        .map(|link| link.split_once('"').unwrap().0)
+        .collect();
+    assert_eq!(links, ["https://app.example.com/login"]);
 }

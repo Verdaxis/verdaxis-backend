@@ -33,7 +33,7 @@ pub enum Terminal {
 }
 
 impl Terminal {
-    pub fn event_name(self) -> &'static str {
+    fn event_name(self) -> &'static str {
         match self {
             Self::AuthExpired => "auth_expired",
             Self::AuthRevoked | Self::AuthorizationUnavailable => "auth_revoked",

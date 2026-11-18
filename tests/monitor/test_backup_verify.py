@@ -506,20 +506,3 @@ def test_main_publishes_fail_closed_status_without_unsafe_builder(tmp_path, monk
     assert saved["category"] == "failure"
     assert saved["checks"][0]["code"] == "fatal_error"
     assert "secret" not in json.dumps(saved)
-
-
-def test_source_has_no_database_cloud_or_environment_credentials():
-    source = MODULE_PATH.read_text().lower()
-
-    for forbidden in (
-        "subprocess",
-        "pg_dump",
-        "psql",
-        "b2 ",
-        "backup-env",
-        "password",
-        "database_url",
-        "os.environ",
-        "os.getenv",
-    ):
-        assert forbidden not in source

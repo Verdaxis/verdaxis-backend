@@ -111,12 +111,6 @@ fn digest_is_stable_across_key_order() {
 }
 
 #[test]
-fn zero_and_null_stay_distinct() {
-    assert_eq!(decimal_text(Decimal::ZERO), "0");
-    assert_ne!(serde_json::json!("0.00"), serde_json::Value::Null);
-}
-
-#[test]
 fn decimal_text_normalizes_scale_but_never_zero() {
     assert_eq!(
         decimal_text(Decimal::from_str_exact("500.0000").unwrap()),

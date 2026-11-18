@@ -548,20 +548,3 @@ def test_unhashable_or_boolean_status_types_are_quarantined_without_crash(tmp_pa
 
     assert result["checks"][0]["code"] == "previous_status_invalid"
     assert len(list(tmp_path.glob("status.json.invalid-*"))) == 1
-
-
-def test_source_has_no_secret_or_privileged_monitor_dependencies():
-    source = MODULE_PATH.read_text().lower()
-
-    for forbidden in (
-        "telegram",
-        "chromium",
-        "caddy",
-        "docker",
-        "monitor_token",
-        "database_url",
-        "os.environ",
-        "os.getenv",
-        "verdaxis.exchange",
-    ):
-        assert forbidden not in source

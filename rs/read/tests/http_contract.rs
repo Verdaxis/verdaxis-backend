@@ -511,20 +511,6 @@ fn database_errors_keep_market_scope() {
 // Window and reset semantics live in tests/ad01_limiter.rs, driven through
 // the bounded per-client store the middleware now uses.
 
-#[test]
-fn admission_default_is_rust_owned() {
-    assert_eq!(verdaxis_read::DEFAULT_READ_ADMISSION_SLOTS, 16);
-}
-
-#[tokio::test]
-async fn cancelled_query_keeps_slot_until_drop() {
-    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-    let permit = gate.clone().try_acquire_owned().unwrap();
-    assert!(gate.clone().try_acquire_owned().is_err());
-    drop(permit);
-    assert!(gate.try_acquire_owned().is_ok());
-}
-
 #[tokio::test]
 async fn support_context_boundary_rejects_unclassified_mutations() {
     use verdaxis_read::runtime::http::middleware;

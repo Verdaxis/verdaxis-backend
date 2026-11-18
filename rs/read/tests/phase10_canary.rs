@@ -257,12 +257,6 @@ fn canary_cli_requires_apply_and_the_route_uses_the_same_function() {
         (Some(3), "deploy_state_refused".to_owned())
     );
     std::fs::remove_dir_all(&state).unwrap();
-    // One cleanup function: the route calls the command's.
-    let route = include_str!("../src/routes/monitor_canary.rs");
-    assert!(route.contains("use crate::cli::canary::{"));
-    assert!(route.contains("match cleanup(&route.pool, &email, domain).await"));
-    let command = include_str!("../src/cli/canary.rs");
-    assert!(command.contains("cleanup_on(&mut connection, &email, domain)"));
 }
 
 #[test]

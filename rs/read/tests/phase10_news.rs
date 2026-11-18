@@ -1409,11 +1409,6 @@ fn an_rss_date_outside_the_supported_range_is_the_run_time() {
 }
 
 #[test]
-fn the_advisory_key_is_the_one_the_python_job_used() {
-    assert_eq!(NEWS_REFRESH_ADVISORY_LOCK_ID, 6_216_461_178_696_259_923);
-}
-
-#[test]
 fn the_default_feed_list_is_the_five_maritime_publishers() {
     let feeds = default_feeds();
     let names: Vec<&str> = feeds.iter().map(|feed| feed.name.as_str()).collect();

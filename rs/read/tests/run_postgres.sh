@@ -210,7 +210,6 @@ if selected workspace; then
     --skip curve_board_keyed_candidates_keep_null_window_keys \
     --skip mcp_market_slice_keyed_candidates_match_the_full_relation \
     --skip keyed_join_would_duplicate_rows \
-    --skip corpus_clock_maps_to_the_pinned_singapore_date \
     --skip orderbook_aggregate_narrow_projection_keeps_every_group \
     --skip orderbook_product_counts_narrow_projection_keeps_every_count \
     --skip orderbook_distinct_labels_keep_order_and_nulls \

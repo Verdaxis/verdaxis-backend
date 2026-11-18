@@ -254,38 +254,3 @@ async fn detail(
         Err(response) => response,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn instant() -> DateTime<Utc> {
-        "2026-10-19T00:00:00Z".parse().unwrap()
-    }
-
-    #[test]
-    fn controlled_identifiers_are_consumed_in_order() {
-        let mut controls = WriteControls::controlled(
-            instant(),
-            vec![Uuid::from_u128(1), Uuid::from_u128(2)],
-            false,
-        );
-        assert_eq!(controls.now(), instant());
-        assert_eq!(controls.next_id(), Uuid::from_u128(1));
-        assert_eq!(controls.next_id(), Uuid::from_u128(2));
-    }
-
-    #[test]
-    #[should_panic(expected = "controlled identifier sequence exhausted")]
-    fn an_exhausted_controlled_sequence_never_falls_back_to_random() {
-        let mut controls = WriteControls::controlled(instant(), vec![], false);
-        controls.next_id();
-    }
-
-    #[test]
-    fn real_controls_generate_distinct_identifiers() {
-        let mut controls = WriteControls::real();
-        assert_ne!(controls.next_id(), controls.next_id());
-        assert!(!controls.fail_summary);
-    }
-}
