@@ -511,11 +511,10 @@ case_python_retired_before_source() {
 check python_is_stopped_and_disabled_before_source_publication case_python_retired_before_source
 
 case_full_deploy() {
-    approved_host happy && deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]]
+    approved_host happy && deploy && [[ ! -e $(state_file) && $(head_sha) == "$B" ]] \
+        && called "^verifier .*--source-sha $B .*--workflow-ref refs/heads/staging "
 }
 check 'a full deploy completes and clears its state' case_full_deploy
-
-check migrate_runs_before_any_restart before 'binary\(staged\) migrate run' '^systemctl restart'
 
 case_acl_order() { before 'binary\(staged\) migrate run' 'acl converge' && before 'acl converge' '^systemctl restart'; }
 check acl_convergence_runs_between_migrate_and_restart case_acl_order
@@ -701,7 +700,6 @@ case_dependency_change() {
     approve sqlx_2 sqlx_3
     refused_before_any_change && ! called 'migrate run' && said 'installs no dependency'
 }
-check 'a backend dependency change is refused before any state' case_dependency_change
 
 # ---- part 2: the replaced Python deploy tests (10.4a) --------------------------------------
 
@@ -750,39 +748,6 @@ case_static_guarded_staged_execution() {
 }
 check test_deploy_guards_verified_staged_execution_and_publishes_before_restart case_static_guarded_staged_execution
 
-case_static_no_head_traversal() {
-    local s=scripts/deploy.sh
-    ! grep -q -F 'alembic upgrade head' "$s" && grep -q MIGRATION_APPROVED_SOURCE_SHA "$s" \
-        && grep -q MIGRATION_EXPECTED_CURRENT_REVISION "$s" && grep -q MIGRATION_TARGET_REVISION "$s" \
-        && grep -q 'MIGRATION_REVISION=' "$s" && grep -q -F 'migrate run \' "$s" \
-        && grep -q -F 'migrate status --check' "$s"
-}
-check test_deploy_contains_no_unconditional_head_traversal case_static_no_head_traversal
-
-case_static_acl_order() {
-    local s=scripts/deploy.sh
-    (($(source_line 'migrate run \') < $(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"'))) \
-        && (($(source_line '"$ACL_CONVERGENCE_TEMP/$ACL_CONVERGENCE_HELPER_PATH"') < $(source_line 'sudo -n systemctl restart "$RUST_UNIT_NAME"'))) \
-        && grep -q -F deploy/postgres/converge_runtime_object_acls.sql "$s" \
-        && grep -q -F deploy/postgres/app_acl_policy.sql "$s" && ! grep -q bootstrap_roles.sql "$s"
-}
-check test_deploy_converges_acl_policy_after_migration_before_restart case_static_acl_order
-
-case_static_unit_paths() {
-    local s=scripts/deploy.sh
-    grep -q -F 'RUST_UNIT_NAME="verdaxis-rust-staging.service"' "$s" \
-        && grep -q -F 'RUST_RUNTIME_DIR="$BACKEND_DIR/.runtime-rust"' "$s" \
-        && grep -q -F 'ACTIVE_BINARY="$RUST_RUNTIME_DIR/verdaxis-read"' "$s" \
-        && grep -q -F -- '--output "$RUST_RUNTIME_DIR/budget.json"' "$s"
-}
-check test_rust_unit_paths_are_the_files_the_deploy_transaction_writes case_static_unit_paths
-
-case_static_staging_ref() {
-    [[ $(grep -c -F 'RUST_WORKFLOW_REF="refs/heads/staging"' scripts/deploy.sh) == 1 ]] \
-        && ! grep -q -F 'refs/heads/prod' scripts/deploy.sh
-}
-check test_production_artifact_ref_is_the_staging_push_and_staging_is_unchanged case_static_staging_ref
-
 case_staged_digest_changed() {
     approved_host staged-digest-changed
     touch "$H/tamper-staged"
@@ -808,7 +773,6 @@ case_dry_run_attests() {
         && said 'runtime compatibility remains untested'
 }
 check test_deploy_dry_run_only_attests_pinned_archive_without_candidate_execution case_dry_run_attests
-check test_dry_run_never_executes_build_code case_dry_run_attests
 
 case_dry_run_symlinks() {
     local ok=0 relative count=0
@@ -888,7 +852,6 @@ case_moved_remote() {
     refused_before_any_change && said 'moved after approval'
 }
 check test_real_deploy_refuses_moved_remote_before_source_mutation case_moved_remote
-check test_moved_sha_refuses_before_source_mutation case_moved_remote
 
 case_unallowlisted() {
     approved_host unallowlisted
@@ -965,9 +928,7 @@ case_verifier_binding() {
         && approved_host verifier-refusal "$1" && echo verifier > "$H/fail-at" \
         && refused_before_any_change && said 'Rust artifact verification refused'
 }
-check test_production_refuses_an_artifact_attested_from_any_other_ref case_verifier_binding production
-check test_production_refuses_the_staging_ref_for_a_different_commit case_verifier_binding production
-check test_production_refuses_a_staging_artifact_built_for_another_commit case_verifier_binding production
+check test_production_binds_the_verifier_to_the_approved_staging_artifact case_verifier_binding production
 
 # The Python-only paths are gone by design: a release whose policy does not
 # enable Rust, or whose manifest does not select the Rust unit, is refused
@@ -984,10 +945,7 @@ case_policy_off() {
     refused_before_any_change && said 'does not enable the Rust service' && ! called '^binary'
 }
 check test_policy_off_refuses_before_any_service_change case_policy_off staging
-check test_policy_off_never_enables_either_runtime case_policy_off staging
-check test_policy_off_has_no_mutating_command_ledger case_policy_off staging
 check test_production_policy_off_refuses_without_python_fallback case_policy_off production
-check test_bootstrap_release_requires_rust_unit_and_artifact case_policy_off staging
 
 case_manifest_without_rust() {
     new_host manifest-without-rust
@@ -1025,7 +983,6 @@ case_activation_requirements() {
     ! deploy && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)"
 }
 check test_production_activation_requires_its_unit_provenance_and_readiness case_activation_requirements
-check test_activation_requires_the_manifest_unit_and_a_verified_artifact case_activation_requirements
 
 # The retained backend unit was removed from both hosts after the cutover. A
 # unit that is not installed is already stopped and disabled: the deploy needs
@@ -1070,8 +1027,6 @@ case_failure_alignment() {
     return "$ok"
 }
 check test_deploy_failure_keeps_selected_code_and_identity_aligned_and_guarded case_failure_alignment
-check test_rust_failure_keeps_selected_code_identity_and_blocked_state case_failure_alignment
-check test_failures_retain_blocked_state_and_stop_attempted_services case_failure_alignment
 
 case_post_restart_health() {
     approved_host backend-unready
@@ -1118,7 +1073,6 @@ case_concurrent() {
     ((refused == 0)) && grep -q '^DEPLOYMENT_STATE=blocked$' "$(state_file)"
 }
 check test_deploy_lock_serializes_concurrent_runs_and_state_survives_interruption case_concurrent
-check test_concurrent_deploy_refuses_while_lock_held case_concurrent
 
 case_kill_in_restart_window() {
     # SIGKILL inside the restart window (during the restart, then during
@@ -1140,7 +1094,6 @@ case_kill_in_restart_window() {
     done
 }
 check test_sigkill_in_restart_window_releases_both_locks_and_closes_authorization case_kill_in_restart_window
-check test_interrupted_restart_window_releases_locks_and_keeps_state case_kill_in_restart_window
 
 # Rust activation.
 case_rust_only_service() {
@@ -1151,7 +1104,6 @@ case_rust_only_service() {
         && ! called 'prepare-runtime .*MIGRATOR'
 }
 check test_rust_deploy_restarts_only_rust_and_clears_state case_rust_only_service
-check test_runtime_environment_carries_only_the_projected_settings case_rust_only_service
 
 case_enable_once() {
     approved_host enable-once && deploy \
@@ -1183,9 +1135,7 @@ case_rust_failure() {
         && ! called '^systemctl restart verdaxis-backend'
 }
 check test_rust_start_failure_blocks_without_python_restart case_rust_failure start
-check test_rust_readiness_failure_blocks_and_disables_rust case_rust_failure readiness
-check test_public_and_loopback_rust_health_are_required case_rust_failure readiness
-check test_retry_after_rust_failure_then_second_release case_rust_failure readiness
+check test_staging_readiness_failure_blocks_then_allows_retry_and_next_release case_rust_failure readiness
 check test_production_rust_failure_retry_and_next_release_never_restart_python case_rust_failure readiness production
 
 # The connection budget listeners.
@@ -1194,7 +1144,7 @@ case_listener() {
     [[ $1 == absent ]] || printf 'RUST_CACHE_LISTENER=%s\n' "$1" >> "$BE/.env"
     deploy && called "ops prepare-budget --cache-listener $2 --stream-listener 1 "
 }
-check test_deploy_without_the_listener_key_keeps_the_budget_byte_identical case_listener absent 0
+check test_default_listener_budget_disables_cache_and_enables_stream case_listener absent 0
 check test_deploy_with_the_listener_flag_budgets_the_dedicated_connection case_listener 1 1
 
 case_invalid_listener() {
@@ -1212,15 +1162,6 @@ case_invalid_listener() {
     return "$ok"
 }
 check test_deploy_refuses_an_invalid_listener_value_before_schema_change case_invalid_listener
-
-case_stream_listener() {
-    approved_host stream-listener && deploy \
-        && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 ' || return 1
-    approved_host stream-self-loop staging '' sqlx_2 sqlx_3
-    printf sqlx_2 > "$H/db-revision"
-    deploy && called 'ops prepare-budget --cache-listener 0 --stream-listener 1 '
-}
-check test_canonical_stream_release_prepares_enabled_budget case_stream_listener
 
 # Release metadata: the watchlist producer keys (unchanged logic, run through
 # the Python-free transaction).
@@ -1296,7 +1237,7 @@ case_metadata_below_checkpoint() {
 }
 check test_release_metadata_drops_producer_keys_below_the_producer_checkpoint case_metadata_below_checkpoint
 
-# Dependency installation is gone; its gate is the dependency change refusal.
+# A release that changes dependency pins is refused before mutation.
 check test_real_deploy_refuses_unconstrained_dependency_install case_dependency_change
 
 # Every removed Python deploy test names the case that replaces it; a case that

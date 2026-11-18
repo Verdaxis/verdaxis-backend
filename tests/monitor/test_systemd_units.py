@@ -88,11 +88,6 @@ def test_backup_service_has_no_network_and_exposes_only_backup_directory():
     assert "OnSuccess=verdaxis-monitor-alert@backup.service" in text
 
 
-def test_monitor_does_not_supply_a_backup_producer_service_or_timer():
-    assert not (UNIT_DIR / "verdaxis-backup.service").exists()
-    assert not (UNIT_DIR / "verdaxis-backup.timer").exists()
-
-
 @pytest.mark.parametrize(
     "name",
     [

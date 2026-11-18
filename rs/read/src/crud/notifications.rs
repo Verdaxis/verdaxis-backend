@@ -58,22 +58,16 @@ const COUNT_PATH: &str = "/api/notifications/unread-count";
 const MARK_PATH: &str = "/api/notifications/{notification_id}/read";
 const MARK_ALL_PATH: &str = "/api/notifications/read-all";
 
-/// The `data ->>` key and the coalesce fallback are parameters in the Python
-/// statement, so they are parameters here too and the statement text matches.
 const EMAIL_ONLY_KEY: &str = "_email_only";
 
 /// `select(Notification).filter(recipient_id, email_only is false)`
 /// `.order_by(created_at.desc()).offset(skip).limit(limit)`
 ///
-/// The column list is the mapper's column order, because the fixture pins the
-/// Python-compiled statement. `notifications.recipient_id` is selected and not
-/// projected, exactly as the Python response model drops it.
-///
 /// `data::text` is the one textual difference from Python: this workspace's
 /// sqlx build has no `json` feature, so the column is read as text and parsed
 /// with `serde_json` instead of being decoded by the driver. The cast changes
 /// no value, no order and no null.
-pub const LIST_SQL: &str = "\
+const LIST_SQL: &str = "\
 SELECT notifications.id, notifications.recipient_id, notifications.type, \
        notifications.title, notifications.message, notifications.data::text, \
        notifications.is_read, notifications.created_at
@@ -84,7 +78,7 @@ LIMIT $4 OFFSET $5";
 
 /// `select(count()).select_from(Notification).filter(recipient_id, not read,
 /// email_only is false)`
-pub const COUNT_SQL: &str = "\
+const COUNT_SQL: &str = "\
 SELECT count(*) AS count_1
 FROM notifications
 WHERE notifications.recipient_id = $1::uuid AND notifications.is_read = false AND coalesce(CAST((notifications.data ->> $2) AS BOOLEAN), $3) IS false";
@@ -93,7 +87,7 @@ WHERE notifications.recipient_id = $1::uuid AND notifications.is_read = false AN
 ///
 /// `first()` fetches one row without adding `LIMIT`, and the ORM load maps every
 /// column, so this statement keeps the full column list too.
-pub const FIND_SQL: &str = "\
+const FIND_SQL: &str = "\
 SELECT notifications.id, notifications.recipient_id, notifications.type, \
        notifications.title, notifications.message, notifications.data::text, \
        notifications.is_read, notifications.created_at
@@ -103,14 +97,13 @@ WHERE notifications.id = $1::uuid AND notifications.recipient_id = $2::uuid";
 /// The ORM flush of `notification.is_read = True`, which updates the changed
 /// column keyed by the primary key. The new value is a bound parameter, exactly
 /// as SQLAlchemy's unit of work sends it.
-pub const MARK_SQL: &str =
-    "UPDATE notifications SET is_read = $1 WHERE notifications.id = $2::uuid";
+const MARK_SQL: &str = "UPDATE notifications SET is_read = $1 WHERE notifications.id = $2::uuid";
 
 /// `update(Notification).where(recipient_id, not read).values(is_read=True)`
 ///
 /// `.values()` and `== False` render differently in SQLAlchemy: the assigned
 /// value is a parameter and the comparison is the literal `false`. Keep both.
-pub const MARK_ALL_SQL: &str = "\
+const MARK_ALL_SQL: &str = "\
 UPDATE notifications SET is_read = $1
 WHERE notifications.recipient_id = $2::uuid AND notifications.is_read = false";
 

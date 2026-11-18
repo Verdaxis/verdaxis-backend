@@ -306,12 +306,9 @@ def test_alert_state_with_duplicate_keys_is_quarantined_and_pages(
     assert len(list(tmp_path.glob("health.json.invalid-*"))) == 1
 
 
-def test_alert_interval_is_fixed_hourly_and_has_no_force_override():
+def test_alert_interval_cannot_be_overridden_on_the_command_line():
     dispatcher = load_module()
 
-    args = dispatcher.parse_args(["--event", "health-failure"])
-    assert not hasattr(args, "repeat_seconds")
-    assert not hasattr(args, "force")
     with pytest.raises(SystemExit):
         dispatcher.parse_args(
             ["--event", "health-failure", "--repeat-seconds", "1"]

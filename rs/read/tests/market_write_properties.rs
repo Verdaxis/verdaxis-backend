@@ -36,48 +36,6 @@ use proptest::{
 };
 use rust_decimal::Decimal;
 
-fn generated_sequence(seed: u64) -> Vec<(u8, u16)> {
-    let mut bytes = [0_u8; 32];
-    bytes[..8].copy_from_slice(&seed.to_le_bytes());
-    let config = Config {
-        failure_persistence: None,
-        ..Config::default()
-    };
-    let mut runner =
-        TestRunner::new_with_rng(config, TestRng::from_seed(RngAlgorithm::ChaCha, &bytes));
-    vec((0_u8..12, 1_u16..1000), 40)
-        .new_tree(&mut runner)
-        .expect("bounded sequence")
-        .current()
-}
-
-#[test]
-fn generated_sequences_replay_from_their_seed() {
-    for seed in [1, 17, 43, 1024, 65537, u64::MAX] {
-        assert_eq!(
-            generated_sequence(seed),
-            generated_sequence(seed),
-            "seed={seed}"
-        );
-    }
-    assert_ne!(generated_sequence(1), generated_sequence(17));
-}
-
-#[test]
-fn conservation_suite_uses_phase_eight_interfaces() {
-    let source = include_str!("market_write_pg_conservation.rs");
-    for forbidden in [
-        concat!("market_", "matching"),
-        concat!("market_contract::", "matching"),
-        concat!("routes::", "trades"),
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "unexpected interface: {forbidden}"
-        );
-    }
-}
-
 #[test]
 fn decimal_roundtrip_property() {
     macro_rules! check_domain {

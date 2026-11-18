@@ -757,15 +757,14 @@ fn serve_projection_refuses_invalid_environments() {
     let staging_cases = cases
         .into_iter()
         .map(|(name, fixture, revision)| (name, "staging", fixture, revision));
-    let production_case = (
-        "unreviewed production revision",
-        "production",
-        EnvFile::production(),
-        "p0_20260101_other",
-    );
-    for (name, environment, fixture, revision) in
-        staging_cases.chain(std::iter::once(production_case))
-    {
+    let production_cases = [
+        ("unknown production revision", "p0_20260101_other"),
+        ("stale production baseline", "sqlx_1"),
+        ("superseded production revision", "sqlx_2"),
+    ]
+    .into_iter()
+    .map(|(name, revision)| (name, "production", EnvFile::production(), revision));
+    for (name, environment, fixture, revision) in staging_cases.chain(production_cases) {
         let scratch = Scratch::new();
         let environment_file = fixture.write(&scratch.path("be"));
         let output = scratch.path("rust");

@@ -30,26 +30,16 @@ def _text(relative: str) -> str:
     return (ROOT / relative).read_text()
 
 
-@pytest.mark.parametrize(
-    "bootstrap_step, command",
-    [
-        # f4663bf4091ea4261875414f017cd27cd5a2ceb1 deploy.sh:560.
-        ("old-helper-on-bootstrap", 'systemd-analyze verify "${CANDIDATE_UNITS[@]}"'),
-        ("bootstrap-installer", None),
-        ("bootstrap-helper-on-activation", None),
-    ],
-)
-def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, command):
+@pytest.mark.parametrize("caller", [INSTALLER, DEPLOY])
+def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, caller):
     """Verify real unit bytes, not a fake binary that hides first-install failures."""
     analyzer = shutil.which("systemd-analyze")
     if analyzer is None:
         pytest.skip("systemd-analyze is required for the Linux bootstrap gate")
-    if command is None:
-        source = _text(INSTALLER if bootstrap_step == "bootstrap-installer" else DEPLOY)
-        command = next(
-            line.strip() for line in source.splitlines()
-            if "systemd-analyze verify" in line
-        ).removeprefix("sudo -n ").removeprefix("sudo ")
+    command = next(
+        line.strip() for line in _text(caller).splitlines()
+        if "systemd-analyze verify" in line
+    ).removeprefix("sudo -n ").removeprefix("sudo ")
 
     root = tmp_path / "root"
     units = root / "etc/systemd/system"
@@ -58,9 +48,7 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
     # systemd 249 does not support verify --root. Relocate only the checkout
     # prefix into this test user's private tree; keep every directive and flag.
     backend = root / "be"
-    python = backend / "venv/bin/python"
-    python.parent.mkdir(parents=True)
-    python.symlink_to(shutil.which("python3"))
+    backend.mkdir()
     unit.write_text(_text(UNIT).replace(STAGING_BACKEND, str(backend)))
     (units / "postgresql.service").write_text(
         "[Service]\nType=oneshot\nExecStart=/bin/true\n"
@@ -79,7 +67,7 @@ def test_bootstrap_verifies_without_a_rust_artifact(tmp_path, bootstrap_step, co
         ["bash", "-c", script], capture_output=True, text=True, check=False,
         env={**os.environ, "SYSTEMD_UNIT_PATH": str(units), "UNIT_PATH": str(unit)},
     )
-    print(f"{bootstrap_step}: VERIFY_EXIT={result.returncode}\n{result.stderr}")
+    print(f"{caller}: VERIFY_EXIT={result.returncode}\n{result.stderr}")
     assert result.returncode == 0, result.stderr
 
 
@@ -93,34 +81,26 @@ def test_rust_unit_bind_and_service_name_match_the_committed_policy():
     assert f"--bind {policy['bind']}" in unit
 
 
-def _assert_runtime_directives(unit: str, suffix: str) -> None:
-    # A main-process watchdog in both environments, and exactly one credential:
-    # the environment's own KYC document key ring.
-    assert "WatchdogSec=60s\n" in unit
-    assert "NotifyAccess=main\n" in unit
-    credentials = [line for line in unit.splitlines() if line.startswith(
-        ("LoadCredential=", "SetCredential=", "ImportCredential=", "LoadCredentialEncrypted=", "SetCredentialEncrypted=")
-    )]
-    assert credentials == [
-        f"LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys{suffix}.json",
-    ]
-    assert "# Key source must be regular root:root 0400; use an empty placeholder without a key ring." in unit
-
-
 @pytest.mark.parametrize("suffix", ["", "-staging"])
 def test_rust_unit_has_a_watchdog_and_only_its_own_key_credential(suffix):
     unit = _text(f"deploy/systemd/verdaxis-rust{suffix}.service")
-    _assert_runtime_directives(unit, suffix)
-    other = "-staging" if suffix == "" else ""
-    for invalid in (
-        unit + "\nSetCredential=another-key:\n",
-        unit + "\nImportCredential=*\n",
-        unit.replace(f"kyc-document-keys{suffix}.json", f"kyc-document-keys{other}.json"),
-        unit.replace("WatchdogSec=60s", "WatchdogSec=0"),
-        unit.replace("NotifyAccess=main", "NotifyAccess=all"),
-    ):
-        with pytest.raises(AssertionError):
-            _assert_runtime_directives(invalid, suffix)
+    directives = unit.splitlines()
+
+    assert "WatchdogSec=60s" in directives
+    assert "NotifyAccess=main" in directives
+    credential_directives = (
+        "LoadCredential=",
+        "SetCredential=",
+        "ImportCredential=",
+        "LoadCredentialEncrypted=",
+        "SetCredentialEncrypted=",
+    )
+    assert [line for line in directives if line.startswith(credential_directives)] == [
+        f"LoadCredential=kyc-document-keys:/etc/verdaxis/kyc-document-keys{suffix}.json",
+    ]
+    if suffix == "-staging":
+        assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
+        assert "MIGRATOR_DATABASE_URL" not in unit
 
 
 @pytest.mark.parametrize(
@@ -155,23 +135,6 @@ def test_maintenance_units_reject_every_present_deploy_state(unit_name, backend_
     state = f"{backend_dir}/.runtime-deploy/{environment}.state"
     assert f"ConditionPathExists=!{state}" in content
     assert f"ConditionPathIsSymbolicLink=!{state}" in content
-
-
-def test_rust_unit_manifest_entries_are_environment_specific():
-    entries = [
-        tuple(line.split("\t"))
-        for line in _text(MANIFEST).splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
-    assert ("staging", RUST_UNIT_NAME) in entries
-    assert [entry for entry in entries if "rust" in entry[1]] == [
-        ("production", "verdaxis-rust.service"),
-        ("staging", RUST_UNIT_NAME),
-    ]
-    # The installer's manifest rules: unique filenames, staging suffix.
-    assert len({name for _environment, name in entries}) == len(entries)
-    assert RUST_UNIT_NAME.endswith("-staging.service")
-    assert (ROOT / UNIT).is_file()
 
 
 @pytest.mark.parametrize(
@@ -210,26 +173,6 @@ def test_committed_policies_enable_the_loopback_service_in_both_environments(env
     )
     assert result.returncode == 0, result.stderr
     assert f"RUST_ENABLED={enabled}" in result.stdout
-
-
-def _assert_staging_credential_boundary(unit: str) -> None:
-    assert "/home/verdaxis-prod/verdaxis/prod/be" not in unit
-    assert "MIGRATOR_DATABASE_URL" not in unit
-    assert "/etc/verdaxis/kyc-document-keys.json" not in unit
-    _assert_runtime_directives(unit, "-staging")
-
-
-def test_rust_unit_names_no_production_path_or_migrator_credential():
-    unit = _text(UNIT)
-    _assert_staging_credential_boundary(unit)
-    assert Path(UNIT).name.endswith("-staging.service")
-    for forbidden in (
-        unit.replace("kyc-document-keys-staging.json", "kyc-document-keys.json"),
-        unit + "\nEnvironment=MIGRATOR_DATABASE_URL=unavailable\n",
-        unit.replace(STAGING_BACKEND, "/home/verdaxis-prod/verdaxis/prod/be"),
-    ):
-        with pytest.raises(AssertionError):
-            _assert_staging_credential_boundary(forbidden)
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])

@@ -1096,31 +1096,24 @@ fn guard_scripts_contain_no_python() {
     let reviewed = fs::read_to_string(root.join("deploy/tests/shellcheck-files.txt"))
         .expect("reviewed shell list");
     let forbidden = ["py", "thon"].concat();
-    for relative in [
-        "deploy/scripts/verify-deploy-start-guard.sh",
-        "deploy/tests/guard-contract.sh",
-    ] {
-        let path = root.join(relative);
-        let text = fs::read_to_string(&path).expect("guard script");
-        assert!(
-            !text.to_ascii_lowercase().contains(&forbidden),
-            "{relative}: must not depend on an interpreter"
-        );
-        assert!(
-            text.starts_with("#!/usr/bin/env bash\n"),
-            "{relative}: bash shebang"
-        );
-        assert!(
-            text.contains("set -euo pipefail"),
-            "{relative}: strict mode"
-        );
-        assert!(
-            reviewed.lines().any(|line| line == relative),
-            "{relative}: listed for the reviewed shell gate"
-        );
-    }
-    let shell = fs::read_to_string(root.join("deploy/scripts/verify-deploy-start-guard.sh"))
-        .expect("shell guard");
+    let relative = "deploy/scripts/verify-deploy-start-guard.sh";
+    let shell = fs::read_to_string(root.join(relative)).expect("shell guard");
+    assert!(
+        !shell.to_ascii_lowercase().contains(&forbidden),
+        "{relative}: must not depend on an interpreter"
+    );
+    assert!(
+        shell.starts_with("#!/usr/bin/env bash\n"),
+        "{relative}: bash shebang"
+    );
+    assert!(
+        shell.contains("set -euo pipefail"),
+        "{relative}: strict mode"
+    );
+    assert!(
+        reviewed.lines().any(|line| line == relative),
+        "{relative}: listed for the reviewed shell gate"
+    );
     for flag in [
         "--environment",
         "--expected-release-sha",

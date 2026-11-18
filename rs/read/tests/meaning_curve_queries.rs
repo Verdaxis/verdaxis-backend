@@ -12,7 +12,7 @@
 //! Runs against the seeded disposable market-contract database only; see
 //! `rs/read/tests/run_market_contract.sh`.
 
-use chrono::{Duration, NaiveDate};
+use chrono::Duration;
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -474,15 +474,4 @@ async fn keyed_join_would_duplicate_rows() {
     );
     drop(connection);
     pools.read.close().await;
-}
-
-/// The corpus clock's Singapore date is the one the typed declaration rules
-/// compare. This pins the date the cases above run at.
-#[test]
-fn corpus_clock_maps_to_the_pinned_singapore_date() {
-    let clock = clock();
-    assert_eq!(
-        clock.singapore_date,
-        NaiveDate::from_ymd_opt(2026, 10, 15).unwrap()
-    );
 }

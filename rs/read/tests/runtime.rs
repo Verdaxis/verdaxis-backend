@@ -490,6 +490,13 @@ fn admission_configuration_refuses_zero_overflow_and_excess_budget() {
     }
     let mut environment = deployed_environment();
     let bind = "127.0.0.1:0".parse().unwrap();
+    let defaults = verdaxis_read::runtime::config::config_from_deployed_environment(
+        &environment,
+        bind,
+        &budget_document(compiled_sha()),
+    )
+    .unwrap();
+    assert_eq!(defaults.read_admission_slots, 16);
     for value in ["0", "", "-1", "abc", "4294967295"] {
         environment.insert("READ_ADMISSION_SLOTS".into(), value.into());
         assert!(

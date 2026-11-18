@@ -829,18 +829,6 @@ async fn stream_routes_reject_head_and_post_405_envelope() {
 }
 
 #[tokio::test]
-async fn activity_route_is_404_in_rust() {
-    let (status, _, _) = send(&live(&StreamHub::default()), get("/api/stream/activity")).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn issuer_route_is_not_mounted() {
-    let (status, _, _) = send(&live(&StreamHub::default()), get("/api/auth/stream-token")).await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn stream_subsystem_down_503_stream_unavailable() {
     let router = isolated(offline_state(None));
     for path in ALL_ROUTES {

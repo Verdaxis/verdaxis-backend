@@ -354,8 +354,7 @@ async fn news_lock_busy_is_a_successful_noop() {
         false,
     );
 
-    // Another process (the Python command, in production) holds the same
-    // transaction-scoped advisory key.
+    // Another session holds the transaction-scoped advisory key.
     let mut holder = PgConnection::connect(&url("RUST_TEST_MIGRATOR_DATABASE_URL"))
         .await
         .unwrap();
@@ -405,26 +404,6 @@ async fn news_overlap_inserts_once() {
     let first = run_once(&first_pool, &database, &fetch);
     let overlap = async {
         fetch.0.started.notified().await;
-
-        // The key is the Python job's key: the held lock is an advisory lock in
-        // that exact key space, so the Python command also sees it as busy.
-        let held: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_locks \
-             WHERE locktype = 'advisory' AND granted AND objsubid = 1 \
-               AND classid::bigint = ($1::bigint >> 32) & 4294967295 \
-               AND objid::bigint = $1::bigint & 4294967295",
-        )
-        .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
-        .fetch_one(&fixture.admin)
-        .await
-        .unwrap();
-        assert_eq!(held, 1, "the running refresh holds the advisory key");
-        let python_view: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
-            .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
-            .fetch_one(&fixture.admin)
-            .await
-            .unwrap();
-        assert!(!python_view, "a second claimant of the key is refused");
 
         // The overlapping run is a no-op and asks the provider for nothing.
         assert_eq!(

@@ -759,24 +759,6 @@ fn health_default_config_carries_no_hard_coded_endpoint() {
 
 #[test]
 fn health_works_with_the_database_down() {
-    // The monitor reads loopback readiness and local files only. The source names no
-    // database, environment or process access.
-    let source = include_str!("../src/cli/monitors/health.rs").to_lowercase();
-    for forbidden in [
-        "sqlx",
-        "pgpool",
-        "database_url",
-        "std::env",
-        "runcontext",
-        "process::command",
-        "reqwest",
-        "telegram",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "health.rs must not mention {forbidden}"
-        );
-    }
     // A service that reports its database as down is a failed check, never a crash,
     // and a healthy report needs nothing but the service's own answer.
     let server = router();

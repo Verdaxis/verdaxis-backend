@@ -25,7 +25,8 @@ async fn next(subscription: &mut verdaxis_read::streams::bus::Subscription) -> O
         .unwrap()
 }
 
-async fn t01() {
+#[tokio::test]
+async fn the_101st_queued_event_removes_the_subscriber_and_sends_one_terminal() {
     let hub = StreamHub::default();
     let org = Uuid::new_v4();
     let mut subscription = hub.subscribe_org(org).unwrap();
@@ -43,79 +44,7 @@ async fn t01() {
 }
 
 #[test]
-fn t02_through_t09() {
-    let cases = [
-        (
-            Terminal::Overflow,
-            "reset",
-            "subscriber_overflow",
-            true,
-            false,
-        ),
-        (
-            Terminal::Retention,
-            "reset",
-            "replay_retention",
-            true,
-            false,
-        ),
-        (Terminal::CursorAhead, "reset", "cursor_ahead", true, false),
-        (
-            Terminal::AuthExpired,
-            "auth_expired",
-            "token_expired",
-            false,
-            true,
-        ),
-        (
-            Terminal::AuthRevoked,
-            "auth_revoked",
-            "authorization_changed",
-            true,
-            true,
-        ),
-        (
-            Terminal::AuthorizationUnavailable,
-            "auth_revoked",
-            "authorization_unavailable",
-            true,
-            true,
-        ),
-        (
-            Terminal::Unavailable,
-            "error",
-            "stream_unavailable",
-            true,
-            true,
-        ),
-        (
-            Terminal::Capacity,
-            "error",
-            "connection_capacity",
-            false,
-            true,
-        ),
-        (
-            Terminal::InvalidEvent,
-            "reset",
-            "event_unavailable",
-            true,
-            false,
-        ),
-        (
-            Terminal::Shutdown,
-            "reset",
-            "service_restarting",
-            true,
-            false,
-        ),
-    ];
-    for case in cases {
-        assert_terminal_contract(case);
-    }
-}
-
-fn b01() {
+fn subscription_limits_reject_new_connections_and_release_capacity_on_drop() {
     let hub = StreamHub::default();
     let mut subscriptions = Vec::new();
     for _ in 0..200 {
@@ -138,7 +67,8 @@ fn b01() {
     assert!(hub.subscribe_org(Uuid::new_v4()).is_ok());
 }
 
-async fn b02() {
+#[tokio::test]
+async fn private_and_public_messages_reach_only_their_subscribers() {
     let hub = StreamHub::default();
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
@@ -146,18 +76,15 @@ async fn b02() {
     let mut sb = hub.subscribe_org(b).unwrap();
     let mut prices = hub.subscribe_public(PublicChannel::Prices).unwrap();
     let mut book = hub.subscribe_public(PublicChannel::Orderbook).unwrap();
-    let shared = event(1, vec![a, a]);
-    hub.publish_private(shared.clone()).unwrap();
+    hub.publish_private(event(1, vec![a, a])).unwrap();
     match next(&mut sa).await.unwrap() {
         Delivery::Private(received) => {
-            assert!(Arc::ptr_eq(&shared, &received));
-            assert!(
-                received
-                    .payload()
-                    .get("_public_market_invalidation")
-                    .is_none()
+            assert_eq!(received.seq(), 1);
+            assert_eq!(received.event_type(), "trade_created");
+            assert_eq!(
+                received.payload(),
+                &json!({"quantity": "12", "schema_version": 1})
             );
-            assert_eq!(received.payload()["schema_version"], 1);
         }
         other => panic!("unexpected {other:?}"),
     }
@@ -183,7 +110,8 @@ async fn b02() {
     }
 }
 
-async fn b03() {
+#[tokio::test]
+async fn terminal_precedes_buffered_data() {
     let hub = StreamHub::default();
     let org = Uuid::new_v4();
     let mut subscription = hub.subscribe_org(org).unwrap();
@@ -198,7 +126,8 @@ async fn b03() {
     assert!(next(&mut subscription).await.is_none());
 }
 
-async fn b04() {
+#[tokio::test]
+async fn cancellation_cleanup() {
     let hub = StreamHub::default();
     let mut subscription = hub.subscribe_org(Uuid::new_v4()).unwrap();
     assert!(
@@ -214,49 +143,101 @@ async fn b04() {
 }
 
 #[tokio::test]
-async fn b07() {
+async fn terminal_events_send_a_name_and_payload_without_advancing_the_cursor() {
     use axum::{
         body::to_bytes,
         response::{IntoResponse, Sse},
     };
     use futures_util::stream;
 
-    for terminal in [
-        Terminal::Overflow,
-        Terminal::Retention,
-        Terminal::CursorAhead,
-        Terminal::AuthExpired,
-        Terminal::AuthRevoked,
-        Terminal::AuthorizationUnavailable,
-        Terminal::Unavailable,
-        Terminal::Capacity,
-        Terminal::InvalidEvent,
-        Terminal::Shutdown,
-    ] {
+    let cases = [
+        (
+            Terminal::Overflow,
+            "reset",
+            "subscriber_overflow",
+            true,
+            None,
+        ),
+        (Terminal::Retention, "reset", "replay_retention", true, None),
+        (Terminal::CursorAhead, "reset", "cursor_ahead", true, None),
+        (
+            Terminal::AuthExpired,
+            "auth_expired",
+            "token_expired",
+            false,
+            Some("Stream token expired"),
+        ),
+        (
+            Terminal::AuthRevoked,
+            "auth_revoked",
+            "authorization_changed",
+            true,
+            Some("Stream authorization changed"),
+        ),
+        (
+            Terminal::AuthorizationUnavailable,
+            "auth_revoked",
+            "authorization_unavailable",
+            true,
+            Some("Stream authorization unavailable"),
+        ),
+        (
+            Terminal::Unavailable,
+            "error",
+            "stream_unavailable",
+            true,
+            Some("Stream unavailable"),
+        ),
+        (
+            Terminal::Capacity,
+            "error",
+            "connection_capacity",
+            false,
+            Some("Stream connection capacity reached"),
+        ),
+        (
+            Terminal::InvalidEvent,
+            "reset",
+            "event_unavailable",
+            true,
+            None,
+        ),
+        (
+            Terminal::Shutdown,
+            "reset",
+            "service_restarting",
+            true,
+            None,
+        ),
+    ];
+    for (terminal, name, reason, resync_required, error) in cases {
         let body = Sse::new(stream::once(async move {
             Ok::<_, std::convert::Infallible>(terminal.into_event())
         }))
         .into_response()
         .into_body();
         let bytes = to_bytes(body, 4096).await.unwrap();
-        let text = std::str::from_utf8(&bytes).unwrap();
-        let lines: Vec<_> = text.lines().collect();
-        assert_eq!(
-            lines
-                .iter()
-                .filter(|line| line.starts_with("event:"))
-                .count(),
-            1
+        let wire = std::str::from_utf8(&bytes).unwrap();
+        let mut names = wire.lines().filter_map(|line| line.strip_prefix("event: "));
+        assert_eq!(names.next(), Some(name), "{terminal:?}");
+        assert_eq!(names.next(), None, "{terminal:?}");
+        assert!(
+            !wire.lines().any(|line| line.starts_with("id:")),
+            "{terminal:?}"
         );
-        assert!(!lines.iter().any(|line| line.starts_with("id:")));
-        let data = lines
-            .iter()
+        let data = wire
+            .lines()
             .find_map(|line| line.strip_prefix("data: "))
             .unwrap();
-        assert_eq!(
-            serde_json::from_str::<Value>(data).unwrap(),
-            terminal.payload()
-        );
+        let mut expected = json!({
+            "schema_version": 1,
+            "reason": reason,
+            "resync_required": resync_required,
+        });
+        if let Some(message) = error {
+            expected["error"] = json!(message);
+        }
+        assert_eq!(serde_json::from_str::<Value>(data).unwrap(), expected);
     }
 }
 
@@ -267,7 +248,8 @@ fn b08() {
     assert!(StoredEvent::new(1, vec![org], &"a".repeat(81), json!({})).is_err());
 }
 
-async fn b09() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn partial_registration_cleanup() {
     let hub = StreamHub::new(StreamPolicy::new(1, 1, 1).unwrap());
     let org = Uuid::new_v4();
     let barrier = Arc::new(tokio::sync::Barrier::new(9));
@@ -400,7 +382,8 @@ fn b05() {
     );
 }
 
-async fn b06() {
+#[tokio::test]
+async fn publisher_closes_all_200_overflowing_subscriptions() {
     let hub = StreamHub::default();
     let mut subscriptions = Vec::new();
     let org = Uuid::new_v4();
@@ -423,179 +406,4 @@ async fn b06() {
         ));
         assert!(next(&mut subscription).await.is_none());
     }
-}
-
-fn assert_terminal_contract(
-    (terminal, name, reason, resync, error): (Terminal, &str, &str, bool, bool),
-) {
-    assert_eq!(terminal.event_name(), name);
-    let payload = terminal.payload();
-    assert_eq!(payload["schema_version"], 1);
-    assert_eq!(payload["reason"], reason);
-    assert_eq!(payload["resync_required"], resync);
-    assert_eq!(payload.get("error").is_some(), error);
-    assert_eq!(
-        payload.as_object().unwrap().len(),
-        if error { 4 } else { 3 }
-    );
-    assert!(!format!("{:?}", terminal.into_event()).contains("id:"));
-}
-
-#[test]
-fn terminal_overflow_contract() {
-    assert_terminal_contract((
-        Terminal::Overflow,
-        "reset",
-        "subscriber_overflow",
-        true,
-        false,
-    ));
-}
-
-#[test]
-fn terminal_retention_contract() {
-    assert_terminal_contract((
-        Terminal::Retention,
-        "reset",
-        "replay_retention",
-        true,
-        false,
-    ));
-}
-
-#[test]
-fn terminal_cursor_ahead_contract() {
-    assert_terminal_contract((Terminal::CursorAhead, "reset", "cursor_ahead", true, false));
-}
-
-#[test]
-fn terminal_expiry_contract() {
-    assert_terminal_contract((
-        Terminal::AuthExpired,
-        "auth_expired",
-        "token_expired",
-        false,
-        true,
-    ));
-}
-
-#[test]
-fn terminal_revocation_contract() {
-    assert_terminal_contract((
-        Terminal::AuthRevoked,
-        "auth_revoked",
-        "authorization_changed",
-        true,
-        true,
-    ));
-}
-
-#[test]
-fn terminal_unavailable_contract() {
-    assert_terminal_contract((
-        Terminal::Unavailable,
-        "error",
-        "stream_unavailable",
-        true,
-        true,
-    ));
-}
-
-#[test]
-fn terminal_capacity_contract() {
-    assert_terminal_contract((
-        Terminal::Capacity,
-        "error",
-        "connection_capacity",
-        false,
-        true,
-    ));
-}
-
-#[test]
-fn terminal_event_contract() {
-    assert_terminal_contract((
-        Terminal::InvalidEvent,
-        "reset",
-        "event_unavailable",
-        true,
-        false,
-    ));
-}
-
-#[test]
-fn terminal_shutdown_contract() {
-    assert_terminal_contract((
-        Terminal::Shutdown,
-        "reset",
-        "service_restarting",
-        true,
-        false,
-    ));
-}
-
-#[test]
-fn terminal_auth_store_contract() {
-    assert_terminal_contract((
-        Terminal::AuthorizationUnavailable,
-        "auth_revoked",
-        "authorization_unavailable",
-        true,
-        true,
-    ));
-}
-
-#[test]
-fn channel_cap_200() {
-    b01();
-}
-
-#[test]
-fn process_cap_2000() {
-    b01();
-}
-
-#[tokio::test]
-async fn queue_cap_100() {
-    t01().await;
-}
-
-#[tokio::test]
-async fn publish_does_not_await_under_mutex() {
-    b06().await;
-}
-
-#[tokio::test]
-async fn private_scope_isolated() {
-    b02().await;
-}
-
-#[tokio::test]
-async fn public_channels_sanitized() {
-    b02().await;
-}
-
-#[tokio::test]
-async fn overflow_closes_once() {
-    t01().await;
-}
-
-#[test]
-fn subscription_drop_cleanup() {
-    b01();
-}
-
-#[tokio::test]
-async fn cancellation_cleanup() {
-    b04().await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn partial_registration_cleanup() {
-    b09().await;
-}
-
-#[tokio::test]
-async fn terminal_precedes_buffered_data() {
-    b03().await;
 }

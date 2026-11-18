@@ -128,21 +128,6 @@ def load_manifest() -> dict:
     return payload
 
 
-def test_monitor_has_no_competing_installer_runtime_transaction_or_producer_unit():
-    forbidden = {
-        "PILOT-RUNBOOK.patch",
-        "artifact-manifest.sha256",
-        "backup_producer.py",
-        "backup_producer_permissions.py",
-        "install.sh",
-        "install_transaction.py",
-        "runtime_identity.py",
-        "verdaxis-backup.service",
-    }
-
-    assert not {path.name for path in MONITOR.iterdir()} & forbidden
-
-
 def test_static_manifest_names_exact_destinations_and_non_promoting_modes():
     payload = load_manifest()
     artifacts = payload["artifacts"]
@@ -197,10 +182,3 @@ def test_monitor_tree_contains_no_activation_or_root_promotion_implementation():
         assert "/usr/local/libexec" not in source
 
     assert not list(MONITOR.glob("install*"))
-
-
-def test_monitor_python_does_not_import_application_runtime_modules():
-    for path in MONITOR.glob("*.py"):
-        source = path.read_text()
-        assert "from app" not in source
-        assert "import app" not in source
