@@ -393,3 +393,34 @@ async fn draft_audit_failure_rolls_back_and_failed_receipt_is_not_success() {
     assert_eq!(result.content["error_code"], "AUDIT_UNAVAILABLE");
     sqlx::raw_sql("DROP TRIGGER agent_tools_refuse_receipt ON public.agent_audit_events; DROP FUNCTION agent_tools_refuse_receipt();").execute(&f.admin).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn agent_open_includes_partly_filled_while_filled_is_exact() {
+    let f = Fixture::new().await;
+    let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
+    for (status, remaining) in [("OPEN", 10), ("FILLED", 0)] {
+        sqlx::query("INSERT INTO public.orderbook_orders SELECT (jsonb_populate_record(o, jsonb_build_object('id',gen_random_uuid(),'status',$2::text,'remaining_quantity_mt',$3::int,'created_at',o.created_at + interval '1 second'))).* FROM public.orderbook_orders o WHERE o.id=$1")
+            .bind(f.order).bind(status).bind(remaining).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    for (status, expected) in [
+        ("OPEN", vec!["OPEN", "PARTIALLY_FILLED"]),
+        ("FILLED", vec!["FILLED"]),
+    ] {
+        let result = execute(
+            &f.context(),
+            call("get_my_orders", json!({"status":status})),
+        )
+        .await;
+        assert!(result.ok);
+        let actual: Vec<_> = result
+            .content
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["status"].as_str().unwrap())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+}

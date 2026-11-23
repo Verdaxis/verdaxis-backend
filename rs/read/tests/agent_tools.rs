@@ -305,7 +305,7 @@ fn catalog_explains_market_fields_and_open_orders() {
                 props["status"]["description"]
                     .as_str()
                     .unwrap()
-                    .contains("OPEN or PARTIALLY_FILLED")
+                    .contains("OPEN returns open and partly filled orders")
             ),
             _ => {}
         }

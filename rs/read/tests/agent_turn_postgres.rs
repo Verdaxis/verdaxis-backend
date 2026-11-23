@@ -432,6 +432,7 @@ async fn market_slice_draft_and_cited_reply_persist_with_complete_audit() {
     let request = model.request(0);
     let clock: Value = serde_json::from_str(request[1]["content"].as_str().unwrap()).unwrap();
     assert_eq!(clock["source_message_seq"], 1);
+    assert_eq!(clock["citable_message_seqs"], json!([]));
     let timestamp = clock["current_time_utc"].as_str().unwrap();
     let parsed = chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
     assert_eq!(
@@ -1202,7 +1203,7 @@ async fn history_citations_require_a_visible_successful_tool_row() {
         let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
         for seq in 1..=14_i32 {
             let (role, ok) = match seq {
-                1 | 14 => ("tool", true),
+                1 | 10 | 14 => ("tool", true),
                 13 => ("tool", false),
                 12 => ("assistant", true),
                 _ => ("user", true),
@@ -1216,7 +1217,7 @@ async fn history_citations_require_a_visible_successful_tool_row() {
         tx.commit().await.unwrap();
         let citation = |seq| json!({"message_seq":seq,"field":"quantity_mt"});
         // Outside history, user, assistant, failed tool, missing row, then valid tool.
-        let steps = [rejected, 14]
+        let mut steps: Vec<_> = [rejected, 14]
             .into_iter()
             .map(|seq| {
                 ScriptStep::Text(
@@ -1224,13 +1225,29 @@ async fn history_citations_require_a_visible_successful_tool_row() {
                 )
             })
             .collect();
+        steps.insert(0, decision("list_markets", json!({})));
         let model = f.model(steps);
         let deps = deps(model.clone());
         let outcome = run_turn(&deps, f.context(), "Repeat the quantity.".into(), vec![])
             .await
             .unwrap();
         assert!(outcome.stopped.is_none());
-        assert_eq!(model.calls(), 2);
+        assert_eq!(model.calls(), 3);
+        let first = model.request(0);
+        let first: Value = serde_json::from_str(first[1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(first["citable_message_seqs"], json!([10, 14]));
+        let retry = model.request(2);
+        let feedback: Value = serde_json::from_str(
+            retry.as_array().unwrap().last().unwrap()["content"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            feedback["valid_message_seqs"],
+            first["citable_message_seqs"]
+        );
+        assert_eq!(feedback["valid_tool_calls"], json!([1]));
         assert_eq!(json!(outcome.citations), json!([citation(14)]));
         assert_eq!(
             f.messages().await.last().unwrap().2["citations"],

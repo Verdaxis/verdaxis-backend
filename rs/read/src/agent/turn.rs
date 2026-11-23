@@ -938,6 +938,13 @@ mod tests {
         let encoded = serde_json::to_string(&contract_feedback()).expect("feedback JSON");
         let decoded: Value = serde_json::from_str(&encoded).expect("feedback object");
         assert!(decoded["contract_error"].is_string());
+        assert_eq!(decoded["valid_tool_calls"], json!([]));
+        assert_eq!(decoded["valid_message_seqs"], json!([]));
+        assert!(SYSTEM_PROMPT.contains("Cite a tool result of this turn with tool_call and its step; cite an earlier one with message_seq only from citable_message_seqs."));
+        assert!(SYSTEM_PROMPT.contains("Use the side, quantity, price, product, delivery point and window the buyer gave; if a value is missing or invalid, ask with ask_user and do not correct it yourself."));
+        assert!(SYSTEM_PROMPT.contains(
+            "Do not say that a draft replaces or cancels an earlier draft; each draft stays saved."
+        ));
         assert!(SYSTEM_PROMPT.contains("json"));
         assert!(SYSTEM_PROMPT.contains("tool_call"));
         assert!(SYSTEM_PROMPT.contains("Every number"));
