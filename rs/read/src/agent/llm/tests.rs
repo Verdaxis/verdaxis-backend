@@ -83,19 +83,11 @@ impl Mock {
             task,
         }
     }
-    fn client(&self, count: usize) -> GoClient {
-        let keys = credentials::load(|name| {
-            credentials::VARIABLES
-                .iter()
-                .position(|candidate| candidate == &name)
-                .filter(|index| *index < count)
-                .map(|index| format!("fixture-account-{index}"))
-        })
-        .unwrap();
-        GoClient::build(
-            keys,
-            &format!("{}/chat", self.url),
-            &format!("{}/usage", self.url),
+    fn client(&self) -> MistralClient {
+        let key = credentials::load(|_| Some("fixture-mistral-key".into())).unwrap();
+        MistralClient::build(
+            key,
+            &format!("{}/v1/chat/completions", self.url),
             Duration::from_secs(2),
         )
         .unwrap()
@@ -108,13 +100,6 @@ impl Drop for Mock {
     fn drop(&mut self) {
         self.task.abort();
     }
-}
-fn meter(percent: u32) -> Reply {
-    let meter = json!({"status": "ok", "percent": percent});
-    Reply::json(
-        200,
-        json!({"usage": {"rolling": meter, "weekly": meter, "monthly": meter}}),
-    )
 }
 fn success() -> Reply {
     Reply::json(
@@ -130,7 +115,6 @@ fn request() -> Request {
             content: "Return one json object.".into(),
         }],
         max_tokens: 1024,
-        thinking: true,
     }
 }
 fn failure(result: Result<Completion, Failure>) -> Failure {
@@ -141,145 +125,52 @@ fn failure(result: Result<Completion, Failure>) -> Failure {
 }
 
 #[tokio::test]
-async fn selects_most_headroom_and_skips_exhausted_slots() {
-    let mock = Mock::new(vec![meter(100), meter(40), meter(5), success()]).await;
-    let completion = mock.client(3).complete(&request()).await.unwrap();
-    assert_eq!(completion.receipts[0].slot, 3);
-    assert_eq!(mock.captured().len(), 4);
+async fn retries_rate_limit_with_same_key() {
+    let mock = Mock::new(vec![Reply::retry(429, "1"), success()]).await;
+    let start = Instant::now();
+    let completion = mock.client().complete(&request()).await.unwrap();
+    assert!(start.elapsed() >= Duration::from_secs(1));
+    assert_eq!(mock.captured().len(), 2);
+    assert_eq!(completion.receipts.len(), 2);
+    assert!(completion.receipts.iter().all(|r| r.slot == 1));
 }
 
 #[tokio::test]
-async fn usage_cache_expires_at_sixty_seconds_per_key() {
-    let mock = Mock::new(vec![
-        meter(20),
-        meter(10),
-        success(),
-        success(),
-        meter(1),
-        success(),
-    ])
-    .await;
-    let client = mock.client(2);
-    assert_eq!(
-        client.complete(&request()).await.unwrap().receipts[0].slot,
-        2
-    );
-    assert_eq!(
-        client.complete(&request()).await.unwrap().receipts[0].slot,
-        2
-    );
-    assert_eq!(mock.captured().len(), 4);
-    client.credentials[0]
-        .state
-        .lock()
-        .unwrap()
-        .usage
-        .as_mut()
-        .unwrap()
-        .0 = Instant::now() - USAGE_TTL;
-    assert_eq!(
-        client.complete(&request()).await.unwrap().receipts[0].slot,
-        1
-    );
-    assert_eq!(
-        mock.captured()
-            .iter()
-            .filter(|request| request.starts_with("GET"))
-            .count(),
-        3
-    );
-}
-
-#[tokio::test]
-async fn rotates_on_429_to_next_cached_slot() {
-    let mock = Mock::new(vec![meter(1), meter(2), Reply::retry(429, "0"), success()]).await;
-    let completion = mock.client(2).complete(&request()).await.unwrap();
-    assert_eq!(
-        completion
-            .receipts
-            .iter()
-            .map(|receipt| receipt.slot)
-            .collect::<Vec<_>>(),
-        [1, 2]
-    );
-    assert_eq!(completion.receipts[0].status, Some(429));
-}
-
-#[tokio::test]
-async fn unauthorized_chat_slots_rotate_immediately_and_stay_disabled() {
+async fn unauthorized_key_stays_disabled_without_retry() {
     for status in [401, 403] {
-        let mock = Mock::new(vec![
-            meter(1),
-            meter(2),
-            Reply::json(status, json!({})),
-            success(),
-            success(),
-        ])
-        .await;
-        let client = mock.client(2);
-        let started = Instant::now();
-        let completion = client.complete(&request()).await.unwrap();
-        assert_eq!(
-            completion
-                .receipts
-                .iter()
-                .map(|receipt| receipt.slot)
-                .collect::<Vec<_>>(),
-            [1, 2]
-        );
-        assert_eq!(completion.receipts[0].status, Some(status));
-        assert_eq!(completion.receipts[1].attempt, 2);
-        assert!(started.elapsed() < Duration::from_secs(1));
-        assert!(client.credentials[0].state.lock().unwrap().disabled);
-        assert_eq!(
-            client.complete(&request()).await.unwrap().receipts[0].slot,
-            2
-        );
-    }
-}
-
-#[tokio::test]
-async fn unauthorized_usage_slots_are_disabled_and_never_selected() {
-    for status in [401, 403] {
-        let mock = Mock::new(vec![
-            Reply::json(status, json!({})),
-            meter(2),
-            success(),
-            success(),
-        ])
-        .await;
-        let client = mock.client(2);
-        assert_eq!(
-            client.complete(&request()).await.unwrap().receipts[0].slot,
-            2
-        );
-        client.complete(&request()).await.unwrap();
-        assert!(client.credentials[0].state.lock().unwrap().disabled);
-        assert_eq!(mock.captured().len(), 4);
+        let mock = Mock::new(vec![Reply::json(status, json!({}))]).await;
+        let client = mock.client();
+        let error = failure(client.complete(&request()).await);
+        assert_eq!(error.code, ErrorCode::NoCredentials);
+        assert_eq!(error.receipts.len(), 1);
+        assert_eq!(error.receipts[0].status, Some(status));
+        let disabled = failure(client.complete(&request()).await);
+        assert_eq!(disabled.code, ErrorCode::NoCredentials);
+        assert!(disabled.receipts.is_empty());
+        assert_eq!(mock.captured().len(), 1);
     }
 }
 
 #[tokio::test]
 async fn retry_after_is_honoured_and_attempts_are_bounded() {
     let mock = Mock::new(vec![
-        meter(1),
         Reply::retry(503, "1"),
         Reply::retry(502, "0"),
         Reply::retry(504, "0"),
     ])
     .await;
     let started = Instant::now();
-    let error = failure(mock.client(1).complete(&request()).await);
+    let error = failure(mock.client().complete(&request()).await);
     assert!(started.elapsed() >= Duration::from_secs(1));
     assert_eq!(error.receipts.len(), 3);
-    assert_eq!(mock.captured().len(), 4);
+    assert_eq!(mock.captured().len(), 3);
 }
 
 #[tokio::test]
 async fn long_or_invalid_retry_after_gives_up_immediately() {
     for wait in ["31", "999999999999999999999999", "invalid"] {
-        let mock = Mock::new(vec![meter(1), Reply::retry(503, wait)]).await;
-        let error = failure(mock.client(1).complete(&request()).await);
+        let mock = Mock::new(vec![Reply::retry(503, wait)]).await;
+        let error = failure(mock.client().complete(&request()).await);
         assert_eq!(error.code, ErrorCode::RetryDeferred);
         assert_eq!(error.receipts.len(), 1);
     }
@@ -299,9 +190,9 @@ fn retry_after_dates_and_exponential_fallback() {
 async fn response_size_cap_rejects_large_body() {
     let mut reply = success();
     reply.body = " ".repeat(RESPONSE_LIMIT + 1);
-    let mock = Mock::new(vec![meter(1), reply]).await;
+    let mock = Mock::new(vec![reply]).await;
     assert_eq!(
-        failure(mock.client(1).complete(&request()).await).code,
+        failure(mock.client().complete(&request()).await).code,
         ErrorCode::ResponseLimit
     );
 }
@@ -310,8 +201,8 @@ async fn response_size_cap_rejects_large_body() {
 async fn total_timeout_is_not_retried() {
     let mut reply = success();
     reply.delay = Duration::from_secs(1);
-    let mock = Mock::new(vec![meter(1), reply]).await;
-    let mut client = mock.client(1);
+    let mock = Mock::new(vec![reply]).await;
+    let mut client = mock.client();
     client.http = Client::builder()
         .timeout(Duration::from_millis(30))
         .redirect(reqwest::redirect::Policy::none())
@@ -327,30 +218,37 @@ async fn redirects_and_other_http_failures_are_not_retried() {
     for status in [302, 400, 408, 500] {
         let mut reply = Reply::json(status, json!({}));
         reply.headers = "Location: /elsewhere\r\n".into();
-        let mock = Mock::new(vec![meter(1), reply]).await;
-        let error = failure(mock.client(1).complete(&request()).await);
+        let mock = Mock::new(vec![reply]).await;
+        let error = failure(mock.client().complete(&request()).await);
         assert_eq!(error.receipts.len(), 1);
         assert_eq!(error.receipts[0].status, Some(status));
-        assert_eq!(mock.captured().len(), 2);
+        assert_eq!(mock.captured().len(), 1);
     }
 }
 
 #[tokio::test]
 async fn request_headers_body_and_receipts_keep_credentials_separate() {
-    let mock = Mock::new(vec![meter(1), success()]).await;
-    let completion = mock.client(1).complete(&request()).await.unwrap();
+    let mock = Mock::new(vec![success()]).await;
+    let completion = mock.client().complete(&request()).await.unwrap();
     let requests = mock.captured();
-    let (headers, body) = requests[1].split_once("\r\n\r\n").unwrap();
+    let (headers, body) = requests[0].split_once("\r\n\r\n").unwrap();
     assert!(headers.to_lowercase().contains("user-agent: verdaxis/"));
-    assert!(headers.to_lowercase().contains("x-opencode-session: vd-"));
-    assert!(headers.contains("Bearer fixture-account-0"));
-    assert!(!body.contains("fixture-account"));
+    assert!(headers.starts_with("POST /v1/chat/completions HTTP/1.1\r\n"));
+    assert!(
+        !headers
+            .lines()
+            .any(|line| line.to_ascii_lowercase().starts_with("x-"))
+    );
+    assert!(headers.contains("Bearer fixture-mistral-key"));
+    assert!(!body.contains("fixture-mistral"));
     let receipt = serde_json::to_string(&completion.receipts).unwrap();
-    assert!(!receipt.contains("fixture-account"));
+    assert!(!receipt.contains("fixture-mistral"));
     assert_eq!(completion.receipts[0].usage.total_tokens, Some(12));
     assert!(completion.receipts[0].cost.is_none());
     let body: Value = serde_json::from_str(body).unwrap();
-    assert_eq!(body["thinking"]["type"], "enabled");
+    assert!(body.get("thinking").is_none());
+    assert!(body.get("reasoning_effort").is_none());
+    assert_eq!(body["response_format"], json!({"type": "json_object"}));
     assert_eq!(body["max_tokens"], 5120);
 }
 
@@ -358,8 +256,8 @@ async fn request_headers_body_and_receipts_keep_credentials_separate() {
 async fn credentials_in_prompt_are_refused_before_network() {
     let mock = Mock::new(vec![]).await;
     let mut request = request();
-    request.messages[0].content.push_str(" fixture-account-1");
-    let error = failure(mock.client(2).complete(&request).await);
+    request.messages[0].content.push_str(" fixture-mistral-key");
+    let error = failure(mock.client().complete(&request).await);
     assert_eq!(error.code, ErrorCode::CredentialRejected);
     assert!(error.receipts.is_empty());
     assert!(mock.captured().is_empty());
@@ -368,21 +266,21 @@ async fn credentials_in_prompt_are_refused_before_network() {
 #[tokio::test]
 async fn echoed_credentials_never_enter_receipts_or_output() {
     for body in [
-        json!({"error":"fixture-account-1"}),
-        json!({"error":"fixture-account-1"})
+        json!({"error":"fixture-mistral-key"}),
+        json!({"error":"fixture-mistral-key"})
             .to_string()
             .replace("fixture", "\\u0066ixture")
             .parse::<Value>()
             .unwrap(),
     ] {
-        let mock = Mock::new(vec![meter(1), meter(2), Reply::json(200, body)]).await;
-        let error = failure(mock.client(2).complete(&request()).await);
+        let mock = Mock::new(vec![Reply::json(200, body)]).await;
+        let error = failure(mock.client().complete(&request()).await);
         assert_eq!(error.code, ErrorCode::CredentialEcho);
-        assert!(!format!("{error:?}").contains("fixture-account"));
+        assert!(!format!("{error:?}").contains("fixture-mistral"));
         assert!(
             !serde_json::to_string(&error.receipts)
                 .unwrap()
-                .contains("fixture-account")
+                .contains("fixture-mistral")
         );
     }
 }
@@ -392,47 +290,46 @@ fn credentials_and_model_contract_are_validated_without_values() {
     for key in ["a\nb", "a\tb", "a\u{7f}b", "a\u{0}b"] {
         assert!(credentials::load(|_| Some(key.into())).is_err());
     }
-    assert!(credentials::load(|_| Some("duplicate".into())).is_err());
+    assert!(credentials::load(|_| Some("x".repeat(513))).is_err());
     assert!(credentials::load(|_| None).is_err());
     assert!(models::settings("unlisted").is_err());
     assert_eq!(MODELS_COUNT, 1);
     let mut request = request();
     request.messages[0].content = "No format instruction".into();
-    assert!(models::payload(&request.model, 1024, false, &request.messages).is_err());
+    assert!(models::payload(&request.model, 1024, &request.messages).is_err());
     let body = models::payload(
         &request.model,
         1024,
-        false,
         &[Message {
             role: Role::System,
             content: "json".into(),
         }],
     )
     .unwrap();
-    assert_eq!(body["thinking"]["type"], "disabled");
+    assert!(body.get("thinking").is_none());
 }
 const MODELS_COUNT: usize = models::MODELS.len();
 
 #[tokio::test]
 async fn encoded_decision_credentials_are_refused() {
-    let content = format!(r#"{{"reply":"{}u0066ixture-account-0"}}"#, char::from(92));
+    let content = format!(r#"{{"reply":"{}u0066ixture-mistral-key"}}"#, char::from(92));
     let reply = Reply::json(
         200,
         json!({"model": models::MODELS[0].id,
         "choices": [{"finish_reason":"stop","message":{"content":content}}]}),
     );
-    let mock = Mock::new(vec![meter(1), reply]).await;
-    let error = failure(mock.client(1).complete(&request()).await);
+    let mock = Mock::new(vec![reply]).await;
+    let error = failure(mock.client().complete(&request()).await);
     assert_eq!(error.code, ErrorCode::CredentialEcho);
-    assert!(!format!("{error:?}").contains("fixture-account"));
+    assert!(!format!("{error:?}").contains("fixture-mistral"));
 }
 
 #[tokio::test]
 async fn oversized_retryable_error_body_does_not_cancel_retry() {
     let mut reply = Reply::retry(503, "0");
     reply.body = " ".repeat(RESPONSE_LIMIT + 1);
-    let mock = Mock::new(vec![meter(1), reply, success()]).await;
-    let completion = mock.client(1).complete(&request()).await.unwrap();
+    let mock = Mock::new(vec![reply, success()]).await;
+    let completion = mock.client().complete(&request()).await.unwrap();
     assert_eq!(completion.receipts.len(), 2);
     assert_eq!(completion.receipts[0].error, Some(ErrorCode::ResponseLimit));
 }
@@ -445,8 +342,8 @@ async fn zero_cost_stays_unknown_but_positive_cost_is_retained() {
             json!({"model":models::MODELS[0].id,
             "choices":[{"finish_reason":"stop","message":{"content":"{}"}}],"usage":{"cost":cost}}),
         );
-        let mock = Mock::new(vec![meter(1), reply]).await;
-        let completion = mock.client(1).complete(&request()).await.unwrap();
+        let mock = Mock::new(vec![reply]).await;
+        let completion = mock.client().complete(&request()).await.unwrap();
         assert_eq!(completion.receipts[0].cost.is_some(), known);
     }
 }
@@ -454,7 +351,7 @@ async fn zero_cost_stays_unknown_but_positive_cost_is_retained() {
 #[tokio::test]
 async fn shared_client_runs_delayed_completions_concurrently() {
     fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<GoClient>();
+    assert_send_sync::<MistralClient>();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -480,12 +377,10 @@ async fn shared_client_runs_delayed_completions_concurrently() {
         }
     });
     let keys = credentials::load(|name| {
-        (name == credentials::VARIABLES[0]).then(|| "fixture-account-0".into())
+        (name == credentials::VARIABLES[0]).then(|| "fixture-mistral-key".into())
     })
     .unwrap();
-    let client = Arc::new(GoClient::build(keys, &url, &url, Duration::from_secs(2)).unwrap());
-    client.credentials[0].state.lock().unwrap().usage =
-        Some((Instant::now(), Headroom::Available(1.0)));
+    let client = Arc::new(MistralClient::build(keys, &url, Duration::from_secs(2)).unwrap());
     let started = Instant::now();
     let first = client.clone();
     let second = client.clone();
@@ -498,82 +393,4 @@ async fn shared_client_runs_delayed_completions_concurrently() {
         "calls must overlap two 600ms responses"
     );
     server.await.unwrap();
-}
-
-#[tokio::test]
-async fn usage_outage_uses_unknown_fallback_and_caches_it() {
-    for reply in [
-        Reply::json(500, json!({})),
-        Reply::json(200, json!({})),
-        Reply {
-            body: "not-json".into(),
-            ..Reply::json(200, json!({}))
-        },
-    ] {
-        let mock = Mock::new(vec![reply, success(), success()]).await;
-        let client = mock.client(1);
-        for _ in 0..2 {
-            let completion = client.complete(&request()).await.unwrap();
-            assert_eq!(completion.receipts[0].slot, 1);
-            assert!(!completion.receipts[0].headroom_known);
-        }
-        assert_eq!(mock.captured().len(), 3);
-    }
-}
-
-#[tokio::test]
-async fn exhausted_slots_are_never_outage_fallbacks() {
-    for exhausted in [
-        meter(100),
-        Reply::json(200, json!({"usage":{"rolling":{"status":"blocked"}}})),
-    ] {
-        let mock = Mock::new(vec![
-            exhausted,
-            Reply::json(500, json!({})),
-            Reply::json(200, json!({})),
-            success(),
-        ])
-        .await;
-        let completion = mock.client(3).complete(&request()).await.unwrap();
-        assert_eq!(completion.receipts[0].slot, 2);
-        assert!(!completion.receipts[0].headroom_known);
-        assert!(mock.captured()[3].contains("Bearer fixture-account-1"));
-    }
-}
-
-#[tokio::test]
-async fn known_headroom_beats_unknown_and_all_exhausted_refuses() {
-    let mock = Mock::new(vec![Reply::json(500, json!({})), meter(90), success()]).await;
-    let completion = mock.client(2).complete(&request()).await.unwrap();
-    assert_eq!(completion.receipts[0].slot, 2);
-    assert!(completion.receipts[0].headroom_known);
-    let mock = Mock::new(vec![meter(100)]).await;
-    assert_eq!(
-        failure(mock.client(1).complete(&request()).await).code,
-        ErrorCode::NoHeadroom
-    );
-}
-
-#[tokio::test]
-async fn stale_usage_refresh_cannot_clear_newer_rate_limit() {
-    let mut reply = meter(1);
-    reply.delay = Duration::from_millis(150);
-    let mock = Mock::new(vec![reply]).await;
-    let client = mock.client(1);
-    let refresh = client.select(&[]);
-    let record_rate_limit = async {
-        while mock.captured().is_empty() {
-            tokio::task::yield_now().await;
-        }
-        let at = Instant::now();
-        let mut state = client.credentials[0].state.lock().unwrap();
-        state.rate_limited_at = Some(at);
-        state.usage = Some((at, Headroom::Exhausted));
-    };
-    let (selection, ()) = tokio::join!(refresh, record_rate_limit);
-    assert_eq!(selection, Err(ErrorCode::NoHeadroom));
-    assert!(matches!(
-        client.credentials[0].state.lock().unwrap().usage,
-        Some((_, Headroom::Exhausted))
-    ));
 }

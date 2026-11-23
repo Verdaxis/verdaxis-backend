@@ -135,11 +135,9 @@ impl EnvFile {
             "MARKET_SUPPORT_CONSENT_REFERENCE='market-support/2026-11'",
             "MARKET_SUPPORT_BOOTSTRAP_ADMIN_USER_IDS=",
             "OFFBOARDING_ENABLED=on",
-            "OPENCODE_API_KEY=fixture-slot-one",
-            "OPENCODE_API_KEY_2=fixture-slot-two",
-            "OPENCODE_API_KEY_3=fixture-slot-three",
+            "MISTRAL_API_KEY=fixture-mistral-key",
             "AGENT_ENABLED=on",
-            "AGENT_MODEL=deepseek-v4.1-flash",
+            "AGENT_MODEL=deepseek-v4-1-flash-1017",
             "AGENT_RATE_LIMIT_MESSAGES=20",
             "AGENT_RATE_LIMIT_WINDOW_SECONDS=600",
             "AGENT_DAILY_TOKEN_BUDGET=200000",
@@ -516,11 +514,9 @@ fn serve_env_projects_agent_settings_only_to_serve_without_logging_values() {
     let (scratch, output) = prepared_staging_full();
     let projected = read_environment_file(&output.join("runtime.env"));
     for (key, value) in [
-        ("OPENCODE_API_KEY", "fixture-slot-one"),
-        ("OPENCODE_API_KEY_2", "fixture-slot-two"),
-        ("OPENCODE_API_KEY_3", "fixture-slot-three"),
+        ("MISTRAL_API_KEY", "fixture-mistral-key"),
         ("AGENT_ENABLED", "true"),
-        ("AGENT_MODEL", "deepseek-v4.1-flash"),
+        ("AGENT_MODEL", "deepseek-v4-1-flash-1017"),
     ] {
         assert!(
             projected.get(key).is_some_and(|actual| actual == value),
@@ -538,23 +534,15 @@ fn serve_env_projects_agent_settings_only_to_serve_without_logging_values() {
         STAGING_REVISION,
     );
     assert_ok(&result, "agent settings");
-    for value in ["fixture-slot-one", "fixture-slot-two", "fixture-slot-three"] {
-        assert!(!contains(&result.stdout, value));
-        assert!(!contains(&result.stderr, value));
-    }
+    assert!(!contains(&result.stdout, "fixture-mistral-key"));
+    assert!(!contains(&result.stderr, "fixture-mistral-key"));
 }
 
 #[test]
 fn serve_env_omits_absent_and_empty_agent_settings() {
     for file in [
         EnvFile::staging(),
-        EnvFile::staging().with(&[
-            "OPENCODE_API_KEY=",
-            "OPENCODE_API_KEY_2=",
-            "OPENCODE_API_KEY_3=",
-            "AGENT_ENABLED=",
-            "AGENT_MODEL=",
-        ]),
+        EnvFile::staging().with(&["MISTRAL_API_KEY=", "AGENT_ENABLED=", "AGENT_MODEL="]),
     ] {
         let scratch = Scratch::new();
         let environment_file = file.write(&scratch.path("be"));
@@ -562,13 +550,7 @@ fn serve_env_omits_absent_and_empty_agent_settings() {
         let result = rust_prepare_runtime("staging", &environment_file, &output, STAGING_REVISION);
         assert_ok(&result, "optional agent settings");
         let projected = read_environment_file(&output.join("runtime.env"));
-        for key in [
-            "OPENCODE_API_KEY",
-            "OPENCODE_API_KEY_2",
-            "OPENCODE_API_KEY_3",
-            "AGENT_ENABLED",
-            "AGENT_MODEL",
-        ] {
+        for key in ["MISTRAL_API_KEY", "AGENT_ENABLED", "AGENT_MODEL"] {
             assert!(!projected.contains_key(key));
         }
     }
@@ -577,9 +559,9 @@ fn serve_env_omits_absent_and_empty_agent_settings() {
 #[test]
 fn serve_env_refuses_invalid_agent_settings_without_logging_values() {
     for (key, value) in [
-        ("OPENCODE_API_KEY", "\"fixture\\nprivate\""),
-        ("OPENCODE_API_KEY_2", "\"fixture\\tprivate\""),
-        ("OPENCODE_API_KEY_3", "\"fixture\u{7f}private\""),
+        ("MISTRAL_API_KEY", "\"fixture\\nprivate\""),
+        ("MISTRAL_API_KEY", "\"fixture\\tprivate\""),
+        ("MISTRAL_API_KEY", "\"fixture\u{7f}private\""),
         ("AGENT_ENABLED", "invalid-agent-switch"),
         ("AGENT_MODEL", "unlisted-agent-model"),
     ] {

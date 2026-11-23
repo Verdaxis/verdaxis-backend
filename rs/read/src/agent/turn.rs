@@ -34,10 +34,10 @@ pub type ModelFuture<'a> =
 pub trait ModelClient: Send + Sync {
     fn complete<'a>(&'a self, request: &'a llm::Request, remaining: Duration) -> ModelFuture<'a>;
 }
-impl ModelClient for llm::GoClient {
+impl ModelClient for llm::MistralClient {
     fn complete<'a>(&'a self, request: &'a llm::Request, remaining: Duration) -> ModelFuture<'a> {
         Box::pin(async move {
-            match timeout(remaining, llm::GoClient::complete(self, request)).await {
+            match timeout(remaining, llm::MistralClient::complete(self, request)).await {
                 Ok(result) => result,
                 Err(_) => Err(llm::Failure {
                     code: llm::ErrorCode::Timeout,
@@ -498,7 +498,6 @@ async fn run_loop(
             model: deps.model.clone(),
             messages: messages.clone(),
             max_tokens: 2048,
-            thinking: true,
         };
         let Some(content) = audited_model(deps, context, &request, deadline, progress).await?
         else {
@@ -584,7 +583,9 @@ async fn audited_model(
     deadline: Instant,
     progress: &mut TurnProgress,
 ) -> Result<Option<String>, TurnError> {
-    let encoded = json!({"model":request.model,"messages":request.messages,"thinking":request.thinking,"max_tokens":request.max_tokens}).to_string();
+    let encoded =
+        json!({"model":request.model,"messages":request.messages,"max_tokens":request.max_tokens})
+            .to_string();
     let actor = AuditActor {
         user_id: Some(context.user_id),
         organization_id: context.organization_id,

@@ -19,7 +19,7 @@ impl Default for AgentOptions {
     fn default() -> Self {
         Self {
             enabled: false,
-            model: "deepseek-v4.1-flash".to_owned(),
+            model: "deepseek-v4-1-flash-1017".to_owned(),
             rate_limit_messages: 20,
             rate_limit_window_seconds: 600,
             daily_token_budget: 200_000,
@@ -63,7 +63,7 @@ mod tests {
     fn missing_settings_use_disabled_defaults() {
         let options: AgentOptions = serde_json::from_str("{}").unwrap();
         assert!(!options.enabled);
-        assert_eq!(options.model, "deepseek-v4.1-flash");
+        assert_eq!(options.model, "deepseek-v4-1-flash-1017");
         assert_eq!(options.rate_limit_messages, 20);
         assert_eq!(options.rate_limit_window_seconds, 600);
         assert_eq!(options.daily_token_budget, 200_000);
@@ -139,7 +139,12 @@ mod tests {
 
     #[test]
     fn model_allowlist_applies_when_disabled_too() {
-        for model in ["", "unknown", " deepseek-v4.1-flash "] {
+        for model in [
+            "",
+            "deepseek-v4.1-flash",
+            "unknown",
+            " deepseek-v4-1-flash-1017 ",
+        ] {
             assert!(
                 AgentOptions {
                     model: model.to_owned(),

@@ -228,7 +228,6 @@ impl ModelClient for TestModel {
                 content: json!({"reply":SAFE_REPLY,"citations":[]}).to_string(),
                 receipts: vec![llm::Receipt {
                     slot: 1,
-                    headroom_known: true,
                     model: request.model.clone(),
                     request_id: Uuid::new_v4(),
                     attempt: 1,

@@ -458,17 +458,12 @@ fn agent_settings(
     values: &Bindings,
     projected: &mut BTreeMap<String, String>,
 ) -> Result<(), Refusal> {
-    for key in [
-        "OPENCODE_API_KEY",
-        "OPENCODE_API_KEY_2",
-        "OPENCODE_API_KEY_3",
-    ] {
-        if let Some(raw) = present(values, key).filter(|raw| !raw.is_empty()) {
-            if raw.len() > 512 || !raw.is_ascii() || raw.chars().any(char::is_control) {
-                return Err(Refusal("agent_credential"));
-            }
-            projected.insert(key.to_owned(), raw.to_owned());
+    let key = "MISTRAL_API_KEY";
+    if let Some(raw) = present(values, key).filter(|raw| !raw.is_empty()) {
+        if raw.len() > 512 || !raw.is_ascii() || raw.chars().any(char::is_control) {
+            return Err(Refusal("agent_credential"));
         }
+        projected.insert(key.to_owned(), raw.to_owned());
     }
     if let Some(raw) = present(values, "AGENT_ENABLED").filter(|raw| !is_blank(raw)) {
         if raw.chars().any(char::is_control) {
