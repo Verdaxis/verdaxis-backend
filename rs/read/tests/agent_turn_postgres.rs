@@ -418,10 +418,10 @@ async fn market_slice_draft_and_cited_reply_persist_with_complete_audit() {
     assert!(outcome.stopped.is_none());
     assert_eq!(outcome.reply, "Prepared 10 tonnes at 100 USD.");
     assert_eq!(outcome.citations.len(), 2);
-    assert_eq!(outcome.citations[0].tool_call, 1);
-    assert_eq!(outcome.citations[0].field, "bid_order_count");
-    assert_eq!(outcome.citations[1].tool_call, 2);
-    assert_eq!(outcome.citations[1].field, "terms.quantity_mt");
+    assert_eq!(json!(outcome.citations[0])["tool_call"], 1);
+    assert_eq!(json!(outcome.citations[0])["field"], "bid_order_count");
+    assert_eq!(json!(outcome.citations[1])["tool_call"], 2);
+    assert_eq!(json!(outcome.citations[1])["field"], "terms.quantity_mt");
     assert_eq!(outcome.drafts.len(), 1);
     let draft_id: Uuid = sqlx::query_scalar("SELECT id FROM public.order_drafts")
         .fetch_one(&f.app)
@@ -679,7 +679,7 @@ async fn cited_reply_is_allowed_after_six_tools() {
     .unwrap();
     assert!(outcome.stopped.is_none());
     assert_eq!(outcome.reply, "Available markets are shown in the catalog.");
-    assert_eq!(outcome.citations[0].tool_call, 6);
+    assert_eq!(json!(outcome.citations[0])["tool_call"], 6);
     assert_eq!(model.calls(), 7);
     f.assert_messages(1, 1).await;
     f.assert_audit_pairs(7, 6).await;
@@ -808,8 +808,8 @@ async fn ask_user_ends_turn_without_another_model_request() {
         "Which port for 10 tonnes?"
     );
     assert_eq!(outcome.citations.len(), 1);
-    assert_eq!(outcome.citations[0].tool_call, 1);
-    assert_eq!(outcome.citations[0].field, "question");
+    assert_eq!(json!(outcome.citations[0])["tool_call"], 1);
+    assert_eq!(json!(outcome.citations[0])["field"], "question");
     assert_eq!(
         outcome.question.as_ref().unwrap().options.as_ref().unwrap(),
         &["Singapore", "Rotterdam"]
@@ -1192,4 +1192,49 @@ async fn unavailable_model_receipt_prevents_tool_execution() {
     let report = verify_chain(&f.app, None, None).await.unwrap();
     assert_eq!(report.checked, 1);
     assert_eq!(report.first_broken_id, None);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn history_citations_require_a_visible_successful_tool_row() {
+    for rejected in [1, 11, 12, 13, 999] {
+        let f = Fixture::new().await;
+        let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
+        for seq in 1..=14_i32 {
+            let (role, ok) = match seq {
+                1 | 14 => ("tool", true),
+                13 => ("tool", false),
+                12 => ("assistant", true),
+                _ => ("user", true),
+            };
+            // Even a matching tool_result object is not evidence in a non-tool row.
+            let content = json!({"tool_result":{"ok":ok,"content":{"quantity_mt":"42"}}});
+            sqlx::query("INSERT INTO public.agent_messages(id,conversation_id,seq,role,content) VALUES($1,$2,$3,$4,$5)")
+            .bind(Uuid::new_v4()).bind(f.conversation).bind(seq).bind(role).bind(content)
+            .execute(&mut *tx).await.unwrap();
+        }
+        tx.commit().await.unwrap();
+        let citation = |seq| json!({"message_seq":seq,"field":"quantity_mt"});
+        // Outside history, user, assistant, failed tool, missing row, then valid tool.
+        let steps = [rejected, 14]
+            .into_iter()
+            .map(|seq| {
+                ScriptStep::Text(
+                    json!({"reply":"42 tonnes.","citations":[citation(seq)]}).to_string(),
+                )
+            })
+            .collect();
+        let model = f.model(steps);
+        let deps = deps(model.clone());
+        let outcome = run_turn(&deps, f.context(), "Repeat the quantity.".into(), vec![])
+            .await
+            .unwrap();
+        assert!(outcome.stopped.is_none());
+        assert_eq!(model.calls(), 2);
+        assert_eq!(json!(outcome.citations), json!([citation(14)]));
+        assert_eq!(
+            f.messages().await.last().unwrap().2["citations"],
+            json!([citation(14)])
+        );
+    }
 }
