@@ -288,6 +288,10 @@ fn catalog_explains_market_fields_and_open_orders() {
                         .unwrap()
                         .contains("SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL")
                 );
+                assert_eq!(
+                    props["market_product"]["description"],
+                    "Product code from list_markets, for example BIO_METHANOL."
+                );
                 for field in ["market_product", "delivery_point"] {
                     assert!(
                         props[field]["description"]

@@ -19,7 +19,7 @@ pub struct ListMarketsArguments {}
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMarketSliceArguments {
-    /// Product code from list_markets, for example BIO_METHANOL.
+    #[doc = include_str!("../../../../docs/agent-market-product-field.md")]
     pub market_product: String,
     /// Delivery point name from list_markets.
     pub delivery_point: String,
@@ -81,7 +81,7 @@ impl DraftSide {
 #[serde(deny_unknown_fields)]
 pub struct CreateDraftArguments {
     pub side: DraftSide,
-    /// Product code from list_markets, for example BIO_METHANOL.
+    #[doc = include_str!("../../../../docs/agent-market-product-field.md")]
     pub market_product: String,
     /// Delivery point name from list_markets.
     pub delivery_point: String,
