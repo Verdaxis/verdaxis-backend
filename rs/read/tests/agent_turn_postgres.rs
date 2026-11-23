@@ -429,6 +429,15 @@ async fn market_slice_draft_and_cited_reply_persist_with_complete_audit() {
         .unwrap();
     assert_eq!(outcome.drafts[0].id, draft_id);
     assert_eq!(model.calls(), 3);
+    let request = model.request(0);
+    let clock: Value = serde_json::from_str(request[1]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(clock["source_message_seq"], 1);
+    let timestamp = clock["current_time_utc"].as_str().unwrap();
+    let parsed = chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
+    assert_eq!(
+        timestamp,
+        parsed.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    );
     assert_eq!(f.draft_count().await, 1);
     let row = sqlx::query("SELECT status,source_text,quantity_mt::text AS quantity,limit_price_usd::text AS price FROM public.order_drafts")
         .fetch_one(&f.app).await.unwrap();

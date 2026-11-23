@@ -275,3 +275,84 @@ fn canonical_draft_digest_covers_each_field_and_normalizes_values() {
         assert_ne!(digest(changed), expected, "{field}");
     }
 }
+
+#[test]
+fn catalog_explains_market_fields_and_open_orders() {
+    for entry in catalog().as_array().unwrap() {
+        let props = &entry["input_schema"]["properties"];
+        match entry["name"].as_str().unwrap() {
+            "get_market_slice" | "create_draft" => {
+                assert!(
+                    props["availability_window"]["description"]
+                        .as_str()
+                        .unwrap()
+                        .contains("SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL")
+                );
+                for field in ["market_product", "delivery_point"] {
+                    assert!(
+                        props[field]["description"]
+                            .as_str()
+                            .unwrap()
+                            .contains("list_markets")
+                    );
+                }
+            }
+            "get_my_orders" => assert!(
+                props["status"]["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("OPEN or PARTIALLY_FILLED")
+            ),
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn invalid_draft_fields_return_fixed_guidance() {
+    for (field, bad, expected) in [
+        (
+            "availability_window",
+            json!("bad"),
+            "Use SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL for availability_window.",
+        ),
+        (
+            "market_product",
+            json!("bad"),
+            "Use a market_product code from list_markets.",
+        ),
+        (
+            "delivery_point",
+            json!("bad"),
+            "Use a delivery_point name from list_markets.",
+        ),
+        (
+            "quantity_mt",
+            json!("bad"),
+            "Use exact decimal text greater than zero and at most 100000 for quantity_mt.",
+        ),
+        (
+            "limit_price_usd",
+            json!("bad"),
+            "Use exact decimal text greater than zero and at most 100000 for limit_price_usd.",
+        ),
+        (
+            "expires_at",
+            json!("bad"),
+            "Use a future RFC3339 timestamp within 90 days for expires_at.",
+        ),
+        (
+            "source_message_seq",
+            json!(0),
+            "Use the source_message_seq of a user message in this conversation.",
+        ),
+    ] {
+        let mut args = draft();
+        args[field] = bad;
+        let err = tool("create_draft", args)
+            .validate(&policy(), now())
+            .unwrap_err();
+        assert_eq!(err.code, "INVALID_ARGUMENTS");
+        assert_eq!(err.message, expected);
+    }
+}

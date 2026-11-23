@@ -256,6 +256,10 @@ async fn source_role_and_conversation_are_required() {
         let result = execute(&f.context(), f.draft(seq)).await;
         assert!(!result.ok);
         assert_eq!(result.content["error_code"], "INVALID_ARGUMENTS");
+        assert_eq!(
+            result.content["message"],
+            "Use the source_message_seq of a user message in this conversation."
+        );
     }
     assert_eq!(f.count("drafts").await, 0);
     let receipts:i64=sqlx::query_scalar("SELECT count(*) FROM public.agent_audit_events WHERE kind='tool_call_receipt' AND payload->'outcome'->>'ok'='false'").fetch_one(&f.app).await.unwrap();
