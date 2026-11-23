@@ -350,7 +350,9 @@ async fn request_headers_body_and_receipts_keep_credentials_separate() {
     assert_eq!(completion.receipts[0].usage.total_tokens, Some(12));
     assert!(completion.receipts[0].cost.is_none());
     let body: Value = serde_json::from_str(body).unwrap();
-    assert_eq!(body["thinking"]["type"], "enabled");
+    assert!(body.get("thinking").is_none());
+    assert!(body.get("reasoning_effort").is_none());
+    assert_eq!(body["response_format"], json!({"type": "json_object"}));
     assert_eq!(body["max_tokens"], 5120);
 }
 
