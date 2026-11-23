@@ -19,8 +19,11 @@ pub struct ListMarketsArguments {}
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMarketSliceArguments {
+    /// Product code from list_markets, for example BIO_METHANOL.
     pub market_product: String,
+    /// Delivery point name from list_markets.
     pub delivery_point: String,
+    /// Use exactly SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL (for example 2026-12 or 2027-Q1). “Prompt”, “spot” and “now” mean SPOT. Convert month names and “next month” using the current date.
     pub availability_window: String,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -51,6 +54,7 @@ impl OrderStatus {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMyOrdersArguments {
+    /// Omit to read all orders. Open or working orders have status OPEN or PARTIALLY_FILLED.
     pub status: Option<OrderStatus>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -77,8 +81,11 @@ impl DraftSide {
 #[serde(deny_unknown_fields)]
 pub struct CreateDraftArguments {
     pub side: DraftSide,
+    /// Product code from list_markets, for example BIO_METHANOL.
     pub market_product: String,
+    /// Delivery point name from list_markets.
     pub delivery_point: String,
+    /// Use exactly SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL (for example 2026-12 or 2027-Q1). “Prompt”, “spot” and “now” mean SPOT. Convert month names and “next month” using the current date.
     pub availability_window: String,
     /// Exact decimal text, greater than zero and at most 100000 metric tonnes.
     pub quantity_mt: String,
@@ -226,6 +233,26 @@ pub struct ToolError {
     pub message: &'static str,
 }
 impl ToolError {
+    const WINDOW: Self =
+        Self::invalid("Use SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL for availability_window.");
+    const PRODUCT: Self = Self::invalid("Use a market_product code from list_markets.");
+    const POINT: Self = Self::invalid("Use a delivery_point name from list_markets.");
+    const QUANTITY: Self = Self::invalid(
+        "Use exact decimal text greater than zero and at most 100000 for quantity_mt.",
+    );
+    const PRICE: Self = Self::invalid(
+        "Use exact decimal text greater than zero and at most 100000 for limit_price_usd.",
+    );
+    const EXPIRY: Self =
+        Self::invalid("Use a future RFC3339 timestamp within 90 days for expires_at.");
+    const SOURCE: Self =
+        Self::invalid("Use the source_message_seq of a user message in this conversation.");
+    const fn invalid(message: &'static str) -> Self {
+        Self {
+            code: "INVALID_ARGUMENTS",
+            message,
+        }
+    }
     fn validation() -> Self {
         Self {
             code: "INVALID_ARGUMENTS",
@@ -254,7 +281,11 @@ impl ToolError {
 impl From<ApiError> for ToolError {
     fn from(error: ApiError) -> Self {
         if error.status.as_u16() == 422 {
-            Self::validation()
+            if error.detail.as_str() == Some(Self::SOURCE.message) {
+                Self::SOURCE
+            } else {
+                Self::validation()
+            }
         } else {
             Self::unavailable()
         }
@@ -290,7 +321,7 @@ impl AgentTool {
     pub fn validate(&self, policy: &MarketPolicy, now: DateTime<Utc>) -> Result<(), ToolError> {
         match self {
             Self::GetMarketSlice(args) => {
-                crate::mcp::prices::validate_slice(
+                market_window(
                     policy,
                     &args.market_product,
                     &args.delivery_point,
@@ -299,11 +330,14 @@ impl AgentTool {
                 )?;
             }
             Self::PlanVoyageFuel(args) => {
-                crate::mcp::voyage::required_price_lookups(&args.request)
-                    .map_err(|_| ToolError::validation())?;
+                crate::mcp::voyage::required_price_lookups(&args.request).map_err(|_| {
+                    ToolError::invalid(
+                        "Use a valid voyage request with vessel, legs and start_date.",
+                    )
+                })?;
             }
             Self::GetMyTrades(args) if !(1..=50).contains(&args.limit.unwrap_or(20)) => {
-                return Err(ToolError::validation());
+                return Err(ToolError::invalid("Use a limit from 1 to 50."));
             }
             Self::CreateDraft(args) => {
                 args.canonical_terms(policy, now)?;
@@ -317,7 +351,9 @@ impl AgentTool {
                                 .any(|option| !(1..=80).contains(&option.chars().count()))
                     }) =>
             {
-                return Err(ToolError::validation());
+                return Err(ToolError::invalid(
+                    "Use a question of 1 to 500 characters and at most six options of 1 to 80 characters each.",
+                ));
             }
             _ => {}
         }
@@ -325,11 +361,29 @@ impl AgentTool {
     }
 }
 
-fn amount(text: &str) -> Result<Decimal, ToolError> {
+fn market_window(
+    policy: &MarketPolicy,
+    product: &str,
+    point: &str,
+    window: &str,
+    now: DateTime<Utc>,
+) -> Result<String, ToolError> {
+    let window = crate::market::windows::normalize_window(window, now.date_naive())
+        .map_err(|_| ToolError::WINDOW)?;
+    if !policy.products.iter().any(|item| item.code == product) {
+        return Err(ToolError::PRODUCT);
+    }
+    if !policy.points.iter().any(|item| item.name == point) {
+        return Err(ToolError::POINT);
+    }
+    Ok(window)
+}
+
+fn amount(text: &str, error: ToolError) -> Result<Decimal, ToolError> {
     // from_str_exact refuses values that would lose precision in NUMERIC binding.
-    let value = Decimal::from_str_exact(text).map_err(|_| ToolError::validation())?;
+    let value = Decimal::from_str_exact(text).map_err(|_| error)?;
     if value <= Decimal::ZERO || value > MAX_DRAFT_AMOUNT {
-        return Err(ToolError::validation());
+        return Err(error);
     }
     Ok(value.normalize())
 }
@@ -341,7 +395,7 @@ impl CreateDraftArguments {
         policy: &MarketPolicy,
         now: DateTime<Utc>,
     ) -> Result<Value, ToolError> {
-        let (_, _, window) = crate::mcp::prices::validate_slice(
+        let window = market_window(
             policy,
             &self.market_product,
             &self.delivery_point,
@@ -349,21 +403,25 @@ impl CreateDraftArguments {
             now,
         )?;
         if self.source_message_seq <= 0 {
-            return Err(ToolError::validation());
+            return Err(ToolError::SOURCE);
         }
-        let quantity = amount(&self.quantity_mt)?;
-        let price = self.limit_price_usd.as_deref().map(amount).transpose()?;
+        let quantity = amount(&self.quantity_mt, ToolError::QUANTITY)?;
+        let price = self
+            .limit_price_usd
+            .as_deref()
+            .map(|text| amount(text, ToolError::PRICE))
+            .transpose()?;
         let expires = self
             .expires_at
             .as_deref()
             .map(|text| {
                 let parsed = DateTime::parse_from_rfc3339(text)
-                    .map_err(|_| ToolError::validation())?
+                    .map_err(|_| ToolError::EXPIRY)?
                     .with_timezone(&Utc);
                 let at = DateTime::from_timestamp_micros(parsed.timestamp_micros())
-                    .ok_or_else(ToolError::validation)?;
+                    .ok_or(ToolError::EXPIRY)?;
                 if parsed > now + Duration::days(90) || at <= now {
-                    return Err(ToolError::validation());
+                    return Err(ToolError::EXPIRY);
                 }
                 Ok(at.to_rfc3339_opts(SecondsFormat::Micros, true))
             })
@@ -536,7 +594,7 @@ fn as_api(error: ToolError) -> ApiError {
         } else {
             axum::http::StatusCode::SERVICE_UNAVAILABLE
         },
-        detail: json!(error.code),
+        detail: json!(error.message),
         retry_after: None,
         kind: crate::ApiErrorKind::Expected,
     }
@@ -572,7 +630,7 @@ async fn create_draft(
     }
     let source: Option<Value> = sqlx::query_scalar("SELECT content FROM public.agent_messages WHERE conversation_id=$1 AND seq=$2 AND role='user'")
         .bind(context.conversation_id).bind(args.source_message_seq).fetch_optional(&mut *tx).await?;
-    let source = source.ok_or_else(ToolError::validation)?;
+    let source = source.ok_or(ToolError::SOURCE)?;
     // Messages may contain a JSON string or a structured user content value.
     // Store the exact text for strings, and compact JSON for structured content.
     let source_text = match source {
@@ -580,8 +638,12 @@ async fn create_draft(
         other => other.to_string(),
     };
     let id = Uuid::new_v4();
-    let quantity = amount(&args.quantity_mt)?;
-    let price = args.limit_price_usd.as_deref().map(amount).transpose()?;
+    let quantity = amount(&args.quantity_mt, ToolError::QUANTITY)?;
+    let price = args
+        .limit_price_usd
+        .as_deref()
+        .map(|text| amount(text, ToolError::PRICE))
+        .transpose()?;
     let expiry = terms["expires_at"]
         .as_str()
         .map(|text| DateTime::parse_from_rfc3339(text).map(|at| at.with_timezone(&Utc)))
