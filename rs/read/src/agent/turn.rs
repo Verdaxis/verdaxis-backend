@@ -949,6 +949,9 @@ mod tests {
         assert!(SYSTEM_PROMPT.contains(
             "Do not say that a draft replaces or cancels an earlier draft; each draft stays saved."
         ));
+        assert!(SYSTEM_PROMPT.contains("Report a draft as saved only if create_draft succeeded for it in this turn; count the saved drafts from those results and say which requested drafts were not saved."));
+        assert!(SYSTEM_PROMPT.contains("Before saying that a price, a benchmark or liquidity is missing, call get_market_slice in this turn for the exact product, delivery point and window requested; never substitute another product, and ask with ask_user if the product is unclear."));
+        assert!(SYSTEM_PROMPT.contains("If a tool returns the same error twice in one turn, do not call it again; tell the buyer what is unavailable."));
         assert!(SYSTEM_PROMPT.contains("json"));
         assert!(SYSTEM_PROMPT.contains("tool_call"));
         assert!(SYSTEM_PROMPT.contains("Every number"));
