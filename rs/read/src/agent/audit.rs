@@ -20,11 +20,7 @@ const CHAIN_LOCK: i64 = i64::from_be_bytes(*b"AGENTAUD");
 pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 pub const MAX_PAYLOAD_BYTES: usize = 64 * 1024;
 const VERIFY_BATCH: i64 = 256;
-const KEY_ENV_NAMES: [&str; 3] = [
-    "OPENCODE_API_KEY",
-    "OPENCODE_API_KEY_2",
-    "OPENCODE_API_KEY_3",
-];
+const KEY_ENV_NAMES: [&str; 1] = ["MISTRAL_API_KEY"];
 
 /// Errors deliberately retain neither database diagnostics nor event content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

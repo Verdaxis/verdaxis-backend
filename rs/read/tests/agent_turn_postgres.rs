@@ -285,7 +285,7 @@ impl ModelClient for ScriptedModel {
             assert!(!remaining.is_zero());
             // Dispatch must follow a committed intent, visible from another connection.
             let prompt = json!({"model":request.model,"messages":request.messages,
-                "thinking":request.thinking,"max_tokens":request.max_tokens})
+                "max_tokens":request.max_tokens})
             .to_string();
             let prompt_digest: String = <sha2::Sha256 as sha2::Digest>::digest(prompt.as_bytes())
                 .iter()
@@ -336,7 +336,6 @@ impl ModelClient for ScriptedModel {
 fn model_receipt(request: &Request, error: Option<llm::ErrorCode>) -> llm::Receipt {
     llm::Receipt {
         slot: 1,
-        headroom_known: true,
         model: request.model.clone(),
         request_id: Uuid::new_v4(),
         attempt: 1,

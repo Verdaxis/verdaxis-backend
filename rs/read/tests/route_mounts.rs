@@ -213,22 +213,16 @@ async fn agent_mounting_respects_startup_gates() {
                     "--nocapture",
                 ])
                 .env(CASE, case);
-            for key in [
-                "OPENCODE_API_KEY",
-                "OPENCODE_API_KEY_2",
-                "OPENCODE_API_KEY_3",
-            ] {
-                command.env_remove(key);
-            }
+            command.env_remove("MISTRAL_API_KEY");
             match case {
                 "disabled" | "ready" => {
                     command.env(
-                        "OPENCODE_API_KEY",
+                        "MISTRAL_API_KEY",
                         format!("mount-fixture-{}", std::process::id()),
                     );
                 }
                 "rejected" => {
-                    command.env("OPENCODE_API_KEY", "not-ascii-\u{e9}");
+                    command.env("MISTRAL_API_KEY", "not-ascii-\u{e9}");
                 }
                 _ => {}
             }

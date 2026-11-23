@@ -5,7 +5,7 @@ use axum::{Router, middleware};
 
 use crate::{
     AppState,
-    agent::{llm::GoClient, routes::RouteState, turn::ModelClient},
+    agent::{llm::MistralClient, routes::RouteState, turn::ModelClient},
     auth::limits::SharedLimits,
 };
 
@@ -17,7 +17,7 @@ pub(crate) fn startup_model(options: &AgentOptions) -> Option<Arc<dyn ModelClien
     if !options.enabled {
         return None;
     }
-    match GoClient::from_environment() {
+    match MistralClient::from_environment() {
         Ok(client) => Some(Arc::new(client)),
         Err(code) => {
             tracing::warn!(error_code = ?code, "assistant routes not mounted");

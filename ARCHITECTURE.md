@@ -15,21 +15,15 @@ job commands reuse the domain code rather than a separate application stack.
 
 ## Agent model transport
 
-`rs/read/src/agent/llm/` owns the async OpenCode Go chat-completions
-transport. Its single model table permits `deepseek-v4.1-flash`. Credentials
-come from three runtime environment slots; usage meters are cached per slot
-for 60 seconds. The shared `GoClient` supports concurrent calls through
-`complete(&self)`; short per-slot mutex sections never span network waits.
-Keep one instance for the service lifetime to preserve caches and disabled
-slots. Selection prefers known headroom, then the lowest unknown slot during
-usage outages; known exhausted slots remain excluded. Receipts record whether
-headroom was known. The client rotates after 429 or 401/403, and disables
-unauthorized slots until restart. Bounded requests have no redirects and return
-key-free attempt receipts, including failed attempts. Unknown cost is null;
-raw provider error bodies are neither returned nor logged.
+`rs/read/src/agent/llm/` sends bounded chat completions to the Mistral API.
+The only admitted model is `deepseek-v4-1-flash-1017`. Each attempt uses the
+same bearer key and emits a key-free receipt with slot 1. A 401 or 403 disables
+the key until restart. The client retries 429, 502, 503 and 504 up to three
+attempts total; waits above 30 seconds are deferred. Redirects are disabled.
+Raw provider error bodies are neither returned nor logged; unknown cost is null.
 
-`ops prepare-runtime` projects optional serve-only `OPENCODE_API_KEY`,
-`OPENCODE_API_KEY_2`, `OPENCODE_API_KEY_3`, `AGENT_ENABLED` and `AGENT_MODEL`.
+`ops prepare-runtime` projects the optional serve-only `MISTRAL_API_KEY`,
+`AGENT_ENABLED` and `AGENT_MODEL` settings.
 The transport does not mount routes itself. `runtime/agent.rs` mounts the group
 only when `AGENT_ENABLED` is true and startup credential validation succeeds.
 `AppState` retains one shared model client for the process lifetime. Missing or
@@ -58,7 +52,7 @@ Administrator routes use the existing administrator authorization and the shared
 | Serve setting | Default | Accepted values |
 | --- | --- | --- |
 | `AGENT_ENABLED` | false | Deployed boolean spellings |
-| `AGENT_MODEL` | `deepseek-v4.1-flash` | Model allow-list only |
+| `AGENT_MODEL` | `deepseek-v4-1-flash-1017` | Model allow-list only |
 | `AGENT_RATE_LIMIT_MESSAGES` | 20 | 1–10000 |
 | `AGENT_RATE_LIMIT_WINDOW_SECONDS` | 600 | 1–86400 |
 | `AGENT_DAILY_TOKEN_BUDGET` | 200000 | 1–1000000000 |
@@ -79,8 +73,8 @@ audit-time indexes. The catalog fingerprint includes their definitions; the
 
 `rs/read/src/agent/turn.rs` owns bounded buyer-assistant turns. The public
 `run_turn` accepts signed-in tool context, user text and explicitly labelled
-untrusted blocks. An object-safe `ModelClient` permits the shared `GoClient`
-and scripted test clients. Requests use thinking mode and a visible output
+untrusted blocks. An object-safe `ModelClient` permits the shared `MistralClient`
+and scripted test clients. Requests use JSON object mode and a visible output
 allowance of 2048 tokens; the transport supplies its reasoning headroom.
 
 Decisions are strict JSON: one typed tool call with a reason, or one reply
