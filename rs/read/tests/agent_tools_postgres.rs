@@ -400,7 +400,11 @@ async fn agent_open_includes_partly_filled_while_filled_is_exact() {
     let f = Fixture::new().await;
     let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
     for (status, remaining) in [("OPEN", 10), ("FILLED", 0)] {
-        sqlx::query("INSERT INTO public.orderbook_orders SELECT (jsonb_populate_record(o, jsonb_build_object('id',gen_random_uuid(),'status',$2::text,'remaining_quantity_mt',$3::int,'created_at',o.created_at + interval '1 second'))).* FROM public.orderbook_orders o WHERE o.id=$1")
+        // Copy trading terms, not the order identity or its acceptance ordinal.
+        sqlx::query("INSERT INTO public.orderbook_orders
+            (id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,created_at)
+            SELECT gen_random_uuid(),organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,$3::int,price_per_mt_usd,availability_window,$2::text,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,created_at + interval '1 second'
+            FROM public.orderbook_orders WHERE id=$1")
             .bind(f.order).bind(status).bind(remaining).execute(&mut *tx).await.unwrap();
     }
     tx.commit().await.unwrap();
