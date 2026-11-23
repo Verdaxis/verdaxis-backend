@@ -161,7 +161,7 @@ async fn dispatch_read(
                     limit: request.limit,
                     template: request.template,
                     user_id: None,
-                    status: None,
+                    statuses: None,
                 },
                 now,
                 &policy,
@@ -647,7 +647,7 @@ pub(crate) struct OwnerOrderRead {
     pub limit: i64,
     pub template: bool,
     pub user_id: Option<Uuid>,
-    pub status: Option<String>,
+    pub statuses: Option<Vec<String>>,
 }
 
 pub(crate) async fn owner_read(
@@ -658,8 +658,8 @@ pub(crate) async fn owner_read(
     policy: &MarketPolicy,
     config: &crate::Config,
 ) -> Result<Value, MarketWriteError> {
-    let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,(SELECT value->>'code' FROM jsonb_array_elements($6::jsonb->'products') WHERE value->>'id'=p.id::text) AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,COALESCE(org.supplier_tier::text,'INDEPENDENT') AS tier_label,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN organizations org ON org.id=o.organization_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND ($7::uuid IS NULL OR o.owner_user_id=$7) AND ($8::text IS NULL OR o.status::text=$8) AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
-            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).bind(serde_json::to_value(policy).map_err(|_|internal())?).bind(request.user_id).bind(&request.status).fetch_all(&mut *conn).await?;
+    let rows=sqlx::query("SELECT to_jsonb(o) || jsonb_build_object('quantity_mt',o.quantity_mt::text,'remaining_quantity_mt',o.remaining_quantity_mt::text,'price_per_mt_usd',o.price_per_mt_usd::text,'carbon_intensity_gco2_mj',o.carbon_intensity_gco2_mj::text,'energy_density_mj_kg',o.energy_density_mj_kg::text) AS data,p.name AS product_name,(SELECT value->>'code' FROM jsonb_array_elements($6::jsonb->'products') WHERE value->>'id'=p.id::text) AS market_product,p.fuel_type AS fuel_type,p.fuel_grade AS fuel_grade,d.name AS point_name,d.region AS region,COALESCE(org.supplier_tier::text,'INDEPENDENT') AS tier_label,(SELECT count(*) FROM trades t WHERE (o.side::text='ASK' AND t.ask_order_id=o.id) OR (o.side::text='BID' AND t.bid_order_id=o.id)) AS trade_count FROM orderbook_orders o JOIN products p ON p.id=o.product_id LEFT JOIN organizations org ON org.id=o.organization_id LEFT JOIN delivery_points d ON d.id=o.delivery_point_id WHERE o.organization_id=$1 AND ($7::uuid IS NULL OR o.owner_user_id=$7) AND ($8::text[] IS NULL OR o.status::text=ANY($8)) AND (NOT $2 OR (o.side::text='ASK' AND (o.expires_at IS NULL OR o.expires_at>$3))) ORDER BY o.created_at DESC,o.id DESC OFFSET $4 LIMIT $5")
+            .bind(organization).bind(request.template).bind(now).bind(if request.template{0}else{request.skip}).bind(if request.template{1}else{request.limit}).bind(serde_json::to_value(policy).map_err(|_|internal())?).bind(request.user_id).bind(&request.statuses).fetch_all(&mut *conn).await?;
     if request.template {
         return rows
             .first()

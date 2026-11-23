@@ -54,7 +54,7 @@ impl OrderStatus {
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMyOrdersArguments {
-    /// Omit to read all orders. Open or working orders have status OPEN or PARTIALLY_FILLED.
+    /// Omit to read all orders. OPEN returns open and partly filled orders. Each order shows its own status and remaining quantity.
     pub status: Option<OrderStatus>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
@@ -548,7 +548,13 @@ async fn execute_inner(
                                 limit: 50,
                                 template: false,
                                 user_id: Some(context.user_id),
-                                status: args.status.map(|value| value.as_str().to_owned()),
+                                statuses: args.status.map(|status| match status {
+                                    OrderStatus::Open => vec![
+                                        status.as_str().to_owned(),
+                                        OrderStatus::PartiallyFilled.as_str().to_owned(),
+                                    ],
+                                    exact => vec![exact.as_str().to_owned()],
+                                }),
                             },
                             now,
                             &state.policy,
