@@ -256,6 +256,10 @@ async fn source_role_and_conversation_are_required() {
         let result = execute(&f.context(), f.draft(seq)).await;
         assert!(!result.ok);
         assert_eq!(result.content["error_code"], "INVALID_ARGUMENTS");
+        assert_eq!(
+            result.content["message"],
+            "Use the source_message_seq of a user message in this conversation."
+        );
     }
     assert_eq!(f.count("drafts").await, 0);
     let receipts:i64=sqlx::query_scalar("SELECT count(*) FROM public.agent_audit_events WHERE kind='tool_call_receipt' AND payload->'outcome'->>'ok'='false'").fetch_one(&f.app).await.unwrap();
@@ -388,4 +392,39 @@ async fn draft_audit_failure_rolls_back_and_failed_receipt_is_not_success() {
     assert!(!result.ok);
     assert_eq!(result.content["error_code"], "AUDIT_UNAVAILABLE");
     sqlx::raw_sql("DROP TRIGGER agent_tools_refuse_receipt ON public.agent_audit_events; DROP FUNCTION agent_tools_refuse_receipt();").execute(&f.admin).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn agent_open_includes_partly_filled_while_filled_is_exact() {
+    let f = Fixture::new().await;
+    let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
+    for (status, remaining) in [("OPEN", 10), ("FILLED", 0)] {
+        // Copy trading terms, not the order identity or its acceptance ordinal.
+        sqlx::query("INSERT INTO public.orderbook_orders
+            (id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,created_at)
+            SELECT gen_random_uuid(),organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,$3::int,price_per_mt_usd,availability_window,$2::text,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,created_at + interval '1 second'
+            FROM public.orderbook_orders WHERE id=$1")
+            .bind(f.order).bind(status).bind(remaining).execute(&mut *tx).await.unwrap();
+    }
+    tx.commit().await.unwrap();
+    for (status, expected) in [
+        ("OPEN", vec!["OPEN", "PARTIALLY_FILLED"]),
+        ("FILLED", vec!["FILLED"]),
+    ] {
+        let result = execute(
+            &f.context(),
+            call("get_my_orders", json!({"status":status})),
+        )
+        .await;
+        assert!(result.ok);
+        let actual: Vec<_> = result
+            .content
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["status"].as_str().unwrap())
+            .collect();
+        assert_eq!(actual, expected);
+    }
 }

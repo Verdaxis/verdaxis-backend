@@ -78,7 +78,10 @@ and scripted test clients. Requests use JSON object mode and a visible output
 allowance of 2048 tokens; the transport supplies its reasoning headroom.
 
 Decisions are strict JSON: one typed tool call with a reason, or one reply
-with field citations to successful tool steps in the current turn. Contract
+with field citations to successful tool steps in the current turn (`tool_call`) or
+successful tool rows present in the history sent to the model (`message_seq`).
+Stored assistant outcomes keep the citation form and field. Summaries, omitted
+rows, user and assistant messages, and failed tool results are not evidence. Contract
 feedback stays in model observations, not user replies. Questions end the turn;
 successful drafts are collected without placing orders. Limits permit at most
 six tool calls, two consecutive contract errors and a 90-second loop deadline.

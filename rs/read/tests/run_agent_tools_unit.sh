@@ -16,4 +16,4 @@ cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
 check_count 1
 cargo test --manifest-path "$repo/rs/Cargo.toml" --locked -p verdaxis-read \
   --test group_crud agent_tools:: -- --test-threads=1 2>&1 | tee "$log"
-check_count 8
+check_count 10
