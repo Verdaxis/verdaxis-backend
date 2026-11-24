@@ -270,5 +270,5 @@ fn retired_actions_and_cleanup_do_not_take_execution_gates() {
     }
     let payload: Value = serde_json::to_value(build_abilities(&facts)).unwrap();
     assert_eq!(payload["schema_version"], 1);
-    assert_eq!(payload["abilities"].as_array().unwrap().len(), 23);
+    assert_eq!(payload["abilities"].as_array().unwrap().len(), 24);
 }

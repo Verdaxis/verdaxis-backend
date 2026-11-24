@@ -7,9 +7,11 @@ export RELEASE_SHA
 image='postgis/postgis:17-3.6-alpine@sha256:49b4d46c9fb8b158ddecd14d1894871a21ed4acb7ef376e2050f43f79c7b7272'
 template=verdaxis_abilities_test
 container=''
+run_log=''
 cleanup() {
   local status=$?
   if [[ -n "$container" ]]; then docker rm -f -v "$container" >/dev/null 2>&1 || true; fi
+  if [[ -n "$run_log" ]]; then rm -f "$run_log"; fi
   exit "$status"
 }
 trap cleanup EXIT
@@ -47,8 +49,15 @@ export RUST_TEMPLATE_ADMIN_DATABASE_URL="$admin/postgres"
 export RUST_ABILITIES_ADMIN_DATABASE_URL="$admin/$template"
 export RUST_ABILITIES_DATABASE_URL="postgresql://rust_app:disposable_role_pw@127.0.0.1:$port/$template"
 export RUST_ABILITIES_TEMPLATE_DATABASE="$template"
+# A process-local, non-secret transport fixture enables mounting. No model call is made.
+export MISTRAL_API_KEY="abilities-fixture-$$"
+run_log=$(mktemp)
 # CARGO_RUNNER carries the caller's shared target-directory lock.
 # shellcheck disable=SC2086
 ${CARGO_RUNNER:-} cargo test --manifest-path rs/Cargo.toml --locked -p verdaxis-read \
   --features contract-tests --test group_crud \
-  -- abilities_postgres:: abilities_http:: --include-ignored --test-threads=1
+  -- abilities_postgres:: abilities_http:: --include-ignored --test-threads=1 2>&1 | tee "$run_log"
+grep -Eq '^test result: ok\. 8 passed; 0 failed; 0 ignored;' "$run_log" || {
+  printf 'abilities: expected 8 passed tests\n' >&2
+  exit 1
+}

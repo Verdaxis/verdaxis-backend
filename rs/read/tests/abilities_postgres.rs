@@ -10,13 +10,13 @@ use axum::{
 };
 use chrono::Utc;
 use serde_json::{Value, json};
-use sqlx::{Connection, PgConnection, postgres::PgPoolOptions};
+use sqlx::{Connection, PgConnection};
 use tower::ServiceExt;
 use uuid::Uuid;
 use verdaxis_read::{AppState, Config, compiled_sha, runtime::artifact::ALLOWED_REVISIONS};
 
 const SECRET: &str = "abilities-synthetic-secret-at-least-32-characters";
-const ACTIONS: [&str; 23] = [
+const ACTIONS: [&str; 24] = [
     "place_bid_order",
     "place_ask_order",
     "amend_order",
@@ -40,6 +40,7 @@ const ACTIONS: [&str; 23] = [
     "manage_commissions",
     "market_support_access",
     "market_support_assisted_orders",
+    "use_agent",
 ];
 
 fn token(user: Uuid) -> String {
@@ -54,7 +55,18 @@ fn token(user: Uuid) -> String {
 }
 
 async fn application(url: &str, gate: bool, support: bool) -> (Router, sqlx::PgPool, sqlx::PgPool) {
-    let config: Config = serde_json::from_value(json!({
+    application_with_agent(url, gate, support, false).await
+}
+
+async fn application_with_agent(
+    url: &str,
+    gate: bool,
+    support: bool,
+    agent_enabled: bool,
+) -> (Router, sqlx::PgPool, sqlx::PgPool) {
+    use verdaxis_read::runtime::db::connect_contract_pool;
+
+    let mut config: Config = serde_json::from_value(json!({
         "environment":"test", "release_sha":compiled_sha(),
         "migration_revision":ALLOWED_REVISIONS[0], "database_url":url,
         "kyc_execution_gate_enabled":gate, "db_session_time_zone":"UTC", "bind":"127.0.0.1:0",
@@ -64,14 +76,11 @@ async fn application(url: &str, gate: bool, support: bool) -> (Router, sqlx::PgP
         "resend_api_key":"synthetic","auth_domain_datasets":"null",
         "market_write":{"support_enabled":support,"support_consent_version":"test-v1","support_consent_reference":"https://example.test/consent"}}
     })).unwrap();
-    let read = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(url)
+    config.phase2.agent.enabled = agent_enabled;
+    let read = connect_contract_pool(url.parse().unwrap(), 4, "UTC".into())
         .await
         .unwrap();
-    let health = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(url)
+    let health = connect_contract_pool(url.parse().unwrap(), 1, "UTC".into())
         .await
         .unwrap();
     let state = AppState::new(
@@ -507,6 +516,80 @@ async fn hit_and_confirm_hints_match_real_execution_routes() {
         json!({}),
     )
     .await;
+    read.close().await;
+    health.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires migrated disposable PostgreSQL; run_abilities.sh"]
+async fn use_agent_follows_mount_role_and_scoped_pauses() {
+    let db = market_database::MarketDatabase::new("RUST_ABILITIES").await;
+    let mut admin = PgConnection::connect(&db.admin_url).await.unwrap();
+    let org = Uuid::new_v4();
+    let user = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations(id,name,type,verification_status,provenance,created_at) VALUES($1,'Agent buyer','SHIP_OPERATOR','APPROVED','REAL',now())")
+        .bind(org).execute(&mut admin).await.unwrap();
+    sqlx::query("INSERT INTO users(id,email,password_hash,role,status,email_verified,organization_id) VALUES($1,'agent-ability@example.test','unused','SUPPLIER','APPROVED',true,$2)")
+        .bind(user).bind(org).execute(&mut admin).await.unwrap();
+    let bearer = token(user);
+    async fn check(app: &Router, bearer: &str, expected: Option<(&str, &str)>) {
+        let (status, _, body) = get(app, "/api/auth/me/abilities", Some(bearer)).await;
+        assert_eq!(status, StatusCode::OK);
+        let row = body["abilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["action"] == "use_agent")
+            .expect("missing use_agent");
+        assert_eq!(
+            *row,
+            json!({"action":"use_agent", "allowed":expected.is_none(),
+                "reason_code":expected.map(|e| e.0), "reason":expected.map(|e| e.1)})
+        );
+    }
+    let (off, read, health) = application(&db.runtime_url, false, false).await;
+    check(
+        &off,
+        &bearer,
+        Some(("AGENT_DISABLED", "The assistant is not enabled.")),
+    )
+    .await;
+    read.close().await;
+    health.close().await;
+    let (app, read, health) = application_with_agent(&db.runtime_url, false, false, true).await;
+    for (scope, id) in [
+        ("global", None),
+        ("organization", Some(org)),
+        ("user", Some(user)),
+    ] {
+        sqlx::query("INSERT INTO agent_controls(scope,scope_id,paused,reason,updated_by) VALUES($1,$2,true,'Operator note',$3)")
+            .bind(scope).bind(id).bind(user).execute(&mut admin).await.unwrap();
+        if scope == "global" {
+            check(
+                &app,
+                &bearer,
+                Some(("BUYER_REQUIRED", "Only buyer accounts can do this.")),
+            )
+            .await;
+            sqlx::query("UPDATE users SET role='BUYER' WHERE id=$1")
+                .bind(user)
+                .execute(&mut admin)
+                .await
+                .unwrap();
+        }
+        check(
+            &app,
+            &bearer,
+            Some(("AGENT_PAUSED", "The assistant is paused.")),
+        )
+        .await;
+        sqlx::query("DELETE FROM agent_controls WHERE scope=$1")
+            .bind(scope)
+            .execute(&mut admin)
+            .await
+            .unwrap();
+    }
+    check(&app, &bearer, None).await;
     read.close().await;
     health.close().await;
 }
