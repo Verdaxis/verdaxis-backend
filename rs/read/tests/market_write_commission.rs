@@ -1,4 +1,5 @@
 use serde_json::json;
+use verdaxis_read::MarketErrorCode;
 use verdaxis_read::commission::{CommissionPatch, CommissionStatus, PatchField};
 
 #[test]
@@ -37,19 +38,17 @@ fn commission_status_accepts_each_stored_value() {
 }
 
 #[test]
-fn commission_patch_leaves_text_lengths_to_the_database() {
-    let longest = json!({"invoice_number":"x".repeat(50),"notes":"n".repeat(500)});
+fn commission_patch_limits_text_by_character_count() {
+    let longest = json!({"invoice_number":"é".repeat(50),"notes":"界".repeat(500)});
     let patch = CommissionPatch::parse(longest).unwrap();
-    assert_eq!(patch.invoice_number, PatchField::Set(Some("x".repeat(50))));
-    assert_eq!(patch.notes, PatchField::Set(Some("n".repeat(500))));
-    // The limits count characters, as PostgreSQL `varchar(n)` does.
-    let accented = json!({"notes":"é".repeat(500)});
-    assert!(CommissionPatch::parse(accented).is_ok());
+    assert_eq!(patch.invoice_number, PatchField::Set(Some("é".repeat(50))));
+    assert_eq!(patch.notes, PatchField::Set(Some("界".repeat(500))));
     for payload in [
-        json!({"invoice_number":"x".repeat(51)}),
-        json!({"notes":"n".repeat(501)}),
+        json!({"invoice_number":"é".repeat(51)}),
+        json!({"notes":"界".repeat(501)}),
     ] {
-        assert!(CommissionPatch::parse(payload).is_ok());
+        let error = CommissionPatch::parse(payload).unwrap_err();
+        assert_eq!(error.code, MarketErrorCode::ValidationFailed);
     }
 }
 
