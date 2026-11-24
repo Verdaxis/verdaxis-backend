@@ -246,6 +246,9 @@ async fn agent_mounting_respects_startup_gates() {
     );
     let app = verdaxis_read::router(state);
     for (method, path) in [
+        ("GET", "/api/agent/conversations".to_owned()),
+        ("GET", format!("/api/agent/drafts/{ID}")),
+        ("POST", format!("/api/agent/drafts/{ID}/discard")),
         ("POST", "/api/agent/conversations".to_owned()),
         ("GET", format!("/api/agent/conversations/{ID}")),
         ("POST", format!("/api/agent/conversations/{ID}/messages")),
