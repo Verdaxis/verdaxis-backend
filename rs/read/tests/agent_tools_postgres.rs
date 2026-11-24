@@ -290,7 +290,7 @@ async fn two_users_cannot_read_or_create_each_others_private_data() {
     assert!(execute(&f.context(), f.draft(1)).await.ok);
     let orders = execute(&f.context(), call("get_my_orders", json!({}))).await;
     assert!(orders.ok, "{:?}", orders.content);
-    assert_eq!(orders.content[0]["id"], f.order.to_string());
+    assert_eq!(orders.content["items"][0]["id"], f.order.to_string());
     let trades = execute(&f.context(), call("get_my_trades", json!({}))).await;
     assert!(trades.ok, "{:?}", trades.content);
     assert_eq!(trades.content["items"].as_array().unwrap().len(), 1);
@@ -302,7 +302,10 @@ async fn two_users_cannot_read_or_create_each_others_private_data() {
     };
     let orders = execute(&member, call("get_my_orders", json!({}))).await;
     assert!(orders.ok);
-    assert_eq!(orders.content, json!([]));
+    assert_eq!(
+        orders.content,
+        json!({"items":[],"total_remaining_value_usd":"0","total_order_count":0})
+    );
     let trades = execute(&member, call("get_my_trades", json!({}))).await;
     assert!(trades.ok);
     assert_eq!(trades.content["items"], json!([]));
@@ -399,7 +402,7 @@ async fn draft_audit_failure_rolls_back_and_failed_receipt_is_not_success() {
 async fn agent_open_includes_partly_filled_while_filled_is_exact() {
     let f = Fixture::new().await;
     let mut tx = f.admin.begin_with("BEGIN READ WRITE").await.unwrap();
-    for (status, remaining) in [("OPEN", 10), ("FILLED", 0)] {
+    for (status, remaining) in [("OPEN", 10), ("FILLED", 0), ("CANCELLED", 8)] {
         // Copy trading terms, not the order identity or its acceptance ordinal.
         sqlx::query("INSERT INTO public.orderbook_orders
             (id,organization_id,owner_user_id,created_by_actor_user_id,creation_method,provenance,side,product_id,delivery_point_id,inventory_item_id,quantity_mt,remaining_quantity_mt,price_per_mt_usd,availability_window,status,off_spec,certification_declared,certification_scheme,specification_standard,msds_available,carbon_intensity_gco2_mj,carbon_intensity_method,feedstock,origin,created_at)
@@ -418,13 +421,26 @@ async fn agent_open_includes_partly_filled_while_filled_is_exact() {
         )
         .await;
         assert!(result.ok);
-        let actual: Vec<_> = result
-            .content
+        let actual: Vec<_> = result.content["items"]
             .as_array()
             .unwrap()
             .iter()
             .map(|row| row["status"].as_str().unwrap())
             .collect();
         assert_eq!(actual, expected);
+    }
+    let orders = execute(&f.context(), call("get_my_orders", json!({}))).await;
+    assert!(orders.ok);
+    assert_eq!(orders.content["total_remaining_value_usd"], "1600");
+    assert_eq!(orders.content["total_order_count"], 2);
+    for row in orders.content["items"].as_array().unwrap() {
+        let value = match row["status"].as_str().unwrap() {
+            "OPEN" => "1000",
+            "PARTIALLY_FILLED" => "600",
+            "FILLED" => "0",
+            "CANCELLED" => "800",
+            _ => panic!("unexpected status"),
+        };
+        assert_eq!(row["remaining_value_usd"], value);
     }
 }
