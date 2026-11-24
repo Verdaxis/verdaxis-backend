@@ -186,8 +186,10 @@ fn summarize_content(content: &Value, original_chars: usize) -> Value {
         .or_else(|| content.get("items").and_then(Value::as_array));
     if let Some(items) = items {
         summary["item_count"] = json!(items.len());
-        if let Some(total) = content.get("total") {
-            summary["total"] = total.clone();
+        for key in ["total", "total_remaining_value_usd", "total_order_count"] {
+            if let Some(value) = content.get(key) {
+                summary[key] = value.clone();
+            }
         }
         let mut compact = Vec::new();
         for item in items {
@@ -201,6 +203,7 @@ fn summarize_content(content: &Value, original_chars: usize) -> Value {
                 "availability_window",
                 "quantity_mt",
                 "remaining_quantity_mt",
+                "remaining_value_usd",
                 "price_per_mt_usd",
                 "created_at",
             ] {
@@ -561,7 +564,8 @@ async fn execute_inner(
                             &state.config,
                         )
                         .await
-                        .map_err(|_| as_api(ToolError::unavailable())),
+                        .map_err(|_| as_api(ToolError::unavailable()))
+                        .and_then(|items| order_values(items).map_err(as_api)),
                         AgentTool::GetMyTrades(args) => crate::order_write::trades::owner_read(
                             conn,
                             crate::order_write::trades::OwnerTradeScope {
@@ -593,6 +597,58 @@ async fn execute_inner(
         }
     }
 }
+// Decimal arithmetic can reduce the scale to fit the result. Construct from
+// checked mantissas instead: an unrepresentable USD amount must not be rounded.
+fn exact_product(left: Decimal, right: Decimal) -> Option<Decimal> {
+    let (left, right) = (left.normalize(), right.normalize());
+    let mantissa = left.mantissa().checked_mul(right.mantissa())?;
+    Decimal::try_from_i128_with_scale(mantissa, left.scale() + right.scale()).ok()
+}
+
+fn exact_sum(left: Decimal, right: Decimal) -> Option<Decimal> {
+    let scale = left.scale().max(right.scale());
+    let align = |value: Decimal| {
+        value
+            .mantissa()
+            .checked_mul(10_i128.pow(scale - value.scale()))
+    };
+    let mantissa = align(left)?.checked_add(align(right)?)?;
+    Decimal::try_from_i128_with_scale(mantissa, scale).ok()
+}
+
+fn order_values(mut items: Value) -> Result<Value, ToolError> {
+    let mut total = Decimal::ZERO;
+    let mut count = 0usize;
+    for row in items.as_array_mut().ok_or_else(ToolError::unavailable)? {
+        let decimal = |key: &str| {
+            row[key]
+                .as_str()
+                .and_then(|text| Decimal::from_str_exact(text).ok())
+                .ok_or_else(ToolError::unavailable)
+        };
+        if row["price_per_mt_usd"].is_null() {
+            row["remaining_value_usd"] = Value::Null;
+            continue;
+        }
+        let value = exact_product(
+            decimal("remaining_quantity_mt")?,
+            decimal("price_per_mt_usd")?,
+        )
+        .ok_or_else(ToolError::unavailable)?
+        .normalize();
+        if matches!(row["status"].as_str(), Some("OPEN" | "PARTIALLY_FILLED")) {
+            total = exact_sum(total, value)
+                .ok_or_else(ToolError::unavailable)?
+                .normalize();
+            count += 1;
+        }
+        row["remaining_value_usd"] = json!(value.to_string());
+    }
+    Ok(
+        json!({"items":items,"total_remaining_value_usd":total.to_string(),"total_order_count":count}),
+    )
+}
+
 fn as_api(error: ToolError) -> ApiError {
     ApiError {
         status: if error.code == "INVALID_ARGUMENTS" {
@@ -689,7 +745,7 @@ pub fn catalog() -> Value {
         ),
         entry::<GetMyOrdersArguments>(
             "get_my_orders",
-            "Read up to 50 orders owned by the signed-in user."
+            "Read up to 50 orders owned by the signed-in user. Use remaining_value_usd for each order and total_remaining_value_usd for the total of priced open and partly filled orders; do not calculate these values."
         ),
         entry::<GetMyTradesArguments>(
             "get_my_trades",
@@ -709,6 +765,23 @@ pub fn catalog() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remaining_values_use_exact_decimal_text_and_skip_unpriced_rows() {
+        let row = |quantity, price: Value| json!({"status":"OPEN","remaining_quantity_mt":quantity,"price_per_mt_usd":price});
+        let orders =
+            order_values(json!([row("0.03", json!("0.07")), row("1", Value::Null)])).unwrap();
+        assert_eq!(orders["items"][0]["remaining_value_usd"], "0.0021");
+        assert!(orders["items"][1]["remaining_value_usd"].is_null());
+        assert_eq!(orders["total_remaining_value_usd"], "0.0021");
+        assert_eq!(orders["total_order_count"], 1);
+        assert!(
+            order_values(json!([row(
+                "0.00000000000000000001",
+                json!("0.00000000000000000001")
+            )]))
+            .is_err()
+        );
+    }
     #[test]
     fn content_cap_retains_complete_json_and_counts_serialized_characters() {
         for content in [
