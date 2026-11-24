@@ -229,7 +229,7 @@ fn contract_feedback(successful: &[usize], history_evidence: &[i32]) -> Value {
         Some(catalog) => catalog.iter().map(|entry| entry["name"].clone()).collect(),
         None => Vec::new(),
     };
-    json!({"contract_error":"INVALID_DECISION","valid_tool_calls":successful,"valid_message_seqs":history_evidence,"allowed_tools":names,"expected":"Exactly {tool,arguments,reason} OR {reply,citations}; each citation needs a nonempty field and either tool_call for a successful current-turn step or message_seq for a supplied history tool row with tool_result.ok true; exact tool argument fields, no tags or extra keys. Every number needs tool evidence and citation."})
+    json!({"contract_error":"INVALID_DECISION","valid_tool_calls":successful,"valid_message_seqs":history_evidence,"allowed_tools":names,"expected":"Exactly {tool,arguments,reason} OR {reply,citations}; each citation needs a nonempty field and either tool_call for a successful current-turn step or message_seq for a supplied history tool row with tool_result.ok true; exact tool argument fields, no tags or extra keys. Every number needs tool evidence and citation. Do not repeat a successful tool call; use its result and reply."})
 }
 #[derive(Default)]
 struct TurnProgress {
@@ -515,6 +515,7 @@ async fn run_loop(
         messages.push(data_message(&block.label, &block.text));
     }
     let mut successful = Vec::new();
+    let mut completed_calls: Vec<(usize, String, Value)> = Vec::new();
     let mut tool_calls = 0_usize;
     let mut errors = 0_usize;
     loop {
@@ -527,14 +528,29 @@ async fn run_loop(
         else {
             return Ok(progress.stop(StopReason::ModelFailure));
         };
-        let decision = match parse_decision(&content, &successful, &history_evidence) {
+        let decision = parse_decision(&content, &successful, &history_evidence)
+            .map_err(|()| None)
+            .and_then(|decision| {
+                if let Decision::Tool(call) = &decision
+                    && let Some((step, _, _)) = completed_calls
+                        .iter()
+                        .find(|(_, name, args)| *name == call.tool && *args == call.arguments)
+                {
+                    return Err(Some(*step));
+                }
+                Ok(decision)
+            });
+        let decision = match decision {
             Ok(decision) => {
                 errors = 0;
                 decision
             }
-            Err(()) => {
+            Err(repeated_step) => {
                 errors += 1;
-                let feedback = contract_feedback(&successful, &history_evidence);
+                let mut feedback = contract_feedback(&successful, &history_evidence);
+                if let Some(step) = repeated_step {
+                    feedback["repeated_tool_call"] = json!(step);
+                }
                 persist(conn, context, "tool", feedback.clone()).await?;
                 messages.push(observation(feedback));
                 if errors >= deps.limits.max_consecutive_errors {
@@ -581,6 +597,7 @@ async fn run_loop(
                 messages.push(observation(value));
                 if result.ok {
                     successful.push(tool_calls);
+                    completed_calls.push((tool_calls, call.tool, call.arguments));
                     if let Some(question) = question {
                         if contains_control_text(&question.question) {
                             return Ok(progress.stop(StopReason::ContractErrors));

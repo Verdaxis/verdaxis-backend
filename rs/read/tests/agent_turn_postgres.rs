@@ -638,7 +638,7 @@ async fn two_consecutive_contract_errors_stop_safely() {
 async fn seven_requested_tools_stop_after_six_executions() {
     let f = Fixture::new().await;
     let steps = (0..7)
-        .map(|_| decision("list_markets", json!({})))
+        .map(|n| decision("get_my_trades", json!({"limit":n+1})))
         .collect();
     let model = f.model(steps);
     let outcome = run_turn(
@@ -663,12 +663,9 @@ async fn seven_requested_tools_stop_after_six_executions() {
 async fn cited_reply_is_allowed_after_six_tools() {
     let f = Fixture::new().await;
     let mut steps = (0..6)
-        .map(|_| decision("list_markets", json!({})))
+        .map(|n| decision("get_my_trades", json!({"limit":n+1})))
         .collect::<Vec<_>>();
-    steps.push(reply(
-        "Available markets are shown in the catalog.",
-        &[(6, "products")],
-    ));
+    steps.push(reply("Your trades are shown.", &[(6, "items")]));
     let model = f.model(steps);
     let outcome = run_turn(
         &deps(model.clone()),
@@ -679,7 +676,7 @@ async fn cited_reply_is_allowed_after_six_tools() {
     .await
     .unwrap();
     assert!(outcome.stopped.is_none());
-    assert_eq!(outcome.reply, "Available markets are shown in the catalog.");
+    assert_eq!(outcome.reply, "Your trades are shown.");
     assert_eq!(json!(outcome.citations[0])["tool_call"], 6);
     assert_eq!(model.calls(), 7);
     f.assert_messages(1, 1).await;
@@ -1254,4 +1251,32 @@ async fn history_citations_require_a_visible_successful_tool_row() {
             json!([citation(14)])
         );
     }
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn repeated_successful_drafts_stop_without_another_execution() {
+    let f = Fixture::new().await;
+    let model = f.model(vec![f.draft(), f.draft(), f.draft()]);
+    let outcome = run_turn(
+        &deps(model.clone()),
+        f.context(),
+        "Prepare one draft.".into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.stopped, Some(StopReason::ContractErrors));
+    assert_eq!(outcome.drafts.len(), 1);
+    assert_eq!(f.draft_count().await, 1);
+    let request = model.request(2);
+    let feedback: Value = serde_json::from_str(
+        request.as_array().unwrap().last().unwrap()["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(feedback["repeated_tool_call"], 1);
+    assert_eq!(feedback["valid_tool_calls"], json!([1]));
+    f.assert_audit_pairs(3, 1).await;
 }
