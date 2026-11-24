@@ -164,6 +164,15 @@ impl Fixture {
         body["id"].as_str().unwrap().parse().unwrap()
     }
 
+    async fn draft(&self, conversation: Uuid, status: &str, expired: bool) -> Uuid {
+        let id = Uuid::new_v4();
+        let mut tx = self.admin.begin_with("BEGIN READ WRITE").await.unwrap();
+        sqlx::query("INSERT INTO public.order_drafts(id,conversation_id,user_id,side,market_product,delivery_point,availability_window,quantity_mt,limit_price_usd,terms_digest,source_text,status,expires_at) SELECT $1,id,user_id,'BID','BIO_METHANOL','Singapore','SPOT',10.50,905.25,'fixture-digest','Prepare a draft.',$3,CASE WHEN $4 THEN now() ELSE NULL END FROM public.agent_conversations WHERE id=$2")
+            .bind(id).bind(conversation).bind(status).bind(expired).execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        id
+    }
+
     async fn message(&self, conversation: Uuid) -> (StatusCode, HeaderMap, Value) {
         self.send(
             Method::POST,
@@ -357,7 +366,18 @@ async fn pause_and_resume(scope: &str) {
         "user" => Some(f.buyer),
         _ => unreachable!(),
     };
+    let id = f.draft(conversation, "draft", false).await;
     f.control(scope, scope_id, true).await;
+    for (method, path) in [
+        (Method::GET, CONVERSATIONS.to_owned()),
+        (Method::GET, format!("/api/agent/drafts/{id}")),
+        (Method::POST, format!("/api/agent/drafts/{id}/discard")),
+    ] {
+        assert_eq!(
+            f.send(method, &path, Some(f.buyer), None).await.0,
+            StatusCode::LOCKED
+        );
+    }
     let (status, _, body) = f.message(conversation).await;
     assert_eq!(status, StatusCode::LOCKED, "{body}");
     assert_eq!(
@@ -535,7 +555,7 @@ async fn history_exposes_only_safe_user_and_assistant_content() {
         (
             5,
             "assistant",
-            json!({"reply":"A safe stored answer.","citations":[],"drafts":[],"question":null,"assistant_seq":5,"stopped":null,"error":"private-error-sentinel","tool_result":"private-tool-sentinel"}),
+            json!({"reply":"A safe stored answer.","citations":[],"drafts":[],"question":{"question":"Which port?","options":[null,"", "é".repeat(81),"Singapore","Rotterdam","A","B","C","D","E"]},"assistant_seq":5,"stopped":null,"error":"private-error-sentinel","tool_result":"private-tool-sentinel"}),
         ),
     ] {
         sqlx::query("INSERT INTO public.agent_messages(id,conversation_id,seq,role,content) VALUES($1,$2,$3,$4,$5)")
@@ -553,6 +573,10 @@ async fn history_exposes_only_safe_user_and_assistant_content() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let messages = body["messages"].as_array().unwrap();
     assert_eq!(messages.len(), 3);
+    assert_eq!(
+        messages[2]["content"]["question"],
+        json!({"question":"Which port?","options":["Singapore","Rotterdam","A","B","C","D"]})
+    );
     assert_eq!(
         messages
             .iter()
@@ -711,4 +735,141 @@ async fn unknown_empty_and_excessive_bodies_are_rejected_before_dispatch() {
     assert_eq!(f.model.calls.load(Ordering::SeqCst), 0);
     assert_eq!(f.count("messages").await, 0);
     assert_eq!(f.count("controls").await, 0);
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL; run_agent_routes.sh"]
+async fn conversation_list_is_owned_ordered_and_bounded() {
+    let f = Fixture::new(json!({}), false).await;
+    f.conversation(f.other_buyer).await;
+    let mut expected = Vec::new();
+    for _ in 0..21 {
+        expected.push(f.conversation(f.buyer).await.to_string());
+    }
+    expected.reverse();
+    for (query, count) in [("", 20), ("?limit=1", 1), ("?limit=50", 21)] {
+        let (status, _, v) = f
+            .send(
+                Method::GET,
+                &format!("{CONVERSATIONS}{query}"),
+                Some(f.buyer),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK);
+        let rows = v["conversations"].as_array().unwrap();
+        assert_eq!(rows.len(), count);
+        for (row, id) in rows.iter().zip(&expected) {
+            assert_eq!(row["id"].as_str(), Some(id.as_str()));
+            assert_eq!(row.as_object().unwrap().len(), 4);
+            for key in ["status", "created_at", "updated_at"] {
+                assert!(row[key].is_string());
+            }
+        }
+    }
+    for limit in [0, 51] {
+        assert_eq!(
+            f.send(
+                Method::GET,
+                &format!("{CONVERSATIONS}?limit={limit}"),
+                Some(f.buyer),
+                None
+            )
+            .await
+            .0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL; run_agent_routes.sh"]
+async fn draft_read_and_discard_enforce_scope_and_audit_once() {
+    let f = Fixture::new(json!({}), false).await;
+    let conv = f.conversation(f.buyer).await;
+    let id = f.draft(conv, "draft", false).await;
+    let path = format!("/api/agent/drafts/{id}");
+    let discard = format!("{path}/discard");
+    for (method, url) in [
+        (Method::GET, CONVERSATIONS),
+        (Method::GET, &path),
+        (Method::POST, &discard),
+    ] {
+        let (status, _, error) = f.send(method.clone(), url, Some(f.supplier), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(error["detail"]["code"], "BUYER_REQUIRED");
+        if url != CONVERSATIONS {
+            assert_eq!(
+                f.send(method, url, Some(f.other_buyer), None).await.0,
+                StatusCode::NOT_FOUND
+            );
+        }
+    }
+    let (status, _, before) = f.send(Method::GET, &path, Some(f.buyer), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(before.as_object().unwrap().len(), 14);
+    assert_eq!(before["quantity_mt"], "10.50");
+    assert_eq!(before["limit_price_usd"], "905.25");
+    let (a, b) = tokio::join!(
+        f.send(Method::POST, &discard, Some(f.buyer), None),
+        f.send(Method::POST, &discard, Some(f.buyer), None)
+    );
+    assert_eq!((a.0, b.0), (StatusCode::OK, StatusCode::OK));
+    assert_eq!(a.2, b.2);
+    assert_eq!(a.2["status"], "rejected");
+    let events: Vec<Value> = sqlx::query_scalar(
+        "SELECT payload FROM public.agent_audit_events WHERE kind='draft_discarded'",
+    )
+    .fetch_all(&f.app)
+    .await
+    .unwrap();
+    assert_eq!(
+        events,
+        [json!({"draft_id":id,"terms_digest":"fixture-digest"})]
+    );
+    assert_eq!(
+        audit::verify_chain(&f.app, None, None)
+            .await
+            .unwrap()
+            .first_broken_id,
+        None
+    );
+    f.assert_read_only().await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL; run_agent_routes.sh"]
+async fn expired_and_confirmed_drafts_cannot_be_discarded() {
+    let f = Fixture::new(json!({}), false).await;
+    let conv = f.conversation(f.buyer).await;
+    for (stored, expired, shown) in [
+        ("draft", true, "expired"),
+        ("confirmed", false, "confirmed"),
+    ] {
+        let id = f.draft(conv, stored, expired).await;
+        let path = format!("/api/agent/drafts/{id}");
+        let (status, _, draft) = f.send(Method::GET, &path, Some(f.buyer), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(draft["status"], shown);
+        let (status, _, v) = f
+            .send(
+                Method::POST,
+                &format!("{path}/discard"),
+                Some(f.buyer),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(v["detail"]["code"], "DRAFT_NOT_OPEN");
+        let history = f
+            .send(
+                Method::GET,
+                &format!("{CONVERSATIONS}/{conv}"),
+                Some(f.buyer),
+                None,
+            )
+            .await
+            .2;
+        assert_eq!(history["drafts"][0]["status"], shown);
+    }
 }
