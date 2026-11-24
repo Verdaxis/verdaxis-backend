@@ -166,14 +166,15 @@ impl Fixture {
     }
 
     fn draft(&self) -> ScriptStep {
-        decision(
-            "create_draft",
-            json!({
-                "side":"BID", "market_product":self.product, "delivery_point":self.point,
-                "availability_window":"SPOT", "quantity_mt":"10.00", "limit_price_usd":"100.00",
-                "source_message_seq":1
-            }),
-        )
+        decision("create_draft", self.draft_arguments())
+    }
+
+    fn draft_arguments(&self) -> Value {
+        json!({
+            "side":"BID", "market_product":self.product, "delivery_point":self.point,
+            "availability_window":"SPOT", "quantity_mt":"10.00", "limit_price_usd":"100.00",
+            "source_message_seq":1
+        })
     }
 
     fn model(&self, steps: Vec<ScriptStep>) -> Arc<ScriptedModel> {
@@ -1272,7 +1273,13 @@ async fn history_citations_require_a_visible_successful_tool_row() {
 #[ignore = "requires disposable PostgreSQL runner"]
 async fn repeated_successful_drafts_stop_without_another_execution() {
     let f = Fixture::new().await;
-    let model = f.model(vec![f.draft(), f.draft(), f.draft()]);
+    let mut repeated = f.draft_arguments();
+    repeated["expires_at"] = Value::Null;
+    let model = f.model(vec![
+        f.draft(),
+        decision("create_draft", repeated),
+        f.draft(),
+    ]);
     let outcome = run_turn(
         &deps(model.clone()),
         f.context(),
@@ -1294,6 +1301,58 @@ async fn repeated_successful_drafts_stop_without_another_execution() {
     assert_eq!(feedback["repeated_tool_call"], 1);
     assert_eq!(feedback["valid_tool_calls"], json!([1]));
     f.assert_audit_pairs(3, 1).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn omitted_and_null_order_status_reuse_the_first_step_at_the_tool_limit() {
+    let f = Fixture::new().await;
+    let model = f.model(vec![
+        decision("get_my_orders", json!({})),
+        decision("get_my_orders", json!({"status":null})),
+        reply("Here are your orders.", &[(1, "items")]),
+    ]);
+    let mut deps = deps(model.clone());
+    deps.limits.max_tool_calls = 1;
+    let outcome = run_turn(&deps, f.context(), "Check my orders.".into(), vec![])
+        .await
+        .unwrap();
+    assert_eq!(outcome.stopped, None);
+    let request = model.request(2);
+    let feedback: Value = serde_json::from_str(
+        request.as_array().unwrap().last().unwrap()["content"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(feedback["repeated_tool_call"], 1);
+    assert_eq!(feedback["valid_tool_calls"], json!([1]));
+    f.assert_audit_pairs(3, 1).await;
+}
+
+#[tokio::test]
+#[ignore = "requires disposable PostgreSQL runner"]
+async fn drafts_with_different_quantities_both_execute() {
+    let f = Fixture::new().await;
+    let mut second = f.draft_arguments();
+    second["quantity_mt"] = json!("20.00");
+    let model = f.model(vec![
+        f.draft(),
+        decision("create_draft", second),
+        reply("Drafts saved.", &[]),
+    ]);
+    let outcome = run_turn(
+        &deps(model),
+        f.context(),
+        "Prepare both drafts.".into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.stopped, None);
+    assert_eq!(outcome.drafts.len(), 2);
+    assert_eq!(f.draft_count().await, 2);
+    f.assert_audit_pairs(3, 2).await;
 }
 
 #[tokio::test]

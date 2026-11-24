@@ -141,8 +141,12 @@ impl From<sqlx::Error> for TurnError {
 }
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum Decision {
+enum RawDecision {
     Tool(ToolDecision),
+    Reply(ReplyDecision),
+}
+enum Decision {
+    Tool(AgentTool),
     Reply(ReplyDecision),
 }
 #[derive(Deserialize)]
@@ -169,17 +173,17 @@ fn parse_decision(text: &str, successful: &[usize], history: &[i32]) -> Result<D
     if contains_control_text(&decoded.to_string()) {
         return Err(());
     }
-    let decision: Decision = serde_json::from_str(text).map_err(|_| ())?;
-    match &decision {
-        Decision::Tool(call) => {
+    let decision: RawDecision = serde_json::from_str(text).map_err(|_| ())?;
+    match decision {
+        RawDecision::Tool(call) => {
             if call.reason.trim().is_empty() || !call.arguments.is_object() {
                 return Err(());
             }
-            let _: AgentTool =
-                serde_json::from_value(json!({"tool":call.tool,"arguments":call.arguments}))
-                    .map_err(|_| ())?;
+            serde_json::from_value(json!({"tool":call.tool,"arguments":call.arguments}))
+                .map(Decision::Tool)
+                .map_err(|_| ())
         }
-        Decision::Reply(reply) => {
+        RawDecision::Reply(reply) => {
             if reply.reply.trim().is_empty()
                 || (reply.reply.chars().any(|c| c.is_numeric()) && reply.citations.is_empty())
                 || reply.citations.iter().any(|citation| match citation {
@@ -193,9 +197,9 @@ fn parse_decision(text: &str, successful: &[usize], history: &[i32]) -> Result<D
             {
                 return Err(());
             }
+            Ok(Decision::Reply(reply))
         }
     }
-    Ok(decision)
 }
 fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -528,7 +532,7 @@ async fn run_loop(
         messages.push(data_message(&block.label, &block.text));
     }
     let mut successful = Vec::new();
-    let mut completed_calls: Vec<(usize, String, Value)> = Vec::new();
+    let mut completed_calls: Vec<(usize, AgentTool)> = Vec::new();
     let mut tool_calls = 0_usize;
     let mut errors = 0_usize;
     loop {
@@ -544,10 +548,10 @@ async fn run_loop(
         let decision = parse_decision(&content, &successful, &history_evidence)
             .map_err(|()| None)
             .and_then(|decision| {
-                if let Decision::Tool(call) = &decision
-                    && let Some((step, _, _)) = completed_calls
+                if let Decision::Tool(tool) = &decision
+                    && let Some((step, _)) = completed_calls
                         .iter()
-                        .find(|(_, name, args)| *name == call.tool && *args == call.arguments)
+                        .find(|(_, completed)| completed == tool)
                 {
                     return Err(Some(*step));
                 }
@@ -576,13 +580,10 @@ async fn run_loop(
             Decision::Reply(reply) => {
                 return Ok(progress.outcome(reply.reply, reply.citations, None, None));
             }
-            Decision::Tool(call) => {
+            Decision::Tool(tool) => {
                 if tool_calls >= deps.limits.max_tool_calls {
                     return Ok(progress.stop(StopReason::ToolLimit));
                 }
-                let tool: AgentTool =
-                    serde_json::from_value(json!({"tool":call.tool,"arguments":call.arguments}))
-                        .map_err(|_| TurnError::InvalidConfiguration)?;
                 let name = tool.name();
                 let question = match &tool {
                     AgentTool::AskUser(args) => Some(args.clone()),
@@ -590,7 +591,7 @@ async fn run_loop(
                 };
                 tool_calls += 1;
                 progress.active_tool = Some(tool_calls);
-                let result = tools::execute(context, tool).await;
+                let result = tools::execute(context, tool.clone()).await;
                 // Keep successful drafts before any subsequent cancellable I/O.
                 if result.ok && name == "create_draft" {
                     let id = result
@@ -610,7 +611,7 @@ async fn run_loop(
                 messages.push(observation(value));
                 if result.ok {
                     successful.push(tool_calls);
-                    completed_calls.push((tool_calls, call.tool, call.arguments));
+                    completed_calls.push((tool_calls, tool));
                     if let Some(question) = question {
                         if contains_control_text(&question.question) {
                             return Ok(progress.stop(StopReason::ContractErrors));

@@ -13,10 +13,10 @@ use uuid::Uuid;
 pub const MAX_CONTENT_CHARS: usize = 12_000;
 const MAX_DRAFT_AMOUNT: Decimal = Decimal::from_parts(100_000, 0, 0, false, 0);
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListMarketsArguments {}
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMarketSliceArguments {
     #[doc = include_str!("../../../../docs/agent-market-product-field.md")]
@@ -26,12 +26,12 @@ pub struct GetMarketSliceArguments {
     /// Use exactly SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL (for example 2026-12 or 2027-Q1). “Prompt”, “spot” and “now” mean SPOT. Convert month names and “next month” using the current date.
     pub availability_window: String,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PlanVoyageFuelArguments {
     pub request: Value,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum OrderStatus {
     Open,
@@ -51,19 +51,19 @@ impl OrderStatus {
         }
     }
 }
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMyOrdersArguments {
     /// Omit to read all orders. OPEN returns open and partly filled orders. Each order shows its own status and remaining quantity.
     pub status: Option<OrderStatus>,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMyTradesArguments {
     #[schemars(range(min = 1, max = 50))]
     pub limit: Option<u32>,
 }
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum DraftSide {
     Bid,
@@ -77,7 +77,7 @@ impl DraftSide {
         }
     }
 }
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateDraftArguments {
     pub side: DraftSide,
@@ -96,7 +96,7 @@ pub struct CreateDraftArguments {
     #[schemars(range(min = 1))]
     pub source_message_seq: i32,
 }
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AskUserArguments {
     #[schemars(length(min = 1, max = 500))]
@@ -105,7 +105,7 @@ pub struct AskUserArguments {
     pub options: Option<Vec<String>>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(
     tag = "tool",
     content = "arguments",
