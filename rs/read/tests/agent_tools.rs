@@ -288,10 +288,6 @@ fn catalog_explains_market_fields_and_open_orders() {
                         .unwrap()
                         .contains("SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL")
                 );
-                assert_eq!(
-                    props["market_product"]["description"],
-                    "Product code from list_markets, for example BIO_METHANOL."
-                );
                 for field in ["market_product", "delivery_point"] {
                     assert!(
                         props[field]["description"]
@@ -309,6 +305,61 @@ fn catalog_explains_market_fields_and_open_orders() {
             ),
             _ => {}
         }
+    }
+}
+
+#[test]
+fn catalog_market_choices_match_the_list_markets_source() {
+    let source: Value =
+        serde_json::from_str(include_str!("../../../deploy/rust/mcp-catalog.json")).unwrap();
+    let products: Vec<_> = source["products"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            format!(
+                "{} ({})",
+                p["code"].as_str().unwrap(),
+                p["name"].as_str().unwrap()
+            )
+        })
+        .collect();
+    let points: Vec<_> = source["delivery_points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    let catalog = catalog();
+    let serialized = catalog.to_string();
+    println!(
+        "System message tool catalog: {} characters",
+        serialized.chars().count()
+    );
+    assert!(!serialized.contains("for example BIO_METHANOL"));
+    for tool in ["get_market_slice", "create_draft"] {
+        let entry = catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["name"] == tool)
+            .unwrap();
+        let fields = &entry["input_schema"]["properties"];
+        let product = fields["market_product"]["description"].as_str().unwrap();
+        assert!(product.contains("E_METHANOL (e-Methanol)"));
+        assert_eq!(
+            product.split_once("Choices: ").unwrap().1,
+            products.join(", ")
+        );
+        assert_eq!(
+            fields["delivery_point"]["description"]
+                .as_str()
+                .unwrap()
+                .split_once("Choices: ")
+                .unwrap()
+                .1,
+            points.join(", ")
+        );
     }
 }
 

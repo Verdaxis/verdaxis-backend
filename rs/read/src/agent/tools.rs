@@ -19,9 +19,9 @@ pub struct ListMarketsArguments {}
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GetMarketSliceArguments {
-    #[doc = include_str!("../../../../docs/agent-market-product-field.md")]
+    #[schemars(schema_with = "market_product_schema")]
     pub market_product: String,
-    /// Delivery point name from list_markets.
+    #[schemars(schema_with = "delivery_point_schema")]
     pub delivery_point: String,
     /// Use exactly SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL (for example 2026-12 or 2027-Q1). “Prompt”, “spot” and “now” mean SPOT. Convert month names and “next month” using the current date.
     pub availability_window: String,
@@ -81,9 +81,9 @@ impl DraftSide {
 #[serde(deny_unknown_fields)]
 pub struct CreateDraftArguments {
     pub side: DraftSide,
-    #[doc = include_str!("../../../../docs/agent-market-product-field.md")]
+    #[schemars(schema_with = "market_product_schema")]
     pub market_product: String,
-    /// Delivery point name from list_markets.
+    #[schemars(schema_with = "delivery_point_schema")]
     pub delivery_point: String,
     /// Use exactly SPOT, YYYY-MM, YYYY-Qn or YYYY-CAL (for example 2026-12 or 2027-Q1). “Prompt”, “spot” and “now” mean SPOT. Convert month names and “next month” using the current date.
     pub availability_window: String,
@@ -743,6 +743,44 @@ async fn create_draft(
     audit::append_in(&mut tx, AuditEvent { kind: AuditKind::DraftCreated, actor: context.actor(), payload: json!({"draft_id": id, "terms_digest": digest, "source_message_seq": args.source_message_seq}) }).await.map_err(|_| ToolError::audit())?;
     tx.commit().await?;
     Ok(json!({"id": id, "status": "draft", "terms": terms, "terms_digest": digest}))
+}
+
+// Both argument types advertise the same choices returned by list_markets.
+struct MarketChoices {
+    products: String,
+    points: String,
+}
+
+static MARKET_CHOICES: std::sync::LazyLock<MarketChoices> = std::sync::LazyLock::new(|| {
+    let markets = crate::mcp::prices::list_markets().expect("valid embedded market catalog");
+    let products = markets["products"]
+        .as_array()
+        .expect("catalog products")
+        .iter()
+        .map(|product| {
+            let code = product["code"].as_str().expect("product code");
+            let name = product["name"].as_str().expect("product name");
+            format!("{code} ({name})")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let points = markets["delivery_points"]
+        .as_array()
+        .expect("catalog delivery points")
+        .iter()
+        .map(|point| point["name"].as_str().expect("delivery point name"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    MarketChoices { products, points }
+});
+
+fn market_product_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let guidance = include_str!("../../../../docs/agent-market-product-field.md").trim();
+    schemars::json_schema!({"type":"string","description":format!("{guidance} Choices: {}", MARKET_CHOICES.products)})
+}
+
+fn delivery_point_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type":"string","description":format!("Delivery point name from list_markets. Choices: {}", MARKET_CHOICES.points)})
 }
 
 fn options_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
