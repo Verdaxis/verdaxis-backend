@@ -185,7 +185,9 @@ Blocked startup state remains until bound signed acceptance succeeds.
 `deploy/scripts/install-host-automation.sh` install reviewed units and automation.
 Maintenance commands under `rs/read/src/cli/jobs/` cover news, auth maintenance,
 analytics pruning, reminders, onboarding and demo activity. Monitor commands and
-alert handoff preserve existing journal and ownership boundaries.
+alert handoff preserve existing journal and ownership boundaries. The news job
+holds its scheduler key on one dedicated PostgreSQL session. Fetch and labelling
+run outside a transaction; the final inserts commit together before disconnect.
 
 The shared-host external monitor uses a separately pinned CI binary at
 `/usr/local/libexec/verdaxis/verdaxis-read-monitor`. Its selective installer is

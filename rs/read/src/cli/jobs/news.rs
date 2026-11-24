@@ -1,7 +1,7 @@
 //! `verdaxis-read job news`: one database-locked news refresh per timer run.
 //!
-//! The order is the one the Python job used. A transaction takes the
-//! transaction-scoped advisory lock (a busy lock is a successful no-op), the
+//! The order is the one the Python job used. A dedicated session takes the
+//! advisory lock (a busy lock is a successful no-op), the
 //! job reads one bounded Webz.io page when a token is configured and falls back
 //! to the maritime RSS feeds when Webz is absent, empty or unavailable, drops
 //! duplicates, labels only the URLs that are not stored yet and inserts them
@@ -30,7 +30,7 @@ use chrono::{DateTime, Datelike, TimeZone, Utc};
 use futures_util::StreamExt;
 use reqwest::redirect::Policy;
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool};
+use sqlx::{Connection, PgConnection, PgPool};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
@@ -1235,11 +1235,8 @@ struct NewsRow {
     fetched_at: DateTime<Utc>,
 }
 
-/// Run one refresh in one transaction.
-///
-/// The advisory lock lives as long as the transaction, so the fetch, the
-/// labels and the insert are one exclusive unit. A database failure ends the
-/// run with [`Exit::Dependency`]; provider failures never do.
+/// Hold the scheduler key through fetch, labelling and commit. Only the inserts
+/// share a transaction. A busy key is a successful no-op.
 pub async fn refresh_news<F: Fetch, M: TextModel>(
     pool: &PgPool,
     target: RefreshTarget<'_>,
@@ -1247,22 +1244,40 @@ pub async fn refresh_news<F: Fetch, M: TextModel>(
     categorizer: &mut Categorizer<M>,
     now: impl Fn() -> DateTime<Utc>,
 ) -> Result<Refresh, Exit> {
-    let mut transaction = pool.begin().await.map_err(|_| Exit::Dependency)?;
-    require_target(&mut transaction, target.environment, target.database).await?;
-    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+    let mut session = pool.acquire().await.map_err(|_| Exit::Dependency)?;
+    require_target(&mut session, target.environment, target.database).await?;
+    // Never recycle this session, even if cancellation interrupts lock acquisition.
+    session.close_on_drop();
+    let acquired: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
         .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut *session)
         .await
         .map_err(|_| Exit::Dependency)?;
     if !acquired {
-        transaction.rollback().await.map_err(|_| Exit::Dependency)?;
         return Ok(Refresh::LockBusy);
     }
 
+    let result = refresh_owned(&mut session, sources, categorizer, now).await;
+    let released: bool = sqlx::query_scalar("SELECT pg_advisory_unlock($1)")
+        .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
+        .fetch_one(&mut *session)
+        .await
+        .map_err(|_| Exit::Dependency)?;
+    if !released {
+        return Err(Exit::Dependency);
+    }
+    result
+}
+
+async fn refresh_owned<F: Fetch, M: TextModel>(
+    session: &mut PgConnection,
+    sources: &NewsSources<F>,
+    categorizer: &mut Categorizer<M>,
+    now: impl Fn() -> DateTime<Utc>,
+) -> Result<Refresh, Exit> {
     let candidates = sources.fetch_news_items(now()).await;
     if candidates.is_empty() {
         tracing::info!("news_feed.no_items_fetched");
-        transaction.commit().await.map_err(|_| Exit::Dependency)?;
         return Ok(Refresh::Completed {
             fetched: 0,
             new: 0,
@@ -1272,14 +1287,13 @@ pub async fn refresh_news<F: Fetch, M: TextModel>(
     let candidates = dedupe_candidates(candidates);
     let fetched = candidates.len();
 
-    let stored = stored_urls(&mut transaction, &candidates).await?;
+    let stored = stored_urls(session, &candidates).await?;
     let new_items: Vec<Candidate> = candidates
         .into_iter()
         .filter(|candidate| !stored.contains(&candidate.url))
         .collect();
     if new_items.is_empty() {
         tracing::info!(total = fetched, "news_feed.all_duplicates");
-        transaction.commit().await.map_err(|_| Exit::Dependency)?;
         return Ok(Refresh::Completed {
             fetched,
             new: 0,
@@ -1310,6 +1324,7 @@ pub async fn refresh_news<F: Fetch, M: TextModel>(
             fetched_at: now(),
         });
     }
+    let mut transaction = session.begin().await.map_err(|_| Exit::Dependency)?;
     let inserted = insert_rows(&mut transaction, &rows).await?;
     transaction.commit().await.map_err(|_| Exit::Dependency)?;
     tracing::info!(inserted, "news_feed.refresh_complete");

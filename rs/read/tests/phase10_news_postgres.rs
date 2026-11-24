@@ -309,7 +309,7 @@ async fn news_inserts_only_new_urls() {
     );
     assert_eq!(fixture.rows().await.len(), 3);
 
-    // The transaction lock is gone after the run: a session lock on the same
+    // The refresh lock is gone after the run: a session lock on the same
     // key is available at once.
     let mut session = fixture.admin.acquire().await.unwrap();
     let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
@@ -386,6 +386,23 @@ async fn news_lock_busy_is_a_successful_noop() {
     fixture.finish().await;
 }
 
+// Observe as the job role so PostgreSQL exposes the owner's transaction state.
+async fn assert_owner_outside_transaction(observer: &PgPool) {
+    let idle: bool = sqlx::query_scalar(
+        "SELECT a.state = 'idle' AND a.xact_start IS NULL \
+         FROM pg_locks l JOIN pg_stat_activity a USING (pid) \
+         WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 \
+           AND a.datname = current_database() \
+           AND l.classid::bigint = (($1::bigint >> 32) & 4294967295) \
+           AND l.objid::bigint = ($1::bigint & 4294967295)",
+    )
+    .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
+    .fetch_one(observer)
+    .await
+    .expect("the refresh owns the advisory key");
+    assert!(idle, "the provider was called with an open transaction");
+}
+
 #[tokio::test]
 async fn news_overlap_inserts_once() {
     let fixture = Fixture::new().await;
@@ -408,17 +425,7 @@ async fn news_overlap_inserts_once() {
 
         // The key is the Python job's key: the held lock is an advisory lock in
         // that exact key space, so the Python command also sees it as busy.
-        let held: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_locks \
-             WHERE locktype = 'advisory' AND granted AND objsubid = 1 \
-               AND classid::bigint = ($1::bigint >> 32) & 4294967295 \
-               AND objid::bigint = $1::bigint & 4294967295",
-        )
-        .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
-        .fetch_one(&fixture.admin)
-        .await
-        .unwrap();
-        assert_eq!(held, 1, "the running refresh holds the advisory key");
+        assert_owner_outside_transaction(&second_pool).await;
         let python_view: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
             .bind(NEWS_REFRESH_ADVISORY_LOCK_ID)
             .fetch_one(&fixture.admin)
@@ -444,6 +451,18 @@ async fn news_overlap_inserts_once() {
         })
     );
     assert_eq!(fetch.calls(), 1, "one provider request in all");
+    let replay = SharedFetch::new(
+        json!([post("Changed headline", "https://news.example.org/one")]),
+        false,
+    );
+    assert_eq!(
+        run_once(&second_pool, &database, &replay).await,
+        Ok(Refresh::Completed {
+            fetched: 1,
+            new: 0,
+            inserted: 0
+        })
+    );
     assert_eq!(fixture.rows().await.len(), 2, "no duplicate URL");
     fixture.finish().await;
 }
@@ -451,12 +470,14 @@ async fn news_overlap_inserts_once() {
 /// A model that stores a competing row for the same URL after the job has
 /// looked, then answers with a fixed label.
 struct RacingModel {
+    observer: PgPool,
     admin: PgPool,
     url: String,
 }
 
 impl TextModel for RacingModel {
     async fn generate(&self, _prompt: &str, _timeout: Duration) -> Result<String, ModelError> {
+        assert_owner_outside_transaction(&self.observer).await;
         sqlx::query(
             "INSERT INTO news_items (id, title, source, source_url, url, published_at, fetched_at) \
              VALUES ($1, 'Other writer', 'Other', 'https://other.example.org', $2, now(), now()) \
@@ -485,6 +506,7 @@ async fn a_url_stored_after_the_check_is_skipped_and_model_labels_are_kept() {
         false,
     );
     let model = RacingModel {
+        observer: pool.clone(),
         admin: fixture.admin.clone(),
         url: raced.to_owned(),
     };
