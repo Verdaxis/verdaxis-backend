@@ -497,18 +497,29 @@ async fn run_loop(
             json!({"source_message_seq":seq,"current_time_utc":now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),"citable_message_seqs":history_evidence}),
         ),
     ];
-    for row in history {
+    for mut row in history {
         if row["seq"] == seq && row["role"] == "user" {
             messages.push(llm::Message {
                 role: llm::Role::User,
                 content: user.clone(),
             });
         } else {
-            let mut message = data_message("history", &row.to_string());
             if row["role"] == "assistant" {
+                let content = &row["content"];
+                row["content"] = json!({"reply":content["reply"],"citations":content["citations"]});
+                let mut message = data_message("history", &row.to_string());
                 message.role = llm::Role::Assistant;
+                messages.push(message);
+            } else {
+                // Old summary excerpts can contain fragments of full assistant outcomes.
+                // They cannot be projected reliably after truncation; omit them in transit.
+                if row["kind"] == "history_summary"
+                    && let Some(recent) = row["summary"]["recent"].as_array_mut()
+                {
+                    recent.retain(|entry| entry["role"] != "assistant");
+                }
+                messages.push(data_message("history", &row.to_string()));
             }
-            messages.push(message);
         }
     }
     for block in blocks {
