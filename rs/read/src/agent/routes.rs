@@ -32,6 +32,8 @@ use crate::{
 const CONVERSATIONS: &str = "/api/agent/conversations";
 const CONVERSATION: &str = "/api/agent/conversations/{conversation_id}";
 const MESSAGES: &str = "/api/agent/conversations/{conversation_id}/messages";
+const DRAFT: &str = "/api/agent/drafts/{draft_id}";
+const DISCARD: &str = "/api/agent/drafts/{draft_id}/discard";
 const AUDIT: &str = "/api/auth/admin/agent/audit";
 const VERIFY: &str = "/api/auth/admin/agent/audit/verify";
 const CONTROLS: &str = "/api/auth/admin/agent/controls";
@@ -47,7 +49,12 @@ pub struct RouteState {
 
 pub fn user_routes(state: RouteState) -> Router {
     Router::new()
-        .route(CONVERSATIONS, post(create_conversation))
+        .route(
+            CONVERSATIONS,
+            get(list_conversations).post(create_conversation),
+        )
+        .route(DRAFT, get(read_draft))
+        .route(DISCARD, post(discard_draft))
         .route(CONVERSATION, get(history))
         .route(MESSAGES, post(send_message))
         .with_state(state)
@@ -270,6 +277,101 @@ async fn create_conversation(State(state): State<RouteState>, request: Request) 
         Err(error) => error,
     }
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ListQuery {
+    limit: Option<u16>,
+}
+
+async fn list_conversations(
+    State(state): State<RouteState>,
+    query: Result<Query<ListQuery>, axum::extract::rejection::QueryRejection>,
+    headers: HeaderMap,
+) -> Response {
+    response(authenticated(&state,&headers,"GET",CONVERSATIONS,false,move |tx| Box::pin(async move {
+        let actor = tx.actor().clone();
+        ensure_available(tx.connection(), &actor).await?;
+        let Query(query) = query.map_err(|_| invalid())?;
+        let limit = query.limit.unwrap_or(20);
+        if !(1..=50).contains(&limit) { return Err(invalid()); }
+        let conversations: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'status',status,'created_at',created_at,'updated_at',updated_at) FROM public.agent_conversations WHERE user_id=$1 AND organization_id IS NOT DISTINCT FROM $2 ORDER BY updated_at DESC,id DESC LIMIT $3")
+            .bind(actor.id).bind(actor.organization_id).bind(i64::from(limit)).fetch_all(tx.connection()).await.map_err(|_| ApiError::database())?;
+        Ok(json!({"conversations":conversations}))
+    })).await)
+}
+
+const DRAFT_STATUS: &str =
+    "CASE WHEN d.status='draft' AND d.expires_at<=now() THEN 'expired' ELSE d.status END";
+
+async fn owned_draft(
+    conn: &mut PgConnection,
+    actor: &CurrentActor,
+    id: Uuid,
+    lock: bool,
+) -> Result<Value, ApiError> {
+    let lock_clause = if lock { "FOR UPDATE OF d" } else { "" };
+    let sql = format!("SELECT jsonb_build_object('id',d.id,'conversation_id',d.conversation_id,'side',d.side,'market_product',d.market_product,'delivery_point',d.delivery_point,'availability_window',d.availability_window,'quantity_mt',d.quantity_mt::text,'limit_price_usd',d.limit_price_usd::text,'expires_at',d.expires_at,'status',{DRAFT_STATUS},'terms_digest',d.terms_digest,'source_text',d.source_text,'created_at',d.created_at,'updated_at',d.updated_at)
+        FROM public.order_drafts d JOIN public.agent_conversations c ON c.id=d.conversation_id
+        WHERE d.id=$1 AND d.user_id=$2 AND c.user_id=$2 AND c.organization_id IS NOT DISTINCT FROM $3 {lock_clause}");
+    sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+        .bind(id)
+        .bind(actor.id)
+        .bind(actor.organization_id)
+        .fetch_optional(conn)
+        .await
+        .map_err(|_| ApiError::database())?
+        .ok_or_else(|| {
+            refusal(
+                StatusCode::NOT_FOUND,
+                "DRAFT_NOT_FOUND",
+                "The draft was not found.",
+            )
+        })
+}
+
+async fn read_draft(
+    State(state): State<RouteState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    response(
+        authenticated(&state, &headers, "GET", DRAFT, false, move |tx| {
+            Box::pin(async move {
+                let actor = tx.actor().clone();
+                ensure_available(tx.connection(), &actor).await?;
+                owned_draft(tx.connection(), &actor, id, false).await
+            })
+        })
+        .await,
+    )
+}
+
+async fn discard_draft(
+    State(state): State<RouteState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    response(authenticated(&state,&headers,"POST",DISCARD,false,move |tx| Box::pin(async move {
+        let actor = tx.actor().clone();
+        ensure_available(tx.connection(), &actor).await?;
+        // The authenticated outer transaction is READ WRITE. Keep the row lock,
+        // status transition and audit append together until it commits.
+        let mut write = tx.connection().begin().await.map_err(|_| ApiError::database())?;
+        let draft = owned_draft(&mut write, &actor, id, true).await?;
+        match draft["status"].as_str() {
+            Some("rejected") => { write.commit().await.map_err(|_| ApiError::database())?; return Ok(draft); }
+            Some("draft") => (),
+            _ => return Err(refusal(StatusCode::CONFLICT,"DRAFT_NOT_OPEN","The draft is not open.")),
+        }
+        let conversation_id = serde_json::from_value(draft["conversation_id"].clone()).map_err(|_| ApiError::database())?;
+        sqlx::query("UPDATE public.order_drafts SET status='rejected',updated_at=now() WHERE id=$1 AND status='draft'").bind(id).execute(&mut *write).await.map_err(|_| ApiError::database())?;
+        audit::append_in(&mut write, AuditEvent {kind:AuditKind::DraftDiscarded, actor:AuditActor {user_id:Some(actor.id),organization_id:actor.organization_id,conversation_id:Some(conversation_id)},payload:json!({"draft_id":id,"terms_digest":draft["terms_digest"]})}).await.map_err(|_| refusal(StatusCode::SERVICE_UNAVAILABLE,"AGENT_AUDIT_UNAVAILABLE","The assistant evidence could not be saved."))?;
+        let result = owned_draft(&mut write, &actor, id, false).await?;
+        write.commit().await.map_err(|_| ApiError::database())?;
+        Ok(result)
+    })).await)
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HistoryQuery {
@@ -290,10 +392,12 @@ async fn history(
         let limit = query.limit.unwrap_or(100);
         if !(1..=200).contains(&limit) || query.before_seq.is_some_and(|value| value <= 0) { return Err(invalid()); }
         // Construct the public JSON in SQL. Never return stored content wholesale.
-        let rows: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('seq',seq,'role',role,'created_at',created_at,'content',CASE WHEN role='user' THEN jsonb_build_object('text',content->'text') ELSE jsonb_build_object('reply',content->'reply','citations',content->'citations','drafts',content->'drafts','question',content->'question','assistant_seq',seq,'stopped',content->'stopped') END) FROM public.agent_messages WHERE conversation_id=$1 AND role IN ('user','assistant') AND ($2::integer IS NULL OR seq<$2) ORDER BY seq DESC LIMIT $3")
-            .bind(id).bind(query.before_seq).bind(i64::from(limit)).fetch_all(tx.connection()).await.map_err(|_| ApiError::database())?;
+        let rows: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('seq',seq,'role',role,'created_at',created_at,'content',CASE WHEN role='user' THEN jsonb_build_object('text',content->'text') ELSE jsonb_build_object('reply',content->'reply','citations',content->'citations','drafts',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',d.id,'status',CASE WHEN d.status='draft' AND d.expires_at<=now() THEN 'expired' ELSE d.status END) ORDER BY ref.pos),'[]'::jsonb)
+                FROM jsonb_array_elements(CASE WHEN jsonb_typeof(content->'drafts')='array' THEN content->'drafts' ELSE '[]'::jsonb END) WITH ORDINALITY ref(item,pos)
+                JOIN public.order_drafts d ON d.conversation_id=$1 AND d.user_id=$4 AND d.id::text=ref.item->>'id'),'question',content->'question','assistant_seq',seq,'stopped',content->'stopped') END) FROM public.agent_messages WHERE conversation_id=$1 AND role IN ('user','assistant') AND ($2::integer IS NULL OR seq<$2) ORDER BY seq DESC LIMIT $3")
+            .bind(id).bind(query.before_seq).bind(i64::from(limit)).bind(actor.id).fetch_all(tx.connection()).await.map_err(|_| ApiError::database())?;
         let messages: Vec<Value> = rows.into_iter().rev().map(safe_message).collect();
-        let drafts: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'side',side,'market_product',market_product,'delivery_point',delivery_point,'availability_window',availability_window,'quantity_mt',quantity_mt::text,'limit_price_usd',limit_price_usd::text,'expires_at',expires_at,'status',status,'created_at',created_at,'updated_at',updated_at) FROM public.order_drafts WHERE conversation_id=$1 AND user_id=$2 ORDER BY created_at DESC,id DESC LIMIT 200")
+        let drafts: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'side',side,'market_product',market_product,'delivery_point',delivery_point,'availability_window',availability_window,'quantity_mt',quantity_mt::text,'limit_price_usd',limit_price_usd::text,'expires_at',expires_at,'status',CASE WHEN status='draft' AND expires_at<=now() THEN 'expired' ELSE status END,'created_at',created_at,'updated_at',updated_at) FROM public.order_drafts WHERE conversation_id=$1 AND user_id=$2 ORDER BY created_at DESC,id DESC LIMIT 200")
             .bind(id).bind(actor.id).fetch_all(tx.connection()).await.map_err(|_| ApiError::database())?;
         conversation["messages"] = json!(messages);
         conversation["drafts"] = json!(drafts);
@@ -313,12 +417,20 @@ fn safe_message(mut message: Value) -> Value {
             .flatten()
             .filter_map(|item| {
                 let id = item["id"].as_str()?.parse::<Uuid>().ok()?;
-                Some(json!({"id":id,"status":"draft"}))
+                Some(json!({"id":id,"status":item["status"].as_str()?}))
             })
             .collect();
-        let question = source["question"]["question"]
-            .as_str()
-            .map(|text| json!({"question":text}));
+        let question = source["question"]["question"].as_str().map(|text| {
+            let options: Vec<&str> = source["question"]["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|value| (1..=80).contains(&value.chars().count()))
+                .take(6)
+                .collect();
+            json!({"question":text,"options":options})
+        });
         let stopped = source["stopped"].as_str().filter(|value| {
             matches!(
                 *value,
@@ -430,7 +542,7 @@ async fn list_audit(
     response(authenticated(&state, &headers, "GET", AUDIT, true, move |tx| Box::pin(async move {
         let Query(query) = query.map_err(|_| invalid())?;
         let limit = query.limit.unwrap_or(100);
-        if !(1..=200).contains(&limit) || query.before_id.is_some_and(|v| v<=0) || matches!((query.from,query.to),(Some(a),Some(b)) if a>b) || query.kind.as_ref().is_some_and(|kind| !matches!(kind.as_str(),"model_request_intent"|"model_request_receipt"|"tool_call_intent"|"tool_call_receipt"|"draft_created"|"control_changed")) { return Err(invalid()); }
+        if !(1..=200).contains(&limit) || query.before_id.is_some_and(|v| v<=0) || matches!((query.from,query.to),(Some(a),Some(b)) if a>b) || query.kind.as_ref().is_some_and(|kind| !matches!(kind.as_str(),"model_request_intent"|"model_request_receipt"|"tool_call_intent"|"tool_call_receipt"|"draft_created"|"draft_discarded"|"control_changed")) { return Err(invalid()); }
         let events: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'at',at,'user_id',user_id,'organization_id',organization_id,'conversation_id',conversation_id,'kind',kind,'payload',payload,'prev_hash',prev_hash,'hash',hash) FROM public.agent_audit_events WHERE ($1::uuid IS NULL OR user_id=$1) AND ($2::uuid IS NULL OR organization_id=$2) AND ($3::uuid IS NULL OR conversation_id=$3) AND ($4::text IS NULL OR kind=$4) AND ($5::bigint IS NULL OR id<$5) AND ($6::timestamptz IS NULL OR at>=$6) AND ($7::timestamptz IS NULL OR at<=$7) ORDER BY id DESC LIMIT $8")
             .bind(query.user_id).bind(query.organization_id).bind(query.conversation_id).bind(query.kind).bind(query.before_id).bind(query.from).bind(query.to).bind(i64::from(limit)).fetch_all(tx.connection()).await.map_err(|_| ApiError::database())?;
         Ok(json!({"events":events}))

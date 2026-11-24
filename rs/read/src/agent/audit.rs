@@ -46,6 +46,7 @@ pub enum AuditKind {
     ToolCallIntent,
     ToolCallReceipt,
     DraftCreated,
+    DraftDiscarded,
     ControlChanged,
 }
 impl AuditKind {
@@ -56,6 +57,7 @@ impl AuditKind {
             Self::ToolCallIntent => "tool_call_intent",
             Self::ToolCallReceipt => "tool_call_receipt",
             Self::DraftCreated => "draft_created",
+            Self::DraftDiscarded => "draft_discarded",
             Self::ControlChanged => "control_changed",
         }
     }

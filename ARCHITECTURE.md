@@ -42,6 +42,9 @@ Administrator routes use the existing administrator authorization and the shared
 
 | Method | Route | Access |
 | --- | --- | --- |
+| GET | `/api/agent/conversations` | BUYER; lists own conversations, newest update first |
+| GET | `/api/agent/drafts/{id}` | BUYER; own draft, including effective expiry |
+| POST | `/api/agent/drafts/{id}/discard` | BUYER; rejects an open draft and appends one audit event atomically |
 | POST | `/api/agent/conversations` | BUYER; creates an open conversation |
 | GET | `/api/agent/conversations/{id}` | BUYER; own history and drafts |
 | POST | `/api/agent/conversations/{id}/messages` | BUYER; own conversation turn |
