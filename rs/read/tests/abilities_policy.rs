@@ -2,7 +2,7 @@ use serde_json::Value;
 use verdaxis_read::auth::abilities::{Facts, build_abilities};
 
 fn reason(facts: &Facts, action: &str) -> Option<String> {
-    let value = serde_json::to_value(build_abilities(facts)).unwrap();
+    let value = serde_json::to_value(build_abilities(facts, false, false)).unwrap();
     value["abilities"]
         .as_array()
         .unwrap()
@@ -268,7 +268,7 @@ fn retired_actions_and_cleanup_do_not_take_execution_gates() {
     for action in ["create_rfq", "quote_rfq"] {
         assert_eq!(reason(&facts, action).as_deref(), Some("ACTION_RETIRED"));
     }
-    let payload: Value = serde_json::to_value(build_abilities(&facts)).unwrap();
+    let payload: Value = serde_json::to_value(build_abilities(&facts, false, false)).unwrap();
     assert_eq!(payload["schema_version"], 1);
     assert_eq!(payload["abilities"].as_array().unwrap().len(), 24);
 }

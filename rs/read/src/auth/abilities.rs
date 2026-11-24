@@ -17,7 +17,7 @@ use sqlx::Row;
 
 pub type Facts = PartyFacts;
 
-const ACTIONS: [&str; 23] = [
+const ACTIONS: [&str; 24] = [
     "place_bid_order",
     "place_ask_order",
     "amend_order",
@@ -41,6 +41,7 @@ const ACTIONS: [&str; 23] = [
     "manage_commissions",
     "market_support_access",
     "market_support_assisted_orders",
+    "use_agent",
 ];
 const PATH: &str = "/api/auth/me/abilities";
 
@@ -71,7 +72,9 @@ fn message(code: &str) -> &'static str {
             "Your identity verification belongs to a different organization."
         }
         "ORGANIZATION_NOT_APPROVED" => "Your organization has not been approved yet.",
-        "BUYER_ROLE_REQUIRED" => "Only buyer accounts can do this.",
+        "AGENT_DISABLED" => "The assistant is not enabled.",
+        "AGENT_PAUSED" => "The assistant is paused.",
+        "BUYER_REQUIRED" | "BUYER_ROLE_REQUIRED" => "Only buyer accounts can do this.",
         "SUPPLIER_ROLE_REQUIRED" => "Only supplier accounts can do this.",
         "ADMIN_ROLE_REQUIRED" => "Only administrator accounts can do this.",
         "ORGANIZATION_PROVENANCE_UNVERIFIED" => {
@@ -89,7 +92,7 @@ fn message(code: &str) -> &'static str {
     }
 }
 
-pub fn build_abilities(f: &Facts) -> Abilities {
+pub fn build_abilities(f: &Facts, agent_mounted: bool, agent_paused: bool) -> Abilities {
     // ADMIN cannot execute at all: show the role restriction, not a KYC task.
     // This display precedence does not change the enforcing routes' gate order.
     let administrator = (f.role.as_deref() == Some("ADMIN")).then_some("ADMIN_CANNOT_EXECUTE");
@@ -114,6 +117,9 @@ pub fn build_abilities(f: &Facts) -> Abilities {
         .into_iter()
         .map(|action| {
             let denial = match action {
+                "use_agent" if !agent_mounted => Some("AGENT_DISABLED"),
+                "use_agent" if f.role.as_deref() != Some("BUYER") => Some("BUYER_REQUIRED"),
+                "use_agent" => agent_paused.then_some("AGENT_PAUSED"),
                 "place_bid_order" => create.or(role_denial(f.role.as_deref(), "BUYER")),
                 "place_ask_order" => create.or(role_denial(f.role.as_deref(), "SUPPLIER")),
                 "publish_inventory" => create.or(role_denial(f.role.as_deref(), "SUPPLIER")),
@@ -175,6 +181,7 @@ async fn read(State(state): State<AppState>, request: Request) -> Response {
         Ok(access) => access,
         Err(error) => return crate::business::error::authentication(error).into_response(),
     };
+    let agent_mounted = crate::runtime::agent::mounts(&state);
     let gate = state.config.kyc_execution_gate_enabled;
     let support = state.config.phase2.market_write.support_enabled;
     let result = run_authenticated(
@@ -219,7 +226,10 @@ async fn read(State(state): State<AppState>, request: Request) -> Response {
                 facts.listings = capabilities.contains(&crate::market_support::Capability::Listings);
                 facts.authorizations = capabilities.contains(&crate::market_support::Capability::Authorizations);
             }
-            Ok(build_abilities(&facts))
+            let agent_paused = agent_mounted && facts.role.as_deref() == Some("BUYER")
+                && crate::agent::turn::paused_reason(transaction.connection(), user, organization)
+                    .await.map_err(|_| ApiError::database())?.is_some();
+            Ok(build_abilities(&facts, agent_mounted, agent_paused))
         }),
     ).await;
     let mut response = match result {
