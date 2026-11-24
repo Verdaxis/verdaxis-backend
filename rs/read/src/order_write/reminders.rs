@@ -200,8 +200,10 @@ impl RecipientsLocked {
         self.order_id
     }
 
-    /// Lock the order row and return the recipients still due a reminder.
+    /// Lock the order row and recheck eligibility within the original scan window.
     /// Only recipients whose user rows this transaction holds are returned.
+    /// The caller must still check wall time at insert: the order can expire
+    /// while this query waits for the lock.
     pub async fn lock_order(
         self,
         conn: &mut PgConnection,

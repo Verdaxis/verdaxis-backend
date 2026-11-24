@@ -852,20 +852,33 @@ async fn commission_patch_body_is_validated_before_the_administrator_check() {
     let path = format!("{LIST}/{id}");
     let (status, _) = f.request(2, "PUT", &path, json!({"status":"OTHER"})).await;
     assert_eq!(status, 422);
+    assert_eq!(
+        f.request(0, "PUT", &path, json!({"status":null})).await.0,
+        500
+    );
+    let updated_at = f.updated_at(id).await;
     for invalid in [
-        json!({"status":null}),
-        json!({"invoice_number":"x".repeat(51)}),
-        json!({"notes":"n".repeat(501)}),
+        json!({"invoice_number":"é".repeat(51)}),
+        json!({"notes":"界".repeat(501)}),
     ] {
-        assert_eq!(f.request(0, "PUT", &path, invalid).await.0, 500);
+        let (status, body) = f.request(0, "PUT", &path, invalid).await;
+        assert_eq!(status, 422, "{body}");
+        assert_eq!(
+            body,
+            json!({"detail":{
+                "code":"VALIDATION_FAILED",
+                "message":"The commission patch is not valid"
+            }})
+        );
     }
+    assert_eq!(f.updated_at(id).await, updated_at);
     assert_eq!(
         f.request(2, "PUT", &path, json!({"status":null})).await.0,
         403
     );
     assert_eq!(f.stored_status(id).await, "PENDING");
     assert_eq!(f.counts().await, (0, 0, 0));
-    let longest = json!({"invoice_number":"x".repeat(50),"notes":"n".repeat(500)});
+    let longest = json!({"invoice_number":"é".repeat(50),"notes":"界".repeat(500)});
     assert_eq!(f.request(0, "PUT", &path, longest).await.0, 200);
 }
 

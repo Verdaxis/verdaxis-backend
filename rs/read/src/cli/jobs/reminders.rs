@@ -75,9 +75,12 @@ pub struct RunCounts {
     pub mail: Counts,
 }
 
+// This statement runs after the order lock. Use wall time, not transaction
+// time, so an order that expired while waiting cannot produce a reminder.
 const INSERT_REMINDER: &str = "INSERT INTO notifications \
      (id, recipient_id, type, title, message, data, is_read, created_at) \
-     VALUES ($1, $2, 'ORDER_UPDATE', 'Order expires within 48 hours', $3, CAST($4 AS json), false, $5)";
+     SELECT $1, $2, 'ORDER_UPDATE', 'Order expires within 48 hours', $3, CAST($4 AS json), false, $5 \
+     WHERE $6 > clock_timestamp()";
 
 /// The reminder text (Python `remind_expiring_orders`, lines 105-113).
 pub fn reminder_message(side: &str, order_id: Uuid, expiry: DateTime<Utc>) -> String {
@@ -208,15 +211,16 @@ async fn remind_order<O: ScanObserver>(
             &message,
             window.reference,
         );
-        sqlx::query(INSERT_REMINDER)
+        let result = sqlx::query(INSERT_REMINDER)
             .bind(Uuid::new_v4())
             .bind(row.user_id)
             .bind(&message)
             .bind(data.to_string())
             .bind(window.reference)
+            .bind(row.expires_at)
             .execute(&mut *transaction)
             .await?;
-        created += 1;
+        created += result.rows_affected();
     }
     transaction.commit().await?;
     Ok(OrderOutcome::Created(created))

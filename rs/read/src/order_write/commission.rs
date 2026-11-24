@@ -63,21 +63,28 @@ impl CommissionPatch {
                 .filter(|s| !s.is_null())
                 .map(|s| CommissionStatus::parse(s.as_str().ok_or_else(validation)?))
                 .transpose()?,
-            invoice_number: patch_text(object, "invoice_number")?,
+            invoice_number: patch_text(object, "invoice_number", Some(50))?,
             invoice_date: patch_date(object, "invoice_date")?,
             payment_date: patch_date(object, "payment_date")?,
-            notes: patch_text(object, "notes")?,
+            notes: patch_text(object, "notes", Some(500))?,
         })
     }
 }
 fn patch_text(
     object: &serde_json::Map<String, Value>,
     name: &str,
+    max_chars: Option<usize>,
 ) -> Result<PatchField<String>, MarketWriteError> {
     match object.get(name) {
         None => Ok(PatchField::Keep),
         Some(Value::Null) => Ok(PatchField::Set(None)),
-        Some(Value::String(value)) => Ok(PatchField::Set(Some(value.clone()))),
+        Some(Value::String(value)) => {
+            // PostgreSQL varchar limits count characters, not UTF-8 bytes.
+            if max_chars.is_some_and(|max| value.chars().nth(max).is_some()) {
+                return Err(validation());
+            }
+            Ok(PatchField::Set(Some(value.clone())))
+        }
         _ => Err(validation()),
     }
 }
@@ -86,7 +93,7 @@ fn patch_date(
     object: &serde_json::Map<String, Value>,
     name: &str,
 ) -> Result<PatchField<NaiveDate>, MarketWriteError> {
-    match patch_text(object, name)? {
+    match patch_text(object, name, None)? {
         PatchField::Keep => Ok(PatchField::Keep),
         PatchField::Set(None) => Ok(PatchField::Set(None)),
         PatchField::Set(Some(value)) => Ok(PatchField::Set(Some(

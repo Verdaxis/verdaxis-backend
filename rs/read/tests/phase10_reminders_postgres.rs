@@ -665,6 +665,38 @@ async fn reminders_scan_is_bounded_and_locks_the_order() {
         db.probe("SELECT reminder_fixture_order_lock_free($1)", order)
             .await
     );
+
+    // Hold the order row across expiry without changing it.
+    let mut holder = connect_as("RUST_REMINDERS_OWNER_DATABASE_URL", ORDER_FIRST_APP).await;
+    let now: DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut holder)
+        .await
+        .unwrap();
+    let expires_at = now + Duration::milliseconds(1500);
+    let expiring = db.owned_order(&other, expires_at).await;
+    let mut transaction = holder.begin().await.unwrap();
+    sqlx::query("SELECT reminder_fixture_lock_order($1)")
+        .bind(expiring)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let scan = spawn_scan(&db.pool, now, Pause::at(&[]));
+    db.wait_blocked(JOB_APP, ORDER_FIRST_APP).await;
+    let waiting_before_expiry: bool = sqlx::query_scalar("SELECT clock_timestamp() < $1")
+        .bind(expires_at)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+    assert!(waiting_before_expiry);
+    sqlx::query("SELECT pg_sleep_until($1)")
+        .bind(expires_at)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    transaction.rollback().await.unwrap();
+    let counts = scan.await.unwrap().unwrap();
+    assert!(db.notices_for(expiring).await.is_empty());
+    assert_eq!(counts, ScanCounts::default());
 }
 
 #[tokio::test]
