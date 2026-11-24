@@ -309,7 +309,7 @@ async fn news_inserts_only_new_urls() {
     );
     assert_eq!(fixture.rows().await.len(), 3);
 
-    // The transaction lock is gone after the run: a session lock on the same
+    // The refresh lock is gone after the run: a session lock on the same
     // key is available at once.
     let mut session = fixture.admin.acquire().await.unwrap();
     let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
