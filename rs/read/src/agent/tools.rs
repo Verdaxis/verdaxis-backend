@@ -186,7 +186,13 @@ fn summarize_content(content: &Value, original_chars: usize) -> Value {
         .or_else(|| content.get("items").and_then(Value::as_array));
     if let Some(items) = items {
         summary["item_count"] = json!(items.len());
-        for key in ["total", "total_remaining_value_usd", "total_order_count"] {
+        for key in [
+            "total",
+            "total_remaining_value_usd",
+            "total_order_count",
+            "total_value_usd",
+            "total_trade_count",
+        ] {
             if let Some(value) = content.get(key) {
                 summary[key] = value.clone();
             }
@@ -204,6 +210,7 @@ fn summarize_content(content: &Value, original_chars: usize) -> Value {
                 "quantity_mt",
                 "remaining_quantity_mt",
                 "remaining_value_usd",
+                "value_usd",
                 "price_per_mt_usd",
                 "created_at",
             ] {
@@ -584,7 +591,8 @@ async fn execute_inner(
                             now,
                         )
                         .await
-                        .map_err(|_| as_api(ToolError::unavailable())),
+                        .map_err(|_| as_api(ToolError::unavailable()))
+                        .and_then(|page| trade_values(page).map_err(as_api)),
                         AgentTool::CreateDraft(args) => create_draft(conn, &context, args, now)
                             .await
                             .map_err(as_api),
@@ -616,26 +624,45 @@ fn exact_sum(left: Decimal, right: Decimal) -> Option<Decimal> {
     Decimal::try_from_i128_with_scale(mantissa, scale).ok()
 }
 
+fn row_value(row: &Value, quantity_key: &str) -> Result<Decimal, ToolError> {
+    let decimal = |key: &str| {
+        row[key]
+            .as_str()
+            .and_then(|text| Decimal::from_str_exact(text).ok())
+            .ok_or_else(ToolError::unavailable)
+    };
+    exact_product(decimal(quantity_key)?, decimal("price_per_mt_usd")?)
+        .map(|value| value.normalize())
+        .ok_or_else(ToolError::unavailable)
+}
+
+fn trade_values(mut page: Value) -> Result<Value, ToolError> {
+    let items = page["items"]
+        .as_array_mut()
+        .ok_or_else(ToolError::unavailable)?;
+    let count = items.len();
+    let mut total = Decimal::ZERO;
+    for row in items {
+        let value = row_value(row, "quantity_mt")?;
+        total = exact_sum(total, value)
+            .ok_or_else(ToolError::unavailable)?
+            .normalize();
+        row["value_usd"] = json!(value.to_string());
+    }
+    page["total_value_usd"] = json!(total.to_string());
+    page["total_trade_count"] = json!(count);
+    Ok(page)
+}
+
 fn order_values(mut items: Value) -> Result<Value, ToolError> {
     let mut total = Decimal::ZERO;
     let mut count = 0usize;
     for row in items.as_array_mut().ok_or_else(ToolError::unavailable)? {
-        let decimal = |key: &str| {
-            row[key]
-                .as_str()
-                .and_then(|text| Decimal::from_str_exact(text).ok())
-                .ok_or_else(ToolError::unavailable)
-        };
         if row["price_per_mt_usd"].is_null() {
             row["remaining_value_usd"] = Value::Null;
             continue;
         }
-        let value = exact_product(
-            decimal("remaining_quantity_mt")?,
-            decimal("price_per_mt_usd")?,
-        )
-        .ok_or_else(ToolError::unavailable)?
-        .normalize();
+        let value = row_value(row, "remaining_quantity_mt")?;
         if matches!(row["status"].as_str(), Some("OPEN" | "PARTIALLY_FILLED")) {
             total = exact_sum(total, value)
                 .ok_or_else(ToolError::unavailable)?
@@ -749,7 +776,7 @@ pub fn catalog() -> Value {
         ),
         entry::<GetMyTradesArguments>(
             "get_my_trades",
-            "Read the signed-in user's trades, default 20 and maximum 50."
+            "Read the signed-in user's trades, default 20 and maximum 50. Use value_usd for each trade and total_value_usd for the total over the returned rows (total_trade_count); do not calculate these values."
         ),
         entry::<CreateDraftArguments>(
             "create_draft",
@@ -765,6 +792,21 @@ pub fn catalog() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn trade_values_cover_only_returned_rows_and_survive_compaction() {
+        let page = json!({"items":[
+            {"quantity_mt":"200","price_per_mt_usd":"905"},
+            {"quantity_mt":"0.03","price_per_mt_usd":"0.07"}
+        ],"total":3,"limit":2,"skip":0});
+        let page = trade_values(page).unwrap();
+        for result in [&page, &summarize_content(&page, MAX_CONTENT_CHARS + 1)] {
+            assert_eq!(result["items"][0]["value_usd"], "181000");
+            assert_eq!(result["items"][1]["value_usd"], "0.0021");
+            assert_eq!(result["total_value_usd"], "181000.0021");
+            assert_eq!(result["total_trade_count"], 2);
+            assert_eq!(result["total"], 3);
+        }
+    }
     #[test]
     fn remaining_values_use_exact_decimal_text_and_skip_unpriced_rows() {
         let row = |quantity, price: Value| json!({"status":"OPEN","remaining_quantity_mt":quantity,"price_per_mt_usd":price});

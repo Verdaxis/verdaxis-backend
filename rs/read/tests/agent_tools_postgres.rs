@@ -294,6 +294,9 @@ async fn two_users_cannot_read_or_create_each_others_private_data() {
     let trades = execute(&f.context(), call("get_my_trades", json!({}))).await;
     assert!(trades.ok, "{:?}", trades.content);
     assert_eq!(trades.content["items"].as_array().unwrap().len(), 1);
+    assert_eq!(trades.content["items"][0]["value_usd"], "400");
+    assert_eq!(trades.content["total_value_usd"], "400");
+    assert_eq!(trades.content["total_trade_count"], 1);
     let member = ToolContext {
         state: f.state.clone(),
         user_id: f.member,
@@ -308,7 +311,10 @@ async fn two_users_cannot_read_or_create_each_others_private_data() {
     );
     let trades = execute(&member, call("get_my_trades", json!({}))).await;
     assert!(trades.ok);
-    assert_eq!(trades.content["items"], json!([]));
+    assert_eq!(
+        trades.content,
+        json!({"items":[],"total":0,"skip":0,"limit":20,"total_value_usd":"0","total_trade_count":0})
+    );
     let forged = ToolContext {
         state: f.state.clone(),
         user_id: f.member,
